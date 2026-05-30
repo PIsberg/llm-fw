@@ -415,3 +415,4 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [spec.md](spec.md) — full product specification
 - [PLAN.md](PLAN.md) — implementation plan
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture, sequence diagrams, class diagrams
+- [docs/TESTING.md](docs/TESTING.md) — comprehensive guide on unit, integration, and E2E testing
