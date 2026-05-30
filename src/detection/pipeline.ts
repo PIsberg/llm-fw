@@ -46,9 +46,8 @@ export class Pipeline {
         this.emit(result, meta, prompt)
         return result
       }
-      if (h.score < 20) continue
 
-      // Stage 2: embedding (only if score is in escalation range)
+      // Stage 2: always run embedding — catches semantic attacks that score 0 on heuristics
       if (this.embedding.isInitialized()) {
         const e = await this.embedding.check(prompt)
         lastSim = e.similarity
