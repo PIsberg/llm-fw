@@ -6,19 +6,26 @@ import { CertFactory } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { EventBus } from '../dashboard/eventBus.js'
+import { UrlClassifier } from '../detection/urlHeuristic.js'
 
 export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
   private resolver: UpstreamResolver
   private pipeline: Pipeline
+  private urlClassifier: UrlClassifier | null
+  private eventBus: EventBus
   private config: Config
 
   constructor(config: Config, eventBus: EventBus) {
     this.config = config
+    this.eventBus = eventBus
     this.certFactory = new CertFactory()
     this.resolver = new UpstreamResolver(config.proxy)
     this.pipeline = new Pipeline(config, partial => eventBus.emit(partial))
+    this.urlClassifier = config.proxy.urlFilter.enabled
+      ? new UrlClassifier(config.proxy.urlFilter)
+      : null
     this.server = http.createServer()
   }
 
@@ -44,6 +51,32 @@ export class ProxyServer {
     const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
 
     if (!isTarget) {
+      // URL filter: check hostname before establishing any tunnel
+      if (this.urlClassifier) {
+        const urlResult = this.urlClassifier.classify(hostname)
+        if (urlResult.action === 'block') {
+          const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })
+          clientSocket.write(
+            `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
+          )
+          clientSocket.destroy()
+          this.eventBus.emit({
+            stage: 'url-filter',
+            score: 100,
+            similarity: 0,
+            target: hostname,
+            method: 'CONNECT',
+            path: '/',
+            payload_preview: hostname,
+            payload_full: hostname,
+            action: 'blocked',
+            kind: 'url',
+            urlBlockReason: urlResult.reason,
+          })
+          return
+        }
+      }
+
       // Direct tunnel — no inspection
       const upstream = net.createConnection({ host: hostname, port })
       clientSocket.on('error', () => upstream.destroy())

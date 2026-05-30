@@ -1,9 +1,17 @@
+export interface UrlFilterConfig {
+  enabled: boolean;
+  entropyThreshold: number;
+  allowlistDomains: string[];
+  blocklistDomains: string[];
+}
+
 export interface ProxyConfig {
   mode: 'proxy' | 'sinkhole';
   port: number;
   httpsPort: number;
   upstreamTimeoutMs: number;
   dnsServers: string[];
+  urlFilter: UrlFilterConfig;
 }
 
 export interface DetectionConfig {
@@ -69,6 +77,8 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned';
+  kind?: 'prompt' | 'url';
+  urlBlockReason?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;
