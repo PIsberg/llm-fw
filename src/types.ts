@@ -67,7 +67,11 @@ export interface BlockEvent {
   method: string;
   path: string;
   payload_preview: string;
+  payload_full: string;
   action: 'blocked' | 'warned';
+  heuristicMatches?: string[];
+  nearestTemplate?: string;
+  verdict?: string;
 }
 
 export interface PayloadParser {
