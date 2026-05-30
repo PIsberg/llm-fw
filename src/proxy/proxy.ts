@@ -107,14 +107,15 @@ export class ProxyServer {
     const ip = await this.resolver.resolve(hostname)
     await new Promise<void>((resolve, reject) => {
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
-        // Write request line
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
-        // Write headers
+        const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
         const headers = { ...req.headers, host: hostname }
         for (const [k, v] of Object.entries(headers)) {
-          if (v) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
+          if (v && !HOP_BY_HOP.has(k.toLowerCase())) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
         }
         upstream.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n')
+        upstream.write('Accept-Encoding: identity\r\n')
+        upstream.write('Connection: close\r\n')
         upstream.write('\r\n')
         if (body) upstream.write(body)
       })
