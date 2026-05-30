@@ -1,5 +1,5 @@
 import { HeuristicResult } from '../types.js'
-import { normalize, extractCandidates } from './normalize.js'
+import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
 
 interface WeightedRule { weight: number; label: string; patterns: RegExp[] }
 
@@ -163,6 +163,14 @@ export class HeuristicScorer {
           allMatches.add(m)
         }
       }
+
+      // Add High Entropy detection
+      const entropy = calculateEntropy(input)
+      if (entropy > 5.0 && input.length >= 20) {
+        maxScore = Math.max(maxScore, maxScore + 30)
+        allMatches.add('obfuscation-high-entropy')
+      }
+
       return { score: maxScore, matches: Array.from(allMatches) }
     }
 

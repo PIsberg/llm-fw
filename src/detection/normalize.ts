@@ -269,3 +269,19 @@ export function extractCandidates(text: string): { text: string; source: string 
 
   return uniqueCandidates;
 }
+
+export function calculateEntropy(text: string): number {
+  if (!text) return 0;
+  const len = text.length;
+  const freqs: Record<string, number> = {};
+  for (let i = 0; i < len; i++) {
+    const char = text[i]!;
+    freqs[char] = (freqs[char] || 0) + 1;
+  }
+  let entropy = 0;
+  for (const char in freqs) {
+    const p = freqs[char]! / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}

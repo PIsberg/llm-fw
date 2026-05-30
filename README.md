@@ -196,6 +196,7 @@ Before evaluating patterns, the incoming prompt undergoes extensive decoding and
     *   **Pig Latin** (reconstructs root words from cluster shifts).
     *   **Reversed Text** (character and word-by-word reversals).
     *   **Leetspeak** (translates common symbols like `@` -> `a`, `1` -> `i`, `3` -> `e`, etc.).
+*   **Active Evasion Entropy Detection**: Calculates the Shannon Entropy (randomness) of incoming prompt payloads. Prompts with unusually high entropy (e.g., continuous base64/hex ciphers or scrambled sequences) are flagged with an `obfuscation-high-entropy` signature (giving a heavy heuristic penalty) and are immediately escalated to the Stage 3 Judge for deep logical validation.
 
 ### Robust Pattern Matching
 Once candidates are normalized, they are scored against a highly refined set of heuristics:
