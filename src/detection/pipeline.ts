@@ -3,7 +3,7 @@ import { getParser } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
-import { randomUUID } from 'node:crypto'
+import { extractCandidates } from './normalize.js'
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -38,47 +38,51 @@ export class Pipeline {
     let lastSim = 0
 
     for (const prompt of prompts) {
-      // Stage 1: heuristic
-      const h = this.heuristic.score(prompt)
-      lastScore = h.score
-      if (h.score >= heuristicBlockThreshold) {
-        const result: PipelineResult = { action: 'block', stage: 'heuristic', score: h.score, similarity: 0, prompt, heuristicMatches: h.matches }
-        this.emit(result, meta, prompt)
-        return result
-      }
-      if (h.score < 20) continue
-
-      // Stage 2: embedding (only if score is in escalation range)
-      if (this.embedding.isInitialized()) {
-        const e = await this.embedding.check(prompt)
-        lastSim = e.similarity
-        if (e.similarity >= embeddingBlockThreshold) {
-          const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: e.similarity, prompt, nearestTemplate: e.nearest }
+      const candidates = extractCandidates(prompt)
+      for (const candidate of candidates) {
+        // Stage 1: heuristic
+        const h = this.heuristic.score(candidate.text, candidate.source)
+        lastScore = Math.max(lastScore, h.score)
+        
+        if (h.score >= heuristicBlockThreshold) {
+          const result: PipelineResult = { action: 'block', stage: 'heuristic', score: h.score, similarity: 0, prompt: candidate.text, heuristicMatches: h.matches }
           this.emit(result, meta, prompt)
           return result
         }
-        if (e.similarity >= embeddingWarnThreshold) {
-          const result: PipelineResult = { action: 'warn', stage: 'embedding', score: h.score, similarity: e.similarity, prompt, nearestTemplate: e.nearest }
-          this.emit(result, meta, prompt)
-          // Stage 3 async (monitoring only by default)
-          if (judgeEnabled && !judgeBlock) {
-            this.judge.classify(prompt).then(j => {
-              if (j.verdict === 'MALICIOUS') {
-                this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: e.similarity, verdict: 'MALICIOUS', prompt }, meta, prompt)
-              }
-            }).catch(() => {})
+        if (h.score < 20) continue
+
+        // Stage 2: embedding (only if score is in escalation range)
+        if (this.embedding.isInitialized()) {
+          const e = await this.embedding.check(candidate.text)
+          lastSim = Math.max(lastSim, e.similarity)
+          if (e.similarity >= embeddingBlockThreshold) {
+            const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: e.similarity, prompt: candidate.text, nearestTemplate: e.nearest }
+            this.emit(result, meta, prompt)
+            return result
           }
-          return result
+          if (e.similarity >= embeddingWarnThreshold) {
+            const result: PipelineResult = { action: 'warn', stage: 'embedding', score: h.score, similarity: e.similarity, prompt: candidate.text, nearestTemplate: e.nearest }
+            this.emit(result, meta, prompt)
+            // Stage 3 async (monitoring only by default)
+            if (judgeEnabled && !judgeBlock) {
+              this.judge.classify(candidate.text).then(j => {
+                if (j.verdict === 'MALICIOUS') {
+                  this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: e.similarity, verdict: 'MALICIOUS', prompt: candidate.text }, meta, prompt)
+                }
+              }).catch(() => {})
+            }
+            return result
+          }
         }
-      }
 
-      // Stage 3 sync blocking mode
-      if (judgeEnabled && judgeBlock) {
-        const j = await this.judge.classify(prompt)
-        if (j.verdict === 'MALICIOUS') {
-          const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: lastSim, verdict: 'MALICIOUS', prompt }
-          this.emit(result, meta, prompt)
-          return result
+        // Stage 3 sync blocking mode
+        if (judgeEnabled && judgeBlock) {
+          const j = await this.judge.classify(candidate.text)
+          if (j.verdict === 'MALICIOUS') {
+            const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: lastSim, verdict: 'MALICIOUS', prompt: candidate.text }
+            this.emit(result, meta, prompt)
+            return result
+          }
         }
       }
     }

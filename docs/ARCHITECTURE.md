@@ -24,6 +24,8 @@ flowchart TD
     User -->|monitors| Dashboard
 ```
 
+![System Context](images/01-system-context.svg)
+
 ---
 
 ## 2. Component Map
@@ -76,6 +78,8 @@ flowchart TD
     httpServer --> eventBus
     httpServer --> pipeline
 ```
+
+![Component Map](images/02-component-map.svg)
 
 ---
 
@@ -151,6 +155,8 @@ classDiagram
     Pipeline --> PipelineResult
 ```
 
+![Class Diagram — Detection Pipeline](images/03-class-diagram-detection-pipeline.svg)
+
 ---
 
 ## 4. Class Diagram — Proxy
@@ -211,6 +217,8 @@ classDiagram
     EventBus --> BlockEvent
 ```
 
+![Class Diagram — Proxy](images/04-class-diagram-proxy.svg)
+
 ---
 
 ## 5. Sequence Diagram — Request PASS (Mode A: HTTPS_PROXY)
@@ -242,6 +250,8 @@ sequenceDiagram
     P-->>C: pipe response (zero-copy, no buffering)
 ```
 
+![Sequence Diagram — Request PASS (Mode A: HTTPS_PROXY)](images/05-sequence-diagram-request-pass-mode-a-https-proxy.svg)
+
 ---
 
 ## 6. Sequence Diagram — Request BLOCK (Stage 2)
@@ -271,6 +281,8 @@ sequenceDiagram
     Note over DB: Dashboard updates live table
 ```
 
+![Sequence Diagram — Request BLOCK (Stage 2)](images/06-sequence-diagram-request-block-stage-2.svg)
+
 ---
 
 ## 7. Sequence Diagram — Stage 3 Judge (Async Default)
@@ -296,6 +308,8 @@ sequenceDiagram
         P->>EB: emit(BlockEvent { stage: "judge", action: "warned-post-facto" })
     end
 ```
+
+![Sequence Diagram — Stage 3 Judge (Async Default)](images/07-sequence-diagram-stage-3-judge-async-default.svg)
 
 ---
 
@@ -326,6 +340,8 @@ sequenceDiagram
     CLI->>FS: cache to ~/.llm-fw/models/
     CLI-->>U: Setup complete. Run: llm-fw start
 ```
+
+![Sequence Diagram — Setup Flow](images/08-sequence-diagram-setup-flow.svg)
 
 ---
 
@@ -360,6 +376,8 @@ stateDiagram-v2
     Warn --> [*] : forward + dashboard warning
 ```
 
+![Pipeline State Machine](images/09-pipeline-state-machine.svg)
+
 ---
 
 ## 10. Data Flow — Embedding Sliding Window
@@ -390,6 +408,8 @@ flowchart LR
     Chunk3 --> Embed3 --> Sim3
     Sim1 & Sim2 & Sim3 --> MaxScore
 ```
+
+![Data Flow — Embedding Sliding Window](images/10-data-flow-embedding-sliding-window.svg)
 
 ---
 
