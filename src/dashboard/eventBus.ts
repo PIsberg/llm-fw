@@ -6,8 +6,27 @@ export class EventBus {
   private ring: BlockEvent[] = []
   private maxSize: number
   private subscribers: ServerResponse[] = []
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(config: DashboardConfig) { this.maxSize = config.maxEvents }
+  constructor(config: DashboardConfig) {
+    this.maxSize = config.maxEvents
+    // Send SSE comment heartbeats every 15s to keep browser/proxy connections alive.
+    // Without this, many browsers and reverse-proxies close idle SSE sockets after 30-60s.
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 15_000)
+  }
+
+  private sendHeartbeat(): void {
+    this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
+    for (const res of this.subscribers) res.write(':\n\n')
+  }
+
+  /** Stop the heartbeat timer (call during server shutdown). */
+  destroy(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
 
   emit(partial: Omit<BlockEvent, 'id' | 'timestamp'>): BlockEvent {
     const event: BlockEvent = {
