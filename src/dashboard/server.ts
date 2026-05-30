@@ -379,7 +379,19 @@ async function analyzePrompt() {
       ? 'Nearest: ' + d.nearestTemplate.slice(0, 80) + (d.nearestTemplate.length > 80 ? '…' : '')
       : 'No match';
 
-    document.getElementById('pg-verdict').textContent = d.verdict || 'disabled';
+    let judgeStatus;
+    if (d.verdict) {
+      judgeStatus = d.verdict;
+    } else if (!d.judgeEnabled) {
+      judgeStatus = 'disabled — run llm-fw setup-judge to enable';
+    } else if (d.stage === 'heuristic') {
+      judgeStatus = 'not reached — blocked at Stage 1';
+    } else if (d.stage === 'embedding') {
+      judgeStatus = 'not reached — blocked at Stage 2';
+    } else {
+      judgeStatus = 'not triggered — similarity below warn threshold';
+    }
+    document.getElementById('pg-verdict').textContent = judgeStatus;
     document.getElementById('pg-results').style.display = 'block';
   } catch(err) {
     alert('Error: ' + err.message);
@@ -436,7 +448,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             { target: 'playground', method: 'POST', path: '/v1/messages' }
           )
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify(result))
+          res.end(JSON.stringify({ ...result, judgeEnabled: config.detection.judgeEnabled }))
         } catch (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: String(err) }))
