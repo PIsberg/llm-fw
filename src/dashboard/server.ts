@@ -2,6 +2,7 @@ import http from 'node:http'
 import { Config } from '../types.js'
 import { EventBus } from './eventBus.js'
 import { Pipeline } from '../detection/pipeline.js'
+import { UrlClassifier } from '../detection/urlHeuristic.js'
 
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -102,8 +103,13 @@ const HTML = `<!DOCTYPE html>
 
   /* Playground */
   .playground-wrap { padding: 20px; }
+  .pg-mode { display: inline-flex; background: #e4e6eb; padding: 3px; border-radius: 6px; margin-bottom: 14px; gap: 2px; }
+  .pg-mode-btn { padding: 5px 14px; border: none; background: transparent; cursor: pointer; border-radius: 4px; font-size: 0.82rem; font-weight: 500; color: #555; transition: all 0.2s; }
+  .pg-mode-btn.active { background: #fff; color: #1565c0; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   textarea { width: 100%; padding: 10px; font-family: monospace; font-size: 0.9rem;
     border: 1px solid #ccc; border-radius: 6px; resize: vertical; background: #fafafa; }
+  .pg-url-input { width: 100%; padding: 10px; font-family: monospace; font-size: 0.9rem;
+    border: 1px solid #ccc; border-radius: 6px; background: #fafafa; }
   .btn { margin-top: 10px; padding: 7px 18px; background: #1565c0; color: #fff;
     border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 2px 4px rgba(21,101,192,0.15); }
@@ -121,6 +127,10 @@ const HTML = `<!DOCTYPE html>
   .pg-badge-BLOCK { background: #d32f2f; }
   .pg-badge-WARN  { background: #e65100; }
   .pg-badge-PASS  { background: #388e3c; }
+  .pg-url-result { margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px; }
+  .pg-url-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; background: #fafafa; max-width: 400px; }
+  .pg-url-card h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: .05em; color: #666; margin-bottom: 8px; }
+  .pg-url-reason { font-family: monospace; font-size: 0.84rem; margin-top: 6px; color: #555; }
 </style>
 </head>
 <body>
@@ -141,7 +151,7 @@ const HTML = `<!DOCTYPE html>
 
   <div class="tabs">
     <button class="tab-btn active" onclick="showTab('events', this)">Events</button>
-    <button class="tab-btn" onclick="showTab('playground', this)">Playground</button>
+    <button class="tab-btn" onclick="showTab('playground', this)">Prompt Testing</button>
   </div>
 
   <div id="tab-events" class="tab-panel active">
@@ -169,7 +179,16 @@ const HTML = `<!DOCTYPE html>
 
   <div id="tab-playground" class="tab-panel">
     <div class="playground-wrap">
-      <textarea id="prompt-input" rows="7" placeholder="Enter a prompt to analyze..."></textarea>
+      <div class="pg-mode">
+        <button class="pg-mode-btn active" onclick="setPgMode('prompt', this)">Prompt</button>
+        <button class="pg-mode-btn" onclick="setPgMode('url', this)">URL</button>
+      </div>
+      <div id="pg-prompt-wrap">
+        <textarea id="prompt-input" rows="7" placeholder="Enter a prompt to analyze..."></textarea>
+      </div>
+      <div id="pg-url-wrap" style="display:none">
+        <input class="pg-url-input" id="url-input" type="text" placeholder="e.g. webhook.site or https://evil.ngrok.io/exfil?data=..." />
+      </div>
       <button class="btn" onclick="analyzePrompt()">Analyze</button>
       <div class="pg-results" id="pg-results" style="display:none">
         <div class="pg-verdict">Verdict: <span class="pg-badge" id="pg-badge"></span></div>
@@ -188,6 +207,14 @@ const HTML = `<!DOCTYPE html>
             <h3>Stage 3 — Judge</h3>
             <div class="val" id="pg-verdict"></div>
           </div>
+        </div>
+      </div>
+      <div class="pg-url-result" id="pg-url-result" style="display:none">
+        <div class="pg-verdict">Verdict: <span class="pg-badge" id="pg-url-badge"></span></div>
+        <div class="pg-url-card">
+          <h3>URL Filter</h3>
+          <div class="val" id="pg-url-action"></div>
+          <div class="pg-url-reason" id="pg-url-reason"></div>
         </div>
       </div>
     </div>
@@ -363,7 +390,43 @@ const es = new EventSource('/events');
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 
 // ── Playground ────────────────────────────────────────────────────────────────
+let pgMode = 'prompt';
+function setPgMode(mode, btn) {
+  pgMode = mode;
+  document.querySelectorAll('.pg-mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pg-prompt-wrap').style.display = mode === 'prompt' ? '' : 'none';
+  document.getElementById('pg-url-wrap').style.display = mode === 'url' ? '' : 'none';
+  document.getElementById('pg-results').style.display = 'none';
+  document.getElementById('pg-url-result').style.display = 'none';
+}
+
 async function analyzePrompt() {
+  if (pgMode === 'url') {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) return;
+    document.getElementById('pg-url-result').style.display = 'none';
+    try {
+      const res = await fetch('/api/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const d = await res.json();
+      const action = (d.action || 'pass').toUpperCase();
+      const badge = document.getElementById('pg-url-badge');
+      badge.textContent = action;
+      badge.className = 'pg-badge pg-badge-' + (action === 'BLOCK' ? 'BLOCK' : 'PASS');
+      document.getElementById('pg-url-action').textContent = action === 'BLOCK' ? 'Blocked' : 'Allowed';
+      let reason = d.reason || 'clean';
+      if (!d.urlFilterEnabled) reason += ' (URL filter disabled in config)';
+      document.getElementById('pg-url-reason').textContent = 'Reason: ' + reason;
+      document.getElementById('pg-url-result').style.display = 'block';
+    } catch(err) {
+      alert('Error: ' + err.message);
+    }
+    return;
+  }
+
   const prompt = document.getElementById('prompt-input').value.trim();
   if (!prompt) return;
   document.getElementById('pg-results').style.display = 'none';
@@ -412,6 +475,10 @@ async function analyzePrompt() {
 </html>`
 
 export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline): http.Server {
+  const urlClassifier = config.proxy.urlFilter.enabled
+    ? new UrlClassifier(config.proxy.urlFilter)
+    : null
+
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${config.dashboard.port}`)
     const path = url.pathname
@@ -441,7 +508,35 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', async () => {
         try {
-          const { prompt } = JSON.parse(body) as { prompt: string }
+          const parsed = JSON.parse(body) as { prompt?: string; url?: string }
+
+          if (parsed.url !== undefined) {
+            const raw = parsed.url.trim()
+            if (!raw) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'url is required' }))
+              return
+            }
+            let hostname: string
+            let urlPath: string
+            try {
+              const u = new URL(raw.includes('://') ? raw : 'https://' + raw)
+              hostname = u.hostname
+              urlPath = u.pathname + u.search
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'invalid url' }))
+              return
+            }
+            const urlResult = urlClassifier
+              ? urlClassifier.classify(hostname, urlPath)
+              : { action: 'pass' as const, reason: 'url-filter-disabled' }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ...urlResult, urlFilterEnabled: config.proxy.urlFilter.enabled }))
+            return
+          }
+
+          const { prompt } = parsed
           if (!prompt || typeof prompt !== 'string') {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'prompt is required' }))
