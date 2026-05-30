@@ -33,17 +33,19 @@ beforeEach(() => {
   mockClassify = vi.fn().mockResolvedValue({ verdict: 'SAFE', latencyMs: 1 })
   mockIsInitialized = vi.fn().mockReturnValue(true)
 
-  ;(HeuristicScorer as unknown as MockFn).mockImplementation(() => ({
-    score: mockScore,
-  }))
-  ;(EmbeddingChecker as unknown as MockFn).mockImplementation(() => ({
-    init: vi.fn().mockResolvedValue(undefined),
-    check: mockCheck,
-    isInitialized: mockIsInitialized,
-  }))
-  ;(JudgeClient as unknown as MockFn).mockImplementation(() => ({
-    classify: mockClassify,
-  }))
+  ;(HeuristicScorer as unknown as MockFn).mockImplementation(function() {
+    return { score: mockScore }
+  })
+  ;(EmbeddingChecker as unknown as MockFn).mockImplementation(function() {
+    return {
+      init: vi.fn().mockResolvedValue(undefined),
+      check: mockCheck,
+      isInitialized: mockIsInitialized,
+    }
+  })
+  ;(JudgeClient as unknown as MockFn).mockImplementation(function() {
+    return { classify: mockClassify }
+  })
 })
 
 describe('Pipeline', () => {
