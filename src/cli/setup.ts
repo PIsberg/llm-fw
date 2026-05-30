@@ -65,6 +65,29 @@ export async function run(args: string[]): Promise<void> {
 
   console.log('\nllm-fw setup complete.');
 
+  // Proxy env var instructions (OS-specific)
+  const os = platform();
+  const caCert = join(llmfwDir, 'ca.crt');
+  console.log('\n── Point your tools at the proxy ───────────────────────────────────────────');
+  console.log('  Run these in every terminal where you use LLM tools:\n');
+  if (os === 'win32') {
+    console.log('  PowerShell:');
+    console.log('    $env:HTTPS_PROXY="http://127.0.0.1:8080"');
+    console.log('    $env:NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
+    console.log('\n  Command Prompt:');
+    console.log('    set HTTPS_PROXY=http://127.0.0.1:8080');
+  } else if (os === 'darwin') {
+    console.log('  Terminal (bash / zsh):');
+    console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
+    console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
+    console.log('\n  Add to ~/.zshrc or ~/.bashrc to make it permanent.');
+  } else {
+    console.log('  bash / zsh:');
+    console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
+    console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
+    console.log('\n  Add to ~/.bashrc or ~/.profile to make it permanent.');
+  }
+
   // Optional: Stage 3 judge setup
   console.log('\n── Stage 3: Ollama Judge (optional) ────────────────────────────────────────');
   console.log('  Stages 1 and 2 catch most injections, but can be bypassed by encoding,');
