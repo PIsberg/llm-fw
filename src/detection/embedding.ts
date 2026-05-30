@@ -25,9 +25,18 @@ export class EmbeddingChecker {
     const attacksPath = join(dirname(__filename), '../../data/attacks.json')
     const attacks: string[] = JSON.parse(readFileSync(attacksPath, 'utf-8'))
 
-    for (const attack of attacks) {
-      this.templateEmbeddings.push(await this.embed(attack))
-      this.templateStrings.push(attack)
+    // Batch embed all templates in one forward pass instead of 100 sequential calls.
+    // ONNX can parallelise the batch using SIMD/threading, cutting startup from ~10s to <200ms.
+    const batchOutput = await this.extractor(attacks, { pooling: 'mean', normalize: true })
+    // The batch result is a Tensor2D of shape [N, dim]. Extract each row as Float32Array.
+    const flatData: Float32Array = batchOutput.data instanceof Float32Array
+      ? batchOutput.data
+      : Float32Array.from(batchOutput.data)
+    const dim = flatData.length / attacks.length
+
+    for (let i = 0; i < attacks.length; i++) {
+      this.templateEmbeddings.push(flatData.slice(i * dim, (i + 1) * dim))
+      this.templateStrings.push(attacks[i])
     }
   }
 
@@ -38,18 +47,11 @@ export class EmbeddingChecker {
   }
 
   private cosineSimilarity(a: Float32Array, b: Float32Array): number {
+    // All embeddings are produced with normalize:true, so every vector already has
+    // L2 norm = 1. Cosine similarity reduces to a plain dot product — no sqrt needed.
     let dot = 0
-    let normA = 0
-    let normB = 0
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
-    }
-    normA = Math.sqrt(normA)
-    normB = Math.sqrt(normB)
-    if (normA === 0 || normB === 0) return 0
-    return Math.min(1, Math.max(0, dot / (normA * normB)))
+    for (let i = 0; i < a.length; i++) dot += a[i] * b[i]
+    return Math.min(1, Math.max(0, dot))
   }
 
   private chunk(text: string): string[] {
