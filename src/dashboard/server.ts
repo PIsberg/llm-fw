@@ -402,12 +402,12 @@ function setPgMode(mode, btn) {
 }
 
 async function analyzePrompt() {
-  if (pgMode === 'url') {
-    const url = document.getElementById('url-input').value.trim();
-    if (!url) return;
-    document.getElementById('pg-results').style.display = 'none';
-    document.getElementById('pg-url-result').style.display = 'none';
-    try {
+  try {
+    if (pgMode === 'url') {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) return;
+      document.getElementById('pg-results').style.display = 'none';
+      document.getElementById('pg-url-result').style.display = 'none';
       const res = await fetch('/api/test', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url })
@@ -422,17 +422,13 @@ async function analyzePrompt() {
       if (!d.urlFilterEnabled) reason += ' (URL filter disabled in config)';
       document.getElementById('pg-url-reason').textContent = 'Reason: ' + reason;
       document.getElementById('pg-url-result').style.display = 'block';
-    } catch(err) {
-      alert('Error: ' + err.message);
+      return;
     }
-    return;
-  }
 
-  const prompt = document.getElementById('prompt-input').value.trim();
-  if (!prompt) return;
-  document.getElementById('pg-url-result').style.display = 'none';
-  document.getElementById('pg-results').style.display = 'none';
-  try {
+    const prompt = document.getElementById('prompt-input').value.trim();
+    if (!prompt) return;
+    document.getElementById('pg-url-result').style.display = 'none';
+    document.getElementById('pg-results').style.display = 'none';
     const res = await fetch('/api/test', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt })
