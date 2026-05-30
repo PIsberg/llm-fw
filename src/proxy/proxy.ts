@@ -1,4 +1,5 @@
 import http from 'node:http'
+import https from 'node:https'
 import net from 'node:net'
 import tls from 'node:tls'
 import { Config } from '../types.js'
@@ -13,6 +14,9 @@ export class ProxyServer {
   private resolver: UpstreamResolver
   private pipeline: Pipeline
   private config: Config
+  // Keep-alive agent: reuses TCP/TLS connections to upstream APIs instead of
+  // opening a fresh TLS handshake per request (was the raw tls.connect approach).
+  private agent = new https.Agent({ keepAlive: true, keepAliveMsecs: 10_000 })
 
   constructor(config: Config, eventBus: EventBus) {
     this.config = config
@@ -103,53 +107,42 @@ export class ProxyServer {
     }
   }
 
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: string, res: http.ServerResponse): Promise<void> {
+  private async forwardRequest(
+    hostname: string,
+    port: number,
+    req: http.IncomingMessage,
+    body: string,
+    res: http.ServerResponse,
+  ): Promise<void> {
     const ip = await this.resolver.resolve(hostname)
     await new Promise<void>((resolve, reject) => {
-      const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
-        // Write request line
-        upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
-        // Write headers
-        const headers = { ...req.headers, host: hostname }
-        for (const [k, v] of Object.entries(headers)) {
-          if (v) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
-        }
-        upstream.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n')
-        upstream.write('\r\n')
-        if (body) upstream.write(body)
+      const upstreamReq = https.request(
+        {
+          hostname: ip,
+          port,
+          path: req.url ?? '/',
+          method: req.method ?? 'GET',
+          // Preserve all original headers; override Host so upstream sees the right virtual host.
+          headers: { ...req.headers, host: hostname },
+          agent: this.agent, // connection reuse via Keep-Alive
+          servername: hostname, // SNI for TLS
+          timeout: this.config.proxy.upstreamTimeoutMs,
+        },
+        (upstreamRes) => {
+          // Let Node handle header deduplication, chunked encoding, and compression.
+          res.writeHead(upstreamRes.statusCode ?? 200, upstreamRes.headers)
+          upstreamRes.pipe(res)
+          upstreamRes.on('end', resolve)
+          upstreamRes.on('error', reject)
+        },
+      )
+      upstreamReq.on('error', reject)
+      upstreamReq.on('timeout', () => {
+        upstreamReq.destroy()
+        reject(new Error('upstream timeout'))
       })
-
-      upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => { upstream.destroy(); reject(new Error('upstream timeout')) })
-      upstream.on('error', reject)
-
-      // Parse and stream the response
-      let headersDone = false
-      let rawHeaders = ''
-      upstream.on('data', (chunk: Buffer) => {
-        if (!headersDone) {
-          rawHeaders += chunk.toString('binary')
-          const sep = rawHeaders.indexOf('\r\n\r\n')
-          if (sep !== -1) {
-            headersDone = true
-            const headerPart = rawHeaders.slice(0, sep)
-            const bodyStart = rawHeaders.slice(sep + 4)
-            const lines = headerPart.split('\r\n')
-            const statusLine = lines[0] ?? ''
-            const statusCode = parseInt(statusLine.split(' ')[1] ?? '200', 10)
-            const respHeaders: Record<string, string> = {}
-            for (const line of lines.slice(1)) {
-              const ci = line.indexOf(': ')
-              if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
-            }
-            res.writeHead(statusCode, respHeaders)
-            if (bodyStart) res.write(Buffer.from(bodyStart, 'binary'))
-          }
-        } else {
-          res.write(chunk)
-        }
-      })
-      upstream.on('end', () => { res.end(); resolve() })
-      upstream.on('error', reject)
+      if (body) upstreamReq.write(body)
+      upstreamReq.end()
     })
   }
 }
