@@ -1,4 +1,5 @@
 node_modules/
+.llm-fw.json
 dist/
 *.local
 .env
