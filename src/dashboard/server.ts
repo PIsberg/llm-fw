@@ -131,6 +131,13 @@ const HTML = `<!DOCTYPE html>
   .pg-url-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; background: #fafafa; max-width: 400px; }
   .pg-url-card h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: .05em; color: #666; margin-bottom: 8px; }
   .pg-url-reason { font-family: monospace; font-size: 0.84rem; margin-top: 6px; color: #555; }
+  .pg-url-checks { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .pg-check { display: flex; gap: 8px; font-size: 0.81rem; align-items: baseline; }
+  .pg-check-icon { font-weight: 700; width: 14px; flex-shrink: 0; }
+  .pg-check-pass .pg-check-icon { color: #388e3c; }
+  .pg-check-block .pg-check-icon { color: #d32f2f; }
+  .pg-check-name { font-weight: 600; color: #333; min-width: 170px; }
+  .pg-check-reason { font-family: monospace; font-size: 0.76rem; color: #666; }
 </style>
 </head>
 <body>
@@ -215,6 +222,7 @@ const HTML = `<!DOCTYPE html>
           <h3>URL Filter</h3>
           <div class="val" id="pg-url-action"></div>
           <div class="pg-url-reason" id="pg-url-reason"></div>
+          <div class="pg-url-checks" id="pg-url-checks"></div>
         </div>
       </div>
     </div>
@@ -421,6 +429,13 @@ async function analyzePrompt() {
       let reason = d.reason || 'clean';
       if (!d.urlFilterEnabled) reason += ' (URL filter disabled in config)';
       document.getElementById('pg-url-reason').textContent = 'Reason: ' + reason;
+      document.getElementById('pg-url-checks').innerHTML = (d.checks || []).map(c =>
+        '<div class="pg-check pg-check-' + c.result + '">' +
+        '<span class="pg-check-icon">' + (c.result === 'block' ? '✗' : '✓') + '</span>' +
+        '<span class="pg-check-name">' + esc(c.name) + '</span>' +
+        '<span class="pg-check-reason">' + esc(c.reason) + '</span>' +
+        '</div>'
+      ).join('');
       document.getElementById('pg-url-result').style.display = 'block';
       return;
     }
@@ -527,8 +542,8 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               return
             }
             const urlResult = urlClassifier
-              ? urlClassifier.classify(hostname, urlPath)
-              : { action: 'pass' as const, reason: 'url-filter-disabled' }
+              ? urlClassifier.classifyDetailed(hostname, urlPath)
+              : { action: 'pass' as const, reason: 'url-filter-disabled', checks: [] }
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ ...urlResult, urlFilterEnabled: config.proxy.urlFilter.enabled }))
             return
