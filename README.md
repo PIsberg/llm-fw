@@ -181,6 +181,45 @@ Both events appear in `GET http://localhost:7731/api/events`:
 
 ---
 
+## Stage 1: Heuristic Scoring & Evasion Normalization
+
+Stage 1 is an ultra-fast (< 1ms), high-throughput detection engine that uses regex-based heuristics combined with a sophisticated **Multi-Candidate Normalization Pipeline** to flag prompt injection attempts.
+
+### Multi-Candidate Normalization Pipeline
+Before evaluating patterns, the incoming prompt undergoes extensive decoding and translation preprocessing:
+*   **Unicode Decomposition (`NFD`)**: Accent characters and diacritics are automatically stripped.
+*   **Homoglyph Mapping**: Cyrillic, Greek, and other mathematical lookalike characters are translated to standard Latin equivalents.
+*   **Obfuscation Decoders**: Automatically searches for, decodes, and evaluates multiple candidate representations, including:
+    *   **Base64**, **Hexadecimal**, and **Binary** ciphers.
+    *   **Morse Code** (custom dot-and-dash parser).
+    *   **ROT13** and **Caesar Ciphers** (scans all 25 shift values, retaining shifts containing security keywords).
+    *   **Pig Latin** (reconstructs root words from cluster shifts).
+    *   **Reversed Text** (character and word-by-word reversals).
+    *   **Leetspeak** (translates common symbols like `@` -> `a`, `1` -> `i`, `3` -> `e`, etc.).
+
+### Robust Pattern Matching
+Once candidates are normalized, they are scored against a highly refined set of heuristics:
+*   **Multi-Lingual Rules**: Includes localized checks for Spanish, French, German, Chinese, Russian, Portuguese, and Italian.
+*   **Spelling Resilience**: Regexes match common typos and character swaps (e.g. matching `igmore` or `ignere` instead of `ignore`).
+*   **Social Engineering Authority Blockers**: Scores weightings heavily to block sandboxed jailbreaks, developer override simulations, subscription privilege escalations, and fake emergency prompts.
+*   **Obfuscation Penalties**: Any decoded candidate adds an automatic `obfuscation-signal` penalty to prevent evasion via ciphers.
+
+If the aggregate score crosses the default threshold of `50`, the request is immediately blocked (403).
+
+---
+
+## Stage 2: Embedding Similarity
+
+Stage 2 leverages a local, high-performance ONNX embedding model (~30MB, `< 20ms` warm) to measure the semantic intent of the prompt using cosine similarity.
+
+*   **Static Vector Templates**: The prompt candidates are embedded and compared against a curated catalog of ~100 known attack templates (`data/attacks.json`).
+*   **Threshold-Based Action**:
+    *   **Block (≥ 0.85)**: If the cosine similarity matches an attack template with a score of `0.85` or higher, it is immediately blocked at Stage 2.
+    *   **Warn (0.70 - 0.85)**: High-risk but non-definitive matches log a warn event and are forwarded, or evaluated by the Stage 3 judge if enabled.
+*   **Intent-Based**: Because embeddings model semantic meaning rather than literal strings, they naturally catch novel restructurings of jailbreaks and prompt injections.
+
+---
+
 ## Stage 3: Judge LLM (Ollama)
 
 The judge is an optional third detection stage that uses a local LLM to classify prompts that passed heuristics and embedding. It requires [Ollama](https://ollama.com) running locally.
