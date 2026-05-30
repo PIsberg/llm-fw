@@ -405,6 +405,7 @@ async function analyzePrompt() {
   if (pgMode === 'url') {
     const url = document.getElementById('url-input').value.trim();
     if (!url) return;
+    document.getElementById('pg-results').style.display = 'none';
     document.getElementById('pg-url-result').style.display = 'none';
     try {
       const res = await fetch('/api/test', {
@@ -429,6 +430,7 @@ async function analyzePrompt() {
 
   const prompt = document.getElementById('prompt-input').value.trim();
   if (!prompt) return;
+  document.getElementById('pg-url-result').style.display = 'none';
   document.getElementById('pg-results').style.display = 'none';
   try {
     const res = await fetch('/api/test', {
