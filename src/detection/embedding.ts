@@ -47,18 +47,11 @@ export class EmbeddingChecker {
   }
 
   private cosineSimilarity(a: Float32Array, b: Float32Array): number {
+    // All embeddings are produced with normalize:true, so every vector already has
+    // L2 norm = 1. Cosine similarity reduces to a plain dot product — no sqrt needed.
     let dot = 0
-    let normA = 0
-    let normB = 0
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
-    }
-    normA = Math.sqrt(normA)
-    normB = Math.sqrt(normB)
-    if (normA === 0 || normB === 0) return 0
-    return Math.min(1, Math.max(0, dot / (normA * normB)))
+    for (let i = 0; i < a.length; i++) dot += a[i] * b[i]
+    return Math.min(1, Math.max(0, dot))
   }
 
   private chunk(text: string): string[] {
