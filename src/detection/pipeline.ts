@@ -1,9 +1,9 @@
 import { Config, PipelineResult, BlockEvent } from '../types.js'
-import { getParser } from './parsers.js'
+import { getParser, extractPartialPrompts } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
-import { extractCandidates } from './normalize.js'
+import { extractCandidates, calculateEntropy } from './normalize.js'
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -38,6 +38,17 @@ export class Pipeline {
     let lastSim = 0
 
     for (const prompt of prompts) {
+      // Active evasion high entropy check - immediately route to Stage 3 Judge if enabled
+      const entropy = calculateEntropy(prompt)
+      if (entropy > 5.0 && prompt.length >= 20 && judgeEnabled) {
+        const j = await this.judge.classify(prompt)
+        if (j.verdict === 'MALICIOUS') {
+          const result: PipelineResult = { action: 'block', stage: 'judge', score: 30, similarity: 0, verdict: 'MALICIOUS', prompt }
+          this.emit(result, meta, prompt)
+          return result
+        }
+      }
+
       const candidates = extractCandidates(prompt)
       for (const candidate of candidates) {
         // Stage 1: heuristic
@@ -88,6 +99,38 @@ export class Pipeline {
     }
 
     return this.pass(lastScore, lastSim)
+  }
+
+  async checkPartial(
+    requestPath: string,
+    partialBody: string,
+    meta: { target: string; method: string; path: string }
+  ): Promise<PipelineResult | null> {
+    const parser = getParser(requestPath)
+    if (!parser) return null
+
+    const prompts = extractPartialPrompts(partialBody)
+    const { heuristicBlockThreshold } = this.config.detection
+
+    for (const prompt of prompts) {
+      const candidates = extractCandidates(prompt)
+      for (const candidate of candidates) {
+        const h = this.heuristic.score(candidate.text, candidate.source)
+        if (h.score >= heuristicBlockThreshold) {
+          const result: PipelineResult = {
+            action: 'block',
+            stage: 'heuristic',
+            score: h.score,
+            similarity: 0,
+            prompt: candidate.text,
+            heuristicMatches: h.matches
+          }
+          this.emit(result, meta, prompt)
+          return result
+        }
+      }
+    }
+    return null
   }
 
   private pass(score: number, similarity: number): PipelineResult {

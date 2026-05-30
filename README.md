@@ -10,7 +10,7 @@ No changes to your code. No cloud dependencies. Boots in under 2 seconds.
 
 ## How it works
 
-llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, extracts the prompt from the request body, runs a three-stage detection pipeline, and either forwards the request or returns a 403. All blocked requests appear in a local web dashboard at `localhost:7731`.
+llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately aborts the connection with a `403 Forbidden` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.
 
 Detection pipeline:
 1. **Heuristic scoring** — weighted phrase matching (< 1ms)
@@ -196,6 +196,7 @@ Before evaluating patterns, the incoming prompt undergoes extensive decoding and
     *   **Pig Latin** (reconstructs root words from cluster shifts).
     *   **Reversed Text** (character and word-by-word reversals).
     *   **Leetspeak** (translates common symbols like `@` -> `a`, `1` -> `i`, `3` -> `e`, etc.).
+*   **Active Evasion Entropy Detection**: Calculates the Shannon Entropy (randomness) of incoming prompt payloads. Prompts with unusually high entropy (e.g., continuous base64/hex ciphers or scrambled sequences) are flagged with an `obfuscation-high-entropy` signature (giving a heavy heuristic penalty) and are immediately escalated to the Stage 3 Judge for deep logical validation.
 
 ### Robust Pattern Matching
 Once candidates are normalized, they are scored against a highly refined set of heuristics:
