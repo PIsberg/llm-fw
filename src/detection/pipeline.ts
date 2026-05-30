@@ -94,7 +94,7 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string }, prompt: string): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string }, prompt: string): void {
     if (!this.onBlock) return
     this.onBlock({
       stage: result.stage,
@@ -103,8 +103,12 @@ export class Pipeline {
       target: meta.target,
       method: meta.method,
       path: meta.path,
-      payload_preview: prompt.slice(0, 200),
+      payload_preview: prompt.slice(0, 120),
+      payload_full: prompt,
       action: result.action === 'block' ? 'blocked' : 'warned',
+      heuristicMatches: result.heuristicMatches,
+      nearestTemplate: result.nearestTemplate,
+      verdict: result.verdict,
     })
   }
 }
