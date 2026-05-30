@@ -68,21 +68,30 @@ export async function run(): Promise<void> {
     ok(`${chosenModel} is already installed`)
   } else {
     step(4, `Pulling ${chosenModel} (this may take a few minutes)...`)
-    // shell:true is required on Windows so the PATH is resolved correctly
+
+    // Verify the ollama CLI is in PATH before attempting the pull.
+    // Using pipe so we can inspect the result without printing noise.
+    const cliCheck = spawnSync('ollama', ['--version'], {
+      shell: process.platform === 'win32',
+      encoding: 'utf8',
+    })
+    if (cliCheck.error || cliCheck.status !== 0) {
+      console.error('\n  The ollama CLI was not found in PATH.')
+      console.error('  Ollama may be installed but its bin directory is not on PATH yet.')
+      console.error('  Try opening a new terminal, or pull the model manually:')
+      console.error(`    ollama pull ${chosenModel}`)
+      console.error('  Then re-run: llm-fw setup-judge\n')
+      rl.close()
+      process.exit(1)
+    }
+
     const pull = spawnSync('ollama', ['pull', chosenModel], {
       stdio: 'inherit',
       shell: process.platform === 'win32',
     })
-    if (pull.error) {
-      console.error(`\n  Could not run ollama: ${pull.error.message}`)
-      console.error('  Make sure Ollama is installed and "ollama" is in your PATH.')
-      console.error('  Download: https://ollama.com/download\n')
-      rl.close()
-      process.exit(1)
-    }
     if (pull.status !== 0) {
-      console.error(`\n  "ollama pull ${chosenModel}" exited with code ${pull.status}.`)
-      console.error('  Check the model name is correct. Available models: https://ollama.com/library\n')
+      console.error(`\n  "ollama pull ${chosenModel}" failed.`)
+      console.error('  Check the model name is correct. Browse models: https://ollama.com/library\n')
       rl.close()
       process.exit(1)
     }
