@@ -76,8 +76,20 @@ export class ProxyServer {
       innerServer.emit('connection', tlsSocket)
       innerServer.on('request', async (innerReq, innerRes) => {
         try {
+          const MAX_BODY_BYTES = 5 * 1024 * 1024 // 5 MB — guard against OOM via huge payloads
           const chunks: Buffer[] = []
-          for await (const chunk of innerReq) chunks.push(Buffer.from(chunk))
+          let totalBytes = 0
+          for await (const chunk of innerReq) {
+            const buf = Buffer.from(chunk)
+            totalBytes += buf.length
+            if (totalBytes > MAX_BODY_BYTES) {
+              innerRes.writeHead(413, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'payload too large', maxBytes: MAX_BODY_BYTES }))
+              innerReq.resume() // drain so the socket stays usable
+              return
+            }
+            chunks.push(buf)
+          }
           const body = Buffer.concat(chunks).toString('utf-8')
 
           const result = await this.pipeline.run(

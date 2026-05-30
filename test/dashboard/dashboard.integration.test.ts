@@ -203,4 +203,33 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     const res = await req(server, 'GET', '/notfound')
     expect(res.status).toBe(404)
   })
+
+  it('FIX-5: POST /api/test with body > 1MB returns 413 (payload too large)', async () => {
+    // Build a body that exceeds the 1MB limit for the playground endpoint
+    const bigPrompt = 'x'.repeat(1.1 * 1024 * 1024) // 1.1 MB
+    const body = JSON.stringify({ prompt: bigPrompt })
+    const addr = server.address() as { port: number }
+
+    const status = await new Promise<number>((resolve, reject) => {
+      const options: http.RequestOptions = {
+        hostname: '127.0.0.1',
+        port: addr.port,
+        path: '/api/test',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }
+      const request = http.request(options, (res) => {
+        res.resume() // drain
+        resolve(res.statusCode ?? 0)
+      })
+      request.on('error', reject)
+      request.write(body)
+      request.end()
+    })
+
+    expect(status).toBe(413)
+  })
 })

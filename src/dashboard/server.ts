@@ -196,9 +196,24 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     }
 
     if (req.method === 'POST' && path === '/api/test') {
+      const MAX_BODY_BYTES = 1 * 1024 * 1024 // 1 MB limit for playground endpoint
       let body = ''
-      req.on('data', chunk => { body += chunk })
+      let bodyBytes = 0
+      let tooLarge = false
+      req.on('data', chunk => {
+        if (tooLarge) return // already rejected; drain silently
+        bodyBytes += Buffer.byteLength(chunk)
+        if (bodyBytes > MAX_BODY_BYTES) {
+          tooLarge = true
+          res.writeHead(413, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'payload too large' }))
+          req.resume()
+          return
+        }
+        body += chunk
+      })
       req.on('end', async () => {
+        if (tooLarge) return
         try {
           const { prompt } = JSON.parse(body) as { prompt: string }
           if (!prompt || typeof prompt !== 'string') {
