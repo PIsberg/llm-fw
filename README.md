@@ -4,6 +4,8 @@ A local prompt injection firewall that intercepts traffic between your tools and
 
 No changes to your code. No cloud dependencies. Boots in under 2 seconds.
 
+![llm-fw infographic](infographics-llm-fw.jpg)
+
 ---
 
 ## How it works
