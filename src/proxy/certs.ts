@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
-const LLMFW_DIR = join(homedir(), '.llm-fw');
+const LLMFW_DIR = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw');
 const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
 const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
 

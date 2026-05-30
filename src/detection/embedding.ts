@@ -17,7 +17,8 @@ export class EmbeddingChecker {
   }
 
   async init(): Promise<void> {
-    env.cacheDir = join(homedir(), '.llm-fw', 'models')
+    const baseDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
+    env.cacheDir = join(baseDir, 'models')
     env.allowLocalModels = false
     this.extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' })
 
