@@ -68,9 +68,21 @@ export async function run(): Promise<void> {
     ok(`${chosenModel} is already installed`)
   } else {
     step(4, `Pulling ${chosenModel} (this may take a few minutes)...`)
-    const pull = spawnSync('ollama', ['pull', chosenModel], { stdio: 'inherit' })
+    // shell:true is required on Windows so the PATH is resolved correctly
+    const pull = spawnSync('ollama', ['pull', chosenModel], {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    })
+    if (pull.error) {
+      console.error(`\n  Could not run ollama: ${pull.error.message}`)
+      console.error('  Make sure Ollama is installed and "ollama" is in your PATH.')
+      console.error('  Download: https://ollama.com/download\n')
+      rl.close()
+      process.exit(1)
+    }
     if (pull.status !== 0) {
-      console.error(`\n  Failed to pull ${chosenModel}. Check the model name and try again.\n`)
+      console.error(`\n  "ollama pull ${chosenModel}" exited with code ${pull.status}.`)
+      console.error('  Check the model name is correct. Available models: https://ollama.com/library\n')
       rl.close()
       process.exit(1)
     }
