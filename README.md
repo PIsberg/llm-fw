@@ -183,23 +183,30 @@ Both events appear in `GET http://localhost:7731/api/events`:
 
 The judge is an optional third detection stage that uses a local LLM to classify prompts that passed heuristics and embedding. It requires [Ollama](https://ollama.com) running locally.
 
-### 1. Install Ollama
+### 1. Run the setup script
 
-Download and install from **https://ollama.com/download**. After install, Ollama runs as a background service on `http://localhost:11434`.
+```bash
+llm-fw setup-judge
+# or from source:
+npm run dev -- setup-judge
+```
 
-### 2. Pull a model
+The script will:
+1. Verify Ollama is installed and running
+2. List models already on your machine
+3. Prompt you to choose a model (defaults to `phi3`)
+4. Pull the model if it is not already installed
+5. Ask whether to enable sync blocking mode
+6. Run a smoke-test classification against a known injection prompt
+7. Write `judgeEnabled`, `judgeModel`, and `judgeBlock` to `.llm-fw.json`
+
+### 2. Manual setup (alternative)
+
+Install Ollama from **https://ollama.com/download**, then:
 
 ```bash
 ollama pull phi3
 ```
-
-`phi3` is the default (~2 GB). Verify it's ready:
-
-```bash
-ollama list
-```
-
-### 3. Enable the judge
 
 Add to your `.llm-fw.json`:
 
@@ -336,6 +343,7 @@ LLM_FW_JUDGE_ENABLED=true
 |---------|-------------|
 | `llm-fw setup` | Generate CA cert, install to trust store, download model |
 | `llm-fw setup --sinkhole` | Also write hosts file entries (requires admin) |
+| `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
 | `llm-fw start` | Start proxy and dashboard |
 | `llm-fw stop` | Stop processes; restore hosts file if sinkhole mode |
 | `llm-fw status` | Show running state, active mode, dashboard URL |

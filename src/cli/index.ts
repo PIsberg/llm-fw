@@ -22,11 +22,17 @@ switch (command) {
     await run();
     break;
   }
+  case 'setup-judge': {
+    const { run } = await import('./setup-judge.js');
+    await run();
+    break;
+  }
   default: {
     console.log(`Usage: llm-fw <command> [options]
 
 Commands:
   setup [--sinkhole]   Set up the firewall (use --sinkhole for sinkhole mode)
+  setup-judge          Install an Ollama model and enable Stage 3 judge
   start                Start the firewall proxy
   stop                 Stop the firewall proxy
   status               Show firewall status
