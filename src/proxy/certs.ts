@@ -246,7 +246,7 @@ export class CertFactory {
     cert.sign(ca.key, forge.md.sha256.create());
 
     const certPem = forge.pki.certificateToPem(cert);
-    const keyPem = forge.pki.privateKeyToPem(keys.privateKey as forge.pki.rsa.PrivateKey);
+    const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
 
     const credentials: TLSCredentials = { cert: certPem, key: keyPem };
     this.certCache.set(hostname, credentials);

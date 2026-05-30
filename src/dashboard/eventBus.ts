@@ -12,13 +12,36 @@ export class EventBus {
   private trafficRing: TrafficMetric[] = []
   private trafficSubscribers: ServerResponse[] = []
   private static readonly TRAFFIC_MAX = 500
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   // Persisted store of events an operator marked as false positives.
   // Resolved per access so LLM_FW_DIR set after module load is honoured.
   private static get WHITELIST_PATH(): string {
     return join(getLlmFwDir(), 'whitelist.json')
   }
 
-  constructor(config: DashboardConfig) { this.maxSize = config.maxEvents }
+  constructor(config: DashboardConfig) {
+    this.maxSize = config.maxEvents
+    // Send SSE comment heartbeats every 15s to keep browser/proxy connections alive.
+    // Without this, many browsers and reverse-proxies close idle SSE sockets after 30-60s.
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 15_000)
+    // A long-lived dashboard process should not be pinned in memory by the timer alone.
+    this.heartbeatTimer.unref?.()
+  }
+
+  private sendHeartbeat(): void {
+    this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
+    for (const res of this.subscribers) res.write(':\n\n')
+    this.trafficSubscribers = this.trafficSubscribers.filter(r => !r.writableEnded && !r.destroyed)
+    for (const res of this.trafficSubscribers) res.write(':\n\n')
+  }
+
+  /** Stop the heartbeat timer (call during server shutdown). */
+  destroy(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
 
   emit(partial: Omit<BlockEvent, 'id' | 'timestamp'>): BlockEvent {
     const event: BlockEvent = {
