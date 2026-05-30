@@ -73,7 +73,36 @@ export class ProxyServer {
       innerServer.on('request', async (innerReq, innerRes) => {
         try {
           const chunks: Buffer[] = []
-          for await (const chunk of innerReq) chunks.push(Buffer.from(chunk))
+          let accumulatedBody = ''
+          let blocked = false
+
+          // Intercept request stream to check chunks on the fly
+          innerReq.on('data', (chunk) => {
+            if (blocked) return
+            chunks.push(Buffer.from(chunk))
+            accumulatedBody += chunk.toString('utf-8')
+
+            void this.pipeline.checkPartial(
+              innerReq.url ?? '/',
+              accumulatedBody,
+              { target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/' }
+            ).then((partialResult) => {
+              if (partialResult && partialResult.action === 'block' && !blocked) {
+                blocked = true
+                innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+                innerRes.end(JSON.stringify({ error: 'prompt injection detected', stage: partialResult.stage, score: partialResult.score }))
+                innerReq.destroy()
+              }
+            }).catch(() => {})
+          })
+
+          await new Promise<void>((resolve, reject) => {
+            innerReq.on('end', () => resolve())
+            innerReq.on('error', (err) => reject(err))
+          })
+
+          if (blocked) return
+
           const body = Buffer.concat(chunks).toString('utf-8')
 
           const result = await this.pipeline.run(

@@ -80,4 +80,37 @@ export function getParser(path: string): PayloadParser | null {
   return parsers.find(p => p.supports(path)) ?? null
 }
 
+export function extractPartialPrompts(body: string): string[] {
+  const results: string[] = []
+  // Matches "text": "...", "content": "...", "system": "..." (handles escaped quotes and matches unclosed strings)
+  const regex = /"(?:text|content|system)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)(?:"|$)/g
+  let match
+  while ((match = regex.exec(body)) !== null) {
+    const val = match[1]
+    if (val && val.length > 0) {
+      const unescaped = val
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+      results.push(unescaped)
+    }
+  }
+
+  // Also fallback to full structural parser if valid JSON is completed
+  for (const parser of parsers) {
+    try {
+      const prompts = parser.extractPrompts(body)
+      for (const p of prompts) {
+        if (!results.includes(p)) {
+          results.push(p)
+        }
+      }
+    } catch {}
+  }
+
+  return results.filter(s => s.length > 0)
+}
+
 export { AnthropicParser, GeminiParser }
