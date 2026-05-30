@@ -2,37 +2,41 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
 import http from 'node:http'
 
 vi.mock('../../src/detection/pipeline.js', () => ({
-  Pipeline: vi.fn().mockImplementation(() => ({
-    init: vi.fn().mockResolvedValue(undefined),
-    run: vi.fn().mockResolvedValue({
-      action: 'pass',
-      stage: 'none',
-      score: 0,
-      similarity: 0,
-      heuristicMatches: [],
-      nearestTemplate: '',
-    }),
-  })),
+  Pipeline: vi.fn().mockImplementation(function() {
+    return {
+      init: vi.fn().mockResolvedValue(undefined),
+      run: vi.fn().mockResolvedValue({
+        action: 'pass',
+        stage: 'none',
+        score: 0,
+        similarity: 0,
+        heuristicMatches: [],
+        nearestTemplate: '',
+      }),
+    }
+  }),
 }))
 
 vi.mock('../../src/detection/heuristic.js', () => ({
-  HeuristicScorer: vi.fn().mockImplementation(() => ({
-    score: vi.fn().mockReturnValue({ score: 0, matches: [] }),
-  })),
+  HeuristicScorer: vi.fn().mockImplementation(function() {
+    return { score: vi.fn().mockReturnValue({ score: 0, matches: [] }) }
+  }),
 }))
 
 vi.mock('../../src/detection/embedding.js', () => ({
-  EmbeddingChecker: vi.fn().mockImplementation(() => ({
-    init: vi.fn().mockResolvedValue(undefined),
-    isInitialized: vi.fn().mockReturnValue(false),
-    check: vi.fn().mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 0 }),
-  })),
+  EmbeddingChecker: vi.fn().mockImplementation(function() {
+    return {
+      init: vi.fn().mockResolvedValue(undefined),
+      isInitialized: vi.fn().mockReturnValue(false),
+      check: vi.fn().mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 0 }),
+    }
+  }),
 }))
 
 vi.mock('../../src/detection/judge.js', () => ({
-  JudgeClient: vi.fn().mockImplementation(() => ({
-    classify: vi.fn().mockResolvedValue({ verdict: 'SAFE', latencyMs: 0 }),
-  })),
+  JudgeClient: vi.fn().mockImplementation(function() {
+    return { classify: vi.fn().mockResolvedValue({ verdict: 'SAFE', latencyMs: 0 }) }
+  }),
 }))
 
 import { createDashboardServer } from '../../src/dashboard/server.js'
