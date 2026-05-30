@@ -49,7 +49,18 @@ export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
 }
 
 export async function loadConfig(): Promise<Config> {
-  const explorer = cosmiconfig('llm-fw');
+  const explorer = cosmiconfig('llm-fw', {
+    searchPlaces: [
+      'package.json',
+      '.llm-fw.json',
+      '.llm-fwrc',
+      '.llm-fwrc.json',
+      '.llm-fwrc.yaml',
+      '.llm-fwrc.yml',
+      '.llm-fwrc.js',
+      'llm-fw.config.js'
+    ]
+  });
   const found = await explorer.search();
 
   let config = deepMerge<Config>(DEFAULT_CONFIG, found?.config ?? {});
