@@ -3,12 +3,16 @@ import https from 'node:https'
 import http from 'node:http'
 import net from 'node:net'
 import tls from 'node:tls'
+import fs from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import forge from 'node-forge'
 import { ProxyServer } from '../../src/proxy/proxy.js'
 import { createDashboardServer } from '../../src/dashboard/server.js'
 import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { UpstreamResolver } from '../../src/proxy/upstream.js'
+import { CertFactory } from '../../src/proxy/certs.js'
 
 // Mock the upstream DNS resolver to always point target hostnames to localhost
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
@@ -190,6 +194,7 @@ async function queryDashboard(port: number, path: string): Promise<any> {
 // E2E Test Suite
 // ---------------------------------------------------------------------------
 describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
+  let tempDir: string
   let mockUpstream: https.Server
   let mockUpstreamPort: number
   let receivedRequests: { url: string; method: string; body: string }[] = []
@@ -211,10 +216,18 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
   }
 
   beforeAll(async () => {
-    // 1. Temporarily allow self-signed certs in node TLS connection to mock upstream
+    // 1. Set up a isolated sandbox directory for the CA and database
+    tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-e2e-'))
+    process.env.LLM_FW_DIR = tempDir
+
+    // 2. Pre-generate a custom Root CA in this sandbox directory
+    const certFactory = new CertFactory()
+    certFactory.generateCA()
+
+    // 3. Temporarily allow self-signed certs in node TLS connection to mock upstream
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
-    // 2. Start the Mock Upstream HTTPS Server representing api.anthropic.com
+    // 4. Start the Mock Upstream HTTPS Server representing api.anthropic.com
     const certs = generateSelfSignedCert()
     mockUpstream = https.createServer(certs, (req, res) => {
       let body = ''
@@ -239,13 +252,13 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     await new Promise<void>(resolve => mockUpstream.listen(0, '127.0.0.1', () => resolve()))
     mockUpstreamPort = (mockUpstream.address() as any).port
 
-    // 3. Start the Proxy Server
+    // 5. Start the Proxy Server
     eventBus = new EventBus(testConfig.dashboard)
     proxy = new ProxyServer(testConfig, eventBus)
     await proxy.init()
     proxy.start()
 
-    // 4. Start the Dashboard Server
+    // 6. Start the Dashboard Server
     const pipeline = (proxy as any).pipeline
     dashboard = createDashboardServer(testConfig, eventBus, pipeline)
     await new Promise<void>(resolve => dashboard.listen(testConfig.dashboard.port, '127.0.0.1', () => resolve()))
@@ -260,6 +273,15 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     await new Promise<void>(resolve => dashboard.close(() => resolve()))
     await proxy.stop()
     await new Promise<void>(resolve => mockUpstream.close(() => resolve()))
+
+    // 7. Clean up sandbox directory recursively
+    if (tempDir && fs.existsSync(tempDir)) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true })
+      } catch (err) {
+        console.warn('Failed to clean up sandbox directory:', err)
+      }
+    }
   })
 
   it('E2E Case 1: Benign prompt request passes through and resolves successfully', async () => {
