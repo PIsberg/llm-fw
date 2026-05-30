@@ -453,3 +453,5 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [PLAN.md](PLAN.md) — implementation plan
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture, sequence diagrams, class diagrams
 - [docs/TESTING.md](docs/TESTING.md) — comprehensive guide on unit, integration, and E2E testing
+- [SPEC-http.md](SPEC-http.md) — specification for outbound HTTP/HTTPS URL interception and exfiltration classification
+- [PLAN-http.md](PLAN-http.md) — implementation plan for outbound URL exfiltration defense

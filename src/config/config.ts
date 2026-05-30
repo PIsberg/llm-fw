@@ -8,6 +8,19 @@ export const DEFAULT_CONFIG: Config = {
     httpsPort: 443,
     upstreamTimeoutMs: 30000,
     dnsServers: ['1.1.1.1', '8.8.8.8'],
+    urlFilter: {
+      enabled: true,
+      entropyThreshold: 4.8,
+      allowlistDomains: [
+        'api.anthropic.com',
+        'generativelanguage.googleapis.com',
+        'github.com',
+        'npmjs.org',
+        'registry.npmjs.org',
+        'googleapis.com',
+      ],
+      blocklistDomains: [],
+    },
   },
   detection: {
     heuristicBlockThreshold: 50,
