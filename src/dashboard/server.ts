@@ -29,12 +29,13 @@ const HTML = `<!DOCTYPE html>
   .stat-value.warned  { color: #e65100; }
   .stat-value.total   { color: #1565c0; }
 
-  /* Tabs */
-  .tabs { display: flex; gap: 4px; margin-bottom: -1px; }
-  .tab-btn { padding: 8px 20px; border: 1px solid #ccc; background: #e8eaed; cursor: pointer;
-    border-radius: 6px 6px 0 0; font-size: 0.9rem; transition: background .15s; }
-  .tab-btn.active { background: #fff; border-bottom-color: #fff; font-weight: 600; }
-  .tab-panel { display: none; background: #fff; border: 1px solid #ccc; border-radius: 0 6px 6px 6px; padding: 0; }
+  /* Tabs (Premium Segmented Control) */
+  .tabs { display: inline-flex; background: #e4e6eb; padding: 4px; border-radius: 8px; margin-bottom: 16px; gap: 2px; }
+  .tab-btn { padding: 6px 16px; border: none; background: transparent; cursor: pointer;
+    border-radius: 6px; font-size: 0.82rem; font-weight: 500; color: #555; transition: all 0.2s; }
+  .tab-btn:hover { color: #1a1a1a; background: rgba(0,0,0,0.04); }
+  .tab-btn.active { background: #ffffff; color: #1565c0; font-weight: 600; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+  .tab-panel { display: none; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
   .tab-panel.active { display: block; }
 
   /* Events table */
@@ -102,9 +103,11 @@ const HTML = `<!DOCTYPE html>
   .playground-wrap { padding: 20px; }
   textarea { width: 100%; padding: 10px; font-family: monospace; font-size: 0.9rem;
     border: 1px solid #ccc; border-radius: 6px; resize: vertical; background: #fafafa; }
-  .btn { margin-top: 10px; padding: 9px 24px; background: #1565c0; color: #fff;
-    border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
-  .btn:hover { background: #0d47a1; }
+  .btn { margin-top: 10px; padding: 7px 18px; background: #1565c0; color: #fff;
+    border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 2px 4px rgba(21,101,192,0.15); }
+  .btn:hover { background: #1976d2; transform: translateY(-1px); box-shadow: 0 4px 8px rgba(21,101,192,0.25); }
+  .btn:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(21,101,192,0.15); }
   .pg-results { margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px; }
   .pg-verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; }
   .pg-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
