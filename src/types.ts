@@ -10,6 +10,7 @@ export interface ProxyConfig {
   port: number;
   httpsPort: number;
   upstreamTimeoutMs: number;
+  maxBodyBytes: number;
   dnsServers: string[];
   urlFilter: UrlFilterConfig;
 }

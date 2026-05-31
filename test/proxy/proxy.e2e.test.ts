@@ -353,4 +353,29 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     expect(mostRecent.target).toBe('api.anthropic.com')
     expect(mostRecent.payload_preview).toContain('Ignore all previous instructions')
   })
+
+  it('E2E Case 4: Exfiltration query path is blocked by the URL filter', async () => {
+    const originalRequestsLength = receivedRequests.length
+
+    // Benign body, but the request path carries a data-exfiltration query
+    // parameter. The CONNECT handshake only sees the hostname; the path filter
+    // must catch this once the decrypted path is available.
+    const response = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      '/v1/messages?exfil=stolen-secret-data',
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'hi' }] })
+    )
+
+    expect(response.statusCode).toBe(403)
+    const json = JSON.parse(response.body)
+    expect(json.error).toBe('url blocked')
+    expect(json.reason).toBe('query-exfil-pattern')
+
+    // Upstream must not have received the exfiltration request.
+    expect(receivedRequests.length).toBe(originalRequestsLength)
+  })
 })

@@ -3,6 +3,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const LLMFW_DIR = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw');
 const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
@@ -10,15 +11,39 @@ const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
 
 export interface TLSCredentials { cert: string; key: string }
 
+/**
+ * Restrict the llm-fw directory so only the current user can read it. The
+ * directory holds the root CA private key, which is installed into the system
+ * trust store — if any local process under the same machine could read it, that
+ * process could transparently MITM all the user's HTTPS traffic.
+ *
+ * On POSIX a 0700 chmod suffices. On Windows, files inherit folder ACLs and
+ * chmod is a no-op, so we use icacls to remove inheritance and grant access to
+ * the current user (and SYSTEM) only.
+ */
+export function restrictDirPermissions(dir: string): void {
+  if (platform() !== 'win32') {
+    fs.chmodSync(dir, 0o700);
+    return;
+  }
+  const user = process.env.USERNAME;
+  if (!user) return; // can't identify the owner; leave default ACLs
+  // /inheritance:r  → drop inherited ACEs
+  // /grant:r        → replace, granting full control to the named principals only
+  execFileSync(
+    'icacls',
+    [dir, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)F`, '/grant:r', 'SYSTEM:(OI)(CI)F'],
+    { stdio: 'ignore' }
+  );
+}
+
 export class CertFactory {
   private caForge: { cert: forge.pki.Certificate; key: forge.pki.rsa.PrivateKey } | null = null;
   private certCache = new Map<string, TLSCredentials>();
 
   generateCA(): TLSCredentials {
     fs.mkdirSync(LLMFW_DIR, { recursive: true });
-    if (platform() !== 'win32') {
-      fs.chmodSync(LLMFW_DIR, 0o700);
-    }
+    restrictDirPermissions(LLMFW_DIR);
 
     const keys = forge.pki.rsa.generateKeyPair(2048);
     const cert = forge.pki.createCertificate();

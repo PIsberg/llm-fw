@@ -8,6 +8,20 @@ import { Pipeline } from '../detection/pipeline.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 
+/**
+ * Parse a CONNECT request target (`host:port`) into hostname and port.
+ * Handles the case where no port is supplied (e.g. `CONNECT api.anthropic.com`),
+ * which previously truncated the final character of the hostname.
+ */
+export function parseConnectTarget(url: string): { hostname: string; port: number } {
+  const colonIdx = url.lastIndexOf(':')
+  // No colon, or a lone trailing colon → treat the whole string as the hostname.
+  if (colonIdx === -1) return { hostname: url, port: 443 }
+  const hostname = url.slice(0, colonIdx)
+  const port = parseInt(url.slice(colonIdx + 1), 10) || 443
+  return { hostname, port }
+}
+
 export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
@@ -43,10 +57,7 @@ export class ProxyServer {
   }
 
   private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _head: Buffer): Promise<void> {
-    const url = req.url ?? ''
-    const colonIdx = url.lastIndexOf(':')
-    const hostname = url.slice(0, colonIdx)
-    const port = parseInt(url.slice(colonIdx + 1), 10) || 443
+    const { hostname, port } = parseConnectTarget(req.url ?? '')
 
     const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
 
@@ -108,10 +119,24 @@ export class ProxyServer {
           const chunks: Buffer[] = []
           let accumulatedBody = ''
           let blocked = false
+          let totalBytes = 0
+          const maxBodyBytes = this.config.proxy.maxBodyBytes
 
           // Intercept request stream to check chunks on the fly
           innerReq.on('data', (chunk) => {
             if (blocked) return
+
+            // Bound buffered body size to prevent memory-exhaustion DoS from an
+            // oversized (or unbounded streaming) payload.
+            totalBytes += chunk.length
+            if (maxBodyBytes > 0 && totalBytes > maxBodyBytes) {
+              blocked = true
+              innerRes.writeHead(413, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'request body too large', limit: maxBodyBytes }))
+              innerReq.destroy()
+              return
+            }
+
             chunks.push(Buffer.from(chunk))
             accumulatedBody += chunk.toString('utf-8')
 
@@ -136,7 +161,12 @@ export class ProxyServer {
 
           if (blocked) return
 
-          const body = Buffer.concat(chunks).toString('utf-8')
+          // Keep the original bytes for forwarding; the utf-8 decode is used
+          // ONLY for text-based detection. Decoding binary payloads (e.g. image
+          // uploads) to a string and back would replace invalid byte sequences
+          // with U+FFFD, corrupting the request and changing its length.
+          const bodyBuf = Buffer.concat(chunks)
+          const body = bodyBuf.toString('utf-8')
 
           const result = await this.pipeline.run(
             innerReq.url ?? '/',
@@ -150,7 +180,33 @@ export class ProxyServer {
             return
           }
 
-          await this.forwardRequest(hostname, port, innerReq, body, innerRes)
+          // Outbound URL exfiltration screening. The CONNECT handshake only sees
+          // the hostname; here the full decrypted request path/query is available,
+          // so the exfil-path heuristics can finally run.
+          const reqPath = innerReq.url ?? '/'
+          if (this.urlClassifier) {
+            const pathResult = this.urlClassifier.classifyPath(reqPath)
+            if (pathResult.action === 'block') {
+              innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+              this.eventBus.emit({
+                stage: 'url-filter',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method: innerReq.method ?? 'GET',
+                path: reqPath,
+                payload_preview: reqPath.slice(0, 120),
+                payload_full: reqPath,
+                action: 'blocked',
+                kind: 'url',
+                urlBlockReason: pathResult.reason,
+              })
+              return
+            }
+          }
+
+          await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
         } catch (err) {
           console.error('[proxy] request error:', err)
           if (!innerRes.headersSent) {
@@ -165,7 +221,7 @@ export class ProxyServer {
     }
   }
 
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: string, res: http.ServerResponse): Promise<void> {
+  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse): Promise<void> {
     const ip = await this.resolver.resolve(hostname)
     await new Promise<void>((resolve, reject) => {
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
@@ -175,11 +231,11 @@ export class ProxyServer {
         for (const [k, v] of Object.entries(headers)) {
           if (v && !HOP_BY_HOP.has(k.toLowerCase())) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
         }
-        upstream.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n')
+        upstream.write('Content-Length: ' + body.length + '\r\n')
         upstream.write('Accept-Encoding: identity\r\n')
         upstream.write('Connection: close\r\n')
         upstream.write('\r\n')
-        if (body) upstream.write(body)
+        if (body.length) upstream.write(body)
       })
 
       upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => { upstream.destroy(); reject(new Error('upstream timeout')) })

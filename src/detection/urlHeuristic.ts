@@ -125,6 +125,21 @@ export class UrlClassifier {
     return { action, reason }
   }
 
+  /**
+   * Screen a request path/query string for outbound data-exfiltration patterns,
+   * independent of host allow/blocklisting. Used for intercepted requests where
+   * the full decrypted path is available (the CONNECT handshake only exposes the
+   * hostname), so the path-exfil heuristics actually run.
+   */
+  classifyPath(path: string): UrlClassifyResult {
+    for (const pattern of EXFIL_PATH_PATTERNS) {
+      if (pattern.test(path)) {
+        return { action: 'block', reason: 'query-exfil-pattern' }
+      }
+    }
+    return { action: 'pass', reason: 'clean' }
+  }
+
   private matchesList(host: string, list: Set<string>): boolean {
     if (list.has(host)) return true
     const parts = host.split('.')
