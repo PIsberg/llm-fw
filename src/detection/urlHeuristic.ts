@@ -6,6 +6,16 @@ export interface UrlClassifyResult {
   reason: string;
 }
 
+export interface CheckDetail {
+  name: string;
+  result: 'pass' | 'block';
+  reason: string;
+}
+
+export interface UrlClassifyDetailedResult extends UrlClassifyResult {
+  checks: CheckDetail[];
+}
+
 // Domains operated exclusively as exfiltration / webhook relay services
 const KNOWN_EXFIL_DOMAINS = new Set([
   'webhook.site',
@@ -55,32 +65,64 @@ export class UrlClassifier {
     this.entropyThreshold = config.entropyThreshold
   }
 
-  classify(hostname: string, path?: string): UrlClassifyResult {
+  classifyDetailed(hostname: string, path?: string): UrlClassifyDetailedResult {
+    const checks: CheckDetail[] = []
     const host = hostname.toLowerCase()
 
-    if (this.matchesList(host, this.allowlist)) return { action: 'pass', reason: 'allowlisted' }
-    if (this.matchesList(host, this.blocklist)) return { action: 'block', reason: 'domain-blocklisted' }
+    if (this.matchesList(host, this.allowlist)) {
+      checks.push({ name: 'Allowlist', result: 'pass', reason: 'domain is explicitly allowlisted' })
+      return { action: 'pass', reason: 'allowlisted', checks }
+    }
+    checks.push({ name: 'Allowlist', result: 'pass', reason: 'not in allowlist' })
+
+    if (this.matchesList(host, this.blocklist)) {
+      checks.push({ name: 'Blocklist', result: 'block', reason: 'domain is explicitly blocklisted' })
+      return { action: 'block', reason: 'domain-blocklisted', checks }
+    }
+    checks.push({ name: 'Blocklist', result: 'pass', reason: 'not in blocklist' })
 
     const apex = apexDomain(host)
-    if (KNOWN_EXFIL_DOMAINS.has(apex)) return { action: 'block', reason: 'known-exfil-domain' }
+    if (KNOWN_EXFIL_DOMAINS.has(apex)) {
+      checks.push({ name: 'Known exfil domain', result: 'block', reason: `${apex} is a known exfiltration service` })
+      return { action: 'block', reason: 'known-exfil-domain', checks }
+    }
+    checks.push({ name: 'Known exfil domain', result: 'pass', reason: 'not a known exfil service' })
 
     for (const label of subdomainLabels(host)) {
-      if (DNS_TUNNEL_LABELS.test(label)) return { action: 'block', reason: 'dns-tunnel-label' }
+      if (DNS_TUNNEL_LABELS.test(label)) {
+        checks.push({ name: 'DNS tunnel label', result: 'block', reason: `subdomain "${label}" matches DNS tunneling tool pattern` })
+        return { action: 'block', reason: 'dns-tunnel-label', checks }
+      }
+    }
+    checks.push({ name: 'DNS tunnel label', result: 'pass', reason: 'no tunnel tool labels in subdomains' })
+
+    for (const label of subdomainLabels(host)) {
       if (label.length >= 12) {
         const e = calculateEntropy(label)
         if (e >= this.entropyThreshold) {
-          return { action: 'block', reason: `high-entropy-subdomain:${label.slice(0, 20)}` }
+          checks.push({ name: 'High-entropy subdomain', result: 'block', reason: `"${label.slice(0, 20)}" entropy ${e.toFixed(2)} ≥ ${this.entropyThreshold}` })
+          return { action: 'block', reason: `high-entropy-subdomain:${label.slice(0, 20)}`, checks }
         }
       }
     }
+    checks.push({ name: 'High-entropy subdomain', result: 'pass', reason: 'no high-entropy subdomains' })
 
     if (path) {
       for (const pattern of EXFIL_PATH_PATTERNS) {
-        if (pattern.test(path)) return { action: 'block', reason: 'query-exfil-pattern' }
+        if (pattern.test(path)) {
+          checks.push({ name: 'Path exfil pattern', result: 'block', reason: 'query string matches data exfiltration pattern' })
+          return { action: 'block', reason: 'query-exfil-pattern', checks }
+        }
       }
+      checks.push({ name: 'Path exfil pattern', result: 'pass', reason: 'no suspicious query patterns' })
     }
 
-    return { action: 'pass', reason: 'clean' }
+    return { action: 'pass', reason: 'clean', checks }
+  }
+
+  classify(hostname: string, path?: string): UrlClassifyResult {
+    const { action, reason } = this.classifyDetailed(hostname, path)
+    return { action, reason }
   }
 
   private matchesList(host: string, list: Set<string>): boolean {
