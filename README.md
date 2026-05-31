@@ -374,6 +374,60 @@ Then pull it: `ollama pull llama3.2`. Small, fast models work best — the judge
 
 ---
 
+## Data Loss Prevention (DLP)
+
+Beyond inbound prompt injection, `llm-fw` runs a **Stage 0** pre-flight scan that inspects outbound prompts for sensitive local data before they ever leave your machine. This mitigates accidental leakage of secrets and PII into third-party LLM providers (a GDPR / SOC2 exposure).
+
+The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages`, Gemini `generateContent`) — binary/file uploads are skipped — and is designed to complete in well under 5 ms.
+
+### Detectors
+
+| Detector key | What it catches |
+|--------------|-----------------|
+| `aws` | AWS access keys (`AKIA…`) |
+| `github` | GitHub tokens (`ghp_`/`gho_`/`ghs_`/`ghr_` + 36 chars) |
+| `slack` | Slack tokens (`xoxb-`/`xoxp-`/`xoxa-`/`xoxr-`/`xoxs-…`) |
+| `stripe` | Stripe live secret keys (`sk_live_…`) |
+| `private_keys` | RSA / EC / OpenSSH / DSA / PGP private-key headers |
+| `mongodb` | MongoDB SRV connection URIs with embedded credentials |
+| `entropy` | High-entropy generic secrets adjacent to `password=`, `secret:`, `token=`, `api_key=`, `apikey=` (Shannon entropy > 4.0, length > 20) |
+| `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm) |
+
+Each detected secret maps to a redaction marker such as `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, or `[REDACTED_SECRET]`.
+
+> The firewall never logs the raw secret value — dashboard events record only the **type** of secret found (e.g. `GITHUB_TOKEN`).
+
+### Modes
+
+| Mode | Behaviour |
+|------|-----------|
+| `block` | Aborts the request with `403 Forbidden` and `{ "error": "sensitive data detected", "type": "…" }`. |
+| `redact` (default) | Rewrites the JSON payload, replacing each secret with its marker, then forwards the request transparently. JSON structure and escaping are preserved (the raw string is patched in place — no re-serialisation). |
+| `audit` | Forwards the request unmodified, but logs a high-priority `dlp` event to the dashboard. |
+
+### Configuration
+
+```json
+{
+  "dlp": {
+    "enabled": true,
+    "mode": "redact",
+    "detectors": ["aws", "github", "slack", "stripe", "private_keys", "mongodb", "entropy", "pii"]
+  }
+}
+```
+
+Environment overrides:
+
+| Variable | Effect |
+|----------|--------|
+| `LLM_FW_DLP_ENABLED` | `true`/`false` — enable or disable the DLP stage |
+| `LLM_FW_DLP_MODE` | `block` \| `redact` \| `audit` |
+
+Detected events appear in the dashboard under the **Data Loss** badge with a `dlp` stage chip.
+
+---
+
 ## Advanced: DNS Sinkhole Mode
 
 If your tool does **not** support `HTTPS_PROXY` (e.g. a native binary that ignores the env var), use sinkhole mode. This modifies your system hosts file so all traffic to `api.anthropic.com` is routed through the proxy — no env var needed.
@@ -463,3 +517,5 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [docs/TESTING.md](docs/TESTING.md) — comprehensive guide on unit, integration, and E2E testing
 - [SPEC-http.md](SPEC-http.md) — specification for outbound HTTP/HTTPS URL interception and exfiltration classification
 - [PLAN-http.md](PLAN-http.md) — implementation plan for outbound URL exfiltration defense
+- [SPEC-dlp.md](SPEC-dlp.md) — specification for Data Loss Prevention & secret redaction
+- [PLAN-dlp.md](PLAN-dlp.md) — implementation plan for Data Loss Prevention

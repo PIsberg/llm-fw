@@ -7,6 +7,8 @@ import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
+import { DlpScanner } from '../detection/dlp/scanner.js'
+import { getParser } from '../detection/parsers.js'
 
 /**
  * Parse a CONNECT request target (`host:port`) into hostname and port.
@@ -28,6 +30,7 @@ export class ProxyServer {
   private resolver: UpstreamResolver
   private pipeline: Pipeline
   private urlClassifier: UrlClassifier | null
+  private dlp: DlpScanner | null
   private eventBus: EventBus
   private config: Config
 
@@ -40,6 +43,7 @@ export class ProxyServer {
     this.urlClassifier = config.proxy.urlFilter.enabled
       ? new UrlClassifier(config.proxy.urlFilter)
       : null
+    this.dlp = config.dlp?.enabled ? new DlpScanner(config.dlp) : null
     this.server = http.createServer()
   }
 
@@ -165,8 +169,62 @@ export class ProxyServer {
           // ONLY for text-based detection. Decoding binary payloads (e.g. image
           // uploads) to a string and back would replace invalid byte sequences
           // with U+FFFD, corrupting the request and changing its length.
-          const bodyBuf = Buffer.concat(chunks)
-          const body = bodyBuf.toString('utf-8')
+          let bodyBuf = Buffer.concat(chunks)
+          let body = bodyBuf.toString('utf-8')
+
+          // Stage 0 — Data Loss Prevention. Only LLM JSON requests (those with a
+          // registered parser) are scanned, so binary/file uploads are skipped.
+          const method = innerReq.method ?? 'GET'
+          const dlpPath = innerReq.url ?? '/'
+          if (this.dlp && getParser(dlpPath) !== null) {
+            const findings = this.dlp.scan(body)
+            if (findings.length) {
+              // NEVER log the raw secret value — only its type(s).
+              const types = Array.from(new Set(findings.map(f => f.type)))
+              const typeSummary = types.join(', ')
+              const mode = this.config.dlp.mode
+
+              if (mode === 'block') {
+                innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+                innerRes.end(JSON.stringify({ error: 'sensitive data detected', type: findings[0]!.type }))
+                this.eventBus.emit({
+                  stage: 'dlp',
+                  score: 100,
+                  similarity: 0,
+                  target: hostname,
+                  method,
+                  path: dlpPath,
+                  payload_preview: typeSummary,
+                  payload_full: typeSummary,
+                  action: 'blocked',
+                  kind: 'dlp',
+                  dlpType: findings[0]!.type,
+                })
+                return
+              }
+
+              if (mode === 'redact') {
+                const redacted = this.dlp.redact(body, findings)
+                bodyBuf = Buffer.from(redacted, 'utf-8')
+                body = redacted
+              }
+
+              // 'redact' and 'audit' both emit a warn event and continue.
+              this.eventBus.emit({
+                stage: 'dlp',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method,
+                path: dlpPath,
+                payload_preview: typeSummary,
+                payload_full: typeSummary,
+                action: 'warned',
+                kind: 'dlp',
+                dlpType: findings[0]!.type,
+              })
+            }
+          }
 
           const result = await this.pipeline.run(
             innerReq.url ?? '/',

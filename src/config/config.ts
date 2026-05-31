@@ -38,6 +38,11 @@ export const DEFAULT_CONFIG: Config = {
     port: 7731,
     maxEvents: 100,
   },
+  dlp: {
+    enabled: true,
+    mode: 'redact',
+    detectors: ['aws', 'github', 'slack', 'stripe', 'private_keys', 'mongodb', 'entropy', 'pii'],
+  },
   targets: ['api.anthropic.com', 'generativelanguage.googleapis.com'],
 };
 
@@ -110,6 +115,12 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_DASHBOARD_PORT']) {
     config.dashboard.port = parseInt(env['LLM_FW_DASHBOARD_PORT'], 10);
+  }
+  if (env['LLM_FW_DLP_ENABLED']) {
+    config.dlp.enabled = env['LLM_FW_DLP_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_DLP_MODE']) {
+    config.dlp.mode = env['LLM_FW_DLP_MODE'] as 'block' | 'redact' | 'audit';
   }
 
   return config;

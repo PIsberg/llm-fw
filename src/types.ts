@@ -32,10 +32,24 @@ export interface DashboardConfig {
   maxEvents: number;
 }
 
+export interface DLPConfig {
+  enabled: boolean;
+  mode: 'block' | 'redact' | 'audit';
+  detectors: string[];
+}
+
+export interface DlpFinding {
+  type: string;
+  label: string;
+  match: string;
+  index: number;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
+  dlp: DLPConfig;
   targets: string[];
 }
 
@@ -78,8 +92,9 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned';
-  kind?: 'prompt' | 'url';
+  kind?: 'prompt' | 'url' | 'dlp';
   urlBlockReason?: string;
+  dlpType?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;
