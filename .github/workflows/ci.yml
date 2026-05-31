@@ -134,4 +134,4 @@ jobs:
           LOAD_VUS: '3'
           LOAD_ITERATIONS: '20'
           LOAD_FPR_MAX: '2.0'
-          LOAD_TPR_MIN: '35.0'
+          LOAD_TPR_MIN: '60.0'

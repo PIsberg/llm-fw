@@ -29,6 +29,37 @@ const OUTPUT_FILE  = process.env.LOAD_OUTPUT_FILE ?? ''
 const PROXY_PORT = 19_280
 const DASH_PORT  = 19_831
 
+interface Request { isBenign: boolean; prompt: string }
+
+/**
+ * Build a pre-shuffled request list with an exact benign/malicious split.
+ * Using a fixed count eliminates the count-variance that probabilistic
+ * per-request sampling produces at small sample sizes (e.g. CI runs where
+ * 3 VUs × 20 iterations gives only ~6 expected malicious draws, and the
+ * binomial variance can drop that to 2–3, collapsing TPR).
+ */
+function buildRequestList(
+  benign: string[],
+  malicious: string[],
+  iterations: number,
+): Request[] {
+  const nMalicious = Math.max(1, Math.round(iterations * (1 - BENIGN_RATIO)))
+  const nBenign    = iterations - nMalicious
+  const pick = (pool: string[]) => pool[Math.floor(Math.random() * pool.length)]!
+
+  const list: Request[] = [
+    ...Array.from({ length: nBenign },    () => ({ isBenign: true,  prompt: pick(benign)    })),
+    ...Array.from({ length: nMalicious }, () => ({ isBenign: false, prompt: pick(malicious) })),
+  ]
+
+  // Fisher-Yates shuffle so malicious requests are spread across the run
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[list[i], list[j]] = [list[j]!, list[i]!]
+  }
+  return list
+}
+
 interface WorkerResult {
   tn: number; fp: number; tp: number; fn: number
   latencies: number[]
@@ -37,18 +68,12 @@ interface WorkerResult {
 
 async function runWorker(
   send: SendFn,
-  benign: string[],
-  malicious: string[],
-  iterations: number,
+  requests: Request[],
 ): Promise<WorkerResult> {
   let tn = 0, fp = 0, tp = 0, fn = 0, errCount = 0
   const latencies: number[] = []
 
-  for (let i = 0; i < iterations; i++) {
-    const isBenign = Math.random() < BENIGN_RATIO
-    const pool     = isBenign ? benign : malicious
-    const prompt   = pool[Math.floor(Math.random() * pool.length)]!
-
+  for (const { isBenign, prompt } of requests) {
     const body = JSON.stringify({
       model: 'claude-3-opus-20240229',
       messages: [{ role: 'user', content: prompt }],
@@ -84,7 +109,7 @@ async function main(): Promise<void> {
   console.log('Ready. Starting load…\n')
 
   const workers = Array.from({ length: VUS }, () =>
-    runWorker(harness.send, benign, malicious, ITERATIONS)
+    runWorker(harness.send, buildRequestList(benign, malicious, ITERATIONS))
   )
   const results = await Promise.all(workers)
 
