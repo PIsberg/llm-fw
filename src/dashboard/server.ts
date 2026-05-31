@@ -141,6 +141,34 @@ const HTML = `<!DOCTYPE html>
   .pg-check-block .pg-check-icon { color: #d32f2f; }
   .pg-check-name { font-weight: 600; color: #333; min-width: 170px; }
   .pg-check-reason { font-family: monospace; font-size: 0.76rem; color: #666; }
+
+  /* Live Traffic */
+  .traffic-panel-wrap { padding: 16px; }
+  .traffic-stats { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .chart-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .chart-card-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: #555; margin-bottom: 10px; font-weight: 600; }
+  #traffic-canvas { display: block; width: 100%; height: 100px; }
+  .svc-rows { display: flex; flex-direction: column; gap: 8px; }
+  .svc-row { display: flex; align-items: center; gap: 10px; font-size: 0.84rem; }
+  .svc-label { min-width: 110px; font-weight: 600; color: #333; }
+  .svc-track { flex: 1; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+  .svc-fill { height: 100%; border-radius: 4px; background: #1565c0; transition: width 0.4s; }
+  .svc-bytes { min-width: 80px; text-align: right; font-family: monospace; font-size: 0.78rem; color: #555; }
+  .tlog-wrap { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+  .tlog-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: #555; padding: 12px 16px; border-bottom: 1px solid #e0e0e0; font-weight: 600; }
+  .tlog { width: 100%; border-collapse: collapse; font-size: 0.81rem; }
+  .tlog th { text-align: left; padding: 8px 12px; background: #f7f8fa; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .04em; color: #777; }
+  .tlog td { padding: 7px 12px; border-top: 1px solid #f0f0f0; font-family: monospace; }
+  .tlog tr:hover { background: #f7f9ff; }
+  .svc-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
+  .svc-openai      { background: #d1fae5; color: #065f46; }
+  .svc-anthropic   { background: #fde8d8; color: #9a3412; }
+  .svc-google-ai   { background: #dbeafe; color: #1e40af; }
+  .svc-mistral     { background: #fef3c7; color: #92400e; }
+  .svc-huggingface { background: #fce7f3; color: #9d174d; }
+  .svc-cohere      { background: #ecfdf5; color: #064e3b; }
+  .svc-local       { background: #f3f4f6; color: #374151; }
+  .svc-custom      { background: #ede9fe; color: #5b21b6; }
 </style>
 </head>
 <body>
@@ -165,6 +193,7 @@ const HTML = `<!DOCTYPE html>
   <div class="tabs">
     <button class="tab-btn active" onclick="showTab('events', this)">Events</button>
     <button class="tab-btn" onclick="showTab('playground', this)">Prompt Testing</button>
+    <button class="tab-btn" onclick="showTab('traffic', this)">Live Traffic</button>
   </div>
 
   <div id="tab-events" class="tab-panel active">
@@ -230,6 +259,32 @@ const HTML = `<!DOCTYPE html>
           <div class="pg-url-reason" id="pg-url-reason"></div>
           <div class="pg-url-checks" id="pg-url-checks"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-traffic" class="tab-panel">
+    <div class="traffic-panel-wrap">
+      <div class="traffic-stats">
+        <div class="stat"><div class="stat-label">Connections</div><div class="stat-value total" id="t-conn">0</div></div>
+        <div class="stat"><div class="stat-label">Total Sent</div><div class="stat-value" id="t-sent">—</div></div>
+        <div class="stat"><div class="stat-label">Total Received</div><div class="stat-value" id="t-recv">—</div></div>
+        <div class="stat"><div class="stat-label">Req / sec</div><div class="stat-value" id="t-rps">0</div></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">Throughput — Bytes / sec (last 60 s)</div>
+        <canvas id="traffic-canvas" height="100"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">Service Utilization</div>
+        <div class="svc-rows" id="svc-rows"><div style="color:#999;font-size:0.85rem">No traffic yet.</div></div>
+      </div>
+      <div class="tlog-wrap">
+        <div class="tlog-title">Recent Connections</div>
+        <table class="tlog">
+          <thead><tr><th>Time</th><th>Service</th><th>Host</th><th>Sent</th><th>Received</th></tr></thead>
+          <tbody id="tlog-body"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -504,6 +559,119 @@ async function analyzePrompt() {
     alert('Error: ' + err.message);
   }
 }
+
+// ── Live Traffic ──────────────────────────────────────────────────────────────
+const CHART_LEN = 60;
+let chartHead = Math.floor(Date.now() / 1000);
+const chartData = Array.from({length: CHART_LEN}, () => ({sent:0, recv:0, n:0}));
+const tStats = {conn:0, sent:0, recv:0};
+const svcBytes = {};
+
+function fmtB(b) {
+  if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
+  if (b >= 1024)    return (b / 1024).toFixed(1) + ' KB';
+  return b + ' B';
+}
+
+function advChart() {
+  const now = Math.floor(Date.now() / 1000);
+  while (chartHead < now) {
+    chartHead++;
+    chartData[chartHead % CHART_LEN] = {sent:0, recv:0, n:0};
+  }
+}
+
+function addTraffic(m) {
+  advChart();
+  const sec = Math.floor(new Date(m.timestamp.replace(' ', 'T')).getTime() / 1000);
+  if (sec >= chartHead - CHART_LEN + 1 && sec <= chartHead) {
+    chartData[sec % CHART_LEN].sent += m.bytesSent;
+    chartData[sec % CHART_LEN].recv += m.bytesReceived;
+    chartData[sec % CHART_LEN].n++;
+  }
+  tStats.conn++;
+  tStats.sent += m.bytesSent;
+  tStats.recv += m.bytesReceived;
+  svcBytes[m.service] = (svcBytes[m.service] || 0) + m.bytesSent + m.bytesReceived;
+  document.getElementById('t-conn').textContent = tStats.conn;
+  document.getElementById('t-sent').textContent = fmtB(tStats.sent);
+  document.getElementById('t-recv').textContent = fmtB(tStats.recv);
+  renderSvcs();
+  addTlogRow(m);
+  drawChart();
+}
+
+function renderSvcs() {
+  const total = Object.values(svcBytes).reduce((a, b) => a + b, 0) || 1;
+  const sorted = Object.entries(svcBytes).sort((a, b) => b[1] - a[1]);
+  document.getElementById('svc-rows').innerHTML = sorted.map(([svc, bytes]) =>
+    '<div class="svc-row">' +
+    '<div class="svc-label">' + esc(svc) + '</div>' +
+    '<div class="svc-track"><div class="svc-fill" style="width:' + Math.round(bytes / total * 100) + '%"></div></div>' +
+    '<div class="svc-bytes">' + fmtB(bytes) + '</div>' +
+    '</div>'
+  ).join('');
+}
+
+const tlogBody = document.getElementById('tlog-body');
+function addTlogRow(m) {
+  const cls = 'svc-' + m.service.toLowerCase().replace(/[^a-z0-9]/g, '-');
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td>' + esc(m.timestamp || '') + '</td>' +
+    '<td><span class="svc-badge ' + cls + '">' + esc(m.service) + '</span></td>' +
+    '<td>' + esc(m.host) + '</td>' +
+    '<td>' + fmtB(m.bytesSent) + '</td>' +
+    '<td>' + fmtB(m.bytesReceived) + '</td>';
+  tlogBody.insertBefore(tr, tlogBody.firstChild);
+  while (tlogBody.rows.length > 100) tlogBody.deleteRow(tlogBody.rows.length - 1);
+}
+
+const tCanvas = document.getElementById('traffic-canvas');
+const tCtx = tCanvas ? tCanvas.getContext('2d') : null;
+function drawChart() {
+  if (!tCtx) return;
+  advChart();
+  const W = tCanvas.offsetWidth || 800, H = 100;
+  tCanvas.width = W; tCanvas.height = H;
+  tCtx.clearRect(0, 0, W, H);
+  const data = [];
+  for (let i = 0; i < CHART_LEN; i++) data.push(chartData[(chartHead - CHART_LEN + 1 + i) % CHART_LEN]);
+  const maxV = Math.max(...data.map(d => d.sent + d.recv), 1);
+  const step = W / (CHART_LEN - 1);
+  // grid
+  tCtx.strokeStyle = '#e8e8e8'; tCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = Math.round(H * i / 4);
+    tCtx.beginPath(); tCtx.moveTo(0, y); tCtx.lineTo(W, y); tCtx.stroke();
+  }
+  // area fill
+  tCtx.fillStyle = 'rgba(21,101,192,0.08)';
+  tCtx.beginPath();
+  data.forEach((d, i) => {
+    const x = i * step, y = H - ((d.sent + d.recv) / maxV) * (H - 4);
+    i === 0 ? tCtx.moveTo(x, y) : tCtx.lineTo(x, y);
+  });
+  tCtx.lineTo((CHART_LEN - 1) * step, H); tCtx.lineTo(0, H);
+  tCtx.closePath(); tCtx.fill();
+  // line
+  tCtx.strokeStyle = '#1565c0'; tCtx.lineWidth = 2;
+  tCtx.beginPath();
+  data.forEach((d, i) => {
+    const x = i * step, y = H - ((d.sent + d.recv) / maxV) * (H - 4);
+    i === 0 ? tCtx.moveTo(x, y) : tCtx.lineTo(x, y);
+  });
+  tCtx.stroke();
+  document.getElementById('t-rps').textContent = chartData[chartHead % CHART_LEN].n;
+}
+
+const trafficEs = new EventSource('/traffic-events');
+trafficEs.onmessage = e => { try { addTraffic(JSON.parse(e.data)); } catch(_) {} };
+
+setInterval(drawChart, 1000);
+drawChart();
+
+// Historical backlog is replayed by the SSE connection on subscribe — no separate REST fetch needed.
 </script>
 </body>
 </html>`
@@ -597,6 +765,18 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))
       })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/traffic-events') {
+      eventBus.subscribeTraffic(res)
+      return
+    }
+
+    if (req.method === 'GET' && path === '/api/metrics/traffic') {
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 500)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(eventBus.getTrafficMetrics(limit)))
       return
     }
 

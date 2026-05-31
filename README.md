@@ -42,6 +42,12 @@ The playground shows the pipeline result for each stage: heuristic score with ma
 
 ![Playground result — BLOCK verdict with stage breakdown](docs/images/ss-04-playground-result.png)
 
+### Live Traffic — real-time throughput monitoring
+
+The Live Traffic tab shows a rolling 60-second bytes/sec chart, per-provider utilization bars (OpenAI, Anthropic, local Ollama, …), and a scrolling connection log with sent/received byte counts.
+
+![Live Traffic tab — throughput chart and service utilization](docs/images/ss-05-live-traffic.png)
+
 ---
 
 ## How it works

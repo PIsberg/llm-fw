@@ -12,6 +12,17 @@ import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
 
+export function identifyService(hostname: string): string {
+  if (hostname.endsWith('openai.com')) return 'OpenAI'
+  if (hostname.endsWith('anthropic.com')) return 'Anthropic'
+  if (hostname.endsWith('googleapis.com')) return 'Google AI'
+  if (hostname.endsWith('mistral.ai')) return 'Mistral'
+  if (hostname.endsWith('huggingface.co')) return 'HuggingFace'
+  if (hostname.endsWith('cohere.com') || hostname.endsWith('cohere.ai')) return 'Cohere'
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return 'Local'
+  return 'Custom'
+}
+
 /**
  * Parse a CONNECT request target (`host:port`) into hostname and port.
  * Handles the case where no port is supplied (e.g. `CONNECT api.anthropic.com`),
@@ -348,7 +359,13 @@ export class ProxyServer {
             return
           }
 
-          await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
+          const bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
+          this.eventBus.emitTraffic({
+            service: identifyService(hostname),
+            host: hostname,
+            bytesSent: bodyBuf.length,
+            bytesReceived,
+          })
 
           // Account the INPUT (request) tokens against the budget; forwardRequest
           // additionally accounts the response tokens as they stream back.
@@ -367,9 +384,9 @@ export class ProxyServer {
     }
   }
 
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse): Promise<void> {
+  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse): Promise<number> {
     const ip = await this.resolver.resolve(hostname)
-    await new Promise<void>((resolve, reject) => {
+    return new Promise<number>((resolve, reject) => {
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
         const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
@@ -421,7 +438,7 @@ export class ProxyServer {
         // large generations rack up cost on the response side, not just input,
         // so a budget that ignored responses would badly under-count.
         if (this.quota) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
-        resolve()
+        resolve(respBodyBytes)
       })
       upstream.on('error', reject)
     })

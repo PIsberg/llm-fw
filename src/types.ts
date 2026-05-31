@@ -124,3 +124,12 @@ export interface PayloadParser {
   supports(path: string): boolean;
   extractPrompts(body: string): string[];
 }
+
+export interface TrafficMetric {
+  id: string;
+  timestamp: string;
+  service: string;
+  host: string;
+  bytesSent: number;
+  bytesReceived: number;
+}
