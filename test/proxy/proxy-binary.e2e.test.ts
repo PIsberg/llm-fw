@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
-import https from 'node:https'
 import net from 'node:net'
 import tls from 'node:tls'
+import http from 'node:http'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import forge from 'node-forge'
 import { ProxyServer } from '../../src/proxy/proxy.js'
 import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
@@ -14,61 +13,49 @@ import { CertFactory } from '../../src/proxy/certs.js'
 
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
 
-function generateSelfSignedCert() {
-  const keys = forge.pki.rsa.generateKeyPair(2048)
-  const cert = forge.pki.createCertificate()
-  cert.publicKey = keys.publicKey
-  cert.serialNumber = '01'
-  cert.validity.notBefore = new Date()
-  cert.validity.notAfter = new Date()
-  cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1)
-  const attrs = [{ name: 'commonName', value: 'api.anthropic.com' }]
-  cert.setSubject(attrs)
-  cert.setIssuer(attrs)
-  cert.sign(keys.privateKey)
-  return {
-    key: forge.pki.privateKeyToPem(keys.privateKey),
-    cert: forge.pki.certificateToPem(cert),
-  }
-}
+// Capture the Buffer the proxy hands to forwardRequest. Stubbing the upstream
+// hop here keeps the test focused on the fix (raw-bytes preservation) and lets
+// the client→proxy TLS be validated normally against the test CA — no need to
+// disable certificate validation anywhere.
+let capturedBody: Buffer | null = null
+vi.spyOn(ProxyServer.prototype as unknown as { forwardRequest: unknown }, 'forwardRequest')
+  .mockImplementation(async (..._args: unknown[]) => {
+    capturedBody = _args[3] as Buffer
+    const res = _args[4] as http.ServerResponse
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end('{"ok":true}')
+  })
 
-// Send a raw Buffer body through the proxy's CONNECT tunnel and resolve once
-// the upstream response completes.
+// Send a raw Buffer body through the proxy CONNECT tunnel, validating the
+// proxy's TLS cert against the supplied CA.
 async function sendBinaryProxyRequest(
   proxyPort: number,
   targetHost: string,
-  targetPort: number,
+  caPem: string,
   path: string,
   body: Buffer
 ): Promise<{ statusCode: number }> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort }, () => {
-      socket.write(`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n\r\n`)
+      socket.write(`CONNECT ${targetHost}:443 HTTP/1.1\r\nHost: ${targetHost}:443\r\n\r\n`)
     })
-
     let buffer = ''
     socket.on('error', reject)
     socket.on('data', function onConnect(chunk: Buffer) {
       buffer += chunk.toString('binary')
-      const sep = buffer.indexOf('\r\n\r\n')
-      if (sep === -1) return
+      if (buffer.indexOf('\r\n\r\n') === -1) return
       socket.removeListener('data', onConnect)
       if (!buffer.slice(0, buffer.indexOf('\r\n')).includes('200')) {
         reject(new Error('CONNECT failed'))
         return
       }
-
-      const tlsSocket = tls.connect({ socket, servername: targetHost, rejectUnauthorized: false }, () => {
-        const head =
-          `POST ${path} HTTP/1.1\r\n` +
-          `Host: ${targetHost}\r\n` +
-          `Content-Type: application/octet-stream\r\n` +
-          `Content-Length: ${body.length}\r\n` +
-          `Connection: close\r\n\r\n`
-        tlsSocket.write(head)
+      const tlsSocket = tls.connect({ socket, servername: targetHost, ca: [caPem] }, () => {
+        tlsSocket.write(
+          `POST ${path} HTTP/1.1\r\nHost: ${targetHost}\r\n` +
+          `Content-Type: application/octet-stream\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n`
+        )
         tlsSocket.write(body)
       })
-
       let resData = ''
       tlsSocket.on('data', (d) => { resData += d.toString('binary') })
       tlsSocket.on('end', () => {
@@ -82,10 +69,7 @@ async function sendBinaryProxyRequest(
 
 describe('Proxy binary integrity (E2E)', { timeout: 20000 }, () => {
   let tempDir: string
-  let mockUpstream: https.Server
-  let mockUpstreamPort: number
-  let receivedBody: Buffer = Buffer.alloc(0)
-
+  let caPem: string
   let proxy: ProxyServer
   let eventBus: EventBus
 
@@ -98,32 +82,20 @@ describe('Proxy binary integrity (E2E)', { timeout: 20000 }, () => {
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-bin-e2e-'))
     process.env.LLM_FW_DIR = tempDir
-    new CertFactory().generateCA()
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-
-    const certs = generateSelfSignedCert()
-    mockUpstream = https.createServer(certs, (req, res) => {
-      const chunks: Buffer[] = []
-      req.on('data', (c) => chunks.push(Buffer.from(c)))
-      req.on('end', () => {
-        receivedBody = Buffer.concat(chunks)
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end('{"ok":true}')
-      })
-    })
-    await new Promise<void>(resolve => mockUpstream.listen(0, '127.0.0.1', () => resolve()))
-    mockUpstreamPort = (mockUpstream.address() as net.AddressInfo).port
 
     eventBus = new EventBus(testConfig.dashboard)
     proxy = new ProxyServer(testConfig, eventBus)
+    // Generate the CA on the proxy's OWN CertFactory so it is cached in memory
+    // (getOrLoadCA returns the cached value, immune to other e2e files
+    // concurrently clobbering the shared on-disk CA). caPem then validates the
+    // host cert the proxy issues — no need to disable certificate validation.
+    caPem = (proxy as unknown as { certFactory: CertFactory }).certFactory.generateCA().cert
     await proxy.init()
     proxy.start()
   })
 
   afterAll(async () => {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
     await proxy.stop()
-    await new Promise<void>(resolve => mockUpstream.close(() => resolve()))
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
@@ -142,14 +114,15 @@ describe('Proxy binary integrity (E2E)', { timeout: 20000 }, () => {
     const res = await sendBinaryProxyRequest(
       testConfig.proxy.port,
       'api.anthropic.com',
-      mockUpstreamPort,
+      caPem,
       '/v1/files',
       payload
     )
 
     expect(res.statusCode).toBe(200)
-    // The upstream must receive the exact bytes we sent — same length, same content.
-    expect(receivedBody.length).toBe(payload.length)
-    expect(receivedBody.equals(payload)).toBe(true)
+    // forwardRequest must receive the exact bytes we sent — same length, same content.
+    expect(capturedBody).not.toBeNull()
+    expect(capturedBody!.length).toBe(payload.length)
+    expect(capturedBody!.equals(payload)).toBe(true)
   })
 })
