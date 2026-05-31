@@ -119,10 +119,24 @@ export class ProxyServer {
           const chunks: Buffer[] = []
           let accumulatedBody = ''
           let blocked = false
+          let totalBytes = 0
+          const maxBodyBytes = this.config.proxy.maxBodyBytes
 
           // Intercept request stream to check chunks on the fly
           innerReq.on('data', (chunk) => {
             if (blocked) return
+
+            // Bound buffered body size to prevent memory-exhaustion DoS from an
+            // oversized (or unbounded streaming) payload.
+            totalBytes += chunk.length
+            if (maxBodyBytes > 0 && totalBytes > maxBodyBytes) {
+              blocked = true
+              innerRes.writeHead(413, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'request body too large', limit: maxBodyBytes }))
+              innerReq.destroy()
+              return
+            }
+
             chunks.push(Buffer.from(chunk))
             accumulatedBody += chunk.toString('utf-8')
 

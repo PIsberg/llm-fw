@@ -7,6 +7,7 @@ export const DEFAULT_CONFIG: Config = {
     port: 8080,
     httpsPort: 443,
     upstreamTimeoutMs: 30000,
+    maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
     dnsServers: ['1.1.1.1', '8.8.8.8'],
     urlFilter: {
       enabled: true,
@@ -88,6 +89,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_HTTPS_PORT']) {
     config.proxy.httpsPort = parseInt(env['LLM_FW_HTTPS_PORT'], 10);
+  }
+  if (env['LLM_FW_MAX_BODY_BYTES']) {
+    config.proxy.maxBodyBytes = parseInt(env['LLM_FW_MAX_BODY_BYTES'], 10);
   }
   if (env['LLM_FW_JUDGE_ENABLED']) {
     config.detection.judgeEnabled = env['LLM_FW_JUDGE_ENABLED'] === 'true';
