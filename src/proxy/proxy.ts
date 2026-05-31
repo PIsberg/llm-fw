@@ -8,6 +8,20 @@ import { Pipeline } from '../detection/pipeline.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 
+/**
+ * Parse a CONNECT request target (`host:port`) into hostname and port.
+ * Handles the case where no port is supplied (e.g. `CONNECT api.anthropic.com`),
+ * which previously truncated the final character of the hostname.
+ */
+export function parseConnectTarget(url: string): { hostname: string; port: number } {
+  const colonIdx = url.lastIndexOf(':')
+  // No colon, or a lone trailing colon → treat the whole string as the hostname.
+  if (colonIdx === -1) return { hostname: url, port: 443 }
+  const hostname = url.slice(0, colonIdx)
+  const port = parseInt(url.slice(colonIdx + 1), 10) || 443
+  return { hostname, port }
+}
+
 export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
@@ -43,10 +57,7 @@ export class ProxyServer {
   }
 
   private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _head: Buffer): Promise<void> {
-    const url = req.url ?? ''
-    const colonIdx = url.lastIndexOf(':')
-    const hostname = url.slice(0, colonIdx)
-    const port = parseInt(url.slice(colonIdx + 1), 10) || 443
+    const { hostname, port } = parseConnectTarget(req.url ?? '')
 
     const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
 
