@@ -1,0 +1,28 @@
+{
+  "scenario": "accuracy",
+  "timestamp": "2026-05-31T18:15:39.856Z",
+  "config": {
+    "vus": 5,
+    "iterations": 40,
+    "benignRatio": 0.9,
+    "fprMax": 2,
+    "tprMin": 40
+  },
+  "results": {
+    "confusionMatrix": {
+      "tn": 179,
+      "fp": 0,
+      "tp": 9,
+      "fn": 12
+    },
+    "fpr": 0,
+    "tpr": 42.8571,
+    "avgLatencyMs": 113.7,
+    "p50LatencyMs": 105,
+    "p95LatencyMs": 168,
+    "p99LatencyMs": 437,
+    "errCount": 0
+  },
+  "passed": true,
+  "failures": []
+}

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" width="760" height="360">
+<style>text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }</style>
+<rect x="0" y="0" width="760" height="360" fill="#ffffff" />
+<rect x="660" y="10" width="88" height="24" rx="12" fill="#c8e6c9" /><text x="704" y="27" font-size="11" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="middle">✓ PASSED</text>
+<text x="380" y="28" font-size="17" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="middle">Request Throughput Over Time</text>
+<text x="380" y="48" font-size="12" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">5 VUs · 30s · avg 75.33 RPS</text>
+<line x1="40" y1="58" x2="720" y2="58" stroke="#e0e0e0" stroke-width="1" />
+<line x1="75" y1="280" x2="710" y2="280" stroke="#bdbdbd" stroke-width="1.5" />
+<text x="67" y="284" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">0</text>
+<line x1="75" y1="230" x2="710" y2="230" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="234" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">26</text>
+<line x1="75" y1="180" x2="710" y2="180" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="184" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">52</text>
+<line x1="75" y1="130" x2="710" y2="130" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="134" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">78</text>
+<line x1="75" y1="80" x2="710" y2="80" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="84" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">104</text>
+<text x="25" y="180" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; writing-mode: vertical-rl; text-orientation: mixed" fill="#757575" text-anchor="middle">Requests / sec</text>
+<path d="M 75,280 L 75,203.07692307692307 L 96.89655172413794,145.3846153846154 L 118.79310344827587,145.3846153846154 L 140.68965517241378,143.46153846153845 L 162.58620689655174,137.69230769230768 L 184.48275862068965,126.15384615384613 L 206.3793103448276,135.76923076923077 L 228.27586206896552,131.9230769230769 L 250.17241379310346,130 L 272.0689655172414,135.76923076923077 L 293.9655172413793,126.15384615384613 L 315.8620689655172,135.76923076923077 L 337.7586206896552,126.15384615384613 L 359.6551724137931,135.76923076923077 L 381.55172413793105,126.15384615384613 L 403.448275862069,135.76923076923077 L 425.3448275862069,126.15384615384613 L 447.24137931034477,135.76923076923077 L 469.1379310344828,126.15384615384613 L 491.0344827586207,135.76923076923077 L 512.9310344827586,126.15384615384613 L 534.8275862068965,135.76923076923077 L 556.7241379310344,135.76923076923077 L 578.6206896551724,126.15384615384613 L 600.5172413793103,135.76923076923077 L 622.4137931034483,126.15384615384613 L 644.3103448275862,135.76923076923077 L 666.2068965517241,126.15384615384613 L 688.1034482758621,135.76923076923077 L 710,126.15384615384613 L 710,280" fill="#bbdefb" opacity="0.5" />
+<polyline points="75,203.07692307692307 96.89655172413794,145.3846153846154 118.79310344827587,145.3846153846154 140.68965517241378,143.46153846153845 162.58620689655174,137.69230769230768 184.48275862068965,126.15384615384613 206.3793103448276,135.76923076923077 228.27586206896552,131.9230769230769 250.17241379310346,130 272.0689655172414,135.76923076923077 293.9655172413793,126.15384615384613 315.8620689655172,135.76923076923077 337.7586206896552,126.15384615384613 359.6551724137931,135.76923076923077 381.55172413793105,126.15384615384613 403.448275862069,135.76923076923077 425.3448275862069,126.15384615384613 447.24137931034477,135.76923076923077 469.1379310344828,126.15384615384613 491.0344827586207,135.76923076923077 512.9310344827586,126.15384615384613 534.8275862068965,135.76923076923077 556.7241379310344,135.76923076923077 578.6206896551724,126.15384615384613 600.5172413793103,135.76923076923077 622.4137931034483,126.15384615384613 644.3103448275862,135.76923076923077 666.2068965517241,126.15384615384613 688.1034482758621,135.76923076923077 710,126.15384615384613" stroke="#1565c0" fill="none" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+<circle cx="75" cy="203.07692307692307" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="96.89655172413794" cy="145.3846153846154" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="118.79310344827587" cy="145.3846153846154" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="140.68965517241378" cy="143.46153846153845" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="162.58620689655174" cy="137.69230769230768" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="184.48275862068965" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="206.3793103448276" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="228.27586206896552" cy="131.9230769230769" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="250.17241379310346" cy="130" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="272.0689655172414" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="293.9655172413793" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="315.8620689655172" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="337.7586206896552" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="359.6551724137931" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="381.55172413793105" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="403.448275862069" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="425.3448275862069" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="447.24137931034477" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="469.1379310344828" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="491.0344827586207" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="512.9310344827586" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="534.8275862068965" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="556.7241379310344" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="578.6206896551724" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="600.5172413793103" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="622.4137931034483" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="644.3103448275862" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="666.2068965517241" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="688.1034482758621" cy="135.76923076923077" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<circle cx="710" cy="126.15384615384613" r="3.5" fill="#1565c0" stroke="#ffffff" stroke-width="1.5" />
+<line x1="75" y1="135.1346153846154" x2="710" y2="135.1346153846154" stroke="#e65100" stroke-width="1.5" stroke-dasharray="6,4" />
+<text x="714" y="139.1346153846154" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#e65100" text-anchor="start">avg: 75.33</text>
+<line x1="75" y1="280" x2="710" y2="280" stroke="#bdbdbd" stroke-width="1.5" />
+<text x="75" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">1s</text>
+<text x="140.68965517241378" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">4s</text>
+<text x="206.3793103448276" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">7s</text>
+<text x="272.0689655172414" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">10s</text>
+<text x="337.7586206896552" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">13s</text>
+<text x="403.448275862069" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">16s</text>
+<text x="469.1379310344828" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">19s</text>
+<text x="534.8275862068965" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">22s</text>
+<text x="600.5172413793103" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">25s</text>
+<text x="666.2068965517241" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">28s</text>
+<text x="710" y="298" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">30s</text>
+<text x="392.5" y="316" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">Elapsed (seconds)</text>
+</svg>

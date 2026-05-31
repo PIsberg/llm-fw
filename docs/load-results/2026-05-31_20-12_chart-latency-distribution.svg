@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400">
+<style>text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }</style>
+<rect x="0" y="0" width="760" height="400" fill="#ffffff" />
+<rect x="660" y="10" width="88" height="24" rx="12" fill="#c8e6c9" /><text x="704" y="27" font-size="11" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="middle">✓ PASSED</text>
+<text x="380" y="28" font-size="17" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="middle">Response Latency Percentiles</text>
+<text x="380" y="48" font-size="12" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">5 VUs · 30s duration · 2260 requests</text>
+<line x1="40" y1="58" x2="720" y2="58" stroke="#e0e0e0" stroke-width="1" />
+<line x1="75" y1="320" x2="710" y2="320" stroke="#bdbdbd" stroke-width="1.5" />
+<text x="67" y="324" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">0 ms</text>
+<line x1="75" y1="272" x2="710" y2="272" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="276" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">27 ms</text>
+<line x1="75" y1="224" x2="710" y2="224" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="228" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">54 ms</text>
+<line x1="75" y1="176" x2="710" y2="176" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="180" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">81 ms</text>
+<line x1="75" y1="128" x2="710" y2="128" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="132" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">108 ms</text>
+<line x1="75" y1="80" x2="710" y2="80" stroke="#eeeeee" stroke-width="1" />
+<text x="67" y="84" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">135 ms</text>
+<text x="706" y="94" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="end">p99 ceiling: 5000 ms — well above actual values</text>
+<rect x="169.25" y="207.3159065628476" width="90" height="115.6840934371524" fill="#00000018" rx="4" />
+<rect x="166.25" y="204.3159065628476" width="90" height="115.6840934371524" fill="#c8e6c9" rx="4" />
+<rect x="166.25" y="204.3159065628476" width="90" height="6" fill="#2e7d32" rx="4" />
+<rect x="166.25" y="210.3159065628476" width="90" height="109.6840934371524" fill="#c8e6c9" />
+<text x="211.25" y="196.3159065628476" font-size="13" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="middle">65 ms</text>
+<text x="211.25" y="340" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">p50</text>
+<rect x="350.5" y="191.29810901001113" width="90" height="131.70189098998887" fill="#00000018" rx="4" />
+<rect x="347.5" y="188.29810901001113" width="90" height="131.70189098998887" fill="#bbdefb" rx="4" />
+<rect x="347.5" y="188.29810901001113" width="90" height="6" fill="#1565c0" rx="4" />
+<rect x="347.5" y="194.29810901001113" width="90" height="125.70189098998887" fill="#bbdefb" />
+<text x="392.5" y="180.29810901001113" font-size="13" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#1565c0" text-anchor="middle">74 ms</text>
+<text x="392.5" y="340" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">p95</text>
+<rect x="531.75" y="157.48275862068965" width="90" height="165.51724137931035" fill="#00000018" rx="4" />
+<rect x="528.75" y="154.48275862068965" width="90" height="165.51724137931035" fill="#ffcdd2" rx="4" />
+<rect x="528.75" y="154.48275862068965" width="90" height="6" fill="#c62828" rx="4" />
+<rect x="528.75" y="160.48275862068965" width="90" height="159.51724137931035" fill="#ffcdd2" />
+<text x="573.75" y="146.48275862068965" font-size="13" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#c62828" text-anchor="middle">93 ms</text>
+<text x="573.75" y="340" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="middle">p99</text>
+<line x1="75" y1="320" x2="710" y2="320" stroke="#bdbdbd" stroke-width="1.5" />
+<rect x="40" y="346" width="158" height="46" fill="#fafafa" stroke="#e0e0e0" rx="8" />
+<text x="125" y="366" font-size="15" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#1565c0" text-anchor="middle">2260</text>
+<text x="125" y="384" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">Total Requests</text>
+<rect x="210" y="346" width="158" height="46" fill="#fafafa" stroke="#e0e0e0" rx="8" />
+<text x="295" y="366" font-size="15" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#1565c0" text-anchor="middle">75.33 RPS</text>
+<text x="295" y="384" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">Throughput</text>
+<rect x="380" y="346" width="158" height="46" fill="#fafafa" stroke="#e0e0e0" rx="8" />
+<text x="465" y="366" font-size="15" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#1565c0" text-anchor="middle">0 (0.00%)</text>
+<text x="465" y="384" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">False Positives</text>
+<rect x="550" y="346" width="158" height="46" fill="#fafafa" stroke="#e0e0e0" rx="8" />
+<text x="635" y="366" font-size="15" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#1565c0" text-anchor="middle">0</text>
+<text x="635" y="384" font-size="10" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">Errors</text>
+</svg>
