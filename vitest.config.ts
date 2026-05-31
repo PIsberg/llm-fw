@@ -8,7 +8,10 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/detection/**'],
       thresholds: {
-        lines: 62,
+        statements: 80,
+        branches: 80,
+        functions: 80,
+        lines: 80,
       },
     },
   },
