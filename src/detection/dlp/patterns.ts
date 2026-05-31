@@ -73,6 +73,9 @@ export const CREDIT_CARD_MARKER = '[REDACTED_CREDIT_CARD]'
 // Marker used for entropy-based generic secrets (Strategy 2).
 export const GENERIC_SECRET_MARKER = '[REDACTED_SECRET]'
 
+// Marker used for `Authorization: Bearer <token>` style credentials.
+export const BEARER_TOKEN_MARKER = '[REDACTED_BEARER_TOKEN]'
+
 // Candidate credit-card numbers: 13–19 digits, optionally separated by single
 // spaces or hyphens. Validation via Luhn happens in the scanner.
 export const CREDIT_CARD_CANDIDATE = /\b(?:\d[ -]?){12,18}\d\b/g

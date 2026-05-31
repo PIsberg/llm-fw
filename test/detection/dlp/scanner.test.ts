@@ -251,4 +251,67 @@ describe('markerFor', () => {
   it('falls back to a generic marker for unknown types', () => {
     expect(markerFor('UNKNOWN')).toBe('[REDACTED]')
   })
+
+  it('every marker is JSON-safe (no quotes or backslashes)', () => {
+    const types = [...DLP_RULES.map(r => r.type), 'CREDIT_CARD', 'GENERIC_SECRET', 'BEARER_TOKEN', 'UNKNOWN']
+    for (const t of types) {
+      const marker = markerFor(t)
+      expect(marker).not.toMatch(/["'\\]/)
+      // Substituting the marker into a JSON string keeps it parseable.
+      expect(() => JSON.parse(JSON.stringify({ x: 'a ' + marker + ' b' }))).not.toThrow()
+    }
+  })
+})
+
+describe('DlpScanner.scan — Bearer tokens & expanded keywords', () => {
+  it('detects an Authorization: Bearer token', () => {
+    const scanner = makeScanner()
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0'
+    const f = scanner.scan('Authorization: Bearer ' + jwt)
+    const b = f.find(x => x.type === 'BEARER_TOKEN')
+    expect(b).toBeDefined()
+    expect(b!.match).toBe(jwt)
+  })
+
+  it('redacts a bearer token with its dedicated marker', () => {
+    const scanner = makeScanner()
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9aaaaaaaa'
+    const text = 'Authorization: Bearer ' + jwt
+    const out = scanner.redact(text, scanner.scan(text))
+    expect(out).toContain('[REDACTED_BEARER_TOKEN]')
+    expect(out).not.toContain(jwt)
+  })
+
+  it('detects the expanded keyword set (pwd, auth, credential, key)', () => {
+    const scanner = makeScanner()
+    const v = 'aZ9x7Qw2Lk8Pm3Vn6Rt1Yb4Hs0' // high-entropy, >20 chars
+    expect(scanner.scan('pwd=' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
+    expect(scanner.scan('auth: ' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
+    expect(scanner.scan('credential=' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
+    expect(scanner.scan('key=' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
+  })
+})
+
+describe('DlpScanner.redact — exact-location replacement', () => {
+  it('redacts a secret only where it was matched, not coincidental copies', () => {
+    const scanner = makeScanner()
+    const secret = 'Xy7Qw2Lk8Pm3Vn6Rt1Yb4' // 22 chars, high entropy
+    // The same string also appears later as a benign path segment (no keyword),
+    // so the scanner records exactly ONE finding (the keyword-adjacent one).
+    const text = 'password=' + secret + ' see https://ex.com/' + secret
+    const findings = scanner.scan(text)
+    expect(findings.filter(f => f.type === 'GENERIC_SECRET')).toHaveLength(1)
+    const redacted = scanner.redact(text, findings)
+    expect(redacted).toContain('password=[REDACTED_SECRET]')
+    // The coincidental copy survives — only the matched location is redacted.
+    expect(redacted).toContain('https://ex.com/' + secret)
+  })
+
+  it('redacts all genuine occurrences when each is independently matched', () => {
+    const scanner = makeScanner()
+    const text = AWS_KEY + ' and again ' + AWS_KEY
+    const redacted = scanner.redact(text, scanner.scan(text))
+    expect(redacted).not.toContain(AWS_KEY)
+    expect(redacted.match(/\[REDACTED_AWS_KEY\]/g)!).toHaveLength(2)
+  })
 })

@@ -15,6 +15,7 @@ type MockFn = ReturnType<typeof vi.fn>
 let mockScore: MockFn
 let mockCheck: MockFn
 let mockClassify: MockFn
+let mockJudgeRag: MockFn
 let mockIsInitialized: MockFn
 
 const META = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages' }
@@ -31,6 +32,7 @@ beforeEach(() => {
   mockScore = vi.fn().mockReturnValue({ score: 0, matches: [] })
   mockCheck = vi.fn().mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 1 })
   mockClassify = vi.fn().mockResolvedValue({ verdict: 'SAFE', latencyMs: 1 })
+  mockJudgeRag = vi.fn().mockResolvedValue({ verdict: 'SAFE', latencyMs: 1 })
   mockIsInitialized = vi.fn().mockReturnValue(true)
 
   ;(HeuristicScorer as unknown as MockFn).mockImplementation(function() {
@@ -44,7 +46,7 @@ beforeEach(() => {
     }
   })
   ;(JudgeClient as unknown as MockFn).mockImplementation(function() {
-    return { classify: mockClassify }
+    return { classify: mockClassify, judgeRagContext: mockJudgeRag }
   })
 })
 
@@ -175,6 +177,46 @@ describe('Pipeline', () => {
     const pipeline = new Pipeline(makeConfig(), undefined)
     const result = await pipeline.run('/v1/messages', body, META)
     expect(result.action).toBe('pass')
+  })
+
+  it('routes an embedded high-entropy payload to the judge via windowed entropy', async () => {
+    // A dense base64 pocket buried in low-entropy filler: the WHOLE-string
+    // entropy is diluted below 5.0, but the sliding window still surfaces it.
+    const payload = 'a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXyZ+/AbCdEfGhIjKlMnOpQrStUvWxYz'
+    const filler = 'the cat sat on the mat. '.repeat(20)
+    const content = filler + payload + filler
+    const body = JSON.stringify({ messages: [{ role: 'user', content }] })
+    mockScore.mockReturnValue({ score: 0, matches: [] })
+    mockClassify.mockResolvedValue({ verdict: 'MALICIOUS', latencyMs: 5 })
+    const pipeline = new Pipeline(makeConfig({ judgeEnabled: true }), undefined)
+    const result = await pipeline.run('/v1/messages', body, META)
+    expect(result.action).toBe('block')
+    expect(result.stage).toBe('judge')
+  })
+
+  it('short-circuits RAG judging on the first MALICIOUS and bounds concurrency', async () => {
+    // 6 distinct blocks; the FIRST is poisoned. With concurrency 3 the first
+    // batch finds it, so the second batch (blocks 4-6) is never judged.
+    const docs = ['POISON', 'b1', 'b2', 'b3', 'b4', 'b5'].map(s => `<document>${s}</document>`).join(' ')
+    const body = JSON.stringify({ messages: [{ role: 'user', content: docs }] })
+    mockScore.mockReturnValue({ score: 0, matches: [] }) // structural heuristic does not fire
+    mockJudgeRag.mockImplementation((d: string) =>
+      Promise.resolve({ verdict: d.includes('POISON') ? 'MALICIOUS' : 'SAFE', latencyMs: 1 }))
+    const pipeline = new Pipeline(makeConfig({ judgeEnabled: true }), undefined)
+    const result = await pipeline.run('/v1/messages', body, META)
+    expect(result.action).toBe('block')
+    expect(result.stage).toBe('rag')
+    expect(mockJudgeRag).toHaveBeenCalledTimes(3) // only the first batch ran
+  })
+
+  it('dedupes identical RAG blocks before judging', async () => {
+    const docs = '<document>same</document> <document>same</document> <document>same</document>'
+    const body = JSON.stringify({ messages: [{ role: 'user', content: docs }] })
+    mockScore.mockReturnValue({ score: 0, matches: [] })
+    mockJudgeRag.mockResolvedValue({ verdict: 'SAFE', latencyMs: 1 })
+    const pipeline = new Pipeline(makeConfig({ judgeEnabled: true }), undefined)
+    await pipeline.run('/v1/messages', body, META)
+    expect(mockJudgeRag).toHaveBeenCalledTimes(1) // 3 identical → 1 unique judge call
   })
 
   it('judgeEnabled=true, judgeBlock=true, judge MALICIOUS, score 25, sim 0.75 -> action=block, stage=judge', async () => {

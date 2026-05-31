@@ -390,10 +390,10 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 | `stripe` | Stripe live secret keys (`sk_live_…`) |
 | `private_keys` | RSA / EC / OpenSSH / DSA / PGP private-key headers |
 | `mongodb` | MongoDB SRV connection URIs with embedded credentials |
-| `entropy` | High-entropy generic secrets adjacent to `password=`, `secret:`, `token=`, `api_key=`, `apikey=` (Shannon entropy > 4.0, length > 20) |
+| `entropy` | High-entropy generic secrets adjacent to credential keywords (`password=`/`pwd=`/`secret:`/`token=`/`api_key=`/`access_key=`/`auth:`/`credential=`/`key=`, Shannon entropy > 4.0, length > 20) **and** `Authorization: Bearer <token>` headers (the `Bearer` keyword alone is sufficient, no entropy gate) |
 | `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm) |
 
-Each detected secret maps to a redaction marker such as `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, or `[REDACTED_SECRET]`.
+Each detected secret maps to a redaction marker such as `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_BEARER_TOKEN]`, or `[REDACTED_SECRET]`. Redaction patches each secret **at its exact matched offset** (not a global string replace), so a token that also appears elsewhere as benign data is never redacted by coincidence.
 
 > The firewall never logs the raw secret value — dashboard events record only the **type** of secret found (e.g. `GITHUB_TOKEN`).
 
@@ -435,7 +435,7 @@ Autonomous agents (AutoGPT, LangChain, CrewAI, …) can fall into recursive tool
 ### Rate limiting & budgets (Quota Manager)
 
 - **Requests Per Minute (RPM)**: a sliding 60-second window of request timestamps. When admitting a request would exceed `maxRequestsPerMinute`, the proxy returns `429 Too Many Requests` with a `Retry-After` header (seconds until the oldest in-window request expires) and body `{ "error": "rate limit exceeded", "retryAfter": <sec> }`. The check runs **before** the request body is buffered, so run-away agents are throttled cheaply.
-- **Session token budget**: each forwarded request contributes an estimated token count (`ceil(chars / 4)`) toward a running session total. Once it exceeds `maxTokensPerSession`, subsequent requests are rejected with `429 { "error": "session token budget exceeded" }` until the quota is reset.
+- **Token budget**: every forwarded request contributes an estimated token count (`ceil(chars / 4)`) toward a running total — counting **both** the request payload **and** the streamed upstream response (large generations and runaway loops cost mostly on the response side). Once it exceeds `maxTokensPerSession`, subsequent requests are rejected with `429 { "error": "session token budget exceeded" }`. The budget is a **rolling window** that auto-resets every `tokenBudgetWindowMs` (default 1 hour) so a long-lived proxy is never permanently locked out; set `tokenBudgetWindowMs: 0` for a true lifetime budget that only clears on a manual dashboard reset.
 
 ### Loop detection (Loop Detector)
 
@@ -451,7 +451,8 @@ When any breaker trips, a critical `dos` event is logged to the dashboard (shown
     "enabled": true,
     "maxRequestsPerMinute": 60,
     "maxTokensPerSession": 500000,
-    "loopDetectionEnabled": true
+    "loopDetectionEnabled": true,
+    "tokenBudgetWindowMs": 3600000
   }
 }
 ```
@@ -462,7 +463,8 @@ Environment overrides:
 |----------|--------|
 | `LLM_FW_DOS_ENABLED` | `true`/`false` — enable or disable the DoS circuit breaker |
 | `LLM_FW_DOS_MAX_RPM` | integer — requests allowed per rolling minute |
-| `LLM_FW_DOS_MAX_TOKENS_PER_SESSION` | integer — estimated token budget per session |
+| `LLM_FW_DOS_MAX_TOKENS_PER_SESSION` | integer — token budget per rolling window |
+| `LLM_FW_DOS_TOKEN_WINDOW_MS` | integer — token-budget window in ms before auto-reset (`0` = lifetime) |
 
 ---
 
@@ -474,7 +476,7 @@ Two cooperating strategies guard the data/instruction boundary:
 
 ### Structural delimiter enforcement (heuristics)
 
-The parser isolates RAG data blocks delimited by common boundaries — `<document>…</document>`, `<context>…</context>`, `<search_results>…</search_results>`, and triple-backtick fenced code blocks (optionally language-tagged, e.g. ```` ```xml ````). It is robust to multiple blocks and to a missing close tag (the block is captured to end-of-input). When standard prompt-injection keywords are detected **exclusively inside** an extracted data block — the block scores high under the heuristic scorer while the prompt with all data blocks removed scores low — the score is amplified by a large multiplier. Passive data should never issue system overrides, so any imperative confined to a data block is treated as far more suspicious than the same phrase in user-authored text and is escalated past the block threshold. If the same keywords also appear *outside* the block, it is ordinary direct injection and is deferred to the standard heuristic stage instead of being double-counted.
+The parser isolates RAG data blocks delimited by common boundaries — `<document>`, `<context>`, `<search_results>`, plus `<data>`, `<web_page>`, and `<source>` (all common in LangChain / LlamaIndex), triple-backtick fenced code blocks (GFM-style: 3+ backticks at a line start, optionally indented or language-tagged, e.g. ```` ```xml ````), and Markdown blockquotes (`> …`). It is robust to multiple blocks and to a missing close tag/fence (the block is captured to end-of-input). When standard prompt-injection keywords are detected **exclusively inside** an extracted data block — the block scores high under the heuristic scorer while the prompt with all data blocks removed scores low — the score is amplified by a large multiplier. Passive data should never issue system overrides, so any imperative confined to a data block is treated as far more suspicious than the same phrase in user-authored text and is escalated past the block threshold. If the same keywords also appear *outside* the block, it is ordinary direct injection and is deferred to the standard heuristic stage instead of being double-counted.
 
 ### Specialized judge (data/action intent check)
 

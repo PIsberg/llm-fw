@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest'
-import { normalize, extractCandidates, calculateEntropy } from '../../src/detection/normalize.js'
+import { normalize, extractCandidates, calculateEntropy, maxWindowEntropy } from '../../src/detection/normalize.js'
+
+describe('maxWindowEntropy', () => {
+  it('returns whole-string entropy when text is shorter than the window', () => {
+    const s = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg'
+    expect(maxWindowEntropy(s, 64)).toBeCloseTo(calculateEntropy(s), 10)
+  })
+
+  it('returns 0 for empty input', () => {
+    expect(maxWindowEntropy('')).toBe(0)
+  })
+
+  it('surfaces a dense high-entropy pocket diluted by surrounding benign text', () => {
+    // A 64-char random base64 blob embedded in a long, low-entropy filler.
+    const payload = 'a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXyZ+/AbCdEfGhIjKlMnOpQrStUvWxYz'
+    const filler = 'the cat sat on the mat. '.repeat(40) // very low entropy
+    const mixed = filler + payload + filler
+    // Whole-string entropy is dragged down by the filler...
+    expect(calculateEntropy(mixed)).toBeLessThan(5.0)
+    // ...but the sliding window still finds the dense pocket.
+    expect(maxWindowEntropy(mixed, 64, 16)).toBeGreaterThan(5.0)
+  })
+
+  it('stays low for uniformly low-entropy text', () => {
+    expect(maxWindowEntropy('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')).toBeLessThan(1)
+  })
+})
 
 describe('normalize', () => {
   it('full-width IGNORE normalized contains "ignore"', () => {

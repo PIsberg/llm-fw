@@ -1,38 +1,58 @@
 import { DosConfig } from '../../types.js'
 
 const WINDOW_MS = 60_000
+// Default rolling window after which the token budget auto-resets. Keeps a
+// long-lived proxy from permanently locking the user out once the lifetime
+// total is reached. Overridable via DosConfig.tokenBudgetWindowMs (0 = never).
+const DEFAULT_TOKEN_WINDOW_MS = 3_600_000 // 1 hour
 
 /**
- * In-memory sliding-window rate limiter plus a session token budget tracker.
+ * In-memory sliding-window rate limiter plus a token budget tracker.
  *
- * The RPM limiter keeps a list of request timestamps, prunes entries older than
- * 60s on every check, and rejects a request when admitting it would push the
- * count within the trailing 60s window past `maxRequestsPerMinute`.
+ * The RPM limiter keeps an ascending list of request timestamps and rejects a
+ * request when admitting it would push the count within the trailing 60s window
+ * past `maxRequestsPerMinute`.
  *
- * The session token budget accumulates an estimated token count (chars / 4) and
- * trips once it exceeds `maxTokensPerSession`.
+ * The token budget accumulates an estimated token count (chars / 4) and trips
+ * once it exceeds `maxTokensPerSession`. The budget auto-resets every
+ * `tokenBudgetWindowMs` (default 1h) so it behaves as a rolling quota rather
+ * than a permanent lockout.
  */
 export class QuotaManager {
   private maxRpm: number
   private maxTokens: number
+  private tokenWindowMs: number
   private timestamps: number[] = []
   private tokens = 0
+  private tokenWindowStart: number | null = null
 
   constructor(config: DosConfig) {
     this.maxRpm = config.maxRequestsPerMinute
     this.maxTokens = config.maxTokensPerSession
+    this.tokenWindowMs = config.tokenBudgetWindowMs ?? DEFAULT_TOKEN_WINDOW_MS
   }
 
   /**
-   * Record a request at `now` and decide whether it is admitted. Old timestamps
-   * (>60s) are pruned first so the window slides. When the request would exceed
-   * the RPM limit it is NOT recorded and `allowed=false` is returned along with
-   * the number of seconds the caller should back off before the oldest in-window
-   * request expires.
+   * Evict expired timestamps from the FRONT of the (ascending) array instead of
+   * re-filtering the whole array on every call. Amortized O(1): each timestamp
+   * is removed at most once, and the array never grows past `maxRpm` because we
+   * stop recording once the window is full. Bounds event-loop cost even when a
+   * rogue agent spams tens of thousands of requests per minute.
+   */
+  private prune(cutoff: number): void {
+    let i = 0
+    while (i < this.timestamps.length && this.timestamps[i]! <= cutoff) i++
+    if (i > 0) this.timestamps.splice(0, i)
+  }
+
+  /**
+   * Record a request at `now` and decide whether it is admitted. When the
+   * request would exceed the RPM limit it is NOT recorded and `allowed=false` is
+   * returned along with the number of seconds to back off before the oldest
+   * in-window request expires.
    */
   checkRpm(now: number = Date.now()): { allowed: boolean; retryAfterSec: number } {
-    const cutoff = now - WINDOW_MS
-    this.timestamps = this.timestamps.filter(t => t > cutoff)
+    this.prune(now - WINDOW_MS)
 
     if (this.timestamps.length >= this.maxRpm) {
       const oldest = this.timestamps[0] ?? now
@@ -49,13 +69,32 @@ export class QuotaManager {
     return Math.ceil(text.length / 4)
   }
 
-  /** Accumulate estimated tokens against the session budget. */
-  addTokens(n: number): void {
+  /**
+   * Roll the token budget window: once `tokenWindowMs` has elapsed since the
+   * window opened, the accumulated count resets automatically. With
+   * `tokenWindowMs <= 0` the budget never resets (true lifetime budget).
+   */
+  private rollTokenWindow(now: number): void {
+    if (this.tokenWindowMs <= 0) return
+    if (this.tokenWindowStart === null) {
+      this.tokenWindowStart = now
+      return
+    }
+    if (now - this.tokenWindowStart >= this.tokenWindowMs) {
+      this.tokens = 0
+      this.tokenWindowStart = now
+    }
+  }
+
+  /** Accumulate estimated tokens against the (rolling) budget. */
+  addTokens(n: number, now: number = Date.now()): void {
+    this.rollTokenWindow(now)
     this.tokens += n
   }
 
-  /** True once the accumulated session tokens exceed the configured budget. */
-  sessionExceeded(): boolean {
+  /** True once the accumulated tokens exceed the configured budget. */
+  sessionExceeded(now: number = Date.now()): boolean {
+    this.rollTokenWindow(now)
     return this.tokens > this.maxTokens
   }
 
@@ -64,8 +103,7 @@ export class QuotaManager {
   }
 
   requestsInWindow(now: number = Date.now()): number {
-    const cutoff = now - WINDOW_MS
-    this.timestamps = this.timestamps.filter(t => t > cutoff)
+    this.prune(now - WINDOW_MS)
     return this.timestamps.length
   }
 
@@ -73,5 +111,6 @@ export class QuotaManager {
   reset(): void {
     this.timestamps = []
     this.tokens = 0
+    this.tokenWindowStart = null
   }
 }

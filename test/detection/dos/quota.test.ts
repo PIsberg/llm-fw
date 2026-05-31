@@ -101,6 +101,37 @@ describe('QuotaManager — token estimator and session budget', () => {
   })
 })
 
+describe('QuotaManager — rolling token budget window', () => {
+  it('auto-resets the token budget after the window elapses', () => {
+    const q = new QuotaManager(makeConfig({ maxTokensPerSession: 100, tokenBudgetWindowMs: 1000 }))
+    const t = 5_000_000
+    q.addTokens(120, t)
+    expect(q.sessionExceeded(t)).toBe(true)
+    // Still exceeded just before the window closes.
+    expect(q.sessionExceeded(t + 999)).toBe(true)
+    // At/after the window the budget rolls over and resets to 0.
+    expect(q.sessionExceeded(t + 1000)).toBe(false)
+    expect(q.tokensUsed()).toBe(0)
+  })
+
+  it('treats tokenBudgetWindowMs=0 as a lifetime budget that never resets', () => {
+    const q = new QuotaManager(makeConfig({ maxTokensPerSession: 100, tokenBudgetWindowMs: 0 }))
+    const t = 5_000_000
+    q.addTokens(120, t)
+    expect(q.sessionExceeded(t)).toBe(true)
+    // Far in the future, still exceeded (no auto-reset).
+    expect(q.sessionExceeded(t + 10 * 3_600_000)).toBe(true)
+  })
+
+  it('defaults to a 1-hour window when tokenBudgetWindowMs is omitted', () => {
+    const q = new QuotaManager(makeConfig({ maxTokensPerSession: 100 }))
+    const t = 5_000_000
+    q.addTokens(120, t)
+    expect(q.sessionExceeded(t + 60_000)).toBe(true)     // within the hour
+    expect(q.sessionExceeded(t + 3_600_000)).toBe(false) // after the hour → reset
+  })
+})
+
 describe('QuotaManager — reset', () => {
   it('clears both rate-limit and token state', () => {
     const q = new QuotaManager(makeConfig({ maxRequestsPerMinute: 1, maxTokensPerSession: 10 }))

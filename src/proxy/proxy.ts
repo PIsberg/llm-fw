@@ -177,6 +177,34 @@ export class ProxyServer {
             }
           }
 
+          // Stage 0.1 — Outbound URL exfiltration screening. The decrypted
+          // request path/query is available the moment the request line is
+          // parsed, so screen it BEFORE buffering the body or running the
+          // pipeline: an exfil path (e.g. a query string carrying stolen data)
+          // is then rejected as early and cheaply as possible.
+          if (this.urlClassifier) {
+            const pathResult = this.urlClassifier.classifyPath(dosPath)
+            if (pathResult.action === 'block') {
+              innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+              this.eventBus.emit({
+                stage: 'url-filter',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method: dosMethod,
+                path: dosPath,
+                payload_preview: dosPath.slice(0, 120),
+                payload_full: dosPath,
+                action: 'blocked',
+                kind: 'url',
+                urlBlockReason: pathResult.reason,
+              })
+              innerReq.destroy()
+              return
+            }
+          }
+
           const chunks: Buffer[] = []
           let accumulatedBody = ''
           let blocked = false
@@ -320,36 +348,10 @@ export class ProxyServer {
             return
           }
 
-          // Outbound URL exfiltration screening. The CONNECT handshake only sees
-          // the hostname; here the full decrypted request path/query is available,
-          // so the exfil-path heuristics can finally run.
-          const reqPath = innerReq.url ?? '/'
-          if (this.urlClassifier) {
-            const pathResult = this.urlClassifier.classifyPath(reqPath)
-            if (pathResult.action === 'block') {
-              innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-              innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
-              this.eventBus.emit({
-                stage: 'url-filter',
-                score: 100,
-                similarity: 0,
-                target: hostname,
-                method: innerReq.method ?? 'GET',
-                path: reqPath,
-                payload_preview: reqPath.slice(0, 120),
-                payload_full: reqPath,
-                action: 'blocked',
-                kind: 'url',
-                urlBlockReason: pathResult.reason,
-              })
-              return
-            }
-          }
-
           await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
 
-          // Track the session token budget from the (estimated) request size so
-          // the next request can be rejected once the budget is exhausted.
+          // Account the INPUT (request) tokens against the budget; forwardRequest
+          // additionally accounts the response tokens as they stream back.
           if (this.quota) this.quota.addTokens(this.quota.estimateTokens(body))
         } catch (err) {
           console.error('[proxy] request error:', err)
@@ -388,6 +390,7 @@ export class ProxyServer {
       // Parse and stream the response
       let headersDone = false
       let rawHeaders = ''
+      let respBodyBytes = 0
       upstream.on('data', (chunk: Buffer) => {
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
@@ -405,13 +408,21 @@ export class ProxyServer {
               if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
             }
             res.writeHead(statusCode, respHeaders)
-            if (bodyStart) res.write(Buffer.from(bodyStart, 'binary'))
+            if (bodyStart) { res.write(Buffer.from(bodyStart, 'binary')); respBodyBytes += bodyStart.length }
           }
         } else {
           res.write(chunk)
+          respBodyBytes += chunk.length
         }
       })
-      upstream.on('end', () => { res.end(); resolve() })
+      upstream.on('end', () => {
+        res.end()
+        // Account the RESPONSE size against the token budget. Runaway agents and
+        // large generations rack up cost on the response side, not just input,
+        // so a budget that ignored responses would badly under-count.
+        if (this.quota) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
+        resolve()
+      })
       upstream.on('error', reject)
     })
   }

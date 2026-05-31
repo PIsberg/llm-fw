@@ -285,3 +285,26 @@ export function calculateEntropy(text: string): number {
   }
   return entropy;
 }
+
+/**
+ * Maximum Shannon entropy over a sliding window of the text.
+ *
+ * A small, highly obfuscated payload (e.g. a 60-char base64 blob) embedded in a
+ * large benign prompt barely moves the entropy of the WHOLE string, so a global
+ * entropy gate is diluted below threshold and misses it. Scanning fixed-size
+ * windows and taking the maximum surfaces the dense pocket of randomness
+ * regardless of how much benign text surrounds it.
+ */
+export function maxWindowEntropy(text: string, windowSize = 64, step = 32): number {
+  if (!text) return 0;
+  if (text.length <= windowSize) return calculateEntropy(text);
+  let max = 0;
+  for (let i = 0; i + windowSize <= text.length; i += step) {
+    const e = calculateEntropy(text.slice(i, i + windowSize));
+    if (e > max) max = e;
+  }
+  // A fixed step can skip the final window; include it explicitly.
+  const tail = calculateEntropy(text.slice(text.length - windowSize));
+  if (tail > max) max = tail;
+  return max;
+}

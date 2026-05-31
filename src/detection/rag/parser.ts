@@ -17,12 +17,25 @@ const TAG_BLOCKS: { tag: string; re: RegExp }[] = [
   { tag: 'document', re: /<document(?:\s[^>]*)?>([\s\S]*?)(?:<\/document>|$)/gi },
   { tag: 'context', re: /<context(?:\s[^>]*)?>([\s\S]*?)(?:<\/context>|$)/gi },
   { tag: 'search_results', re: /<search_results(?:\s[^>]*)?>([\s\S]*?)(?:<\/search_results>|$)/gi },
+  // Also common in LangChain / LlamaIndex retrieval prompts.
+  { tag: 'data', re: /<data(?:\s[^>]*)?>([\s\S]*?)(?:<\/data>|$)/gi },
+  { tag: 'web_page', re: /<web_page(?:\s[^>]*)?>([\s\S]*?)(?:<\/web_page>|$)/gi },
+  { tag: 'source', re: /<source(?:\s[^>]*)?>([\s\S]*?)(?:<\/source>|$)/gi },
 ]
 
-// Triple-backtick fenced code block, optionally tagged with a language
-// (```xml, ```json, ...). Capture the inner body; tolerate a missing closing
-// fence by anchoring the close to end-of-string.
-const FENCE_RE = /```[a-zA-Z0-9_-]*[ \t]*\r?\n([\s\S]*?)(?:```|$)/g
+// Triple-backtick fenced code block (GitHub-Flavored-Markdown style): an opening
+// fence of 3+ backticks at the start of a line (optionally indented up to 3
+// spaces) with an optional info string, content, then a closing fence of at
+// least the same length at line start — or end-of-string if the close is
+// missing. The leading (?:^|\n) anchors the fence to a line start so backticks
+// appearing mid-line (inline code) do not start a block; the \1 backreference
+// requires the closing fence to be at least as long as the opening one.
+const FENCE_RE = /(?:^|\n)[ \t]{0,3}(`{3,})[^\n`]*\n([\s\S]*?)(?:\n[ \t]{0,3}\1`*[ \t]*(?=\n|$)|$)/g
+
+// Markdown blockquotes — a run of consecutive lines beginning with `>` (a very
+// common way LangChain/LlamaIndex inline retrieved snippets). Captured as one
+// block; the leading `>` markers are stripped to recover the quoted text.
+const BLOCKQUOTE_RE = /(?:^|\n)((?:[ \t]*>[^\n]*(?:\n|$))+)/g
 
 /**
  * Isolate RAG data blocks from a compiled prompt.
@@ -52,9 +65,21 @@ export function extractRagContext(prompt: string): RagContextBlock[] {
   FENCE_RE.lastIndex = 0
   let f: RegExpExecArray | null
   while ((f = FENCE_RE.exec(prompt)) !== null) {
-    const inner = (f[1] ?? '').trim()
+    const inner = (f[2] ?? '').trim()
     if (inner.length > 0) blocks.push({ block: inner, tag: 'code-fence' })
     if (f.index === FENCE_RE.lastIndex) FENCE_RE.lastIndex++
+  }
+
+  BLOCKQUOTE_RE.lastIndex = 0
+  let q: RegExpExecArray | null
+  while ((q = BLOCKQUOTE_RE.exec(prompt)) !== null) {
+    const inner = (q[1] ?? '')
+      .split(/\r?\n/)
+      .map(l => l.replace(/^[ \t]*>[ \t]?/, ''))
+      .join('\n')
+      .trim()
+    if (inner.length > 0) blocks.push({ block: inner, tag: 'blockquote' })
+    if (q.index === BLOCKQUOTE_RE.lastIndex) BLOCKQUOTE_RE.lastIndex++
   }
 
   return blocks
@@ -71,6 +96,7 @@ function stripRagContext(prompt: string): string {
     stripped = stripped.replace(re, ' ')
   }
   stripped = stripped.replace(FENCE_RE, ' ')
+  stripped = stripped.replace(BLOCKQUOTE_RE, ' ')
   return stripped
 }
 

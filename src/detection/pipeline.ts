@@ -3,8 +3,8 @@ import { getParser, extractPartialPrompts } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
-import { extractCandidates, calculateEntropy } from './normalize.js'
-import { extractRagContext, ragInjectionScore } from './rag/parser.js'
+import { extractCandidates, maxWindowEntropy } from './normalize.js'
+import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -58,15 +58,13 @@ export class Pipeline {
             return result
           }
 
-          // Signal 2: specialized judge on each isolated data block. Run the
-          // block checks concurrently to keep latency bounded.
+          // Signal 2: specialized judge on each isolated data block. Bounded
+          // concurrency + dedup + short-circuit so a prompt stuffed with many
+          // blocks cannot flood the local Ollama instance.
           if (judgeEnabled) {
-            const verdicts = await Promise.all(
-              ragBlocks.map(b => this.judge.judgeRagContext(b.block).then(j => ({ block: b, verdict: j.verdict })))
-            )
-            const poisoned = verdicts.find(v => v.verdict === 'MALICIOUS')
+            const poisoned = await this.judgeRagBlocks(ragBlocks)
             if (poisoned) {
-              const result: PipelineResult = { action: 'block', stage: 'rag', score: 50, similarity: 0, verdict: 'MALICIOUS', prompt, ragTag: poisoned.block.tag }
+              const result: PipelineResult = { action: 'block', stage: 'rag', score: 50, similarity: 0, verdict: 'MALICIOUS', prompt, ragTag: poisoned.tag }
               this.emit(result, meta, prompt)
               return result
             }
@@ -74,8 +72,11 @@ export class Pipeline {
         }
       }
 
-      // Active evasion high entropy check - immediately route to Stage 3 Judge if enabled
-      const entropy = calculateEntropy(prompt)
+      // Active evasion check — route to the Stage 3 judge when a DENSE pocket of
+      // high entropy is present. Using a sliding-window max (not the whole-prompt
+      // average) so a small base64/hex payload hidden in a large benign prompt is
+      // not diluted below the threshold by the surrounding text.
+      const entropy = maxWindowEntropy(prompt)
       if (entropy > 5.0 && prompt.length >= 20 && judgeEnabled) {
         const j = await this.judge.classify(prompt)
         if (j.verdict === 'MALICIOUS') {
@@ -165,6 +166,35 @@ export class Pipeline {
           return result
         }
       }
+    }
+    return null
+  }
+
+  // Max concurrent specialized-judge queries for RAG data blocks. A prompt with
+  // dozens of small code/document blocks would otherwise fire dozens of parallel
+  // requests at the single local Ollama instance and overwhelm the GPU/CPU.
+  private static readonly RAG_JUDGE_CONCURRENCY = 3
+
+  /**
+   * Judge isolated RAG data blocks for context poisoning with bounded
+   * concurrency. Identical blocks are judged only once, blocks are processed in
+   * batches of RAG_JUDGE_CONCURRENCY, and the scan short-circuits on the first
+   * MALICIOUS verdict. Returns the poisoned block, or null if all are clean.
+   */
+  private async judgeRagBlocks(blocks: RagContextBlock[]): Promise<RagContextBlock | null> {
+    const seen = new Set<string>()
+    const unique = blocks.filter(b => {
+      if (seen.has(b.block)) return false
+      seen.add(b.block)
+      return true
+    })
+    for (let i = 0; i < unique.length; i += Pipeline.RAG_JUDGE_CONCURRENCY) {
+      const batch = unique.slice(i, i + Pipeline.RAG_JUDGE_CONCURRENCY)
+      const verdicts = await Promise.all(
+        batch.map(b => this.judge.judgeRagContext(b.block).then(j => ({ b, verdict: j.verdict })))
+      )
+      const hit = verdicts.find(v => v.verdict === 'MALICIOUS')
+      if (hit) return hit.b
     }
     return null
   }

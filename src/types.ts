@@ -50,6 +50,10 @@ export interface DosConfig {
   maxRequestsPerMinute: number;
   maxTokensPerSession: number;
   loopDetectionEnabled: boolean;
+  // Rolling window (ms) after which the token budget auto-resets so the proxy
+  // is not permanently locked out. 0 = lifetime budget (never resets).
+  // Defaults to 1 hour when omitted.
+  tokenBudgetWindowMs?: number;
 }
 
 export interface RagConfig {

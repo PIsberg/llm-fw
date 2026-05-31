@@ -48,6 +48,7 @@ export const DEFAULT_CONFIG: Config = {
     maxRequestsPerMinute: 60,
     maxTokensPerSession: 500000,
     loopDetectionEnabled: true,
+    tokenBudgetWindowMs: 3_600_000, // auto-reset the token budget hourly
   },
   rag: {
     enabled: true,
@@ -139,6 +140,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION']) {
     config.dos.maxTokensPerSession = parseInt(env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION'], 10);
+  }
+  if (env['LLM_FW_DOS_TOKEN_WINDOW_MS']) {
+    config.dos.tokenBudgetWindowMs = parseInt(env['LLM_FW_DOS_TOKEN_WINDOW_MS'], 10);
   }
   if (env['LLM_FW_RAG_ENABLED']) {
     config.rag.enabled = env['LLM_FW_RAG_ENABLED'] === 'true';
