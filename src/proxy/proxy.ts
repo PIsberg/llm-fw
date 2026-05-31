@@ -147,7 +147,12 @@ export class ProxyServer {
 
           if (blocked) return
 
-          const body = Buffer.concat(chunks).toString('utf-8')
+          // Keep the original bytes for forwarding; the utf-8 decode is used
+          // ONLY for text-based detection. Decoding binary payloads (e.g. image
+          // uploads) to a string and back would replace invalid byte sequences
+          // with U+FFFD, corrupting the request and changing its length.
+          const bodyBuf = Buffer.concat(chunks)
+          const body = bodyBuf.toString('utf-8')
 
           const result = await this.pipeline.run(
             innerReq.url ?? '/',
@@ -161,7 +166,7 @@ export class ProxyServer {
             return
           }
 
-          await this.forwardRequest(hostname, port, innerReq, body, innerRes)
+          await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
         } catch (err) {
           console.error('[proxy] request error:', err)
           if (!innerRes.headersSent) {
@@ -176,7 +181,7 @@ export class ProxyServer {
     }
   }
 
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: string, res: http.ServerResponse): Promise<void> {
+  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse): Promise<void> {
     const ip = await this.resolver.resolve(hostname)
     await new Promise<void>((resolve, reject) => {
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
@@ -186,11 +191,11 @@ export class ProxyServer {
         for (const [k, v] of Object.entries(headers)) {
           if (v && !HOP_BY_HOP.has(k.toLowerCase())) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
         }
-        upstream.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n')
+        upstream.write('Content-Length: ' + body.length + '\r\n')
         upstream.write('Accept-Encoding: identity\r\n')
         upstream.write('Connection: close\r\n')
         upstream.write('\r\n')
-        if (body) upstream.write(body)
+        if (body.length) upstream.write(body)
       })
 
       upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => { upstream.destroy(); reject(new Error('upstream timeout')) })
