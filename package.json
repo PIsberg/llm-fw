@@ -12,7 +12,10 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:load:perf": "node --import tsx/esm test/load/performance.ts",
+    "test:load:accuracy": "node --import tsx/esm test/load/accuracy.ts",
+    "test:load": "npm run test:load:perf && npm run test:load:accuracy"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
