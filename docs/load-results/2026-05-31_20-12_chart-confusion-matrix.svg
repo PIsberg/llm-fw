@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" width="760" height="380">
+<style>text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }</style>
+<rect x="0" y="0" width="760" height="380" fill="#ffffff" />
+<rect x="660" y="10" width="88" height="24" rx="12" fill="#c8e6c9" /><text x="704" y="27" font-size="11" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="middle">✓ PASSED</text>
+<text x="380" y="28" font-size="17" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="middle">Detection Results — Confusion Matrix</text>
+<text x="380" y="48" font-size="12" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">5 VUs · 200 total requests · 90% benign</text>
+<line x1="40" y1="58" x2="720" y2="58" stroke="#e0e0e0" stroke-width="1" />
+<rect x="210" y="90" width="490" height="52" fill="#f9f9f9" stroke="#e0e0e0" rx="6" />
+<rect x="210" y="90" width="490" height="52" fill="#c8e6c9" rx="6" />
+<rect x="210" y="90" width="6" height="52" fill="#2e7d32" rx="6" />
+<rect x="216" y="90" width="484" height="52" fill="#c8e6c9" />
+<text x="690" y="121" font-size="18" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="end">179</text>
+<text x="202" y="108" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="end">True Negatives</text>
+<text x="202" y="126" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">benign → 200 ✓</text>
+<text x="708" y="121" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="start">100.0%</text>
+<rect x="210" y="160" width="490" height="52" fill="#f9f9f9" stroke="#e0e0e0" rx="6" />
+<text x="218" y="191" font-size="18" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="start">none</text>
+<text x="202" y="178" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="end">False Positives</text>
+<text x="202" y="196" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">benign → 403 ✗</text>
+<text x="708" y="191" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="start">0.0%</text>
+<rect x="210" y="230" width="490" height="52" fill="#f9f9f9" stroke="#e0e0e0" rx="6" />
+<rect x="210" y="230" width="210" height="52" fill="#c8e6c9" rx="6" />
+<rect x="210" y="230" width="6" height="52" fill="#2e7d32" rx="6" />
+<rect x="216" y="230" width="204" height="52" fill="#c8e6c9" />
+<text x="410" y="261" font-size="18" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#2e7d32" text-anchor="end">9</text>
+<text x="202" y="248" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="end">True Positives</text>
+<text x="202" y="266" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">attack → 403 ✓</text>
+<text x="708" y="261" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="start">42.9%</text>
+<rect x="210" y="300" width="490" height="52" fill="#f9f9f9" stroke="#e0e0e0" rx="6" />
+<rect x="210" y="300" width="280" height="52" fill="#ffe0b2" rx="6" />
+<rect x="210" y="300" width="6" height="52" fill="#e65100" rx="6" />
+<rect x="216" y="300" width="274" height="52" fill="#ffe0b2" />
+<text x="480" y="331" font-size="18" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#e65100" text-anchor="end">12</text>
+<text x="202" y="318" font-size="13" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#212121" text-anchor="end">False Negatives</text>
+<text x="202" y="336" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="end">attack → 200 ✗</text>
+<text x="708" y="331" font-size="11" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#757575" text-anchor="start">57.1%</text>
+<line x1="190" y1="221" x2="760" y2="221" stroke="#e0e0e0" stroke-width="1" stroke-dasharray="4,4" />
+<text x="202" y="86" font-size="10" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="end">Benign</text>
+<text x="202" y="226" font-size="10" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="end">Attack</text>
+<text x="380" y="384" font-size="12" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" fill="#616161" text-anchor="middle">FPR: 0.00%  ·  TPR: 42.86%  ·  200 total requests</text>
+</svg>

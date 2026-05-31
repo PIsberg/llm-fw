@@ -1,0 +1,206 @@
+{
+  "scenario": "performance",
+  "timestamp": "2026-05-31T18:13:36.472Z",
+  "config": {
+    "vus": 5,
+    "durationS": 30,
+    "p99ThresholdMs": 5000
+  },
+  "results": {
+    "totalRequests": 2260,
+    "throughputRps": 75.33,
+    "latencyPercentiles": {
+      "p50": 65,
+      "p95": 74,
+      "p99": 93
+    },
+    "falsePositives": 0,
+    "fpr": 0,
+    "errors": 0,
+    "errRate": 0,
+    "timeSeries": [
+      {
+        "second": 1,
+        "rps": 40,
+        "p50Ms": 76,
+        "p95Ms": 439
+      },
+      {
+        "second": 2,
+        "rps": 70,
+        "p50Ms": 74,
+        "p95Ms": 85
+      },
+      {
+        "second": 3,
+        "rps": 70,
+        "p50Ms": 70,
+        "p95Ms": 73
+      },
+      {
+        "second": 4,
+        "rps": 71,
+        "p50Ms": 67,
+        "p95Ms": 75
+      },
+      {
+        "second": 5,
+        "rps": 74,
+        "p50Ms": 66,
+        "p95Ms": 77
+      },
+      {
+        "second": 6,
+        "rps": 80,
+        "p50Ms": 64,
+        "p95Ms": 70
+      },
+      {
+        "second": 7,
+        "rps": 75,
+        "p50Ms": 65,
+        "p95Ms": 68
+      },
+      {
+        "second": 8,
+        "rps": 77,
+        "p50Ms": 65,
+        "p95Ms": 71
+      },
+      {
+        "second": 9,
+        "rps": 78,
+        "p50Ms": 64,
+        "p95Ms": 70
+      },
+      {
+        "second": 10,
+        "rps": 75,
+        "p50Ms": 65,
+        "p95Ms": 73
+      },
+      {
+        "second": 11,
+        "rps": 80,
+        "p50Ms": 64,
+        "p95Ms": 67
+      },
+      {
+        "second": 12,
+        "rps": 75,
+        "p50Ms": 65,
+        "p95Ms": 72
+      },
+      {
+        "second": 13,
+        "rps": 80,
+        "p50Ms": 64,
+        "p95Ms": 67
+      },
+      {
+        "second": 14,
+        "rps": 75,
+        "p50Ms": 63,
+        "p95Ms": 70
+      },
+      {
+        "second": 15,
+        "rps": 80,
+        "p50Ms": 63,
+        "p95Ms": 73
+      },
+      {
+        "second": 16,
+        "rps": 75,
+        "p50Ms": 65,
+        "p95Ms": 70
+      },
+      {
+        "second": 17,
+        "rps": 80,
+        "p50Ms": 64,
+        "p95Ms": 71
+      },
+      {
+        "second": 18,
+        "rps": 75,
+        "p50Ms": 64,
+        "p95Ms": 69
+      },
+      {
+        "second": 19,
+        "rps": 80,
+        "p50Ms": 64,
+        "p95Ms": 69
+      },
+      {
+        "second": 20,
+        "rps": 75,
+        "p50Ms": 65,
+        "p95Ms": 70
+      },
+      {
+        "second": 21,
+        "rps": 80,
+        "p50Ms": 63,
+        "p95Ms": 73
+      },
+      {
+        "second": 22,
+        "rps": 75,
+        "p50Ms": 66,
+        "p95Ms": 93
+      },
+      {
+        "second": 23,
+        "rps": 75,
+        "p50Ms": 64,
+        "p95Ms": 68
+      },
+      {
+        "second": 24,
+        "rps": 80,
+        "p50Ms": 65,
+        "p95Ms": 71
+      },
+      {
+        "second": 25,
+        "rps": 75,
+        "p50Ms": 65,
+        "p95Ms": 70
+      },
+      {
+        "second": 26,
+        "rps": 80,
+        "p50Ms": 64,
+        "p95Ms": 70
+      },
+      {
+        "second": 27,
+        "rps": 75,
+        "p50Ms": 63,
+        "p95Ms": 73
+      },
+      {
+        "second": 28,
+        "rps": 80,
+        "p50Ms": 63,
+        "p95Ms": 70
+      },
+      {
+        "second": 29,
+        "rps": 75,
+        "p50Ms": 64,
+        "p95Ms": 73
+      },
+      {
+        "second": 30,
+        "rps": 80,
+        "p50Ms": 62,
+        "p95Ms": 75
+      }
+    ]
+  },
+  "passed": true,
+  "failures": []
+}
