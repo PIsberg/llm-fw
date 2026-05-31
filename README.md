@@ -1,5 +1,13 @@
 # llm-fw
 
+[![License: PolyForm Commercial](https://img.shields.io/badge/License-PolyForm%20Commercial-blue)](https://polyformproject.org/licenses/commercial/1.0.0/)
+[![CI](https://github.com/PIsberg/llm-fw/actions/workflows/ci.yml/badge.svg)](https://github.com/PIsberg/llm-fw/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/PIsberg/llm-fw/actions/workflows/codeql.yml/badge.svg)](https://github.com/PIsberg/llm-fw/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/PIsberg/llm-fw/badge)](https://securityscorecards.dev/viewer/?uri=github.com/PIsberg/llm-fw)
+[![npm](https://img.shields.io/npm/v/llm-fw?logo=npm)](https://www.npmjs.com/package/llm-fw)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-brightgreen?logo=node.js)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
+
 A local prompt injection firewall that intercepts traffic between your tools and LLM APIs (Anthropic, Google Gemini) before it leaves your machine. Malicious prompts are blocked and logged; clean ones are forwarded transparently.
 
 No changes to your code. No cloud dependencies. Boots in under 2 seconds.
