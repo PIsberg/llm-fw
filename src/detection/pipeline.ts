@@ -4,6 +4,7 @@ import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
 import { extractCandidates, calculateEntropy } from './normalize.js'
+import { extractRagContext, ragInjectionScore } from './rag/parser.js'
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -37,7 +38,42 @@ export class Pipeline {
     let lastScore = 0
     let lastSim = 0
 
+    const { heuristicBlockThreshold: ragBlockThreshold } = this.config.detection
+    const ragEnabled = this.config.rag?.enabled
+
     for (const prompt of prompts) {
+      // Stage R — RAG context-poisoning. Isolate retrieved data blocks
+      // (<document>, <context>, <search_results>, code fences) and check whether
+      // they smuggle active instructions. Two independent signals can block:
+      //   1. Structural heuristic — injection keywords confined to a data block.
+      //   2. Specialized judge — semantic intent of an isolated data block.
+      if (ragEnabled) {
+        const ragBlocks = extractRagContext(prompt)
+        if (ragBlocks.length) {
+          // Signal 1: structural boundary-violation heuristic (deterministic).
+          const ragHeur = ragInjectionScore(prompt, this.heuristic)
+          if (ragHeur.score >= ragBlockThreshold) {
+            const result: PipelineResult = { action: 'block', stage: 'rag', score: ragHeur.score, similarity: 0, prompt, heuristicMatches: ragHeur.matches }
+            this.emit(result, meta, prompt)
+            return result
+          }
+
+          // Signal 2: specialized judge on each isolated data block. Run the
+          // block checks concurrently to keep latency bounded.
+          if (judgeEnabled) {
+            const verdicts = await Promise.all(
+              ragBlocks.map(b => this.judge.judgeRagContext(b.block).then(j => ({ block: b, verdict: j.verdict })))
+            )
+            const poisoned = verdicts.find(v => v.verdict === 'MALICIOUS')
+            if (poisoned) {
+              const result: PipelineResult = { action: 'block', stage: 'rag', score: 50, similarity: 0, verdict: 'MALICIOUS', prompt, ragTag: poisoned.block.tag }
+              this.emit(result, meta, prompt)
+              return result
+            }
+          }
+        }
+      }
+
       // Active evasion high entropy check - immediately route to Stage 3 Judge if enabled
       const entropy = calculateEntropy(prompt)
       if (entropy > 5.0 && prompt.length >= 20 && judgeEnabled) {
@@ -137,7 +173,7 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string }, prompt: string): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string }, prompt: string): void {
     if (!this.onBlock) return
     this.onBlock({
       stage: result.stage,
@@ -152,6 +188,8 @@ export class Pipeline {
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
       verdict: result.verdict,
+      kind: result.stage === 'rag' ? 'rag' : undefined,
+      ragTag: result.ragTag,
     })
   }
 }

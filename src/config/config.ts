@@ -49,6 +49,9 @@ export const DEFAULT_CONFIG: Config = {
     maxTokensPerSession: 500000,
     loopDetectionEnabled: true,
   },
+  rag: {
+    enabled: true,
+  },
   targets: ['api.anthropic.com', 'generativelanguage.googleapis.com'],
 };
 
@@ -136,6 +139,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION']) {
     config.dos.maxTokensPerSession = parseInt(env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION'], 10);
+  }
+  if (env['LLM_FW_RAG_ENABLED']) {
+    config.rag.enabled = env['LLM_FW_RAG_ENABLED'] === 'true';
   }
 
   return config;

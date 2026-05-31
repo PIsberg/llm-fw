@@ -52,12 +52,17 @@ export interface DosConfig {
   loopDetectionEnabled: boolean;
 }
 
+export interface RagConfig {
+  enabled: boolean;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
   dlp: DLPConfig;
   dos: DosConfig;
+  rag: RagConfig;
   targets: string[];
 }
 
@@ -79,13 +84,14 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'none';
+  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
   prompt?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
+  ragTag?: string;
 }
 
 export interface BlockEvent {
@@ -100,10 +106,11 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag';
   urlBlockReason?: string;
   dlpType?: string;
   dosReason?: string;
+  ragTag?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;
