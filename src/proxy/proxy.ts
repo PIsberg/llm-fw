@@ -166,6 +166,32 @@ export class ProxyServer {
             return
           }
 
+          // Outbound URL exfiltration screening. The CONNECT handshake only sees
+          // the hostname; here the full decrypted request path/query is available,
+          // so the exfil-path heuristics can finally run.
+          const reqPath = innerReq.url ?? '/'
+          if (this.urlClassifier) {
+            const pathResult = this.urlClassifier.classifyPath(reqPath)
+            if (pathResult.action === 'block') {
+              innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+              this.eventBus.emit({
+                stage: 'url-filter',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method: innerReq.method ?? 'GET',
+                path: reqPath,
+                payload_preview: reqPath.slice(0, 120),
+                payload_full: reqPath,
+                action: 'blocked',
+                kind: 'url',
+                urlBlockReason: pathResult.reason,
+              })
+              return
+            }
+          }
+
           await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
         } catch (err) {
           console.error('[proxy] request error:', err)

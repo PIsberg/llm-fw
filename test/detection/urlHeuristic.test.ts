@@ -97,6 +97,23 @@ describe('UrlClassifier — query exfil patterns', () => {
   })
 })
 
+describe('UrlClassifier — classifyPath (host-independent path screening)', () => {
+  it('blocks a long base64 value in the path regardless of host allowlisting', () => {
+    const long = 'A'.repeat(65)
+    const r = c.classifyPath(`/v1/messages?payload=${long}`)
+    expect(r.action).toBe('block')
+    expect(r.reason).toBe('query-exfil-pattern')
+  })
+  it('blocks suspicious exfil parameter names', () => {
+    expect(c.classifyPath('/upload?exfil=secret').action).toBe('block')
+    expect(c.classifyPath('/x?data=foo').action).toBe('block')
+  })
+  it('passes an ordinary path/query', () => {
+    expect(c.classifyPath('/v1/messages').action).toBe('pass')
+    expect(c.classifyPath('/api/v1/users?limit=50&page=2').action).toBe('pass')
+  })
+})
+
 describe('UrlClassifier — clean domains', () => {
   it('passes common trusted domains', () => {
     expect(c.classify('github.com').action).toBe('pass')
