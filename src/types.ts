@@ -45,11 +45,19 @@ export interface DlpFinding {
   index: number;
 }
 
+export interface DosConfig {
+  enabled: boolean;
+  maxRequestsPerMinute: number;
+  maxTokensPerSession: number;
+  loopDetectionEnabled: boolean;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
   dlp: DLPConfig;
+  dos: DosConfig;
   targets: string[];
 }
 
@@ -92,9 +100,10 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned';
-  kind?: 'prompt' | 'url' | 'dlp';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos';
   urlBlockReason?: string;
   dlpType?: string;
+  dosReason?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;

@@ -8,6 +8,8 @@ import { Pipeline } from '../detection/pipeline.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
+import { QuotaManager } from '../detection/dos/quota.js'
+import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
 
 /**
@@ -31,6 +33,8 @@ export class ProxyServer {
   private pipeline: Pipeline
   private urlClassifier: UrlClassifier | null
   private dlp: DlpScanner | null
+  private quota: QuotaManager | null
+  private loop: LoopDetector | null
   private eventBus: EventBus
   private config: Config
 
@@ -44,6 +48,8 @@ export class ProxyServer {
       ? new UrlClassifier(config.proxy.urlFilter)
       : null
     this.dlp = config.dlp?.enabled ? new DlpScanner(config.dlp) : null
+    this.quota = config.dos?.enabled ? new QuotaManager(config.dos) : null
+    this.loop = config.dos?.enabled ? new LoopDetector() : null
     this.server = http.createServer()
   }
 
@@ -120,6 +126,57 @@ export class ProxyServer {
       innerServer.emit('connection', tlsSocket)
       innerServer.on('request', async (innerReq, innerRes) => {
         try {
+          const dosMethod = innerReq.method ?? 'GET'
+          const dosPath = innerReq.url ?? '/'
+
+          // Stage -1 — Cost control / agentic DoS circuit breaker. The RPM and
+          // session-budget checks run BEFORE the body is buffered so a run-away
+          // agent is throttled as cheaply as possible.
+          if (this.quota) {
+            const q = this.quota.checkRpm()
+            if (!q.allowed) {
+              innerRes.writeHead(429, {
+                'Content-Type': 'application/json',
+                'Retry-After': String(q.retryAfterSec),
+              })
+              innerRes.end(JSON.stringify({ error: 'rate limit exceeded', retryAfter: q.retryAfterSec }))
+              this.eventBus.emit({
+                stage: 'dos',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method: dosMethod,
+                path: dosPath,
+                payload_preview: 'rate limit exceeded',
+                payload_full: 'rate limit exceeded',
+                action: 'blocked',
+                kind: 'dos',
+                dosReason: 'rate limit exceeded',
+              })
+              innerReq.destroy()
+              return
+            }
+            if (this.quota.sessionExceeded()) {
+              innerRes.writeHead(429, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'session token budget exceeded' }))
+              this.eventBus.emit({
+                stage: 'dos',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method: dosMethod,
+                path: dosPath,
+                payload_preview: 'session token budget exceeded',
+                payload_full: 'session token budget exceeded',
+                action: 'blocked',
+                kind: 'dos',
+                dosReason: 'session token budget exceeded',
+              })
+              innerReq.destroy()
+              return
+            }
+          }
+
           const chunks: Buffer[] = []
           let accumulatedBody = ''
           let blocked = false
@@ -226,6 +283,31 @@ export class ProxyServer {
             }
           }
 
+          // Stage 0.5 — Behavioral loop detection. Only LLM JSON requests (those
+          // with a registered parser) are tracked, mirroring DLP scoping. An
+          // agent stuck resending the identical body trips the circuit breaker.
+          if (this.loop && this.config.dos.loopDetectionEnabled && getParser(dlpPath) !== null) {
+            if (this.loop.isLooping(body)) {
+              innerRes.writeHead(429, { 'Content-Type': 'application/json' })
+              innerRes.end(JSON.stringify({ error: 'Agent Loop Detected' }))
+              this.eventBus.emit({
+                stage: 'dos',
+                score: 100,
+                similarity: 0,
+                target: hostname,
+                method,
+                path: dlpPath,
+                payload_preview: body.slice(0, 120),
+                payload_full: body,
+                action: 'blocked',
+                kind: 'dos',
+                dosReason: 'Agent Loop Detected',
+              })
+              return
+            }
+            this.loop.record(body)
+          }
+
           const result = await this.pipeline.run(
             innerReq.url ?? '/',
             body,
@@ -265,6 +347,10 @@ export class ProxyServer {
           }
 
           await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes)
+
+          // Track the session token budget from the (estimated) request size so
+          // the next request can be rejected once the budget is exhausted.
+          if (this.quota) this.quota.addTokens(this.quota.estimateTokens(body))
         } catch (err) {
           console.error('[proxy] request error:', err)
           if (!innerRes.headersSent) {

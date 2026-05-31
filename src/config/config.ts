@@ -43,6 +43,12 @@ export const DEFAULT_CONFIG: Config = {
     mode: 'redact',
     detectors: ['aws', 'github', 'slack', 'stripe', 'private_keys', 'mongodb', 'entropy', 'pii'],
   },
+  dos: {
+    enabled: true,
+    maxRequestsPerMinute: 60,
+    maxTokensPerSession: 500000,
+    loopDetectionEnabled: true,
+  },
   targets: ['api.anthropic.com', 'generativelanguage.googleapis.com'],
 };
 
@@ -121,6 +127,15 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_DLP_MODE']) {
     config.dlp.mode = env['LLM_FW_DLP_MODE'] as 'block' | 'redact' | 'audit';
+  }
+  if (env['LLM_FW_DOS_ENABLED']) {
+    config.dos.enabled = env['LLM_FW_DOS_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_DOS_MAX_RPM']) {
+    config.dos.maxRequestsPerMinute = parseInt(env['LLM_FW_DOS_MAX_RPM'], 10);
+  }
+  if (env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION']) {
+    config.dos.maxTokensPerSession = parseInt(env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION'], 10);
   }
 
   return config;
