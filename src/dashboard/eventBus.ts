@@ -37,7 +37,7 @@ export class EventBus {
     const metric: TrafficMetric = {
       ...partial,
       id: randomUUID(),
-      timestamp: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium' }).format() + 'Z',
+      timestamp: new Date().toISOString(),
     }
     this.trafficRing.push(metric)
     if (this.trafficRing.length > EventBus.TRAFFIC_MAX) this.trafficRing.shift()

@@ -583,7 +583,7 @@ function advChart() {
 
 function addTraffic(m) {
   advChart();
-  const sec = Math.floor(new Date(m.timestamp).getTime() / 1000);
+  const sec = Math.floor(new Date(m.timestamp.replace(' ', 'T')).getTime() / 1000);
   if (sec >= chartHead - CHART_LEN + 1 && sec <= chartHead) {
     chartData[sec % CHART_LEN].sent += m.bytesSent;
     chartData[sec % CHART_LEN].recv += m.bytesReceived;
@@ -671,9 +671,7 @@ trafficEs.onmessage = e => { try { addTraffic(JSON.parse(e.data)); } catch(_) {}
 setInterval(drawChart, 1000);
 drawChart();
 
-fetch('/api/metrics/traffic').then(r => r.json()).then(data => {
-  if (Array.isArray(data)) [...data].reverse().forEach(addTraffic);
-}).catch(() => {});
+// Historical backlog is replayed by the SSE connection on subscribe — no separate REST fetch needed.
 </script>
 </body>
 </html>`
