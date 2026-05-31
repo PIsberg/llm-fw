@@ -95,8 +95,8 @@ describe('Proxy DoS circuit breaker (E2E)', { timeout: 30000 }, () => {
 
     const testConfig = {
       ...DEFAULT_CONFIG,
-      proxy: { ...DEFAULT_CONFIG.proxy, port: 18101 },
-      dashboard: { ...DEFAULT_CONFIG.dashboard, port: 17751 },
+      proxy: { ...DEFAULT_CONFIG.proxy, port: 18105 },
+      dashboard: { ...DEFAULT_CONFIG.dashboard, port: 17755 },
       // High RPM so the rate limiter never interferes — isolates the loop test.
       dos: { enabled: true, maxRequestsPerMinute: 100000, maxTokensPerSession: 1_000_000_000, loopDetectionEnabled: true },
     }
@@ -144,8 +144,8 @@ describe('Proxy DoS circuit breaker (E2E)', { timeout: 30000 }, () => {
 
     const testConfig = {
       ...DEFAULT_CONFIG,
-      proxy: { ...DEFAULT_CONFIG.proxy, port: 18102 },
-      dashboard: { ...DEFAULT_CONFIG.dashboard, port: 17752 },
+      proxy: { ...DEFAULT_CONFIG.proxy, port: 18106 },
+      dashboard: { ...DEFAULT_CONFIG.dashboard, port: 17756 },
       // Small RPM so the limiter trips quickly; loop detection off to isolate.
       dos: { enabled: true, maxRequestsPerMinute: 2, maxTokensPerSession: 1_000_000_000, loopDetectionEnabled: false },
     }
