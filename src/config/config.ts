@@ -38,6 +38,21 @@ export const DEFAULT_CONFIG: Config = {
     port: 7731,
     maxEvents: 100,
   },
+  dlp: {
+    enabled: true,
+    mode: 'redact',
+    detectors: ['aws', 'github', 'slack', 'stripe', 'private_keys', 'mongodb', 'entropy', 'pii'],
+  },
+  dos: {
+    enabled: true,
+    maxRequestsPerMinute: 60,
+    maxTokensPerSession: 500000,
+    loopDetectionEnabled: true,
+    tokenBudgetWindowMs: 3_600_000, // auto-reset the token budget hourly
+  },
+  rag: {
+    enabled: true,
+  },
   targets: ['api.anthropic.com', 'generativelanguage.googleapis.com'],
 };
 
@@ -110,6 +125,27 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_DASHBOARD_PORT']) {
     config.dashboard.port = parseInt(env['LLM_FW_DASHBOARD_PORT'], 10);
+  }
+  if (env['LLM_FW_DLP_ENABLED']) {
+    config.dlp.enabled = env['LLM_FW_DLP_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_DLP_MODE']) {
+    config.dlp.mode = env['LLM_FW_DLP_MODE'] as 'block' | 'redact' | 'audit';
+  }
+  if (env['LLM_FW_DOS_ENABLED']) {
+    config.dos.enabled = env['LLM_FW_DOS_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_DOS_MAX_RPM']) {
+    config.dos.maxRequestsPerMinute = parseInt(env['LLM_FW_DOS_MAX_RPM'], 10);
+  }
+  if (env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION']) {
+    config.dos.maxTokensPerSession = parseInt(env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION'], 10);
+  }
+  if (env['LLM_FW_DOS_TOKEN_WINDOW_MS']) {
+    config.dos.tokenBudgetWindowMs = parseInt(env['LLM_FW_DOS_TOKEN_WINDOW_MS'], 10);
+  }
+  if (env['LLM_FW_RAG_ENABLED']) {
+    config.rag.enabled = env['LLM_FW_RAG_ENABLED'] === 'true';
   }
 
   return config;

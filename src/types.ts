@@ -32,10 +32,41 @@ export interface DashboardConfig {
   maxEvents: number;
 }
 
+export interface DLPConfig {
+  enabled: boolean;
+  mode: 'block' | 'redact' | 'audit';
+  detectors: string[];
+}
+
+export interface DlpFinding {
+  type: string;
+  label: string;
+  match: string;
+  index: number;
+}
+
+export interface DosConfig {
+  enabled: boolean;
+  maxRequestsPerMinute: number;
+  maxTokensPerSession: number;
+  loopDetectionEnabled: boolean;
+  // Rolling window (ms) after which the token budget auto-resets so the proxy
+  // is not permanently locked out. 0 = lifetime budget (never resets).
+  // Defaults to 1 hour when omitted.
+  tokenBudgetWindowMs?: number;
+}
+
+export interface RagConfig {
+  enabled: boolean;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
+  dlp: DLPConfig;
+  dos: DosConfig;
+  rag: RagConfig;
   targets: string[];
 }
 
@@ -57,13 +88,14 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'none';
+  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
   prompt?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
+  ragTag?: string;
 }
 
 export interface BlockEvent {
@@ -78,8 +110,11 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned';
-  kind?: 'prompt' | 'url';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag';
   urlBlockReason?: string;
+  dlpType?: string;
+  dosReason?: string;
+  ragTag?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;

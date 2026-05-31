@@ -61,6 +61,9 @@ const HTML = `<!DOCTYPE html>
   .chip-judge       { background: #ffcdd2; color: #7f0000; }
   .chip-none        { background: #e8f5e9; color: #1b5e20; }
   .chip-url-filter  { background: #e8d5f5; color: #6a1b9a; }
+  .chip-dlp         { background: #b2dfdb; color: #004d40; }
+  .chip-dos         { background: #ffccbc; color: #bf360c; }
+  .chip-rag         { background: #d1c4e9; color: #311b92; }
 
   /* Score bar */
   .score-bar { display: flex; align-items: center; gap: 6px; }
@@ -154,6 +157,9 @@ const HTML = `<!DOCTYPE html>
     <div class="stat"><div class="stat-label">Embedding</div><div class="stat-value" id="s-embedding">0</div></div>
     <div class="stat"><div class="stat-label">Judge</div><div class="stat-value" id="s-judge">0</div></div>
     <div class="stat"><div class="stat-label">URL Filter</div><div class="stat-value blocked" id="s-url">0</div></div>
+    <div class="stat"><div class="stat-label">Data Loss</div><div class="stat-value warned" id="s-dlp">0</div></div>
+    <div class="stat"><div class="stat-label">Rate Limit / DoS</div><div class="stat-value blocked" id="s-dos">0</div></div>
+    <div class="stat"><div class="stat-label">RAG Poisoning</div><div class="stat-value blocked" id="s-rag">0</div></div>
   </div>
 
   <div class="tabs">
@@ -239,7 +245,7 @@ function showTab(name, btn) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0 };
+const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0 };
 function updateStats(ev) {
   stats.total++;
   if (ev.action === 'blocked') stats.blocked++;
@@ -248,6 +254,9 @@ function updateStats(ev) {
   else if (ev.stage === 'embedding') stats.embedding++;
   else if (ev.stage === 'judge') stats.judge++;
   else if (ev.stage === 'url-filter') stats.url++;
+  else if (ev.stage === 'dlp') stats.dlp++;
+  else if (ev.stage === 'dos') stats.dos++;
+  else if (ev.stage === 'rag') stats.rag++;
   document.getElementById('s-total').textContent = stats.total;
   document.getElementById('s-blocked').textContent = stats.blocked;
   document.getElementById('s-warned').textContent = stats.warned;
@@ -255,6 +264,9 @@ function updateStats(ev) {
   document.getElementById('s-embedding').textContent = stats.embedding;
   document.getElementById('s-judge').textContent = stats.judge;
   document.getElementById('s-url').textContent = stats.url;
+  document.getElementById('s-dlp').textContent = stats.dlp;
+  document.getElementById('s-dos').textContent = stats.dos;
+  document.getElementById('s-rag').textContent = stats.rag;
 }
 
 // ── Escape ────────────────────────────────────────────────────────────────────
@@ -288,6 +300,15 @@ function detailCell(ev) {
   }
   if (ev.stage === 'url-filter') {
     return '<span class="detail-tag">' + esc(ev.urlBlockReason || 'url-blocked') + '</span>';
+  }
+  if (ev.stage === 'dlp') {
+    return '<span class="detail-tag">' + esc(ev.dlpType || 'sensitive-data') + '</span>';
+  }
+  if (ev.stage === 'dos') {
+    return '<span class="detail-tag">' + esc(ev.dosReason || 'rate-limit') + '</span>';
+  }
+  if (ev.stage === 'rag') {
+    return '<span class="detail-tag">' + esc(ev.ragTag ? 'poisoned <' + ev.ragTag + '>' : (ev.verdict || 'context-poisoning')) + '</span>';
   }
   return '—';
 }
