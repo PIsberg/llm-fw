@@ -16,6 +16,34 @@ No changes to your code. No cloud dependencies. Boots in under 2 seconds.
 
 ---
 
+## Dashboard Screenshots
+
+### Events tab — live blocked request feed
+
+All intercepted requests appear instantly with detection stage, score, and payload preview. Every stage type (`heuristic`, `embedding`, `dos`, `rag`, `dlp`) has its own colour-coded chip.
+
+![Dashboard Events tab](docs/images/ss-01-dashboard-events.png)
+
+### Expanded event detail
+
+Click any row to open the detail drawer: full decoded payload, heuristic match tags, nearest attack template, and request metadata.
+
+![Event detail drawer](docs/images/ss-02-event-detail.png)
+
+### Prompt Testing — interactive playground
+
+Paste any prompt and click **Analyze** to get an instant stage-by-stage breakdown without needing a real API client.
+
+![Playground input](docs/images/ss-03-playground-input.png)
+
+### Prompt Testing — stage-by-stage verdict
+
+The playground shows the pipeline result for each stage: heuristic score with matched rules, embedding cosine similarity, and judge status.
+
+![Playground result — BLOCK verdict with stage breakdown](docs/images/ss-04-playground-result.png)
+
+---
+
 ## How it works
 
 llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately aborts the connection with a `403 Forbidden` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.

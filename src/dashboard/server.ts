@@ -110,7 +110,7 @@ const HTML = `<!DOCTYPE html>
   .pg-mode-btn { padding: 5px 14px; border: none; background: transparent; cursor: pointer; border-radius: 4px; font-size: 0.82rem; font-weight: 500; color: #555; transition: all 0.2s; }
   .pg-mode-btn.active { background: #fff; color: #1565c0; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   textarea { width: 100%; padding: 10px; font-family: monospace; font-size: 0.9rem;
-    border: 1px solid #ccc; border-radius: 6px; resize: vertical; background: #fafafa; }
+    border: 1px solid #ccc; border-radius: 6px; resize: vertical; background: #fafafa; min-height: 80px; }
   .pg-url-input { width: 100%; padding: 10px; font-family: monospace; font-size: 0.9rem;
     border: 1px solid #ccc; border-radius: 6px; background: #fafafa; }
   .btn { margin-top: 10px; padding: 7px 18px; background: #1565c0; color: #fff;
@@ -197,7 +197,7 @@ const HTML = `<!DOCTYPE html>
         <button class="pg-mode-btn" onclick="setPgMode('url', this)">URL</button>
       </div>
       <div id="pg-prompt-wrap">
-        <textarea id="prompt-input" rows="7" placeholder="Enter a prompt to analyze..."></textarea>
+        <textarea id="prompt-input" rows="3" placeholder="Enter a prompt to analyze..."></textarea>
       </div>
       <div id="pg-url-wrap" style="display:none">
         <input class="pg-url-input" id="url-input" type="text" placeholder="e.g. webhook.site or https://evil.ngrok.io/exfil?data=..." />
