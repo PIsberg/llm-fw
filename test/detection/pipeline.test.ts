@@ -115,6 +115,39 @@ describe('Pipeline', () => {
     expect(result.action).toBe('pass')
   })
 
+  it('high-entropy input + judgeEnabled=true + MALICIOUS -> block at stage=judge', async () => {
+    // 33 unique ASCII chars → entropy ≈ 5.04 bits > 5.0, length 33 > 20
+    const highEntropy = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg'
+    const body = JSON.stringify({ messages: [{ role: 'user', content: highEntropy }] })
+    mockClassify.mockResolvedValue({ verdict: 'MALICIOUS', latencyMs: 5 })
+    const pipeline = new Pipeline(makeConfig({ judgeEnabled: true }), undefined)
+    const result = await pipeline.run('/v1/messages', body, META)
+    expect(result.action).toBe('block')
+    expect(result.stage).toBe('judge')
+  })
+
+  it('high-entropy input + judgeEnabled=true + SAFE -> falls through to pass', async () => {
+    const highEntropy = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg'
+    const body = JSON.stringify({ messages: [{ role: 'user', content: highEntropy }] })
+    mockClassify.mockResolvedValue({ verdict: 'SAFE', latencyMs: 5 })
+    mockScore.mockReturnValue({ score: 0, matches: [] })
+    const pipeline = new Pipeline(makeConfig({ judgeEnabled: true }), undefined)
+    const result = await pipeline.run('/v1/messages', body, META)
+    expect(result.action).toBe('pass')
+  })
+
+  it('warn + judgeEnabled=true + judgeBlock=false -> fires async judge classify', async () => {
+    mockScore.mockReturnValue({ score: 25, matches: [] })
+    mockCheck.mockResolvedValue({ similarity: 0.75, nearest: 'template', chunkCount: 1 })
+    mockClassify.mockResolvedValue({ verdict: 'MALICIOUS', latencyMs: 5 })
+    const onBlock = vi.fn()
+    const pipeline = new Pipeline(makeConfig({ judgeEnabled: true, judgeBlock: false }), onBlock)
+    const result = await pipeline.run('/v1/messages', USER_BODY, META)
+    expect(result.action).toBe('warn')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockClassify).toHaveBeenCalled()
+  })
+
   it('judgeEnabled=true, judgeBlock=true, judge MALICIOUS, score 25, sim 0.75 -> action=block, stage=judge', async () => {
     // sim 0.75 is above warnThreshold(0.70) so pipeline returns warn before reaching judge sync block.
     // To reach the judge sync block we need sim < warnThreshold (0.70) but score >= 20.
