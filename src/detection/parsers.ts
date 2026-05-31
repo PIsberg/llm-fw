@@ -25,8 +25,17 @@ class AnthropicParser implements PayloadParser {
         }
       }
 
+      // `system` can be a plain string or an array of content blocks
+      // (the structured form used for prompt caching). Both must be inspected,
+      // otherwise an injection wrapped in array form bypasses detection.
       if (typeof data.system === 'string') {
         results.push(data.system)
+      } else if (Array.isArray(data.system)) {
+        for (const block of data.system) {
+          if (block && block.type === 'text' && typeof block.text === 'string') {
+            results.push(block.text)
+          }
+        }
       }
 
       return results.filter(s => s.length > 0)
