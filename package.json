@@ -16,7 +16,9 @@
     "test:load:perf": "node --import tsx/esm test/load/performance.ts",
     "test:load:accuracy": "node --import tsx/esm test/load/accuracy.ts",
     "test:load": "npm run test:load:perf && npm run test:load:accuracy",
-    "load:charts": "node --import tsx/esm scripts/gen-load-charts.ts"
+    "load:charts": "node --import tsx/esm scripts/gen-load-charts.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -27,7 +29,10 @@
     "@playwright/test": "^1.60.0",
     "@types/node": "^22.0.0",
     "@types/node-forge": "^1.3.11",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
     "@vitest/coverage-v8": "^4.1.7",
+    "eslint": "^10.4.1",
     "tsx": "^4.19.0",
     "typescript": "^6.0.3",
     "undici": "^8.3.0",
