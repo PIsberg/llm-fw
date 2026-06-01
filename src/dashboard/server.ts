@@ -1,4 +1,7 @@
 import http from 'node:http'
+import fs from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { Config } from '../types.js'
 import { EventBus } from './eventBus.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -777,6 +780,20 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 500)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(eventBus.getTrafficMetrics(limit)))
+      return
+    }
+
+    // Serve the CRL so Windows Schannel can verify revocation status of MITM certs.
+    if (req.method === 'GET' && path === '/crl') {
+      const crlPath = join(homedir(), '.llm-fw', 'ca.crl')
+      if (fs.existsSync(crlPath)) {
+        const crlData = fs.readFileSync(crlPath)
+        res.writeHead(200, { 'Content-Type': 'application/pkix-crl', 'Content-Length': String(crlData.length) })
+        res.end(crlData)
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
       return
     }
 

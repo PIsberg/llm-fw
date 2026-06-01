@@ -5,7 +5,7 @@ export const DEFAULT_CONFIG: Config = {
   proxy: {
     mode: 'proxy',
     port: 8080,
-    httpsPort: 443,
+    httpsPort: 8443,
     upstreamTimeoutMs: 30000,
     maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
     dnsServers: ['1.1.1.1', '8.8.8.8'],
@@ -92,7 +92,21 @@ export async function loadConfig(): Promise<Config> {
   });
   const found = await explorer.search();
 
-  let config = deepMerge<Config>(DEFAULT_CONFIG, found?.config ?? {});
+  // ~/.llm-fw/config.json persists settings written by setup (e.g. sinkhole mode).
+  // It takes priority over project-level config but is overridden by env vars below.
+  let userConfig: Partial<Config> = {};
+  try {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { homedir } = await import('node:os');
+    const p = join(homedir(), '.llm-fw', 'config.json');
+    userConfig = JSON.parse(readFileSync(p, 'utf8')) as Partial<Config>;
+  } catch { /* not present */ }
+
+  let config = deepMerge<Config>(
+    deepMerge<Config>(DEFAULT_CONFIG, found?.config ?? {}),
+    userConfig
+  );
 
   const env = process.env;
 
