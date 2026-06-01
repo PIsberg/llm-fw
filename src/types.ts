@@ -56,7 +56,7 @@ export interface DosConfig {
   tokenBudgetWindowMs?: number;
 }
 
-export interface RagConfig {
+interface RagConfig {
   enabled: boolean;
 }
 

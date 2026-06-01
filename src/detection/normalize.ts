@@ -1,4 +1,4 @@
-export function translateHomoglyphs(text: string): string {
+function translateHomoglyphs(text: string): string {
   const homoglyphs: Record<string, string> = {
     'а': 'a', 'в': 'b', 'с': 'c', 'е': 'e', 'н': 'h', 'і': 'i', 'к': 'k', 'м': 'm', 'о': 'o', 'р': 'p', 'ѕ': 's', 'т': 't', 'х': 'x', 'у': 'y', 'з': 'z',
     'А': 'a', 'В': 'b', 'С': 'c', 'Е': 'e', 'Н': 'h', 'І': 'i', 'К': 'k', 'М': 'm', 'О': 'o', 'Р': 'p', 'Ѕ': 's', 'Т': 't', 'Х': 'x', 'У': 'y', 'З': 'z',
@@ -7,7 +7,7 @@ export function translateHomoglyphs(text: string): string {
   return text.split('').map(char => homoglyphs[char] || char).join('')
 }
 
-export function decodeLeetspeak(text: string): string {
+function decodeLeetspeak(text: string): string {
   const leetMap: Record<string, string> = {
     '1': 'i', '0': 'o', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b',
     '@': 'a', '$': 's', '!': 'i'
@@ -15,7 +15,7 @@ export function decodeLeetspeak(text: string): string {
   return text.split('').map(char => leetMap[char] || char).join('')
 }
 
-export function decodeBase64Candidates(text: string): { text: string; source: string }[] {
+function decodeBase64Candidates(text: string): { text: string; source: string }[] {
   const matches = text.match(/([A-Za-z0-9+/]{4,}=*)/g) || []
   const results: { text: string; source: string }[] = []
   for (const match of matches) {
@@ -30,7 +30,7 @@ export function decodeBase64Candidates(text: string): { text: string; source: st
   return results
 }
 
-export function decodeHexCandidates(text: string): { text: string; source: string }[] {
+function decodeHexCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
   const spaceSeparated = text.match(/(?:[0-9a-fA-F]{2}\s+){3,}[0-9a-fA-F]{2}/g) || []
   for (const match of spaceSeparated) {
@@ -55,7 +55,7 @@ export function decodeHexCandidates(text: string): { text: string; source: strin
   return results
 }
 
-export function decodeBinaryCandidates(text: string): { text: string; source: string }[] {
+function decodeBinaryCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
   const matches = text.match(/(?:[01]{8}\s+){2,}[01]{8}/g) || []
   for (const match of matches) {
@@ -82,7 +82,7 @@ const MORSE_MAP: Record<string, string> = {
   '.-.-.': '+', '-...-': '='
 }
 
-export function decodeMorseCandidates(text: string): { text: string; source: string }[] {
+function decodeMorseCandidates(text: string): { text: string; source: string }[] {
   let normalized = text.replace(/\*/g, '.').replace(/_/g, '-')
   const matches = normalized.match(/(?:[.\-\s/]{10,})/g) || []
   const results: { text: string; source: string }[] = []
@@ -101,14 +101,14 @@ export function decodeMorseCandidates(text: string): { text: string; source: str
   return results
 }
 
-export function decodeROT13(text: string): string {
+function decodeROT13(text: string): string {
   return text.replace(/[a-zA-Z]/g, (c) => {
     const base = c <= 'Z' ? 65 : 97
     return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base)
   })
 }
 
-export function decodeCaesarCandidates(text: string): { text: string; source: string }[] {
+function decodeCaesarCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
   const keywords = ['ignore', 'system', 'prompt', 'rules', 'forget', 'override', 'instruction']
   for (let shift = 1; shift < 26; shift++) {
@@ -124,7 +124,7 @@ export function decodeCaesarCandidates(text: string): { text: string; source: st
   return results
 }
 
-export function decodePigLatin(text: string): string[] {
+function decodePigLatin(text: string): string[] {
   const commonClusters = [
     'str', 'scr', 'spr', 'thr',
     'pr', 'tr', 'dr', 'cr', 'gr', 'br', 'fr', 'pl', 'cl', 'fl', 'gl', 'bl', 'sl', 'sp', 'st', 'sc', 'sk', 'sm', 'sn', 'sw', 'ch', 'sh', 'th', 'wh', 'ph'
@@ -169,7 +169,7 @@ export function decodePigLatin(text: string): string[] {
   return Array.from(new Set(candidates))
 }
 
-export function decodeReversedCandidates(text: string): { text: string; source: string }[] {
+function decodeReversedCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
   const reversedAll = text.split('').reverse().join('')
   results.push({ text: reversedAll, source: 'reversed-full' })

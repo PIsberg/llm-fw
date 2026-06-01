@@ -22,7 +22,7 @@ const BEARER_TOKEN = /\bbearer\s+([A-Za-z0-9._~+/=-]{20,})/gi
 
 const ENTROPY_THRESHOLD = 4.0
 
-export { luhnValid }
+// luhnValid used internally
 
 export class DlpScanner {
   private config: DLPConfig

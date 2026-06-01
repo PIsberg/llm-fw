@@ -12,7 +12,7 @@ import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
 
-export function identifyService(hostname: string): string {
+function identifyService(hostname: string): string {
   if (hostname.endsWith('openai.com')) return 'OpenAI'
   if (hostname.endsWith('anthropic.com')) return 'Anthropic'
   if (hostname.endsWith('googleapis.com') || hostname.endsWith('google.com') || hostname.endsWith('googleusercontent.com')) return 'Google'

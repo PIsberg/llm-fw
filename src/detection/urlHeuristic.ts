@@ -6,7 +6,7 @@ export interface UrlClassifyResult {
   reason: string;
 }
 
-export interface CheckDetail {
+interface CheckDetail {
   name: string;
   result: 'pass' | 'block';
   reason: string;

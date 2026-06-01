@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 const LLMFW_DIR = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw');
 const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
 const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
-export const CRL_PATH = join(LLMFW_DIR, 'ca.crl');
+const CRL_PATH = join(LLMFW_DIR, 'ca.crl');
 const DASHBOARD_PORT = 7731
 
 export interface TLSCredentials { cert: string; key: string }
