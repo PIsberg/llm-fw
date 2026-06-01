@@ -53,7 +53,7 @@ export const DEFAULT_CONFIG: Config = {
   rag: {
     enabled: true,
   },
-  targets: ['api.anthropic.com', 'generativelanguage.googleapis.com'],
+  targets: ['api.anthropic.com', 'googleapis.com'],
 };
 
 export function deepMerge<T extends object>(target: T, source: Partial<T>): T {

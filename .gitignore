@@ -11,3 +11,7 @@ coverage/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+.llm-fwrc.json
+proxy-log.txt
+test-results/
+test-proxy.js
