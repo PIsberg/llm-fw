@@ -116,7 +116,7 @@ export interface BlockEvent {
   path: string;
   payload_preview: string;
   payload_full: string;
-  action: 'blocked' | 'warned';
+  action: 'blocked' | 'warned' | 'passed';
   kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp';
   urlBlockReason?: string;
   dlpType?: string;

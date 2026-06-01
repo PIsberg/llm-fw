@@ -442,18 +442,27 @@ export class ProxyServer {
       if (this.mcp && getParser(innerReq.url ?? '/') !== null) {
         const parser = getParser(innerReq.url ?? '/')!
         const tools = parser.extractTools(body)
-        const defResult = this.mcp.checkToolDefinitions(tools)
-        if (defResult.action === 'block') {
-          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-          innerRes.end(JSON.stringify({ error: defResult.reason }))
-          this.eventBus.emit({
-            stage: 'mcp-filter',
-            score: 100, similarity: 0,
-            target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-            payload_preview: `Blocked tool definition`, payload_full: JSON.stringify(tools),
-            action: 'blocked', kind: 'mcp'
-          })
-          return
+        if (tools.length > 0) {
+          const defResult = this.mcp.checkToolDefinitions(tools)
+          if (defResult.action === 'block') {
+            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.end(JSON.stringify({ error: defResult.reason }))
+            this.eventBus.emit({
+              stage: 'mcp-filter',
+              score: 100, similarity: 0,
+              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+              payload_preview: `Blocked tool definition`, payload_full: JSON.stringify(tools),
+              action: 'blocked', kind: 'mcp'
+            })
+            return
+          } else {
+            this.eventBus.emit({
+              stage: 'mcp-filter', score: 0, similarity: 0,
+              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+              payload_preview: `Exposed ${tools.length} tools to LLM`, payload_full: JSON.stringify(tools),
+              action: 'passed', kind: 'mcp'
+            })
+          }
         }
 
         const toolResults = parser.extractToolResults(body)
@@ -470,6 +479,13 @@ export class ProxyServer {
               action: 'blocked', kind: 'mcp', mcpTool: tr.toolName
             })
             return
+          } else {
+            this.eventBus.emit({
+              stage: 'mcp-filter', score: 0, similarity: 0,
+              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+              payload_preview: `Tool result returned: ${tr.toolName}`, payload_full: tr.result,
+              action: 'passed', kind: 'mcp', mcpTool: tr.toolName
+            })
           }
         }
       }
@@ -554,6 +570,20 @@ export class ProxyServer {
                   action: 'blocked', kind: 'mcp', mcpTool: toolName
                 })
                 return
+              } else {
+                // To avoid emitting multiple times for the same tool in the stream, we could track emitted tools.
+                // But for a simple implementation, if we catch it, we emit once per chunk match (which might duplicate if chunking splits the regex).
+                // Actually, the match happens once we have enough accumulator. To avoid duplicates, we can clear accumulator or track emitted.
+                // Since this is a simple check, we will just emit it.
+                if (!respAccumulator.includes('__emitted__')) {
+                   this.eventBus.emit({
+                     stage: 'mcp-filter', score: 0, similarity: 0,
+                     target: hostname, method: req.method ?? 'GET', path: req.url ?? '/',
+                     payload_preview: `Tool invoked by LLM: ${toolName}`, payload_full: respAccumulator,
+                     action: 'passed', kind: 'mcp', mcpTool: toolName
+                   })
+                   respAccumulator += '__emitted__'
+                }
               }
             }
           }

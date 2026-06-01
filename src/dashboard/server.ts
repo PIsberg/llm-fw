@@ -56,6 +56,7 @@ const HTML = `<!DOCTYPE html>
     font-size: 0.75rem; color: #fff; white-space: nowrap; }
   .badge-blocked { background: #d32f2f; }
   .badge-warned  { background: #e65100; }
+  .badge-passed  { background: #388e3c; }
 
   /* Stage chips */
   .chip { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
@@ -312,7 +313,8 @@ const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, jud
 function updateStats(ev) {
   stats.total++;
   if (ev.action === 'blocked') stats.blocked++;
-  else stats.warned++;
+  else if (ev.action === 'warned') stats.warned++;
+  // We do not increment warned/blocked for 'passed'
   if (ev.stage === 'heuristic') stats.heuristic++;
   else if (ev.stage === 'embedding') stats.embedding++;
   else if (ev.stage === 'judge') stats.judge++;
