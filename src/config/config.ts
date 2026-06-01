@@ -56,7 +56,7 @@ export const DEFAULT_CONFIG: Config = {
   targets: ['api.anthropic.com', 'googleapis.com'],
 };
 
-export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
+function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = { ...target };
   for (const key of Object.keys(source) as (keyof T)[]) {
     const srcVal = source[key];
