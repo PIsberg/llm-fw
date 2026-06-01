@@ -15,10 +15,13 @@ import { getParser } from '../detection/parsers.js'
 export function identifyService(hostname: string): string {
   if (hostname.endsWith('openai.com')) return 'OpenAI'
   if (hostname.endsWith('anthropic.com')) return 'Anthropic'
-  if (hostname.endsWith('googleapis.com')) return 'Google AI'
+  if (hostname.endsWith('googleapis.com') || hostname.endsWith('google.com') || hostname.endsWith('googleusercontent.com')) return 'Google'
   if (hostname.endsWith('mistral.ai')) return 'Mistral'
   if (hostname.endsWith('huggingface.co')) return 'HuggingFace'
   if (hostname.endsWith('cohere.com') || hostname.endsWith('cohere.ai')) return 'Cohere'
+  if (hostname.endsWith('microsoft.com') || hostname.endsWith('exp-tas.com')) return 'Microsoft'
+  if (hostname.endsWith('npmjs.org') || hostname.endsWith('npmjs.com')) return 'NPM'
+  if (hostname.endsWith('antigravity-unleash.goog')) return 'Antigravity'
   if (hostname === 'localhost' || hostname === '127.0.0.1' || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return 'Local'
   return 'Custom'
 }
@@ -151,6 +154,22 @@ export class ProxyServer {
 
       // Direct tunnel — no inspection
       const upstream = net.createConnection({ host: hostname, port })
+
+      let trafficEmitted = false
+      const emitTunnelTraffic = () => {
+        if (trafficEmitted) return
+        trafficEmitted = true
+        this.eventBus.emitTraffic({
+          service: identifyService(hostname),
+          host: hostname,
+          bytesSent: upstream.bytesWritten || 0,
+          bytesReceived: upstream.bytesRead || 0,
+        })
+      }
+
+      clientSocket.on('close', emitTunnelTraffic)
+      upstream.on('close', emitTunnelTraffic)
+
       clientSocket.on('error', () => upstream.destroy())
       upstream.on('error', () => clientSocket.destroy())
       upstream.once('connect', () => {
