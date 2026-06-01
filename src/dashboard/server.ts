@@ -1,4 +1,7 @@
 import http from 'node:http'
+import fs from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { Config } from '../types.js'
 import { EventBus } from './eventBus.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -163,10 +166,13 @@ const HTML = `<!DOCTYPE html>
   .svc-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
   .svc-openai      { background: #d1fae5; color: #065f46; }
   .svc-anthropic   { background: #fde8d8; color: #9a3412; }
-  .svc-google-ai   { background: #dbeafe; color: #1e40af; }
+  .svc-google      { background: #dbeafe; color: #1e40af; }
   .svc-mistral     { background: #fef3c7; color: #92400e; }
   .svc-huggingface { background: #fce7f3; color: #9d174d; }
   .svc-cohere      { background: #ecfdf5; color: #064e3b; }
+  .svc-microsoft   { background: #e0f2fe; color: #0369a1; }
+  .svc-npm         { background: #fee2e2; color: #b91c1c; }
+  .svc-antigravity { background: #f3e8ff; color: #6b21a8; }
   .svc-local       { background: #f3f4f6; color: #374151; }
   .svc-custom      { background: #ede9fe; color: #5b21b6; }
 </style>
@@ -777,6 +783,20 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 500)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(eventBus.getTrafficMetrics(limit)))
+      return
+    }
+
+    // Serve the CRL so Windows Schannel can verify revocation status of MITM certs.
+    if (req.method === 'GET' && path === '/crl') {
+      const crlPath = join(homedir(), '.llm-fw', 'ca.crl')
+      if (fs.existsSync(crlPath)) {
+        const crlData = fs.readFileSync(crlPath)
+        res.writeHead(200, { 'Content-Type': 'application/pkix-crl', 'Content-Length': String(crlData.length) })
+        res.end(crlData)
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
       return
     }
 

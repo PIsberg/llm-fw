@@ -8,6 +8,8 @@ import { execFileSync } from 'node:child_process';
 const LLMFW_DIR = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw');
 const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
 const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
+export const CRL_PATH = join(LLMFW_DIR, 'ca.crl');
+const DASHBOARD_PORT = 7731
 
 export interface TLSCredentials { cert: string; key: string }
 
@@ -35,6 +37,18 @@ export function restrictDirPermissions(dir: string): void {
     [dir, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)F`, '/grant:r', 'SYSTEM:(OI)(CI)F'],
     { stdio: 'ignore' }
   );
+}
+
+// Build the ASN.1 for a cRLDistributionPoints extension (OID 2.5.29.31)
+// containing a single distributionPoint with a fullName URI.
+function makeCdpExtension(crlUrl: string): object {
+  const uri = forge.asn1.create(forge.asn1.Class.CONTEXT_SPECIFIC, 6, false,
+    Buffer.from(crlUrl).toString('binary'))
+  const fullName = forge.asn1.create(forge.asn1.Class.CONTEXT_SPECIFIC, 0, true, [uri])
+  const dpName = forge.asn1.create(forge.asn1.Class.CONTEXT_SPECIFIC, 0, true, [fullName])
+  const distPoint = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [dpName])
+  const cdpSeq = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [distPoint])
+  return { id: '2.5.29.31', critical: false, value: cdpSeq }
 }
 
 export class CertFactory {
@@ -67,6 +81,7 @@ export class CertFactory {
     cert.setExtensions([
       { name: 'basicConstraints', cA: true },
       { name: 'keyUsage', keyCertSign: true, cRLSign: true },
+      makeCdpExtension(`http://127.0.0.1:${DASHBOARD_PORT}/crl`),
     ]);
 
     cert.sign(keys.privateKey, forge.md.sha256.create());
@@ -105,6 +120,54 @@ export class CertFactory {
     throw new Error('CA not found. Run: llm-fw setup');
   }
 
+  // Generate an empty CRL signed by the CA and write it to ~/.llm-fw/ca.crl.
+  // Schannel (Windows) checks the CRL Distribution Point in every cert; without
+  // a reachable CRL it reports "revocation status unknown" and rejects the cert.
+  generateAndSaveCRL(): void {
+    const ca = this.getOrLoadCA()
+
+    const now = new Date()
+    const nextUpdate = new Date(now.getTime() + 10 * 365 * 24 * 60 * 60 * 1000)
+    const pad2 = (n: number) => n.toString().padStart(2, '0')
+    const utcTime = (d: Date) =>
+      pad2(d.getUTCFullYear() % 100) + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()) +
+      pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()) + pad2(d.getUTCSeconds()) + 'Z'
+
+    // sha256WithRSAEncryption
+    const algId = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [
+      forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.OID, false,
+        forge.asn1.oidToDer('1.2.840.113549.1.1.11').getBytes()),
+      forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.NULL, false, ''),
+    ])
+
+    // Re-use the issuer ASN.1 from the CA cert verbatim (preserves exact byte encoding).
+    // TBSCertificate layout (with explicit version): [version, serial, sigAlg, issuer, ...]
+    const caCertAsn1 = forge.pki.certificateToAsn1(ca.cert)
+    const issuerAsn1 = (caCertAsn1.value[0] as { value: forge.asn1.Asn1[] }).value[3]
+
+    // TBSCertList (no revokedCertificates → empty CRL)
+    const tbsCertList = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [
+      algId,
+      issuerAsn1,
+      forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.UTCTIME, false, utcTime(now)),
+      forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.UTCTIME, false, utcTime(nextUpdate)),
+    ])
+
+    const tbsDer = forge.asn1.toDer(tbsCertList)
+    const md = forge.md.sha256.create()
+    md.update(tbsDer.getBytes())
+    const sigBytes = ca.key.sign(md)
+
+    const crlAsn1 = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [
+      tbsCertList,
+      algId,
+      forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.BITSTRING, false,
+        '\x00' + sigBytes),
+    ])
+
+    fs.writeFileSync(CRL_PATH, Buffer.from(forge.asn1.toDer(crlAsn1).getBytes(), 'binary'))
+  }
+
   getHostCert(hostname: string): TLSCredentials {
     const cached = this.certCache.get(hostname);
     if (cached) return cached;
@@ -132,6 +195,7 @@ export class CertFactory {
         name: 'subjectAltName',
         altNames: [{ type: 2, value: hostname }],
       },
+      makeCdpExtension(`http://127.0.0.1:${DASHBOARD_PORT}/crl`),
     ]);
 
     cert.sign(ca.key, forge.md.sha256.create());

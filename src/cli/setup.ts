@@ -4,7 +4,7 @@ import { loadConfig } from '../config/config.js';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -16,8 +16,11 @@ export async function run(args: string[]): Promise<void> {
   console.log('Setting up llm-fw...');
 
   // Step 1 - Generate CA
-  new CertFactory().generateCA();
+  const certFactory = new CertFactory();
+  certFactory.generateCA();
   console.log('CA certificate generated.');
+  certFactory.generateAndSaveCRL();
+  console.log('CRL generated.');
 
   // Step 2 - Install to OS trust store
   try {
@@ -46,21 +49,67 @@ export async function run(args: string[]): Promise<void> {
   await checker.init();
   console.log('Embedding model ready.');
 
-  // Step 4 - Sinkhole hosts file
+  // Step 4 - Sinkhole hosts file + port forwarding
   if (sinkhole) {
     const hostsPath = platform() === 'win32'
       ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
       : '/etc/hosts';
+    const config = await loadConfig();
     try {
       const original = fs.readFileSync(hostsPath, 'utf8');
       fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
-      const entries = '\n# llm-fw sinkhole\n127.0.0.1 llm-fw.invalid\n127.0.0.1 sinkhole.llm-fw.invalid\n';
+      const hostLines = config.targets.map(t => `127.0.0.1 ${t}`).join('\n');
+      const entries = `\n# llm-fw sinkhole\n${hostLines}\n`;
       fs.appendFileSync(hostsPath, entries, 'utf8');
       console.log('Sinkhole entries added to hosts file. Backup saved to', hostsPath + '.llm-fw.bak');
     } catch (err) {
       console.error('Failed to modify hosts file. Try running with administrator/root privileges.');
       console.error((err as Error).message);
     }
+
+    // Redirect 127.0.0.1:443 → 127.0.0.1:httpsPort so the sinkhole TLS server
+    // can run on an unprivileged port.
+    const os = platform();
+    if (os === 'win32') {
+      try {
+        execFileSync('netsh', [
+          'interface', 'portproxy', 'add', 'v4tov4',
+          'listenport=443', 'listenaddress=127.0.0.1',
+          `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
+        ], { stdio: 'ignore' });
+        console.log(`Port proxy: 127.0.0.1:443 → 127.0.0.1:${config.proxy.httpsPort}`);
+      } catch (err) {
+        console.warn('Could not add port proxy rule (requires admin):', (err as Error).message);
+      }
+    } else if (os === 'darwin') {
+      try {
+        execSync(
+          `echo "rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port ${config.proxy.httpsPort}" | pfctl -ef -`,
+          { stdio: 'pipe' }
+        );
+        console.log(`pf redirect: lo0:443 → ${config.proxy.httpsPort}`);
+      } catch (err) {
+        console.warn('Could not add pf redirect (requires sudo):', (err as Error).message);
+      }
+    } else {
+      try {
+        execSync(
+          `iptables -t nat -A OUTPUT -o lo -p tcp --dport 443 -j REDIRECT --to-port ${config.proxy.httpsPort}`,
+          { stdio: 'pipe' }
+        );
+        console.log(`iptables redirect: lo:443 → ${config.proxy.httpsPort}`);
+      } catch (err) {
+        console.warn('Could not add iptables redirect (requires sudo):', (err as Error).message);
+      }
+    }
+
+    // Persist sinkhole mode so `llm-fw start` picks it up without extra env vars.
+    fs.writeFileSync(
+      join(llmfwDir, 'config.json'),
+      JSON.stringify({ proxy: { mode: 'sinkhole' } }, null, 2),
+      'utf8'
+    );
+    console.log('Sinkhole mode saved to config.');
   }
 
   console.log('\nllm-fw setup complete.');
