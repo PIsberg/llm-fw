@@ -67,6 +67,7 @@ const HTML = `<!DOCTYPE html>
   .chip-dlp         { background: #b2dfdb; color: #004d40; }
   .chip-dos         { background: #ffccbc; color: #bf360c; }
   .chip-rag         { background: #d1c4e9; color: #311b92; }
+  .chip-mcp-filter  { background: #b2ebf2; color: #006064; }
 
   /* Score bar */
   .score-bar { display: flex; align-items: center; gap: 6px; }
@@ -194,6 +195,7 @@ const HTML = `<!DOCTYPE html>
     <div class="stat"><div class="stat-label">Data Loss</div><div class="stat-value warned" id="s-dlp">0</div></div>
     <div class="stat"><div class="stat-label">Rate Limit / DoS</div><div class="stat-value blocked" id="s-dos">0</div></div>
     <div class="stat"><div class="stat-label">RAG Poisoning</div><div class="stat-value blocked" id="s-rag">0</div></div>
+    <div class="stat"><div class="stat-label">MCP / Tool Use</div><div class="stat-value blocked" id="s-mcp">0</div></div>
   </div>
 
   <div class="tabs">
@@ -306,7 +308,7 @@ function showTab(name, btn) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0 };
+const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0, mcp: 0 };
 function updateStats(ev) {
   stats.total++;
   if (ev.action === 'blocked') stats.blocked++;
@@ -318,6 +320,7 @@ function updateStats(ev) {
   else if (ev.stage === 'dlp') stats.dlp++;
   else if (ev.stage === 'dos') stats.dos++;
   else if (ev.stage === 'rag') stats.rag++;
+  else if (ev.stage === 'mcp-filter') stats.mcp++;
   document.getElementById('s-total').textContent = stats.total;
   document.getElementById('s-blocked').textContent = stats.blocked;
   document.getElementById('s-warned').textContent = stats.warned;
@@ -328,6 +331,7 @@ function updateStats(ev) {
   document.getElementById('s-dlp').textContent = stats.dlp;
   document.getElementById('s-dos').textContent = stats.dos;
   document.getElementById('s-rag').textContent = stats.rag;
+  if (document.getElementById('s-mcp')) document.getElementById('s-mcp').textContent = stats.mcp;
 }
 
 // ── Escape ────────────────────────────────────────────────────────────────────
@@ -370,6 +374,9 @@ function detailCell(ev) {
   }
   if (ev.stage === 'rag') {
     return '<span class="detail-tag">' + esc(ev.ragTag ? 'poisoned <' + ev.ragTag + '>' : (ev.verdict || 'context-poisoning')) + '</span>';
+  }
+  if (ev.stage === 'mcp-filter') {
+    return '<span class="detail-tag">' + esc(ev.mcpTool ? 'tool: ' + ev.mcpTool : 'mcp-policy') + '</span>';
   }
   return '—';
 }

@@ -25,7 +25,7 @@ const ENTROPY_THRESHOLD = 4.0
 // luhnValid used internally
 
 export class DlpScanner {
-  private config: DLPConfig
+  public config: DLPConfig
 
   constructor(config: DLPConfig) {
     this.config = config

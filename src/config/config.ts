@@ -53,6 +53,11 @@ export const DEFAULT_CONFIG: Config = {
   rag: {
     enabled: true,
   },
+  mcp: {
+    enabled: true,
+    blockedTools: ['execute_command', 'delete_database'],
+    auditOnly: false,
+  },
   targets: ['api.anthropic.com', 'googleapis.com'],
 };
 
@@ -160,6 +165,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_RAG_ENABLED']) {
     config.rag.enabled = env['LLM_FW_RAG_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_MCP_ENABLED']) {
+    config.mcp.enabled = env['LLM_FW_MCP_ENABLED'] === 'true';
   }
 
   return config;

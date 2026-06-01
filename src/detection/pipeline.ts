@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/require-await */
 import { Config, PipelineResult, BlockEvent } from '../types.js'
 import { getParser, extractPartialPrompts } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'

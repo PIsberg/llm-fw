@@ -60,6 +60,12 @@ interface RagConfig {
   enabled: boolean;
 }
 
+export interface McpConfig {
+  enabled: boolean;
+  blockedTools: string[];
+  auditOnly: boolean;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
@@ -67,6 +73,7 @@ export interface Config {
   dlp: DLPConfig;
   dos: DosConfig;
   rag: RagConfig;
+  mcp: McpConfig;
   targets: string[];
 }
 
@@ -110,11 +117,12 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp';
   urlBlockReason?: string;
   dlpType?: string;
   dosReason?: string;
   ragTag?: string;
+  mcpTool?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;
@@ -123,6 +131,9 @@ export interface BlockEvent {
 export interface PayloadParser {
   supports(path: string): boolean;
   extractPrompts(body: string): string[];
+  extractTools(body: string): any[];
+  extractToolResults(body: string): { toolName: string; result: string }[];
+  extractToolUses(body: string): { toolName: string; args: any }[];
 }
 
 export interface TrafficMetric {

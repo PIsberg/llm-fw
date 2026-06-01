@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion */
 import http from 'node:http'
 import net from 'node:net'
 import tls from 'node:tls'
@@ -11,6 +12,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
+import { McpScanner } from '../detection/mcp/scanner.js'
 
 function identifyService(hostname: string): string {
   if (hostname.endsWith('openai.com')) return 'OpenAI'
@@ -49,6 +51,7 @@ export class ProxyServer {
   private dlp: DlpScanner | null
   private quota: QuotaManager | null
   private loop: LoopDetector | null
+  private mcp: McpScanner | null
   private eventBus: EventBus
   private config: Config
 
@@ -64,6 +67,7 @@ export class ProxyServer {
     this.dlp = config.dlp?.enabled ? new DlpScanner(config.dlp) : null
     this.quota = config.dos?.enabled ? new QuotaManager(config.dos) : null
     this.loop = config.dos?.enabled ? new LoopDetector() : null
+    this.mcp = config.mcp?.enabled ? new McpScanner(config, this.dlp) : null
     this.server = http.createServer()
   }
 
@@ -298,7 +302,7 @@ export class ProxyServer {
       const maxBodyBytes = this.config.proxy.maxBodyBytes
 
       // Intercept request stream to check chunks on the fly
-      innerReq.on('data', (chunk) => {
+      innerReq.on('data', (chunk: Buffer) => {
         if (blocked) return
 
         // Bound buffered body size to prevent memory-exhaustion DoS from an
@@ -434,6 +438,42 @@ export class ProxyServer {
         return
       }
 
+      // Stage 4 - MCP Request Validation
+      if (this.mcp && getParser(innerReq.url ?? '/') !== null) {
+        const parser = getParser(innerReq.url ?? '/')!
+        const tools = parser.extractTools(body)
+        const defResult = this.mcp.checkToolDefinitions(tools)
+        if (defResult.action === 'block') {
+          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error: defResult.reason }))
+          this.eventBus.emit({
+            stage: 'mcp-filter',
+            score: 100, similarity: 0,
+            target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+            payload_preview: `Blocked tool definition`, payload_full: JSON.stringify(tools),
+            action: 'blocked', kind: 'mcp'
+          })
+          return
+        }
+
+        const toolResults = parser.extractToolResults(body)
+        for (const tr of toolResults) {
+          const resResult = this.mcp.checkToolResult(tr.toolName, tr.result)
+          if (resResult.action === 'block') {
+            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.end(JSON.stringify({ error: resResult.reason }))
+            this.eventBus.emit({
+              stage: 'mcp-filter',
+              score: 100, similarity: 0,
+              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+              payload_preview: `Blocked tool result for ${tr.toolName}`, payload_full: tr.result,
+              action: 'blocked', kind: 'mcp', mcpTool: tr.toolName
+            })
+            return
+          }
+        }
+      }
+
       const isLlmRequest = getParser(innerReq.url ?? '/') !== null
 
       const bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest)
@@ -474,6 +514,7 @@ export class ProxyServer {
       let headersDone = false
       let rawHeaders = ''
       let respBodyBytes = 0
+      let respAccumulator = ''
       upstream.on('data', (chunk: Buffer) => {
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
@@ -494,6 +535,28 @@ export class ProxyServer {
             if (bodyStart) { res.write(Buffer.from(bodyStart, 'binary')); respBodyBytes += bodyStart.length }
           }
         } else {
+          respAccumulator += chunk.toString('utf-8')
+          // Check for MCP tool invocations in the response stream.
+          // Since we can't reliably JSON.parse a stream, we look for tool_use regex patterns.
+          if (isLlmRequest && this.mcp) {
+            const toolMatch = respAccumulator.match(/"(?:name|tool)"\s*:\s*"([^"]+)"/)
+            if (toolMatch && toolMatch[1]) {
+              const toolName = toolMatch[1]
+              const invResult = this.mcp.checkToolInvocation(toolName, {})
+              if (invResult.action === 'block') {
+                res.destroy(new Error(invResult.reason))
+                upstream.destroy()
+                this.eventBus.emit({
+                  stage: 'mcp-filter',
+                  score: 100, similarity: 0,
+                  target: hostname, method: req.method ?? 'GET', path: req.url ?? '/',
+                  payload_preview: `Blocked tool invocation: ${toolName}`, payload_full: respAccumulator,
+                  action: 'blocked', kind: 'mcp', mcpTool: toolName
+                })
+                return
+              }
+            }
+          }
           res.write(chunk)
           respBodyBytes += chunk.length
         }
