@@ -48,6 +48,12 @@ The Live Traffic tab shows a rolling 60-second bytes/sec chart, per-provider uti
 
 ![Live Traffic tab — throughput chart and service utilization](docs/images/ss-05-live-traffic.png)
 
+### MCP Tool Monitoring
+
+The proxy inspects the tools being exposed to the LLM (Definitions), intercepted inbound LLM invocations (Invocations), and returned tool outputs (Results). Live MCP traffic appears natively with "PASSED" and "BLOCKED" badges.
+
+![MCP Monitoring](docs/images/ss-06-mcp-monitoring.png)
+
 ---
 
 ## How it works
@@ -626,6 +632,34 @@ Environment overrides:
 
 ---
 
+## MCP Monitoring & Tool Firewall
+
+As AI agents increasingly rely on the **Model Context Protocol (MCP)** and local tool execution, securing what the LLM is allowed to execute locally is critical. The firewall natively intercepts the JSON-RPC tool schemas flowing between your agent and the upstream LLM API to provide three layers of defense:
+
+### 1. Definition Enforcement (Outbound)
+Agents often expose more tools than necessary (e.g. wildcard filesystem access). `llm-fw` intercepts the `tools` array exposed in the API request and aborts the connection if the agent attempts to advertise a blocked tool (e.g., `execute_command`) to the LLM.
+
+### 2. Invocation Blocking (Inbound Streaming Defense)
+If the LLM decides to use a tool, it streams the `tool_use` payload back to the agent. `llm-fw` buffers the inbound HTTP stream and parses JSON chunks on the fly. If a malicious tool invocation is detected, the proxy **instantly drops the connection** (`res.destroy()`). This causes the agent's JSON stream parser to fail with an Unexpected EOF, neutralizing the execution before the local agent even recognizes it.
+
+### 3. Result Scanning & DLP (Outbound)
+When a safe tool returns data (e.g., `read_file`), that result is sent back to the LLM in the next turn. `llm-fw` extracts the `tool_result` content and subjects it to the standard Data Loss Prevention (DLP) engine. If a tool accidentally reads your `~/.aws/credentials`, the firewall blocks it from being uploaded.
+
+### Configuration
+
+```json
+{
+  "mcp": {
+    "enabled": true,
+    "blockedTools": ["execute_command", "delete_database", "eval"]
+  }
+}
+```
+
+Detected events appear in the dashboard under the **MCP / Tool Use** badge with a distinct `mcp-filter` stage chip, logging both `PASSED` legitimate traffic and `BLOCKED` policy violations.
+
+---
+
 ## Advanced: Sinkhole mode (covered above)
 
 See the [Sinkhole mode](#sinkhole-mode) section in Quick Start for full instructions.
@@ -713,3 +747,5 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [PLAN-dos.md](PLAN-dos.md) — implementation plan for Cost Control & Agentic DoS Protection
 - [SPEC-rag.md](SPEC-rag.md) — specification for RAG Context-Poisoning Detection
 - [PLAN-rag.md](PLAN-rag.md) — implementation plan for RAG Context-Poisoning Detection
+- [SPEC-mcp.md](SPEC-mcp.md) — specification for MCP Monitoring & Firewall
+- [PLAN-mcp.md](PLAN-mcp.md) — implementation plan for MCP Monitoring & Firewall
