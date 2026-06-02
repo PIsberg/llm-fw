@@ -1,5 +1,6 @@
 import { Config } from '../types.js';
 import { cosmiconfig } from 'cosmiconfig';
+import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS } from './providers.js';
 
 export const DEFAULT_CONFIG: Config = {
   proxy: {
@@ -12,13 +13,14 @@ export const DEFAULT_CONFIG: Config = {
     urlFilter: {
       enabled: true,
       entropyThreshold: 4.8,
+      // Every known AI provider domain is trusted by default, plus the common
+      // dev-tooling hosts. Derived from the provider registry so adding a
+      // provider there automatically allowlists it here too.
       allowlistDomains: [
-        'api.anthropic.com',
-        'generativelanguage.googleapis.com',
+        ...AI_PROVIDER_DOMAINS,
         'github.com',
         'npmjs.org',
         'registry.npmjs.org',
-        'googleapis.com',
       ],
       blocklistDomains: [],
     },
@@ -58,7 +60,10 @@ export const DEFAULT_CONFIG: Config = {
     blockedTools: ['execute_command', 'delete_database'],
     auditOnly: false,
   },
-  targets: ['api.anthropic.com', 'googleapis.com'],
+  // Every major AI provider's API host — the proxy TLS-inspects these and the
+  // sinkhole redirects them. Sourced from the provider registry (providers.ts)
+  // so the firewall covers all supported services out of the box.
+  targets: AI_PROVIDER_HOSTS,
 };
 
 function deepMerge<T extends object>(target: T, source: Partial<T>): T {

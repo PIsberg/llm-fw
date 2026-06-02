@@ -8,7 +8,9 @@
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-brightgreen?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 
-A local prompt injection firewall that intercepts traffic between your tools and LLM APIs (Anthropic, Google Gemini) before it leaves your machine. Malicious prompts are blocked and logged; clean ones are forwarded transparently.
+A local prompt injection firewall that intercepts traffic between your tools and **every major LLM API** before it leaves your machine. Malicious prompts are blocked and logged; clean ones are forwarded transparently.
+
+Works out of the box with OpenAI, Anthropic, Google Gemini/Vertex, Azure OpenAI, Mistral, Groq, OpenRouter, Together, Fireworks, DeepSeek, xAI (Grok), Perplexity, Cohere, Anyscale, and HuggingFace — point any tool at the proxy (or enable the sinkhole) and the firewall covers it automatically. Any OpenAI-compatible endpoint is understood natively.
 
 No changes to your code. No cloud dependencies. Boots in under 2 seconds.
 
@@ -66,6 +68,31 @@ Detection pipeline:
 3. **Judge LLM** — local Ollama model, async by default (opt-in)
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical detail.
+
+---
+
+## Supported AI services
+
+The firewall ships with a built-in registry of every major AI provider (`src/config/providers.ts`). Each provider's API host is intercepted and inspected in proxy mode and redirected in sinkhole mode — no per-service configuration needed.
+
+| Provider | API host(s) | Wire format |
+|----------|-------------|-------------|
+| OpenAI / Azure OpenAI | `api.openai.com`, `*.openai.azure.com` | OpenAI |
+| Anthropic | `api.anthropic.com` | Anthropic Messages |
+| Google Gemini / Vertex AI | `generativelanguage.googleapis.com`, `aiplatform.googleapis.com` | Gemini |
+| Mistral | `api.mistral.ai` | OpenAI |
+| Groq | `api.groq.com` | OpenAI |
+| OpenRouter | `openrouter.ai` | OpenAI |
+| Together | `api.together.xyz`, `api.together.ai` | OpenAI |
+| Fireworks | `api.fireworks.ai` | OpenAI |
+| DeepSeek | `api.deepseek.com` | OpenAI |
+| xAI (Grok) | `api.x.ai` | OpenAI |
+| Perplexity | `api.perplexity.ai` | OpenAI |
+| Cohere | `api.cohere.com`, `api.cohere.ai` | Cohere |
+| Anyscale | `api.endpoints.anyscale.com` | OpenAI |
+| HuggingFace | `api-inference.huggingface.co` | (passthrough) |
+
+Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format (self-hosted vLLM, LM Studio, LocalAI, …) is parsed natively — add its host to `targets` in your `.llm-fw.json` and it works the same way. Hosts not in the registry still tunnel through the proxy and are screened by the outbound URL filter; only recognised LLM hosts get full payload inspection.
 
 ---
 

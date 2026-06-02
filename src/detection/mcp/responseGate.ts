@@ -61,6 +61,29 @@ export function rewriteBlockedJsonResponse(body: string, blockedNames: Set<strin
     return JSON.stringify(data)
   }
 
+  // OpenAI shape: choices[].message.tool_calls[] holding function calls.
+  if (Array.isArray(data.choices)) {
+    for (const choice of data.choices as Array<Record<string, unknown>>) {
+      const message = choice.message as Record<string, unknown> | undefined
+      if (message && Array.isArray(message.tool_calls)) {
+        const calls = message.tool_calls as Array<Record<string, unknown>>
+        const kept = calls.filter(c => {
+          const fn = c.function as Record<string, unknown> | undefined
+          return !(fn && blockedNames.has(fn.name as string))
+        })
+        if (kept.length !== calls.length) {
+          message.tool_calls = kept
+          if (kept.length === 0) {
+            delete message.tool_calls
+            message.content = note
+            choice.finish_reason = 'stop'
+          }
+        }
+      }
+    }
+    return JSON.stringify(data)
+  }
+
   // Gemini shape: candidates[].content.parts[] holding functionCall parts.
   if (Array.isArray(data.candidates)) {
     for (const cand of data.candidates as Array<Record<string, unknown>>) {

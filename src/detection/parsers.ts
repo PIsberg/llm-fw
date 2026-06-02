@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
 import { PayloadParser } from '../types.js'
 
 class AnthropicParser implements PayloadParser {
@@ -99,9 +99,219 @@ class AnthropicParser implements PayloadParser {
   }
 }
 
+/**
+ * Parser for the OpenAI-compatible Chat Completions / Responses wire format.
+ *
+ * This single parser covers the bulk of the AI ecosystem: OpenAI, Azure OpenAI,
+ * Mistral, Groq, OpenRouter, Together, Fireworks, DeepSeek, xAI (Grok),
+ * Perplexity, Anyscale, and any other service that speaks `/chat/completions`.
+ * Their request paths vary (`/v1/chat/completions`, `/openai/v1/chat/completions`,
+ * `/api/v1/chat/completions`, Azure's `/openai/deployments/<id>/chat/completions
+ * ?api-version=…`), so matching is by suffix on the path (query string stripped).
+ */
+class OpenAIParser implements PayloadParser {
+  supports(path: string): boolean {
+    const p = (path.split('?')[0] ?? '')
+    return p.endsWith('/chat/completions') || p.endsWith('/completions') || p.endsWith('/responses')
+  }
+
+  private partsText(content: unknown, out: string[]): void {
+    if (typeof content === 'string') {
+      if (content.length > 0) out.push(content)
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        // Chat vision parts use {type:'text'}, Responses parts use {type:'input_text'}.
+        if (part && typeof part.text === 'string' && part.text.length > 0) out.push(part.text)
+      }
+    }
+  }
+
+  extractPrompts(body: string): string[] {
+    try {
+      const data = JSON.parse(body)
+      const results: string[] = []
+
+      // Chat Completions: messages[] with role system|user|developer (skip
+      // assistant/tool — those are model output, not attacker-controlled input).
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' || msg.role === 'tool') continue
+          this.partsText(msg.content, results)
+        }
+      }
+
+      // Responses API: top-level `input` (string or message array) + `instructions`.
+      if (typeof data.input === 'string') {
+        if (data.input.length > 0) results.push(data.input)
+      } else if (Array.isArray(data.input)) {
+        for (const item of data.input) {
+          if (item && (item.role === 'assistant' || item.role === 'tool')) continue
+          this.partsText(item?.content, results)
+        }
+      }
+      if (typeof data.instructions === 'string' && data.instructions.length > 0) {
+        results.push(data.instructions)
+      }
+
+      return results.filter(s => s.length > 0)
+    } catch {
+      return []
+    }
+  }
+
+  extractTools(body: string): any[] {
+    try {
+      const data = JSON.parse(body)
+      if (!Array.isArray(data.tools)) return []
+      // Normalize {type:'function', function:{name,…}} (Chat) and the flat
+      // Responses shape {type:'function', name,…} so the MCP scanner — which
+      // reads `tool.name` — can enforce its blocklist uniformly.
+      return data.tools.map((t: any) => {
+        const fn = t && typeof t === 'object' ? t.function : undefined
+        if (fn && typeof fn === 'object') return { name: fn.name, ...fn }
+        return t
+      })
+    } catch { return [] }
+  }
+
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolUseId: string; result: string }[] = []
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'tool') {
+            const resText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+            results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
+          }
+        }
+      }
+      return results
+    } catch { return [] }
+  }
+
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolName: string; args: any }[] = []
+      const pushCall = (call: any) => {
+        const fn = call?.function
+        if (fn && typeof fn.name === 'string') {
+          let parsedArgs: any = fn.arguments
+          if (typeof fn.arguments === 'string') {
+            try { parsedArgs = JSON.parse(fn.arguments) } catch { /* leave as raw string */ }
+          }
+          results.push({ toolName: fn.name, args: parsedArgs })
+        }
+      }
+
+      // Chat response: choices[].message.tool_calls[]
+      if (Array.isArray(data.choices)) {
+        for (const choice of data.choices) {
+          const calls = choice?.message?.tool_calls
+          if (Array.isArray(calls)) for (const c of calls) pushCall(c)
+        }
+      }
+      // Chat request echoing assistant turns: messages[].tool_calls[]
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+            for (const c of msg.tool_calls) pushCall(c)
+          }
+        }
+      }
+      // Responses API: output[] items of type 'function_call' (flat name/arguments).
+      if (Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item && item.type === 'function_call' && typeof item.name === 'string') {
+            let parsedArgs: any = item.arguments
+            if (typeof item.arguments === 'string') {
+              try { parsedArgs = JSON.parse(item.arguments) } catch { /* raw */ }
+            }
+            results.push({ toolName: item.name, args: parsedArgs })
+          }
+        }
+      }
+      return results
+    } catch { return [] }
+  }
+}
+
+/**
+ * Parser for Cohere's Chat API (`/v1/chat` and the OpenAI-like `/v2/chat`).
+ * Covers prompt extraction and tool-definition enforcement; tool invocation
+ * gating is left as a best-effort stub (Cohere streams tool calls in its own
+ * event shape, handled by the generic passthrough).
+ */
+class CohereParser implements PayloadParser {
+  supports(path: string): boolean {
+    const p = (path.split('?')[0] ?? '')
+    return p.endsWith('/v1/chat') || p.endsWith('/v2/chat')
+  }
+
+  extractPrompts(body: string): string[] {
+    try {
+      const data = JSON.parse(body)
+      const results: string[] = []
+
+      // v1: { message, chat_history:[{role:'USER'|'CHATBOT', message}], preamble }
+      if (typeof data.message === 'string') results.push(data.message)
+      if (typeof data.preamble === 'string') results.push(data.preamble)
+      if (Array.isArray(data.chat_history)) {
+        for (const turn of data.chat_history) {
+          if (turn && turn.role !== 'CHATBOT' && typeof turn.message === 'string') {
+            results.push(turn.message)
+          }
+        }
+      }
+
+      // v2: { messages:[{role, content}] } (OpenAI-like)
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' || msg.role === 'tool') continue
+          if (typeof msg.content === 'string') {
+            results.push(msg.content)
+          } else if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part && typeof part.text === 'string') results.push(part.text)
+            }
+          }
+        }
+      }
+
+      return results.filter(s => s.length > 0)
+    } catch {
+      return []
+    }
+  }
+
+  extractTools(body: string): any[] {
+    try {
+      const data = JSON.parse(body)
+      if (!Array.isArray(data.tools)) return []
+      // v1 tools are flat {name,…}; v2 use {type:'function', function:{name,…}}.
+      return data.tools.map((t: any) => {
+        const fn = t && typeof t === 'object' ? t.function : undefined
+        if (fn && typeof fn === 'object') return { name: fn.name, ...fn }
+        return t
+      })
+    } catch { return [] }
+  }
+
+  extractToolResults(_body: string): { toolUseId: string; result: string }[] {
+    return []
+  }
+
+  extractToolUses(_body: string): { toolName: string; args: any }[] {
+    return []
+  }
+}
+
 class GeminiParser implements PayloadParser {
   supports(path: string): boolean {
-    return /^\/v1beta\/models\/.+\/generateContent/.test(path)
+    // Matches both stable (/v1/) and beta (/v1beta/, /v1beta1/) Gemini and
+    // Vertex AI generative endpoints: generateContent + streamGenerateContent.
+    return /\/v1(beta\d?)?\/.*models\/.+:?(stream)?[Gg]enerateContent/.test(path)
   }
 
   extractPrompts(body: string): string[] {
@@ -167,7 +377,12 @@ class GeminiParser implements PayloadParser {
   }
 }
 
-export const parsers: PayloadParser[] = [new AnthropicParser(), new GeminiParser()]
+export const parsers: PayloadParser[] = [
+  new AnthropicParser(),
+  new OpenAIParser(),
+  new CohereParser(),
+  new GeminiParser(),
+]
 
 export function getParser(path: string): PayloadParser | null {
   return parsers.find(p => p.supports(path)) ?? null
@@ -206,4 +421,4 @@ export function extractPartialPrompts(body: string): string[] {
   return results.filter(s => s.length > 0)
 }
 
-export { AnthropicParser, GeminiParser }
+export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser }
