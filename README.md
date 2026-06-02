@@ -779,13 +779,13 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [PLAN.md](PLAN.md) — implementation plan
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture, sequence diagrams, class diagrams
 - [docs/TESTING.md](docs/TESTING.md) — comprehensive guide on unit, integration, and E2E testing
-- [SPEC-http.md](SPEC-http.md) — specification for outbound HTTP/HTTPS URL interception and exfiltration classification
-- [PLAN-http.md](PLAN-http.md) — implementation plan for outbound URL exfiltration defense
-- [SPEC-dlp.md](SPEC-dlp.md) — specification for Data Loss Prevention & secret redaction
-- [PLAN-dlp.md](PLAN-dlp.md) — implementation plan for Data Loss Prevention
-- [SPEC-dos.md](SPEC-dos.md) — specification for Cost Control & Agentic DoS Protection
-- [PLAN-dos.md](PLAN-dos.md) — implementation plan for Cost Control & Agentic DoS Protection
-- [SPEC-rag.md](SPEC-rag.md) — specification for RAG Context-Poisoning Detection
-- [PLAN-rag.md](PLAN-rag.md) — implementation plan for RAG Context-Poisoning Detection
-- [SPEC-mcp.md](SPEC-mcp.md) — specification for MCP Monitoring & Firewall
-- [PLAN-mcp.md](PLAN-mcp.md) — implementation plan for MCP Monitoring & Firewall
+- [SPEC-http.md](docs/specs/SPEC-http.md) — specification for outbound HTTP/HTTPS URL interception and exfiltration classification
+- [PLAN-http.md](docs/plans/PLAN-http.md) — implementation plan for outbound URL exfiltration defense
+- [SPEC-dlp.md](docs/specs/SPEC-dlp.md) — specification for Data Loss Prevention & secret redaction
+- [PLAN-dlp.md](docs/plans/PLAN-dlp.md) — implementation plan for Data Loss Prevention
+- [SPEC-dos.md](docs/specs/SPEC-dos.md) — specification for Cost Control & Agentic DoS Protection
+- [PLAN-dos.md](docs/plans/PLAN-dos.md) — implementation plan for Cost Control & Agentic DoS Protection
+- [SPEC-rag.md](docs/specs/SPEC-rag.md) — specification for RAG Context-Poisoning Detection
+- [PLAN-rag.md](docs/plans/PLAN-rag.md) — implementation plan for RAG Context-Poisoning Detection
+- [SPEC-mcp.md](docs/specs/SPEC-mcp.md) — specification for MCP Monitoring & Firewall
+- [PLAN-mcp.md](docs/plans/PLAN-mcp.md) — implementation plan for MCP Monitoring & Firewall
