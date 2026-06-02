@@ -59,6 +59,13 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     blockedTools: ['execute_command', 'delete_database'],
     auditOnly: false,
+    guardrailsEnabled: true,
+    guardrailsCategories: {
+      a: true,
+      b: true,
+      c: true,
+      d: true,
+    },
   },
   // Every major AI provider's API host — the proxy TLS-inspects these and the
   // sinkhole redirects them. Sourced from the provider registry (providers.ts)
@@ -173,6 +180,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_MCP_ENABLED']) {
     config.mcp.enabled = env['LLM_FW_MCP_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_MCP_GUARDRAILS_ENABLED']) {
+    config.mcp.guardrailsEnabled = env['LLM_FW_MCP_GUARDRAILS_ENABLED'] === 'true';
   }
 
   return config;

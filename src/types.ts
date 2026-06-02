@@ -64,6 +64,13 @@ export interface McpConfig {
   enabled: boolean;
   blockedTools: string[];
   auditOnly: boolean;
+  guardrailsEnabled: boolean;
+  guardrailsCategories: {
+    a: boolean;
+    b: boolean;
+    c: boolean;
+    d: boolean;
+  };
 }
 
 export interface Config {
@@ -130,6 +137,7 @@ export interface BlockEvent {
   dosReason?: string;
   ragTag?: string;
   mcpTool?: string;
+  mcpRule?: string;
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;
