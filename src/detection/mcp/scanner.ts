@@ -30,7 +30,7 @@ export function extractCommandString(args: unknown): string {
     const commandKeys = ['command', 'cmd', 'code', 'script', 'arguments', 'args']
     for (const key of commandKeys) {
       if (typeof obj[key] === 'string') {
-        return obj[key] as string
+        return obj[key]
       }
     }
     // No recognized command key: scan EVERY string value (including nested

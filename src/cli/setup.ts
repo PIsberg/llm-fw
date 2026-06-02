@@ -71,7 +71,9 @@ export async function run(args: string[]): Promise<void> {
   const checker = new EmbeddingChecker(config.detection);
   console.log('Downloading embedding model (this may take a moment)...');
   await checker.init();
-  console.log('Embedding model ready.');
+  console.log(checker.isInitialized()
+    ? 'Embedding model ready.'
+    : 'Embedding model could not be downloaded — the semantic stage stays disabled until it is reachable (all other stages are unaffected). Re-run setup to retry.');
 
   // Step 4 - Sinkhole hosts file + port forwarding
   if (sinkhole) {
@@ -128,7 +130,7 @@ export async function run(args: string[]): Promise<void> {
         // The IP Helper service is required for portproxy to function.
         execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
         execSync('net start iphlpsvc', { stdio: 'ignore' });
-      } catch (err) {
+      } catch {
         // Ignore if already running or if we lack permissions, though we should be elevated here.
       }
       try {
