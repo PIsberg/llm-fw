@@ -25,8 +25,12 @@ export class EmbeddingChecker {
   }
 
   async init(): Promise<void> {
+    // The model is large, immutable, and safe to share across instances, so it
+    // caches in LLM_FW_MODEL_DIR when set — this lets CI cache it independently
+    // of the per-instance LLM_FW_DIR (which the tests point at a throwaway temp
+    // dir). Falls back to <LLM_FW_DIR or ~/.llm-fw>/models.
     const baseDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
-    env.cacheDir = join(baseDir, 'models')
+    env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(baseDir, 'models')
     env.allowLocalModels = false
 
     try {
