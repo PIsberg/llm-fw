@@ -22,6 +22,12 @@ switch (command) {
     await run();
     break;
   }
+  case 'doctor':
+  case '--doctor': {
+    const { run } = await import('./doctor.js');
+    await run(args);
+    break;
+  }
   case 'setup-judge': {
     const { run } = await import('./setup-judge.js');
     await run();
@@ -38,6 +44,8 @@ Commands:
   start                 Start the firewall proxy
   stop                  Stop the firewall proxy
   status                Show firewall status
+  doctor [--json]       Diagnose the interception setup (CA, env vars, proxy,
+                        sinkhole hosts/redirect, iphlpsvc) and print fixes
 `);
     process.exit(command ? 1 : 0);
   }
