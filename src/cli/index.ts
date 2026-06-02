@@ -31,11 +31,13 @@ switch (command) {
     console.log(`Usage: llm-fw <command> [options]
 
 Commands:
-  setup [--sinkhole]   Set up the firewall (use --sinkhole for sinkhole mode)
-  setup-judge          Install an Ollama model and enable Stage 3 judge
-  start                Start the firewall proxy
-  stop                 Stop the firewall proxy
-  status               Show firewall status
+  setup [--proxy-only]  Set up the firewall. Enables BOTH proxy and sinkhole by
+                        default (sinkhole needs admin/root); --proxy-only skips
+                        the sinkhole and covers only HTTPS_PROXY-aware tools.
+  setup-judge           Install an Ollama model and enable Stage 3 judge
+  start                 Start the firewall proxy
+  stop                  Stop the firewall proxy
+  status                Show firewall status
 `);
     process.exit(command ? 1 : 0);
   }
