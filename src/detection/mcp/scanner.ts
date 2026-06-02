@@ -14,6 +14,13 @@ export interface McpCheckResult {
 
 const EXECUTION_TOOLS = ['execute_command', 'bash', 'ctx_shell', 'powershell']
 
+function collectStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(collectStrings)
+  if (value && typeof value === 'object') return Object.values(value).flatMap(collectStrings)
+  return []
+}
+
 export function extractCommandString(args: unknown): string {
   if (typeof args === 'string') {
     return args
@@ -26,11 +33,12 @@ export function extractCommandString(args: unknown): string {
         return obj[key] as string
       }
     }
-    for (const val of Object.values(obj)) {
-      if (typeof val === 'string') {
-        return val
-      }
-    }
+    // No recognized command key: scan EVERY string value (including nested
+    // objects/arrays) so a destructive payload can't hide behind a benign
+    // earlier field. Previously only the FIRST string value was returned,
+    // which a caller could exploit by ordering a harmless string first.
+    const strings = collectStrings(args)
+    if (strings.length) return strings.join('\n')
     return JSON.stringify(args)
   }
   return ''
