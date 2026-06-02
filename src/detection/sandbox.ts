@@ -13,19 +13,7 @@ export class SandboxDetector {
     const signals: string[] = [];
     let client = 'unknown';
 
-    // 1. Config/Env Override
-    if (process.env.LLMFW_SANDBOX !== undefined) {
-      signals.push(`env-override=${process.env.LLMFW_SANDBOX}`);
-      const isOverride = process.env.LLMFW_SANDBOX === 'true' || process.env.LLMFW_SANDBOX === '1';
-      return {
-        client,
-        sandboxed: isOverride,
-        confidence: 1.0,
-        signals
-      };
-    }
-
-    // 2. User-Agent Parsing
+    // 1. User-Agent Parsing
     if (userAgent) {
       const ua = userAgent.toLowerCase();
       if (ua.includes('claude-cli') || ua.includes('claude code')) {
@@ -42,7 +30,8 @@ export class SandboxDetector {
       }
     }
 
-    // 3. Connection Source IP
+
+    // 2. Connection Source IP
     if (remoteAddress) {
       // Clean IPv6 mapped IPv4 (e.g., ::ffff:172.17.0.1)
       const ip = remoteAddress.replace(/^::ffff:/, '');
@@ -60,7 +49,7 @@ export class SandboxDetector {
       }
     }
 
-    // 4. Firewall's Own Environment
+    // 3. Firewall's Own Environment
     try {
       if (fs.existsSync('/.dockerenv')) {
         confidence += 0.5;
@@ -89,10 +78,18 @@ export class SandboxDetector {
 
     // Cap confidence at 1.0
     confidence = Math.min(confidence, 1.0);
+    let sandboxed = confidence >= 0.75;
+
+    // 4. Config/Env Override (Highest Priority)
+    if (process.env.LLMFW_SANDBOX !== undefined) {
+      signals.push(`env-override=${process.env.LLMFW_SANDBOX}`);
+      sandboxed = process.env.LLMFW_SANDBOX === 'true' || process.env.LLMFW_SANDBOX === '1';
+      confidence = 1.0;
+    }
 
     return {
       client,
-      sandboxed: confidence >= 0.75,
+      sandboxed,
       confidence,
       signals
     };
