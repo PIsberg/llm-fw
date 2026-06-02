@@ -131,9 +131,9 @@ export interface BlockEvent {
 export interface PayloadParser {
   supports(path: string): boolean;
   extractPrompts(body: string): string[];
-  extractTools(body: string): any[];
-  extractToolResults(body: string): { toolName: string; result: string }[];
-  extractToolUses(body: string): { toolName: string; args: any }[];
+  extractTools(body: string): unknown[];
+  extractToolResults(body: string): { toolUseId: string; result: string }[];
+  extractToolUses(body: string): { toolName: string; args: unknown }[];
 }
 
 export interface TrafficMetric {

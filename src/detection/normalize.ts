@@ -140,12 +140,10 @@ function decodePigLatin(text: string): string[] {
     if (matchCons) {
       const cons = matchCons[1].toLowerCase()
       const decodings: string[] = []
-      let matchedCluster = false
       for (const cluster of commonClusters) {
         if (cons.endsWith(cluster)) {
           const splitIdx = body.length - cluster.length
           decodings.push(body.slice(splitIdx) + body.slice(0, splitIdx))
-          matchedCluster = true
           break
         }
       }
@@ -275,12 +273,12 @@ export function calculateEntropy(text: string): number {
   const len = text.length;
   const freqs: Record<string, number> = {};
   for (let i = 0; i < len; i++) {
-    const char = text[i]!;
+    const char = text[i];
     freqs[char] = (freqs[char] || 0) + 1;
   }
   let entropy = 0;
   for (const char in freqs) {
-    const p = freqs[char]! / len;
+    const p = freqs[char] / len;
     entropy -= p * Math.log2(p);
   }
   return entropy;

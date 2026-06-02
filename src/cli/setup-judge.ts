@@ -127,7 +127,7 @@ export async function run(): Promise<void> {
   const configPath = join(process.cwd(), '.llm-fw.json')
   let existing: Record<string, unknown> = {}
   if (fs.existsSync(configPath)) {
-    try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch {}
+    try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown> } catch {}
   }
 
   const updated = {

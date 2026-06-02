@@ -102,14 +102,14 @@ export async function loadConfig(): Promise<Config> {
   let userConfig: Partial<Config> = {};
   try {
     const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
+    const path = await import('node:path');
     const { homedir } = await import('node:os');
-    const p = join(homedir(), '.llm-fw', 'config.json');
+    const p = path.join(homedir(), '.llm-fw', 'config.json');
     userConfig = JSON.parse(readFileSync(p, 'utf8')) as Partial<Config>;
   } catch { /* not present */ }
 
   let config = deepMerge<Config>(
-    deepMerge<Config>(DEFAULT_CONFIG, found?.config ?? {}),
+    deepMerge<Config>(DEFAULT_CONFIG, (found?.config as Partial<Config> | undefined) ?? {}),
     userConfig
   );
 

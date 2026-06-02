@@ -696,7 +696,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     ? new UrlClassifier(config.proxy.urlFilter)
     : null
 
-  return http.createServer(async (req, res) => {
+  return http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${config.dashboard.port}`)
     const path = url.pathname
 
@@ -723,7 +723,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     if (req.method === 'POST' && path === '/api/test') {
       let body = ''
       req.on('data', chunk => { body += chunk })
-      req.on('end', async () => {
+      req.on('end', () => { void (async () => {
         try {
           const parsed = JSON.parse(body) as { prompt?: string; url?: string }
 
@@ -775,7 +775,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: String(err) }))
         }
-      })
+      })() })
       req.on('error', () => {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))

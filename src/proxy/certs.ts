@@ -102,7 +102,7 @@ export class CertFactory {
     const keyPem = fs.readFileSync(CA_KEY_PATH, 'utf8');
 
     const cert = forge.pki.certificateFromPem(certPem);
-    const key = forge.pki.privateKeyFromPem(keyPem) as forge.pki.rsa.PrivateKey;
+    const key = forge.pki.privateKeyFromPem(keyPem);
 
     this.caForge = { cert, key };
 

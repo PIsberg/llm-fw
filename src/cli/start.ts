@@ -32,8 +32,8 @@ function killPortOwner(port: number): void {
       for (const line of out.split('\n')) {
         if (!line.includes('LISTENING')) continue;
         const m = line.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
-        if (m && parseInt(m[1]!, 10) === port) {
-          const pid = parseInt(m[2]!, 10);
+        if (m && parseInt(m[1], 10) === port) {
+          const pid = parseInt(m[2], 10);
           if (pid && pid !== process.pid) try { process.kill(pid) } catch { }
         }
       }

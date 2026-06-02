@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 import { PayloadParser } from '../types.js'
 
 class AnthropicParser implements PayloadParser {
@@ -52,17 +52,18 @@ class AnthropicParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolName: string; result: string }[] {
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
     try {
       const data = JSON.parse(body)
-      const results: { toolName: string; result: string }[] = []
+      const results: { toolUseId: string; result: string }[] = []
       if (Array.isArray(data.messages)) {
         for (const msg of data.messages) {
           if (msg.role === 'user' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
               if (block.type === 'tool_result') {
                 const resText = typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
-                results.push({ toolName: block.tool_use_id || 'unknown', result: resText })
+                // Anthropic tool_result blocks only carry the tool_use_id, not the tool name.
+                results.push({ toolUseId: block.tool_use_id || 'unknown', result: resText })
               }
             }
           }
@@ -142,7 +143,7 @@ class GeminiParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolName: string; result: string }[] {
+  extractToolResults(_body: string): { toolUseId: string; result: string }[] {
     return [] // Placeholder for Gemini
   }
 

@@ -284,9 +284,7 @@ function chartThroughputTimeSeries(d: PerfResult): string {
       out.push(`<circle cx="${x}" cy="${y}" r="3.5" fill="${C.blue}" stroke="${C.bg}" stroke-width="1.5" />`)
     })
 
-    // P50 latency line (secondary axis hint)
-    const p50Points: [number, number][] = ts.map((t, i) => [xv(i), yv(t.p50Ms / (maxRps / Math.max(...rpsValues, 1)))])
-    // Skip p50 overlay — clutters the chart
+    // P50 latency overlay intentionally omitted — it clutters the chart.
 
     // Average line
     const ay = yv(avgRps)

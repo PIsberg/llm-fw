@@ -15,24 +15,21 @@ export class McpScanner {
     this.dlp = dlp
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument
-  checkToolDefinitions(tools: any[]): McpCheckResult {
+  checkToolDefinitions(tools: unknown[]): McpCheckResult {
     if (!this.config.enabled) return { action: 'pass' }
-    
+
     for (const tool of tools) {
-      if (tool && typeof tool.name === 'string') {
-        if (this.config.blockedTools.includes(tool.name)) {
-          if (!this.config.auditOnly) {
-            return { action: 'block', reason: `Tool '${tool.name}' is blocked by policy.` }
-          }
+      const name = (tool as { name?: unknown } | null)?.name
+      if (typeof name === 'string' && this.config.blockedTools.includes(name)) {
+        if (!this.config.auditOnly) {
+          return { action: 'block', reason: `Tool '${name}' is blocked by policy.` }
         }
       }
     }
     return { action: 'pass' }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  checkToolInvocation(toolName: string, _args: any): McpCheckResult {
+  checkToolInvocation(toolName: string, _args: unknown): McpCheckResult {
     if (!this.config.enabled) return { action: 'pass' }
     
     if (this.config.blockedTools.includes(toolName)) {
@@ -44,16 +41,16 @@ export class McpScanner {
     return { action: 'pass' }
   }
 
-  checkToolResult(toolName: string, result: string): McpCheckResult {
+  checkToolResult(toolUseId: string, result: string): McpCheckResult {
     if (!this.config.enabled) return { action: 'pass' }
 
     if (this.dlp) {
       const findings = this.dlp.scan(result)
       if (findings.length > 0) {
-        // Since we cannot rewrite the tool_result payload easily here, 
-        // we might just block if DLP is in block mode.
-        if (this.dlp['config'].mode === 'block') { // Note: config is private in DlpScanner but we can access it or assume DLP handles its own emit
-          return { action: 'block', reason: `Sensitive data (${findings[0]!.type}) found in tool result for '${toolName}'.` }
+        // We cannot redact the tool_result payload at this layer, so when DLP is
+        // in block mode we drop the whole request to prevent exfiltration.
+        if (this.dlp.config.mode === 'block') {
+          return { action: 'block', reason: `Sensitive data (${findings[0].type}) found in tool result (${toolUseId}).` }
         }
       }
     }

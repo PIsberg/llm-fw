@@ -13,6 +13,9 @@ import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
+import { inspectJsonResponse, rewriteBlockedJsonResponse, SseToolGate } from '../detection/mcp/responseGate.js'
+import { ChunkedDecoder } from './dechunk.js'
+import { StringDecoder } from 'node:string_decoder'
 
 function identifyService(hostname: string): string {
   if (hostname.endsWith('openai.com')) return 'OpenAI'
@@ -438,11 +441,15 @@ export class ProxyServer {
         return
       }
 
-      // Stage 4 - MCP Request Validation
+      // Stage 4 - MCP Request Validation. When the request exposes tools, the
+      // response may carry tool_use invocations, so flag it for inbound MCP
+      // inspection in forwardRequest (normal chat traffic stays on the fast path).
+      let mcpInspectResponse = false
       if (this.mcp && getParser(innerReq.url ?? '/') !== null) {
         const parser = getParser(innerReq.url ?? '/')!
         const tools = parser.extractTools(body)
         if (tools.length > 0) {
+          mcpInspectResponse = true
           const defResult = this.mcp.checkToolDefinitions(tools)
           if (defResult.action === 'block') {
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
@@ -467,7 +474,7 @@ export class ProxyServer {
 
         const toolResults = parser.extractToolResults(body)
         for (const tr of toolResults) {
-          const resResult = this.mcp.checkToolResult(tr.toolName, tr.result)
+          const resResult = this.mcp.checkToolResult(tr.toolUseId, tr.result)
           if (resResult.action === 'block') {
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: resResult.reason }))
@@ -475,16 +482,16 @@ export class ProxyServer {
               stage: 'mcp-filter',
               score: 100, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Blocked tool result for ${tr.toolName}`, payload_full: tr.result,
-              action: 'blocked', kind: 'mcp', mcpTool: tr.toolName
+              payload_preview: `Blocked tool result (id ${tr.toolUseId})`, payload_full: tr.result,
+              action: 'blocked', kind: 'mcp'
             })
             return
           } else {
             this.eventBus.emit({
               stage: 'mcp-filter', score: 0, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Tool result returned: ${tr.toolName}`, payload_full: tr.result,
-              action: 'passed', kind: 'mcp', mcpTool: tr.toolName
+              payload_preview: `Tool result returned (id ${tr.toolUseId})`, payload_full: tr.result,
+              action: 'passed', kind: 'mcp'
             })
           }
         }
@@ -492,7 +499,7 @@ export class ProxyServer {
 
       const isLlmRequest = getParser(innerReq.url ?? '/') !== null
 
-      const bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest)
+      const bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
       this.eventBus.emitTraffic({
         service: identifyService(hostname),
         host: hostname,
@@ -506,7 +513,35 @@ export class ProxyServer {
     }
   }
 
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true): Promise<number> {
+  // Push streamed SSE text through the MCP gate, forward the (possibly filtered)
+  // result to the agent, emit audit events, and return the bytes forwarded.
+  private gateSse(gate: SseToolGate, text: string, res: http.ServerResponse, req: http.IncomingMessage, hostname: string): number {
+    const { forward, decisions } = gate.push(text)
+    for (const d of decisions) {
+      if (d.action === 'block') this.emitMcp('blocked', `Blocked tool invocation: ${d.toolName}`, forward, req, hostname, d.toolName)
+      else this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, forward, req, hostname, d.toolName)
+    }
+    if (forward) { res.write(Buffer.from(forward, 'utf8')); return Buffer.byteLength(forward) }
+    return 0
+  }
+
+  private emitMcp(action: 'blocked' | 'passed', preview: string, full: string, req: http.IncomingMessage, hostname: string, toolName?: string): void {
+    this.eventBus.emit({
+      stage: 'mcp-filter',
+      score: action === 'blocked' ? 100 : 0,
+      similarity: 0,
+      target: hostname,
+      method: req.method ?? 'GET',
+      path: req.url ?? '/',
+      payload_preview: preview,
+      payload_full: full,
+      action,
+      kind: 'mcp',
+      ...(toolName ? { mcpTool: toolName } : {}),
+    })
+  }
+
+  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false): Promise<number> {
     const ip = await this.resolver.resolve(hostname)
     return new Promise<number>((resolve, reject) => {
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
@@ -526,73 +561,112 @@ export class ProxyServer {
       upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => { upstream.destroy(); reject(new Error('upstream timeout')) })
       upstream.on('error', reject)
 
-      // Parse and stream the response
+      // Parse and stream the response. When the request exposed MCP tools, the
+      // response may carry tool_use invocations — inspect them BEFORE the bytes
+      // reach the agent (see DESIGN-mcp-response.md): non-streaming JSON is
+      // buffered and rewritten tool-free; streaming SSE is gated per tool block.
+      // Everything else streams straight through untouched.
+      const parser = getParser(req.url ?? '/')
+      const mcpEnabled = !!(this.mcp && mcpInspect && parser)
+      const maxResp = this.config.proxy.maxBodyBytes
+
       let headersDone = false
       let rawHeaders = ''
       let respBodyBytes = 0
-      let respAccumulator = ''
+      // 'json' buffers the whole body for inspection; 'json-stream' is the
+      // fail-open fallback once an oversized body forces us to start flushing.
+      let mode: 'passthrough' | 'json' | 'json-stream' | 'sse' = 'passthrough'
+      let status = 200
+      const respHeaders: Record<string, string> = {}
+      let jsonBuf = ''
+      let gate: SseToolGate | null = null
+      let dechunker: ChunkedDecoder | null = null
+      const decoder = new StringDecoder('utf8')
+      // Inspected modes operate on the decoded payload, so strip the framing
+      // headers and let Node re-frame whatever we forward.
+      const inspectedHeaders = (): Record<string, string> => {
+        const h = { ...respHeaders }
+        delete h['content-length']
+        delete h['transfer-encoding']
+        return h
+      }
+
       upstream.on('data', (chunk: Buffer) => {
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
           const sep = rawHeaders.indexOf('\r\n\r\n')
-          if (sep !== -1) {
-            headersDone = true
-            const headerPart = rawHeaders.slice(0, sep)
-            const bodyStart = rawHeaders.slice(sep + 4)
-            const lines = headerPart.split('\r\n')
-            const statusLine = lines[0] ?? ''
-            const statusCode = parseInt(statusLine.split(' ')[1] ?? '200', 10)
-            const respHeaders: Record<string, string> = {}
-            for (const line of lines.slice(1)) {
-              const ci = line.indexOf(': ')
-              if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
-            }
-            res.writeHead(statusCode, respHeaders)
-            if (bodyStart) { res.write(Buffer.from(bodyStart, 'binary')); respBodyBytes += bodyStart.length }
+          if (sep === -1) return
+          headersDone = true
+          const headerPart = rawHeaders.slice(0, sep)
+          const bodyStart = Buffer.from(rawHeaders.slice(sep + 4), 'binary')
+          const lines = headerPart.split('\r\n')
+          status = parseInt((lines[0] ?? '').split(' ')[1] ?? '200', 10)
+          for (const line of lines.slice(1)) {
+            const ci = line.indexOf(': ')
+            if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
           }
+
+          const ctype = (respHeaders['content-type'] ?? '').toLowerCase()
+          if (mcpEnabled && ctype.includes('text/event-stream')) mode = 'sse'
+          else if (mcpEnabled && ctype.includes('application/json')) mode = 'json'
+
+          // Inspected modes need the decoded payload, not the chunk framing.
+          if (mode !== 'passthrough' && (respHeaders['transfer-encoding'] ?? '').toLowerCase().includes('chunked')) {
+            dechunker = new ChunkedDecoder()
+          }
+          const payload = (raw: Buffer): string => decoder.write(dechunker ? dechunker.push(raw) : raw)
+
+          if (mode === 'sse') {
+            gate = new SseToolGate(this.mcp!)
+            res.writeHead(status, inspectedHeaders())
+            respBodyBytes += this.gateSse(gate, payload(bodyStart), res, req, hostname)
+          } else if (mode === 'json') {
+            jsonBuf += payload(bodyStart) // withhold: we may rewrite it on end
+          } else {
+            res.writeHead(status, respHeaders)
+            if (bodyStart.length) { res.write(bodyStart); respBodyBytes += bodyStart.length }
+          }
+        } else if (mode === 'sse' && gate) {
+          respBodyBytes += this.gateSse(gate, decoder.write(dechunker ? dechunker.push(chunk) : chunk), res, req, hostname)
+        } else if (mode === 'json') {
+          jsonBuf += decoder.write(dechunker ? dechunker.push(chunk) : chunk)
+          if (jsonBuf.length > maxResp) {
+            // Oversized — fail open: emit a warning, flush what we have, and
+            // stream the decoded remainder without inspection.
+            this.emitMcp('passed', `Response too large to inspect (${jsonBuf.length}B)`, '', req, hostname)
+            res.writeHead(status, inspectedHeaders())
+            res.write(Buffer.from(jsonBuf, 'utf8'))
+            respBodyBytes += Buffer.byteLength(jsonBuf)
+            jsonBuf = ''
+            mode = 'json-stream'
+          }
+        } else if (mode === 'json-stream') {
+          const text = decoder.write(dechunker ? dechunker.push(chunk) : chunk)
+          if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
         } else {
-          respAccumulator += chunk.toString('utf-8')
-          // Check for MCP tool invocations in the response stream.
-          // Since we can't reliably JSON.parse a stream, we look for tool_use regex patterns.
-          if (isLlmRequest && this.mcp) {
-            const toolMatch = respAccumulator.match(/"(?:name|tool)"\s*:\s*"([^"]+)"/)
-            if (toolMatch && toolMatch[1]) {
-              const toolName = toolMatch[1]
-              const invResult = this.mcp.checkToolInvocation(toolName, {})
-              if (invResult.action === 'block') {
-                res.destroy(new Error(invResult.reason))
-                upstream.destroy()
-                this.eventBus.emit({
-                  stage: 'mcp-filter',
-                  score: 100, similarity: 0,
-                  target: hostname, method: req.method ?? 'GET', path: req.url ?? '/',
-                  payload_preview: `Blocked tool invocation: ${toolName}`, payload_full: respAccumulator,
-                  action: 'blocked', kind: 'mcp', mcpTool: toolName
-                })
-                return
-              } else {
-                // To avoid emitting multiple times for the same tool in the stream, we could track emitted tools.
-                // But for a simple implementation, if we catch it, we emit once per chunk match (which might duplicate if chunking splits the regex).
-                // Actually, the match happens once we have enough accumulator. To avoid duplicates, we can clear accumulator or track emitted.
-                // Since this is a simple check, we will just emit it.
-                if (!respAccumulator.includes('__emitted__')) {
-                   this.eventBus.emit({
-                     stage: 'mcp-filter', score: 0, similarity: 0,
-                     target: hostname, method: req.method ?? 'GET', path: req.url ?? '/',
-                     payload_preview: `Tool invoked by LLM: ${toolName}`, payload_full: respAccumulator,
-                     action: 'passed', kind: 'mcp', mcpTool: toolName
-                   })
-                   respAccumulator += '__emitted__'
-                }
-              }
-            }
-          }
           res.write(chunk)
           respBodyBytes += chunk.length
         }
       })
       upstream.on('end', () => {
-        res.end()
+        if (mode === 'json' && this.mcp && parser) {
+          jsonBuf += decoder.end()
+          const { decisions, blockedNames } = inspectJsonResponse(jsonBuf, parser, this.mcp)
+          for (const d of decisions) {
+            if (d.action === 'block') this.emitMcp('blocked', `Blocked tool invocation: ${d.toolName}`, jsonBuf, req, hostname, d.toolName)
+            else this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, jsonBuf, req, hostname, d.toolName)
+          }
+          const finalBody = blockedNames.size > 0 ? rewriteBlockedJsonResponse(jsonBuf, blockedNames) : jsonBuf
+          res.writeHead(status, inspectedHeaders())
+          res.end(Buffer.from(finalBody, 'utf8'))
+          respBodyBytes = Buffer.byteLength(finalBody)
+        } else {
+          if (mode === 'sse' && gate) {
+            const tail = gate.flush()
+            if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) }
+          }
+          res.end()
+        }
         // Account the RESPONSE size against the token budget. Runaway agents and
         // large generations rack up cost on the response side, not just input,
         // so a budget that ignored responses would badly under-count.
