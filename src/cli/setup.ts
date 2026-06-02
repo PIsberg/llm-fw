@@ -81,11 +81,40 @@ export async function run(args: string[]): Promise<void> {
     const config = await loadConfig();
     try {
       const original = fs.readFileSync(hostsPath, 'utf8');
-      fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
-      const hostLines = config.targets.map(t => `127.0.0.1 ${t}\n::1 ${t}`).join('\n');
-      const entries = `\n# llm-fw sinkhole\n${hostLines}\n`;
-      fs.appendFileSync(hostsPath, entries, 'utf8');
-      console.log('Sinkhole entries added to hosts file. Backup saved to', hostsPath + '.llm-fw.bak');
+      const lines = original.split(/\r?\n/);
+      const cleanLines = [];
+      let inBlock = false;
+      const targetHosts = new Set(config.targets);
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === '# llm-fw sinkhole') {
+          inBlock = true;
+          continue;
+        }
+        if (inBlock) {
+          if (trimmed === '' || (!trimmed.startsWith('127.0.0.1') && !trimmed.startsWith('::1') && !trimmed.startsWith('#'))) {
+            inBlock = false; // heuristic for end of block
+          } else {
+            continue;
+          }
+        }
+        const parts = trimmed.split(/\s+/);
+        if (parts.length >= 2 && targetHosts.has(parts[1])) continue;
+        cleanLines.push(line);
+      }
+      
+      const cleanHosts = cleanLines.join('\n');
+      if (original !== cleanHosts) {
+        fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
+      } else if (!fs.existsSync(hostsPath + '.llm-fw.bak')) {
+        fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
+      }
+      
+      const hostLines = config.targets.map(t => `127.0.0.1 ${t}`).join('\n');
+      const entries = (cleanHosts.endsWith('\n') || cleanHosts === '' ? '' : '\n') + `# llm-fw sinkhole\n${hostLines}\n`;
+      fs.writeFileSync(hostsPath, cleanHosts + entries, 'utf8');
+      console.log('Sinkhole entries added to hosts file.');
     } catch (err) {
       console.error('Failed to modify hosts file. Try running with administrator/root privileges.');
       console.error((err as Error).message);
@@ -96,12 +125,24 @@ export async function run(args: string[]): Promise<void> {
     const os = platform();
     if (os === 'win32') {
       try {
+        // The IP Helper service is required for portproxy to function.
+        execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
+        execSync('net start iphlpsvc', { stdio: 'ignore' });
+      } catch (err) {
+        // Ignore if already running or if we lack permissions, though we should be elevated here.
+      }
+      try {
         execFileSync('netsh', [
           'interface', 'portproxy', 'add', 'v4tov4',
           'listenport=443', 'listenaddress=127.0.0.1',
           `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
         ], { stdio: 'ignore' });
-        console.log(`Port proxy: 127.0.0.1:443 → 127.0.0.1:${config.proxy.httpsPort}`);
+        execFileSync('netsh', [
+          'interface', 'portproxy', 'add', 'v6tov4',
+          'listenport=443', 'listenaddress=::1',
+          `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
+        ], { stdio: 'ignore' });
+        console.log(`Port proxy: 127.0.0.1:443 and [::1]:443 → 127.0.0.1:${config.proxy.httpsPort}`);
       } catch (err) {
         console.warn('Could not add port proxy rule (requires admin):', (err as Error).message);
       }
