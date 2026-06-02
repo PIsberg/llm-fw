@@ -311,7 +311,16 @@ class GeminiParser implements PayloadParser {
   supports(path: string): boolean {
     // Matches both stable (/v1/) and beta (/v1beta/, /v1beta1/) Gemini and
     // Vertex AI generative endpoints: generateContent + streamGenerateContent.
-    return /\/v1(beta\d?)?\/.*models\/.+:?(stream)?[Gg]enerateContent/.test(path)
+    //
+    // Split into two anchored, bounded checks rather than one regex with
+    // `.*models\/.+` — that form has two greedy quantifiers straddling the
+    // repeating `models/` segment and backtracks quadratically on hostile
+    // inputs (ReDoS). Each check below has at most one bounded quantifier, so
+    // matching is linear. The query string is stripped first so the `$` anchor
+    // holds for real requests (Gemini appends `?key=…`).
+    const p = path.split('?')[0] ?? ''
+    if (!/^\/v1(?:beta\d?)?\//.test(p)) return false
+    return /\/models\/[^/:]+[:/](?:stream)?[Gg]enerateContent$/.test(p)
   }
 
   extractPrompts(body: string): string[] {
