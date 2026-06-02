@@ -102,11 +102,19 @@ export async function run(): Promise<void> {
     const os = platform();
     if (os === 'win32') {
       try {
-        const existing = execSync('netsh interface portproxy show v4tov4', { encoding: 'utf8' });
-        if (!existing.includes('443')) {
+        const existingV4 = execSync('netsh interface portproxy show v4tov4', { encoding: 'utf8' });
+        if (!existingV4.includes('443')) {
           execFileSync('netsh', [
             'interface', 'portproxy', 'add', 'v4tov4',
             'listenport=443', 'listenaddress=127.0.0.1',
+            `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
+          ], { stdio: 'ignore' });
+        }
+        const existingV6 = execSync('netsh interface portproxy show v6tov4', { encoding: 'utf8' });
+        if (!existingV6.includes('443')) {
+          execFileSync('netsh', [
+            'interface', 'portproxy', 'add', 'v6tov4',
+            'listenport=443', 'listenaddress=::1',
             `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
           ], { stdio: 'ignore' });
         }
@@ -141,6 +149,12 @@ export async function run(): Promise<void> {
           execFileSync('netsh', [
             'interface', 'portproxy', 'delete', 'v4tov4',
             'listenport=443', 'listenaddress=127.0.0.1',
+          ], { stdio: 'ignore' });
+        } catch { }
+        try {
+          execFileSync('netsh', [
+            'interface', 'portproxy', 'delete', 'v6tov4',
+            'listenport=443', 'listenaddress=::1',
           ], { stdio: 'ignore' });
         } catch { }
       } else if (os === 'darwin') {
