@@ -680,7 +680,12 @@ As AI agents increasingly rely on the **Model Context Protocol (MCP)** and local
 Agents often expose more tools than necessary (e.g. wildcard filesystem access). `llm-fw` intercepts the `tools` array exposed in the API request and aborts the connection if the agent attempts to advertise a blocked tool (e.g., `execute_command`) to the LLM.
 
 ### 2. Invocation Blocking (Inbound Streaming Defense)
-If the LLM decides to use a tool, it streams the `tool_use` payload back to the agent. `llm-fw` buffers the inbound HTTP stream and parses JSON chunks on the fly. If a malicious tool invocation is detected, the proxy **instantly drops the connection** (`res.destroy()`). This causes the agent's JSON stream parser to fail with an Unexpected EOF, neutralizing the execution before the local agent even recognizes it.
+If the LLM decides to use a tool, it returns the `tool_use` payload to the agent. `llm-fw` inspects the inbound response **before any tool bytes reach the agent**, and rather than dropping the connection (which would surface as an opaque network error), it **surgically strips the blocked tool call and lets the rest of the turn through**:
+
+- **Non-streaming JSON:** the full body is buffered, the blocked `tool_use` blocks are removed, and a short `[llm-fw blocked tool call(s): …]` text note is inserted. If no tool calls remain, `stop_reason` is downgraded (`tool_use` → `end_turn`) so the agent ends its turn cleanly. Allowed tool calls in the same response are preserved untouched.
+- **Streaming SSE:** the response is gated event-by-event. The tool name arrives in the `content_block_start` event (before any argument bytes), so a blocked block's start/deltas/stop are swallowed and the terminating `stop_reason`/`finish_reason` is downgraded — the agent never sees the call.
+
+This works across Anthropic, OpenAI-compatible, and Gemini response shapes.
 
 ### 3. Execution-Context Security Guardrails (Inbound Argument Scanning)
 For known execution tools (`execute_command`, `bash`, `ctx_shell`, `powershell`), `llm-fw` runs a context-aware heuristic check on the command arguments. If the command matches any destructive patterns, it is blocked. The block triggers a non-fatal warning alert in the dashboard and strips the tool use, replacing it with a placeholder note so the agent turn terminates cleanly.
