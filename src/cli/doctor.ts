@@ -250,14 +250,39 @@ function safeExec(cmd: string, args: string[]): string | null {
   }
 }
 
+/** True if our CA's subject appears in a cert-store/find-certificate dump. */
+export function parseCaStorePresent(output: string): boolean {
+  return /llm-fw Local CA/i.test(output)
+}
+
+/** True if `sc query iphlpsvc` reports the service in the RUNNING state. */
+export function parseIphlpsvcRunning(output: string): boolean {
+  return /\bSTATE\b[^\n]*\bRUNNING\b/i.test(output)
+}
+
+/** True if a redirect from :443 to `httpsPort` is present in the OS rule dump. */
+export function parsePortRedirect(os: OS, output: string, httpsPort: number): boolean {
+  const toPort = new RegExp(`\\b${httpsPort}\\b`)
+  if (os === 'win32') {
+    // netsh portproxy table rows: "127.0.0.1   443   127.0.0.1   8443"
+    return output.split(/\r?\n/).some(l => /\b443\b/.test(l) && toPort.test(l))
+  }
+  if (os === 'darwin') {
+    // pf: "... port = 443 -> 127.0.0.1 port 8443"
+    return /port\s*=?\s*443\b/.test(output) && toPort.test(output)
+  }
+  // iptables: "... --dport 443 -j REDIRECT --to-ports 8443"
+  return /--dport\s+443\b/.test(output) && new RegExp(`--to-ports?\\s+${httpsPort}\\b`).test(output)
+}
+
 function detectCaTrusted(os: OS): boolean | null {
   if (os === 'win32') {
     const out = safeExec('certutil', ['-store', 'Root'])
-    return out === null ? null : /llm-fw Local CA/i.test(out)
+    return out === null ? null : parseCaStorePresent(out)
   }
   if (os === 'darwin') {
     const out = safeExec('security', ['find-certificate', '-c', 'llm-fw Local CA', '/Library/Keychains/System.keychain'])
-    return out === null ? false : /llm-fw Local CA/i.test(out)
+    return out === null ? false : parseCaStorePresent(out)
   }
   // Linux: setup copies the CA here and runs update-ca-certificates.
   try { return fs.existsSync('/usr/local/share/ca-certificates/llm-fw-ca.crt') } catch { return null }
@@ -265,23 +290,20 @@ function detectCaTrusted(os: OS): boolean | null {
 
 function detectIphlpsvc(): boolean | null {
   const out = safeExec('sc', ['query', 'iphlpsvc'])
-  return out === null ? null : /\bRUNNING\b/i.test(out)
+  return out === null ? null : parseIphlpsvcRunning(out)
 }
 
 function detectPortRedirect(os: OS, httpsPort: number): boolean | null {
   if (os === 'win32') {
     const out = safeExec('netsh', ['interface', 'portproxy', 'show', 'all'])
-    if (out === null) return null
-    return out.includes('443') && out.includes(String(httpsPort))
+    return out === null ? null : parsePortRedirect(os, out, httpsPort)
   }
   if (os === 'darwin') {
     const out = safeExec('pfctl', ['-s', 'nat'])
-    if (out === null) return null
-    return /port\s*=?\s*443/.test(out) && out.includes(String(httpsPort))
+    return out === null ? null : parsePortRedirect(os, out, httpsPort)
   }
   const out = safeExec('iptables', ['-t', 'nat', '-S', 'OUTPUT'])
-  if (out === null) return null
-  return /--dport\s+443/.test(out) && new RegExp(`--to-ports?\\s+${httpsPort}`).test(out)
+  return out === null ? null : parsePortRedirect(os, out, httpsPort)
 }
 
 async function probe(): Promise<DoctorProbe> {

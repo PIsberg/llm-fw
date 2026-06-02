@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateProbe, summarize, setEnvCmd, type DoctorProbe } from '../../src/cli/doctor.js'
+import {
+  evaluateProbe,
+  summarize,
+  setEnvCmd,
+  parseCaStorePresent,
+  parseIphlpsvcRunning,
+  parsePortRedirect,
+  type DoctorProbe,
+} from '../../src/cli/doctor.js'
 
 /** A fully-healthy sinkhole probe on Windows; tests override single fields. */
 function probe(overrides: Partial<DoctorProbe> = {}): DoctorProbe {
@@ -158,5 +166,91 @@ describe('setEnvCmd', () => {
   it('emits PowerShell syntax on Windows and export on POSIX', () => {
     expect(setEnvCmd('win32', 'HTTPS_PROXY', 'http://127.0.0.1:8080')).toContain('$env:HTTPS_PROXY="http://127.0.0.1:8080"')
     expect(setEnvCmd('linux', 'HTTPS_PROXY', 'http://127.0.0.1:8080')).toBe('export HTTPS_PROXY="http://127.0.0.1:8080"')
+  })
+})
+
+describe('summarize', () => {
+  it('counts levels and is healthy only with zero failures', () => {
+    const s = summarize([
+      { level: 'ok', title: 'a' },
+      { level: 'ok', title: 'b' },
+      { level: 'warn', title: 'c' },
+      { level: 'info', title: 'd' },
+    ])
+    expect(s).toMatchObject({ ok: 2, warn: 1, info: 1, fail: 0, healthy: true })
+  })
+
+  it('is unhealthy when any check fails (warnings alone do not)', () => {
+    expect(summarize([{ level: 'warn', title: 'w' }]).healthy).toBe(true)
+    expect(summarize([{ level: 'fail', title: 'f' }]).healthy).toBe(false)
+  })
+})
+
+describe('parseIphlpsvcRunning (sc query iphlpsvc)', () => {
+  const running = `
+SERVICE_NAME: iphlpsvc
+        TYPE               : 20  WIN32_SHARE_PROCESS
+        STATE              : 4  RUNNING
+                                (STOPPABLE, NOT_PAUSABLE, ACCEPTS_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)`
+  const stopped = `
+SERVICE_NAME: iphlpsvc
+        TYPE               : 20  WIN32_SHARE_PROCESS
+        STATE              : 1  STOPPED
+        WIN32_EXIT_CODE    : 1077  (0x435)`
+
+  it('detects the RUNNING state', () => {
+    expect(parseIphlpsvcRunning(running)).toBe(true)
+  })
+  it('reports stopped as not running (the STOPPABLE hint must not count)', () => {
+    expect(parseIphlpsvcRunning(stopped)).toBe(false)
+  })
+  it('handles empty/garbage output', () => {
+    expect(parseIphlpsvcRunning('')).toBe(false)
+  })
+})
+
+describe('parseCaStorePresent', () => {
+  it('finds the llm-fw CA subject in a cert-store dump', () => {
+    expect(parseCaStorePresent('================ Certificate 7 ================\nSubject: CN=llm-fw Local CA, O=llm-fw')).toBe(true)
+  })
+  it('returns false when the CA is absent', () => {
+    expect(parseCaStorePresent('Subject: CN=DigiCert Global Root, O=DigiCert Inc')).toBe(false)
+  })
+})
+
+describe('parsePortRedirect', () => {
+  it('matches a Windows netsh portproxy row carrying both 443 and the https port', () => {
+    const netsh = `
+Listen on ipv4:             Connect to ipv4:
+
+Address         Port        Address         Port
+--------------- ----------  --------------- ----------
+127.0.0.1       443         127.0.0.1       8443
+::1             443         127.0.0.1       8443`
+    expect(parsePortRedirect('win32', netsh, 8443)).toBe(true)
+    expect(parsePortRedirect('win32', netsh, 9999)).toBe(false) // wrong target port
+    expect(parsePortRedirect('win32', '', 8443)).toBe(false)    // no rules
+  })
+
+  it('does not match when 443 and the https port are on unrelated rows (Windows)', () => {
+    const split = `
+127.0.0.1       443         127.0.0.1       5000
+127.0.0.1       9000        127.0.0.1       8443`
+    expect(parsePortRedirect('win32', split, 8443)).toBe(false)
+  })
+
+  it('matches a macOS pf rdr rule', () => {
+    const pf = 'rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port = 443 -> 127.0.0.1 port 8443'
+    expect(parsePortRedirect('darwin', pf, 8443)).toBe(true)
+    expect(parsePortRedirect('darwin', pf, 8444)).toBe(false)
+    expect(parsePortRedirect('darwin', 'No ALTQ support in kernel', 8443)).toBe(false)
+  })
+
+  it('matches a Linux iptables REDIRECT rule', () => {
+    const ipt = '-A OUTPUT -o lo -p tcp -m tcp --dport 443 -j REDIRECT --to-ports 8443'
+    expect(parsePortRedirect('linux', ipt, 8443)).toBe(true)
+    expect(parsePortRedirect('linux', ipt, 8444)).toBe(false)
+    expect(parsePortRedirect('linux', '-P OUTPUT ACCEPT', 8443)).toBe(false)
   })
 })
