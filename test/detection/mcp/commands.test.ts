@@ -151,4 +151,42 @@ describe('McpScanner Integration with CommandScanner', () => {
     const result = scanner.checkToolInvocation('bash', { command: 'rm -rf /' })
     expect(result.action).toBe('pass')
   })
+
+  it('blocks a name-listed tool before the guardrail scan runs (blockedTools precedence)', () => {
+    const scanner = new McpScanner(makeConfig({ guardrailsEnabled: true, blockedTools: ['bash'] }), null)
+    const result = scanner.checkToolInvocation('bash', { command: 'echo hello' }) // benign command
+    expect(result.action).toBe('block')
+    expect(result.reason).toContain("Invocation of tool 'bash' is blocked")
+  })
+
+  describe('auditOnly mode', () => {
+    it('passes a destructive guardrail hit but flags it for audit (does not block)', () => {
+      const scanner = new McpScanner(makeConfig({ guardrailsEnabled: true, auditOnly: true, blockedTools: [] }), null)
+      const result = scanner.checkToolInvocation('bash', { command: 'rm -rf /' })
+      expect(result.action).toBe('pass')
+      expect(result.audit).toBe(true)
+      expect(result.reason).toContain('Triggered Category A')
+    })
+
+    it('passes a name-blocked invocation but flags it for audit', () => {
+      const scanner = new McpScanner(makeConfig({ auditOnly: true, blockedTools: ['delete_database'] }), null)
+      const result = scanner.checkToolInvocation('delete_database', {})
+      expect(result.action).toBe('pass')
+      expect(result.audit).toBe(true)
+    })
+
+    it('passes a name-blocked definition but flags it for audit', () => {
+      const scanner = new McpScanner(makeConfig({ auditOnly: true, blockedTools: ['delete_database'] }), null)
+      const result = scanner.checkToolDefinitions([{ name: 'delete_database' }])
+      expect(result.action).toBe('pass')
+      expect(result.audit).toBe(true)
+    })
+
+    it('does not flag a benign command in audit mode', () => {
+      const scanner = new McpScanner(makeConfig({ guardrailsEnabled: true, auditOnly: true, blockedTools: [] }), null)
+      const result = scanner.checkToolInvocation('bash', { command: 'ls -la' })
+      expect(result.action).toBe('pass')
+      expect(result.audit).toBeFalsy()
+    })
+  })
 })

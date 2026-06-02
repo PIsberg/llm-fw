@@ -474,6 +474,13 @@ export class ProxyServer {
               action: 'blocked', kind: 'mcp'
             })
             return
+          } else if (defResult.audit) {
+            emitEvent({
+              stage: 'mcp-filter', score: 50, similarity: 0,
+              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+              payload_preview: `Audit: would block tool definition (${defResult.reason ?? ''})`, payload_full: JSON.stringify(tools),
+              action: 'warned', kind: 'mcp'
+            })
           } else {
             emitEvent({
               stage: 'mcp-filter', score: 0, similarity: 0,
@@ -498,6 +505,13 @@ export class ProxyServer {
               action: 'blocked', kind: 'mcp'
             })
             return
+          } else if (resResult.audit) {
+            emitEvent({
+              stage: 'mcp-filter', score: 50, similarity: 0,
+              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+              payload_preview: `Audit: would block tool result (id ${tr.toolUseId}) — ${resResult.reason ?? ''}`, payload_full: tr.result,
+              action: 'warned', kind: 'mcp'
+            })
           } else {
             emitEvent({
               stage: 'mcp-filter', score: 0, similarity: 0,
@@ -533,6 +547,9 @@ export class ProxyServer {
       if (d.action === 'block') {
         const preview = d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`
         this.emitMcp('blocked', preview, forward, req, hostname, d.toolName, d.reason)
+      } else if (d.audit) {
+        const preview = d.reason ? `Audit: would block ${d.toolName} (${d.reason})` : `Audit: would block ${d.toolName}`
+        this.emitMcp('warned', preview, forward, req, hostname, d.toolName, d.reason)
       } else {
         this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, forward, req, hostname, d.toolName)
       }
@@ -541,10 +558,10 @@ export class ProxyServer {
     return 0
   }
 
-  private emitMcp(action: 'blocked' | 'passed', preview: string, full: string, req: http.IncomingMessage, hostname: string, toolName?: string, mcpRule?: string): void {
+  private emitMcp(action: 'blocked' | 'warned' | 'passed', preview: string, full: string, req: http.IncomingMessage, hostname: string, toolName?: string, mcpRule?: string): void {
     this.eventBus.emit({
       stage: 'mcp-filter',
-      score: action === 'blocked' ? 100 : 0,
+      score: action === 'blocked' ? 100 : action === 'warned' ? 50 : 0,
       similarity: 0,
       target: hostname,
       method: req.method ?? 'GET',
@@ -673,6 +690,9 @@ export class ProxyServer {
             if (d.action === 'block') {
               const preview = d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`
               this.emitMcp('blocked', preview, jsonBuf, req, hostname, d.toolName, d.reason)
+            } else if (d.audit) {
+              const preview = d.reason ? `Audit: would block ${d.toolName} (${d.reason})` : `Audit: would block ${d.toolName}`
+              this.emitMcp('warned', preview, jsonBuf, req, hostname, d.toolName, d.reason)
             } else {
               this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, jsonBuf, req, hostname, d.toolName)
             }
