@@ -262,17 +262,23 @@ export function parseIphlpsvcRunning(output: string): boolean {
 
 /** True if a redirect from :443 to `httpsPort` is present in the OS rule dump. */
 export function parsePortRedirect(os: OS, output: string, httpsPort: number): boolean {
-  const toPort = new RegExp(`\\b${httpsPort}\\b`)
+  // Match the target port as a whole whitespace/comma-delimited token rather
+  // than building a RegExp from it — keeps every pattern here a static literal
+  // (ReDoS-safe) while still giving word-boundary semantics. The "443 source"
+  // patterns below are constant regexes.
+  const port = String(httpsPort)
+  const hasToken = (text: string, tok: string) => text.split(/[\s,]+/).includes(tok)
+
   if (os === 'win32') {
-    // netsh portproxy table rows: "127.0.0.1   443   127.0.0.1   8443"
-    return output.split(/\r?\n/).some(l => /\b443\b/.test(l) && toPort.test(l))
+    // netsh portproxy rows: "127.0.0.1   443   127.0.0.1   8443"
+    return output.split(/\r?\n/).some(l => hasToken(l, '443') && hasToken(l, port))
   }
   if (os === 'darwin') {
     // pf: "... port = 443 -> 127.0.0.1 port 8443"
-    return /port\s*=?\s*443\b/.test(output) && toPort.test(output)
+    return /port\s*=?\s*443\b/.test(output) && hasToken(output, port)
   }
   // iptables: "... --dport 443 -j REDIRECT --to-ports 8443"
-  return /--dport\s+443\b/.test(output) && new RegExp(`--to-ports?\\s+${httpsPort}\\b`).test(output)
+  return /--dport\s+443\b/.test(output) && /--to-ports?\b/.test(output) && hasToken(output, port)
 }
 
 /**
