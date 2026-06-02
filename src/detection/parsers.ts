@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 import { PayloadParser } from '../types.js'
 
 class AnthropicParser implements PayloadParser {
@@ -43,6 +44,59 @@ class AnthropicParser implements PayloadParser {
       return []
     }
   }
+
+  extractTools(body: string): any[] {
+    try {
+      const data = JSON.parse(body)
+      return Array.isArray(data.tools) ? data.tools : []
+    } catch { return [] }
+  }
+
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolUseId: string; result: string }[] = []
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'user' && Array.isArray(msg.content)) {
+            for (const block of msg.content) {
+              if (block.type === 'tool_result') {
+                const resText = typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+                // Anthropic tool_result blocks only carry the tool_use_id, not the tool name.
+                results.push({ toolUseId: block.tool_use_id || 'unknown', result: resText })
+              }
+            }
+          }
+        }
+      }
+      return results
+    } catch { return [] }
+  }
+
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolName: string; args: any }[] = []
+      let contentBlocks: any[] = []
+      
+      if (Array.isArray(data.content)) {
+        contentBlocks = data.content // Response payload
+      } else if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+            contentBlocks.push(...msg.content)
+          }
+        }
+      }
+
+      for (const block of contentBlocks) {
+        if (block.type === 'tool_use' && typeof block.name === 'string') {
+          results.push({ toolName: block.name, args: block.input })
+        }
+      }
+      return results
+    } catch { return [] }
+  }
 }
 
 class GeminiParser implements PayloadParser {
@@ -80,6 +134,36 @@ class GeminiParser implements PayloadParser {
     } catch {
       return []
     }
+  }
+
+  extractTools(body: string): any[] {
+    try {
+      const data = JSON.parse(body)
+      return Array.isArray(data.tools) ? data.tools : []
+    } catch { return [] }
+  }
+
+  extractToolResults(_body: string): { toolUseId: string; result: string }[] {
+    return [] // Placeholder for Gemini
+  }
+
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolName: string; args: any }[] = []
+      if (Array.isArray(data.candidates)) {
+        for (const cand of data.candidates) {
+          if (cand.content && Array.isArray(cand.content.parts)) {
+            for (const part of cand.content.parts) {
+              if (part.functionCall && typeof part.functionCall.name === 'string') {
+                results.push({ toolName: part.functionCall.name, args: part.functionCall.args })
+              }
+            }
+          }
+        }
+      }
+      return results
+    } catch { return [] }
   }
 }
 

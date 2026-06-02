@@ -6,8 +6,16 @@ import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+// Minimal shape of the @huggingface/transformers feature-extraction output we use.
+interface FeatureTensor {
+  data?: Float32Array | number[]
+  tolist?: () => number[][]
+  [index: number]: { data?: Float32Array | number[] } | undefined
+}
+type FeatureExtractor = (texts: string[], opts: { pooling: 'mean'; normalize: boolean }) => Promise<FeatureTensor>
+
 export class EmbeddingChecker {
-  private extractor: any = null
+  private extractor: FeatureExtractor | null = null
   private templateEmbeddings: Float32Array[] = []
   private templateStrings: string[] = []
   private config: DetectionConfig
@@ -20,11 +28,11 @@ export class EmbeddingChecker {
     const baseDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
     env.cacheDir = join(baseDir, 'models')
     env.allowLocalModels = false
-    this.extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' })
+    this.extractor = (await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' })) as unknown as FeatureExtractor
 
     const __filename = fileURLToPath(import.meta.url)
     const attacksPath = join(dirname(__filename), '../../data/attacks.json')
-    const attacks: string[] = JSON.parse(readFileSync(attacksPath, 'utf-8'))
+    const attacks = JSON.parse(readFileSync(attacksPath, 'utf-8')) as string[]
 
     for (const attack of attacks) {
       this.templateEmbeddings.push(await this.embed(attack))
@@ -33,9 +41,10 @@ export class EmbeddingChecker {
   }
 
   private async embed(text: string): Promise<Float32Array> {
+    if (!this.extractor) throw new Error('Embedding model not initialized')
     const output = await this.extractor([text], { pooling: 'mean', normalize: true })
     const raw = output[0]?.data ?? output.data ?? output.tolist?.()[0]
-    return raw instanceof Float32Array ? raw : Float32Array.from(raw)
+    return raw instanceof Float32Array ? raw : Float32Array.from(raw ?? [])
   }
 
   private cosineSimilarity(a: Float32Array, b: Float32Array): number {

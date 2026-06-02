@@ -18,7 +18,7 @@ export async function run(): Promise<void> {
 
   try {
     process.kill(pid, 'SIGTERM');
-  } catch (err) {
+  } catch {
     console.log('llm-fw is not running (process not found).');
     try { fs.unlinkSync(pidFile); } catch {}
     return;

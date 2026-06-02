@@ -71,8 +71,10 @@ export async function run(): Promise<void> {
 
     // Verify the ollama CLI is in PATH before attempting the pull.
     // Using pipe so we can inspect the result without printing noise.
-    const cliCheck = spawnSync('ollama', ['--version'], {
-      shell: process.platform === 'win32',
+    // On Windows the executable carries an .exe extension; naming it explicitly
+    // lets us spawn without a shell (avoids shell injection via the model arg).
+    const ollamaCmd = process.platform === 'win32' ? 'ollama.exe' : 'ollama'
+    const cliCheck = spawnSync(ollamaCmd, ['--version'], {
       encoding: 'utf8',
     })
     if (cliCheck.error || cliCheck.status !== 0) {
@@ -85,9 +87,8 @@ export async function run(): Promise<void> {
       process.exit(1)
     }
 
-    const pull = spawnSync('ollama', ['pull', chosenModel], {
+    const pull = spawnSync(ollamaCmd, ['pull', chosenModel], {
       stdio: 'inherit',
-      shell: process.platform === 'win32',
     })
     if (pull.status !== 0) {
       console.error(`\n  "ollama pull ${chosenModel}" failed.`)
@@ -127,7 +128,7 @@ export async function run(): Promise<void> {
   const configPath = join(process.cwd(), '.llm-fw.json')
   let existing: Record<string, unknown> = {}
   if (fs.existsSync(configPath)) {
-    try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch {}
+    try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown> } catch {}
   }
 
   const updated = {

@@ -41,7 +41,7 @@ export class QuotaManager {
    */
   private prune(cutoff: number): void {
     let i = 0
-    while (i < this.timestamps.length && this.timestamps[i]! <= cutoff) i++
+    while (i < this.timestamps.length && this.timestamps[i] <= cutoff) i++
     if (i > 0) this.timestamps.splice(0, i)
   }
 

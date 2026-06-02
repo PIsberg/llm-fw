@@ -25,7 +25,7 @@ const ENTROPY_THRESHOLD = 4.0
 // luhnValid used internally
 
 export class DlpScanner {
-  private config: DLPConfig
+  public config: DLPConfig
 
   constructor(config: DLPConfig) {
     this.config = config
@@ -140,7 +140,7 @@ export class DlpScanner {
     // Apply right-to-left so earlier indices stay valid as we splice.
     let result = text
     for (let i = kept.length - 1; i >= 0; i--) {
-      const r = kept[i]!
+      const r = kept[i]
       result = result.slice(0, r.start) + r.marker + result.slice(r.end)
     }
     return result

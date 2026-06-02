@@ -34,7 +34,7 @@ export async function run(args: string[]): Promise<void> {
       execSync('update-ca-certificates');
     }
     console.log('CA certificate installed to OS trust store.');
-  } catch (err) {
+  } catch {
     console.warn('Could not install CA automatically. To trust the certificate manually:');
     console.warn('  Certificate path:', caCertPath);
     console.warn('  Windows: certutil -addstore -f Root "' + caCertPath + '"');
@@ -58,7 +58,7 @@ export async function run(args: string[]): Promise<void> {
     try {
       const original = fs.readFileSync(hostsPath, 'utf8');
       fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
-      const hostLines = config.targets.map(t => `127.0.0.1 ${t}`).join('\n');
+      const hostLines = config.targets.map(t => `127.0.0.1 ${t}\n::1 ${t}`).join('\n');
       const entries = `\n# llm-fw sinkhole\n${hostLines}\n`;
       fs.appendFileSync(hostsPath, entries, 'utf8');
       console.log('Sinkhole entries added to hosts file. Backup saved to', hostsPath + '.llm-fw.bak');

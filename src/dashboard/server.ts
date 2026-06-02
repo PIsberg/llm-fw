@@ -56,6 +56,7 @@ const HTML = `<!DOCTYPE html>
     font-size: 0.75rem; color: #fff; white-space: nowrap; }
   .badge-blocked { background: #d32f2f; }
   .badge-warned  { background: #e65100; }
+  .badge-passed  { background: #388e3c; }
 
   /* Stage chips */
   .chip { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
@@ -67,6 +68,7 @@ const HTML = `<!DOCTYPE html>
   .chip-dlp         { background: #b2dfdb; color: #004d40; }
   .chip-dos         { background: #ffccbc; color: #bf360c; }
   .chip-rag         { background: #d1c4e9; color: #311b92; }
+  .chip-mcp-filter  { background: #b2ebf2; color: #006064; }
 
   /* Score bar */
   .score-bar { display: flex; align-items: center; gap: 6px; }
@@ -194,6 +196,7 @@ const HTML = `<!DOCTYPE html>
     <div class="stat"><div class="stat-label">Data Loss</div><div class="stat-value warned" id="s-dlp">0</div></div>
     <div class="stat"><div class="stat-label">Rate Limit / DoS</div><div class="stat-value blocked" id="s-dos">0</div></div>
     <div class="stat"><div class="stat-label">RAG Poisoning</div><div class="stat-value blocked" id="s-rag">0</div></div>
+    <div class="stat"><div class="stat-label">MCP / Tool Use</div><div class="stat-value blocked" id="s-mcp">0</div></div>
   </div>
 
   <div class="tabs">
@@ -306,11 +309,12 @@ function showTab(name, btn) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0 };
+const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0, mcp: 0 };
 function updateStats(ev) {
   stats.total++;
   if (ev.action === 'blocked') stats.blocked++;
-  else stats.warned++;
+  else if (ev.action === 'warned') stats.warned++;
+  // We do not increment warned/blocked for 'passed'
   if (ev.stage === 'heuristic') stats.heuristic++;
   else if (ev.stage === 'embedding') stats.embedding++;
   else if (ev.stage === 'judge') stats.judge++;
@@ -318,6 +322,7 @@ function updateStats(ev) {
   else if (ev.stage === 'dlp') stats.dlp++;
   else if (ev.stage === 'dos') stats.dos++;
   else if (ev.stage === 'rag') stats.rag++;
+  else if (ev.stage === 'mcp-filter') stats.mcp++;
   document.getElementById('s-total').textContent = stats.total;
   document.getElementById('s-blocked').textContent = stats.blocked;
   document.getElementById('s-warned').textContent = stats.warned;
@@ -328,6 +333,7 @@ function updateStats(ev) {
   document.getElementById('s-dlp').textContent = stats.dlp;
   document.getElementById('s-dos').textContent = stats.dos;
   document.getElementById('s-rag').textContent = stats.rag;
+  if (document.getElementById('s-mcp')) document.getElementById('s-mcp').textContent = stats.mcp;
 }
 
 // ── Escape ────────────────────────────────────────────────────────────────────
@@ -370,6 +376,9 @@ function detailCell(ev) {
   }
   if (ev.stage === 'rag') {
     return '<span class="detail-tag">' + esc(ev.ragTag ? 'poisoned <' + ev.ragTag + '>' : (ev.verdict || 'context-poisoning')) + '</span>';
+  }
+  if (ev.stage === 'mcp-filter') {
+    return '<span class="detail-tag">' + esc(ev.mcpTool ? 'tool: ' + ev.mcpTool : 'mcp-policy') + '</span>';
   }
   return '—';
 }
@@ -687,7 +696,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     ? new UrlClassifier(config.proxy.urlFilter)
     : null
 
-  return http.createServer(async (req, res) => {
+  return http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${config.dashboard.port}`)
     const path = url.pathname
 
@@ -714,7 +723,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     if (req.method === 'POST' && path === '/api/test') {
       let body = ''
       req.on('data', chunk => { body += chunk })
-      req.on('end', async () => {
+      req.on('end', () => { void (async () => {
         try {
           const parsed = JSON.parse(body) as { prompt?: string; url?: string }
 
@@ -766,7 +775,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: String(err) }))
         }
-      })
+      })() })
       req.on('error', () => {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))

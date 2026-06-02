@@ -128,3 +128,201 @@ describe('extractPartialPrompts', () => {
     expect(result).toContain('Be extremely restrict')
   })
 })
+
+describe('AnthropicParser – extractTools', () => {
+  it('returns tools array when present', () => {
+    const body = JSON.stringify({ tools: [{ name: 'read_file' }, { name: 'execute_command' }] })
+    const result = a.extractTools(body)
+    expect(result).toHaveLength(2)
+    expect(result[0]).toEqual({ name: 'read_file' })
+    expect(result[1]).toEqual({ name: 'execute_command' })
+  })
+
+  it('returns [] when tools key is absent', () => {
+    expect(a.extractTools(JSON.stringify({ messages: [] }))).toEqual([])
+  })
+
+  it('returns [] on invalid JSON', () => {
+    expect(a.extractTools('not json{')).toEqual([])
+  })
+})
+
+describe('AnthropicParser – extractToolResults', () => {
+  it('extracts tool_result blocks from user messages', () => {
+    const body = JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_9', content: 'hello' }],
+        },
+      ],
+    })
+    const result = a.extractToolResults(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].toolUseId).toBe('toolu_9')
+    expect(result[0].result).toBe('hello')
+  })
+
+  it('JSON.stringifies non-string content', () => {
+    const contentObj = { text: 'structured', items: [1, 2] }
+    const body = JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: contentObj }],
+        },
+      ],
+    })
+    const result = a.extractToolResults(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].result).toBe(JSON.stringify(contentObj))
+  })
+
+  it('JSON.stringifies array content', () => {
+    const contentArr = [{ type: 'text', text: 'line1' }]
+    const body = JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_2', content: contentArr }],
+        },
+      ],
+    })
+    const result = a.extractToolResults(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].result).toBe(JSON.stringify(contentArr))
+  })
+
+  it('falls back to "unknown" when tool_use_id is missing', () => {
+    const body = JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', content: 'no id here' }],
+        },
+      ],
+    })
+    const result = a.extractToolResults(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].toolUseId).toBe('unknown')
+  })
+
+  it('returns [] on invalid JSON', () => {
+    expect(a.extractToolResults('not json{')).toEqual([])
+  })
+
+  it('returns [] when messages key is absent', () => {
+    expect(a.extractToolResults(JSON.stringify({ tools: [] }))).toEqual([])
+  })
+})
+
+describe('AnthropicParser – extractToolUses', () => {
+  it('extracts tool_use from response-shape (top-level content array)', () => {
+    const body = JSON.stringify({
+      content: [{ type: 'tool_use', name: 'read_file', input: { path: 'x' } }],
+    })
+    const result = a.extractToolUses(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].toolName).toBe('read_file')
+    expect(result[0].args).toEqual({ path: 'x' })
+  })
+
+  it('extracts tool_use from request-shape (assistant message content)', () => {
+    const body = JSON.stringify({
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', name: 'get_weather', input: {} }],
+        },
+      ],
+    })
+    const result = a.extractToolUses(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].toolName).toBe('get_weather')
+  })
+
+  it('returns [] when no tool_use blocks are present', () => {
+    const body = JSON.stringify({
+      content: [{ type: 'text', text: 'hello' }],
+    })
+    expect(a.extractToolUses(body)).toEqual([])
+  })
+
+  it('returns [] on invalid JSON', () => {
+    expect(a.extractToolUses('not json{')).toEqual([])
+  })
+})
+
+describe('GeminiParser – extractTools', () => {
+  it('returns tools array when present', () => {
+    const body = JSON.stringify({ tools: [{ name: 'search' }] })
+    const result = g.extractTools(body)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ name: 'search' })
+  })
+
+  it('returns [] when tools key is absent', () => {
+    expect(g.extractTools(JSON.stringify({ contents: [] }))).toEqual([])
+  })
+
+  it('returns [] on invalid JSON', () => {
+    expect(g.extractTools('not json{')).toEqual([])
+  })
+})
+
+describe('GeminiParser – extractToolResults (stub)', () => {
+  it('always returns [] for any input', () => {
+    expect(g.extractToolResults(JSON.stringify({ messages: [{ role: 'user' }] }))).toEqual([])
+  })
+
+  it('always returns [] for empty string', () => {
+    expect(g.extractToolResults('')).toEqual([])
+  })
+
+  it('always returns [] for invalid JSON', () => {
+    expect(g.extractToolResults('not json{')).toEqual([])
+  })
+})
+
+describe('GeminiParser – extractToolUses', () => {
+  it('extracts functionCall from candidates', () => {
+    const body = JSON.stringify({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { functionCall: { name: 'do_thing', args: { a: 1 } } },
+              { text: 'ignored' },
+            ],
+          },
+        },
+      ],
+    })
+    const result = g.extractToolUses(body)
+    expect(result).toHaveLength(1)
+    expect(result[0].toolName).toBe('do_thing')
+    expect(result[0].args).toEqual({ a: 1 })
+  })
+
+  it('returns [] when candidates is absent', () => {
+    expect(g.extractToolUses(JSON.stringify({ contents: [] }))).toEqual([])
+  })
+
+  it('returns [] for empty candidates array', () => {
+    expect(g.extractToolUses(JSON.stringify({ candidates: [] }))).toEqual([])
+  })
+
+  it('returns [] on invalid JSON', () => {
+    expect(g.extractToolUses('not json{')).toEqual([])
+  })
+})
+
+describe('getParser – Gemini path', () => {
+  it('returns GeminiParser for /v1beta/models/gemini-pro/generateContent', () => {
+    expect(getParser('/v1beta/models/gemini-pro/generateContent')).toBeInstanceOf(GeminiParser)
+  })
+
+  it('returns null for unknown path', () => {
+    expect(getParser('/unknown/path')).toBeNull()
+  })
+})
