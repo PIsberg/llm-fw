@@ -38,7 +38,8 @@ function killPortOwner(port: number): void {
         }
       }
     } else {
-      const out = execSync(`lsof -ti :${port}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      // execFileSync (no shell) so the port can never be interpreted as a command.
+      const out = execFileSync('lsof', ['-ti', `:${port}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       for (const pidStr of out.trim().split('\n')) {
         const pid = parseInt(pidStr, 10);
         if (pid && pid !== process.pid) try { process.kill(pid) } catch { }

@@ -1,5 +1,12 @@
 import net from 'node:net';
 import tls from 'node:tls';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// Trust only the proxy's locally generated MITM Root CA rather than disabling
+// TLS verification. Requires the proxy to have been set up (npm run dev setup).
+const proxyCa = fs.readFileSync(path.join(os.homedir(), '.llm-fw', 'ca.crt'));
 
 const payload = JSON.stringify({
   model: 'claude-3-opus-20240229',
@@ -34,7 +41,7 @@ function sendProxyRequest(proxyPort, targetHost, targetPort, method, path, heade
         const tlsSocket = tls.connect({
           socket,
           servername: targetHost,
-          rejectUnauthorized: false // trust our local proxy's dynamic Root CA
+          ca: [proxyCa] // verify against the proxy's local MITM Root CA only
         }, () => {
           tlsSocket.write(`${method} ${path} HTTP/1.1\r\n`);
           const requestHeaders = {
