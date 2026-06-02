@@ -13,7 +13,7 @@ import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
-import { inspectJsonResponse, rewriteBlockedJsonResponse, SseToolGate } from '../detection/mcp/responseGate.js'
+import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
 import { ChunkedDecoder } from './dechunk.js'
 import { StringDecoder } from 'node:string_decoder'
 import { identifyService } from '../config/providers.js'
@@ -502,7 +502,7 @@ export class ProxyServer {
 
   // Push streamed SSE text through the MCP gate, forward the (possibly filtered)
   // result to the agent, emit audit events, and return the bytes forwarded.
-  private gateSse(gate: SseToolGate, text: string, res: http.ServerResponse, req: http.IncomingMessage, hostname: string): number {
+  private gateSse(gate: SseGate, text: string, res: http.ServerResponse, req: http.IncomingMessage, hostname: string): number {
     const { forward, decisions } = gate.push(text)
     for (const d of decisions) {
       if (d.action === 'block') this.emitMcp('blocked', `Blocked tool invocation: ${d.toolName}`, forward, req, hostname, d.toolName)
@@ -566,7 +566,7 @@ export class ProxyServer {
       let status = 200
       const respHeaders: Record<string, string> = {}
       let jsonBuf = ''
-      let gate: SseToolGate | null = null
+      let gate: SseGate | null = null
       let dechunker: ChunkedDecoder | null = null
       const decoder = new StringDecoder('utf8')
       // Inspected modes operate on the decoded payload, so strip the framing
@@ -604,7 +604,7 @@ export class ProxyServer {
           const payload = (raw: Buffer): string => decoder.write(dechunker ? dechunker.push(raw) : raw)
 
           if (mode === 'sse') {
-            gate = new SseToolGate(this.mcp!)
+            gate = createSseGate(parser!, this.mcp!)
             res.writeHead(status, inspectedHeaders())
             respBodyBytes += this.gateSse(gate, payload(bodyStart), res, req, hostname)
           } else if (mode === 'json') {
