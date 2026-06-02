@@ -130,7 +130,7 @@ export async function run(args: string[]): Promise<void> {
         // The IP Helper service is required for portproxy to function.
         execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
         execSync('net start iphlpsvc', { stdio: 'ignore' });
-      } catch (err) {
+      } catch {
         // Ignore if already running or if we lack permissions, though we should be elevated here.
       }
       try {
