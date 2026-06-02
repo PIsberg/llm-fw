@@ -102,6 +102,10 @@ export async function run(): Promise<void> {
     const os = platform();
     if (os === 'win32') {
       try {
+        execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
+        execSync('net start iphlpsvc', { stdio: 'ignore' });
+      } catch { /* no admin rights or already running */ }
+      try {
         const existingV4 = execSync('netsh interface portproxy show v4tov4', { encoding: 'utf8' });
         if (!existingV4.includes('443')) {
           execFileSync('netsh', [

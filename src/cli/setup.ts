@@ -125,6 +125,13 @@ export async function run(args: string[]): Promise<void> {
     const os = platform();
     if (os === 'win32') {
       try {
+        // The IP Helper service is required for portproxy to function.
+        execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
+        execSync('net start iphlpsvc', { stdio: 'ignore' });
+      } catch (err) {
+        // Ignore if already running or if we lack permissions, though we should be elevated here.
+      }
+      try {
         execFileSync('netsh', [
           'interface', 'portproxy', 'add', 'v4tov4',
           'listenport=443', 'listenaddress=127.0.0.1',
