@@ -98,41 +98,70 @@ export class Pipeline {
           this.emit(result, meta, prompt)
           return result
         }
-        if (h.score < 20) continue
-
-        // Stage 2: embedding (only if score is in escalation range)
+        // Stage 2: embedding (always run, it's fast and catches zero-heuristic semantic variants)
+        let eSim = 0
+        let eNearest = ''
         if (this.embedding.isInitialized()) {
           const e = await this.embedding.check(candidate.text)
-          lastSim = Math.max(lastSim, e.similarity)
-          if (e.similarity >= embeddingBlockThreshold) {
-            const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: e.similarity, prompt: candidate.text, nearestTemplate: e.nearest }
+          eSim = e.similarity
+          eNearest = e.nearest
+          lastSim = Math.max(lastSim, eSim)
+          
+          if (eSim >= embeddingBlockThreshold) {
+            const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: eSim, prompt: candidate.text, nearestTemplate: eNearest }
             this.emit(result, meta, prompt)
-            return result
-          }
-          if (e.similarity >= embeddingWarnThreshold) {
-            const result: PipelineResult = { action: 'warn', stage: 'embedding', score: h.score, similarity: e.similarity, prompt: candidate.text, nearestTemplate: e.nearest }
-            this.emit(result, meta, prompt)
-            // Stage 3 async (monitoring only by default)
-            if (judgeEnabled && !judgeBlock) {
-              this.judge.classify(candidate.text).then(j => {
-                if (j.verdict === 'MALICIOUS') {
-                  this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: e.similarity, verdict: 'MALICIOUS', prompt: candidate.text }, meta, prompt)
-                }
-              }).catch(() => {})
-            }
             return result
           }
         }
 
-        // Stage 3 sync blocking mode
-        if (judgeEnabled && judgeBlock) {
-          const j = await this.judge.classify(candidate.text)
-          if (j.verdict === 'MALICIOUS') {
-            const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: lastSim, verdict: 'MALICIOUS', prompt: candidate.text }
-            this.emit(result, meta, prompt)
-            return result
+        // Are we in the escalation range?
+        // A prompt needs to be judged if it is suspicious. It is suspicious if:
+        // 1. Heuristic score is >= 20
+        // 2. OR Embedding similarity is >= embeddingWarnThreshold
+        const isSuspicious = h.score >= 20 || eSim >= embeddingWarnThreshold
+        if (!isSuspicious) {
+          continue // benign, skip judge and warning
+        }
+
+        // Stage 3: Judge (only if suspicious)
+        if (judgeEnabled) {
+          if (judgeBlock) {
+            // Sync blocking mode
+            const j = await this.judge.classify(candidate.text)
+            if (j.verdict === 'MALICIOUS') {
+              const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }
+              this.emit(result, meta, prompt)
+              return result
+            }
+          } else {
+            // Async monitoring mode
+            this.judge.classify(candidate.text).then(j => {
+              if (j.verdict === 'MALICIOUS') {
+                this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }, meta, prompt)
+              }
+            }).catch(() => {})
           }
         }
+
+        // If the judge didn't block it, we only return a 'warn' if the embedding
+        // similarity explicitly crossed the warning threshold.
+        if (eSim >= embeddingWarnThreshold) {
+          const result: PipelineResult = { 
+            action: 'warn', 
+            stage: 'embedding', 
+            score: h.score, 
+            similarity: eSim, 
+            prompt: candidate.text, 
+            nearestTemplate: eNearest,
+            heuristicMatches: h.matches 
+          }
+          this.emit(result, meta, prompt)
+          return result
+        }
+
+        // If it was just elevated heuristics (score < block threshold) and the
+        // embedding/judge didn't flag it, it's considered safe. We continue
+        // evaluating other candidates, eventually passing.
       }
     }
 

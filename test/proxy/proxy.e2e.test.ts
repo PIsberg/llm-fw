@@ -269,7 +269,7 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
 
     // Close connections and shut down servers gracefully
-    dashboard.closeAllConnections()
+    dashboard?.closeAllConnections()
     await new Promise<void>(resolve => dashboard.close(() => resolve()))
     await proxy.stop()
     await new Promise<void>(resolve => mockUpstream.close(() => resolve()))
