@@ -72,7 +72,10 @@ export class McpScanner {
 
   checkToolInvocation(toolName: string, args: unknown): McpCheckResult {
     if (!this.config.enabled) return { action: 'pass' }
-    
+
+    // Name-based blocklist takes precedence over command-content guardrails: a
+    // blocked tool is refused here regardless of its arguments, so the Category
+    // A–D scan below only ever applies to execution tools NOT on blockedTools.
     if (this.config.blockedTools.includes(toolName)) {
       const reason = `Invocation of tool '${toolName}' is blocked.`
       if (!this.config.auditOnly) {

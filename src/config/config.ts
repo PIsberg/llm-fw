@@ -57,6 +57,13 @@ export const DEFAULT_CONFIG: Config = {
   },
   mcp: {
     enabled: true,
+    // Tools blocked outright by name. Note: a name on this list is rejected by
+    // the blocklist check BEFORE the command-content guardrails run, so for an
+    // execution tool like `execute_command` the per-command Category A–D scan
+    // never executes under the default config — it's already name-blocked. The
+    // guardrails therefore protect the execution tools NOT on this list
+    // (`bash`, `ctx_shell`, `powershell`). Drop a tool from this list if you
+    // want its arguments scanned rather than the whole tool refused.
     blockedTools: ['execute_command', 'delete_database'],
     auditOnly: false,
     guardrailsEnabled: true,
