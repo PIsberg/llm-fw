@@ -34,7 +34,14 @@ Click any row to open the detail drawer: full decoded payload, heuristic match t
 
 ### Prompt Testing — interactive playground
 
-Paste any prompt and click **Analyze** to get an instant stage-by-stage breakdown without needing a real API client.
+Test **every detector** from one place — pick a category and paste your own input, or click a built-in example of something llm-fw catches:
+
+- **Prompt Injection** — jailbreaks, encoded/obfuscated payloads, multilingual overrides (Stages 1–3)
+- **RAG Poisoning** — instructions smuggled inside `<document>`/`<context>`/code-fence data blocks
+- **Data Loss (DLP)** — API keys, tokens, private keys, credit cards, with a redacted-payload preview
+- **MCP Tools** — check tool names against the allow/deny policy
+- **URL / Exfil** — exfiltration sinks, DGA domains, data-carrying query strings
+- **Rate Limit / DoS** — shows the active behavioral cost-control policy
 
 ![Playground input](docs/images/ss-03-playground-input.png)
 
@@ -752,7 +759,7 @@ LLM_FW_JUDGE_ENABLED=true
 Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 
 - **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview.
-- **Playground tab** — paste any prompt and click Analyze to see a full stage-by-stage breakdown without needing a real client.
+- **Playground tab** — test any detector (prompt injection, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed.
 
 ---
 
