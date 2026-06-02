@@ -27,7 +27,7 @@ export class Pipeline {
   async run(
     requestPath: string,
     body: string,
-    meta: { target: string; method: string; path: string }
+    meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
@@ -171,7 +171,7 @@ export class Pipeline {
   async checkPartial(
     requestPath: string,
     partialBody: string,
-    meta: { target: string; method: string; path: string }
+    meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }
   ): Promise<PipelineResult | null> {
     const parser = getParser(requestPath)
     if (!parser) return null
@@ -233,7 +233,7 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string }, prompt: string): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string): void {
     if (!this.onBlock) return
     this.onBlock({
       stage: result.stage,
@@ -248,6 +248,9 @@ export class Pipeline {
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
       verdict: result.verdict,
+      sandboxClient: meta.sandboxClient,
+      isSandboxed: meta.isSandboxed,
+      sandboxConfidence: meta.sandboxConfidence,
       kind: result.stage === 'rag' ? 'rag' : undefined,
       ragTag: result.ragTag,
     })

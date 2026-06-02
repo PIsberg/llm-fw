@@ -105,6 +105,13 @@ export interface PipelineResult {
   ragTag?: string;
 }
 
+export interface SandboxResult {
+  client: string;
+  sandboxed: boolean;
+  confidence: number;
+  signals: string[];
+}
+
 export interface BlockEvent {
   id: string;
   timestamp: string;
@@ -126,6 +133,9 @@ export interface BlockEvent {
   heuristicMatches?: string[];
   nearestTemplate?: string;
   verdict?: string;
+  sandboxClient?: string;
+  isSandboxed?: boolean;
+  sandboxConfidence?: number;
 }
 
 export interface PayloadParser {

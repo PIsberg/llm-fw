@@ -15,6 +15,7 @@ import { getParser } from '../detection/parsers.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
 import { ChunkedDecoder } from './dechunk.js'
+import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
 import { identifyService } from '../config/providers.js'
 
@@ -42,6 +43,7 @@ export class ProxyServer {
   private quota: QuotaManager | null
   private loop: LoopDetector | null
   private mcp: McpScanner | null
+  private sandbox: SandboxDetector
   private eventBus: EventBus
   private config: Config
 
@@ -58,6 +60,7 @@ export class ProxyServer {
     this.quota = config.dos?.enabled ? new QuotaManager(config.dos) : null
     this.loop = config.dos?.enabled ? new LoopDetector() : null
     this.mcp = config.mcp?.enabled ? new McpScanner(config, this.dlp) : null
+    this.sandbox = new SandboxDetector()
     this.server = http.createServer()
   }
 
@@ -116,6 +119,7 @@ export class ProxyServer {
 
   private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _head: Buffer): Promise<void> {
     const { hostname, port } = parseConnectTarget(req.url ?? '')
+    const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
 
     const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
 
@@ -141,6 +145,9 @@ export class ProxyServer {
             action: 'blocked',
             kind: 'url',
             urlBlockReason: urlResult.reason,
+            sandboxClient: sb.client,
+            isSandboxed: sb.sandboxed,
+            sandboxConfidence: sb.confidence
           })
           return
         }
@@ -209,6 +216,17 @@ export class ProxyServer {
       const dosMethod = innerReq.method ?? 'GET'
       const dosPath = innerReq.url ?? '/'
 
+      const sb = this.sandbox.detect(innerReq.headers['user-agent'], innerReq.socket.remoteAddress)
+
+      const emitEvent = (ev: Parameters<EventBus['emit']>[0]) => {
+        this.eventBus.emit({
+          ...ev,
+          sandboxClient: sb.client,
+          isSandboxed: sb.sandboxed,
+          sandboxConfidence: sb.confidence
+        })
+      }
+
       // Stage -1 — Cost control / agentic DoS circuit breaker. The RPM and
       // session-budget checks run BEFORE the body is buffered so a run-away
       // agent is throttled as cheaply as possible.
@@ -220,7 +238,7 @@ export class ProxyServer {
             'Retry-After': String(q.retryAfterSec),
           })
           innerRes.end(JSON.stringify({ error: 'rate limit exceeded', retryAfter: q.retryAfterSec }))
-          this.eventBus.emit({
+          emitEvent({
             stage: 'dos',
             score: 100,
             similarity: 0,
@@ -239,7 +257,7 @@ export class ProxyServer {
         if (this.quota.sessionExceeded()) {
           innerRes.writeHead(429, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'session token budget exceeded' }))
-          this.eventBus.emit({
+          emitEvent({
             stage: 'dos',
             score: 100,
             similarity: 0,
@@ -267,7 +285,7 @@ export class ProxyServer {
         if (pathResult.action === 'block') {
           innerRes.writeHead(403, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
-          this.eventBus.emit({
+          emitEvent({
             stage: 'url-filter',
             score: 100,
             similarity: 0,
@@ -352,7 +370,7 @@ export class ProxyServer {
           if (mode === 'block') {
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'sensitive data detected', type: findings[0]!.type }))
-            this.eventBus.emit({
+            emitEvent({
               stage: 'dlp',
               score: 100,
               similarity: 0,
@@ -375,7 +393,7 @@ export class ProxyServer {
           }
 
           // 'redact' and 'audit' both emit a warn event and continue.
-          this.eventBus.emit({
+          emitEvent({
             stage: 'dlp',
             score: 100,
             similarity: 0,
@@ -398,7 +416,7 @@ export class ProxyServer {
         if (this.loop.isLooping(body)) {
           innerRes.writeHead(429, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'Agent Loop Detected' }))
-          this.eventBus.emit({
+          emitEvent({
             stage: 'dos',
             score: 100,
             similarity: 0,
@@ -419,7 +437,14 @@ export class ProxyServer {
       const result = await this.pipeline.run(
         innerReq.url ?? '/',
         body,
-        { target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/' }
+        { 
+          target: hostname, 
+          method: innerReq.method ?? 'GET', 
+          path: innerReq.url ?? '/',
+          sandboxClient: sb.client,
+          isSandboxed: sb.sandboxed,
+          sandboxConfidence: sb.confidence
+        }
       )
 
       if (result.action === 'block') {
@@ -441,7 +466,7 @@ export class ProxyServer {
           if (defResult.action === 'block') {
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: defResult.reason }))
-            this.eventBus.emit({
+            emitEvent({
               stage: 'mcp-filter',
               score: 100, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
@@ -450,7 +475,7 @@ export class ProxyServer {
             })
             return
           } else {
-            this.eventBus.emit({
+            emitEvent({
               stage: 'mcp-filter', score: 0, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
               payload_preview: `Exposed ${tools.length} tools to LLM`, payload_full: JSON.stringify(tools),
@@ -465,7 +490,7 @@ export class ProxyServer {
           if (resResult.action === 'block') {
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: resResult.reason }))
-            this.eventBus.emit({
+            emitEvent({
               stage: 'mcp-filter',
               score: 100, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
@@ -474,7 +499,7 @@ export class ProxyServer {
             })
             return
           } else {
-            this.eventBus.emit({
+            emitEvent({
               stage: 'mcp-filter', score: 0, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
               payload_preview: `Tool result returned (id ${tr.toolUseId})`, payload_full: tr.result,
