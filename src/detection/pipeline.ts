@@ -143,19 +143,25 @@ export class Pipeline {
           }
         }
 
-        // If it was suspicious but judge didn't block it (or judgeBlock is false),
-        // we return a 'warn' result instead of passing it silently.
-        const result: PipelineResult = { 
-          action: 'warn', 
-          stage: eSim >= embeddingWarnThreshold ? 'embedding' : 'heuristic', 
-          score: h.score, 
-          similarity: eSim, 
-          prompt: candidate.text, 
-          nearestTemplate: eNearest,
-          heuristicMatches: h.matches 
+        // If the judge didn't block it, we only return a 'warn' if the embedding
+        // similarity explicitly crossed the warning threshold.
+        if (eSim >= embeddingWarnThreshold) {
+          const result: PipelineResult = { 
+            action: 'warn', 
+            stage: 'embedding', 
+            score: h.score, 
+            similarity: eSim, 
+            prompt: candidate.text, 
+            nearestTemplate: eNearest,
+            heuristicMatches: h.matches 
+          }
+          this.emit(result, meta, prompt)
+          return result
         }
-        this.emit(result, meta, prompt)
-        return result
+
+        // If it was just elevated heuristics (score < block threshold) and the
+        // embedding/judge didn't flag it, it's considered safe. We continue
+        // evaluating other candidates, eventually passing.
       }
     }
 
