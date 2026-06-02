@@ -533,7 +533,9 @@ const PG_EXAMPLES = {
   dlp: [
     { label: 'AWS access key', value: 'Deploy using AWS key AKIAIOSFODNN7EXAMPLE and then restart.' },
     { label: 'GitHub token', value: 'Push with my token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 please.' },
-    { label: 'Bearer token', value: 'Call the API with header Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcDEF1234567890ghiJKL' },
+    // A deliberately non-JWT placeholder (avoids tripping secret scanners) that
+    // still matches the DLP Bearer-token detector (>=20 chars in its charset).
+    { label: 'Bearer token', value: 'Call the API with header Authorization: Bearer EXAMPLE-TOKEN-do-not-use-0123456789' },
     { label: 'Credit card', value: 'Charge my card 4111 1111 1111 1111, expiry 12/27.' },
     { label: 'Private key', value: 'Here is the deploy key:\\n-----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEA...' },
   ],
