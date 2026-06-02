@@ -28,7 +28,20 @@ export class EmbeddingChecker {
     const baseDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
     env.cacheDir = join(baseDir, 'models')
     env.allowLocalModels = false
-    this.extractor = (await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' })) as unknown as FeatureExtractor
+
+    try {
+      this.extractor = (await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' })) as unknown as FeatureExtractor
+    } catch (err) {
+      // The semantic-similarity stage is best-effort. If the model can't be
+      // fetched (offline, or HuggingFace rate-limits the download with a 429),
+      // don't take the whole firewall down — log and leave the stage disabled.
+      // The pipeline guards Stage 2 behind isInitialized(), so heuristics, DLP,
+      // MCP, URL filtering and DoS keep working; only embedding similarity is
+      // skipped until the model becomes reachable.
+      this.extractor = null
+      console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
+      return
+    }
 
     const __filename = fileURLToPath(import.meta.url)
     const attacksPath = join(dirname(__filename), '../../data/attacks.json')

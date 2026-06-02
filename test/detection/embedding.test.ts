@@ -52,6 +52,19 @@ describe('EmbeddingChecker', () => {
     expect(checker.isInitialized()).toBe(true)
   })
 
+  it('init() degrades gracefully when the model cannot be loaded (no throw, stays uninitialized)', async () => {
+    // Simulate an offline / HuggingFace-429 download failure.
+    ;(pipeline as unknown as MockFn).mockRejectedValueOnce(new Error('429 Too Many Requests'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection)
+
+    await expect(checker.init()).resolves.toBeUndefined() // does NOT throw
+    expect(checker.isInitialized()).toBe(false)            // stage left disabled
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('embedding model unavailable'))
+
+    warn.mockRestore()
+  })
+
   it('check() returns similarity in [0,1] for a short input', async () => {
     const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection)
     await checker.init()
