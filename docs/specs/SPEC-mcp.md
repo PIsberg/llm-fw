@@ -36,7 +36,21 @@ By sitting as a proxy between the Agent and the LLM, `llm-fw` has full visibilit
    - Extracts `tool_use` / `function_call` objects.
    - *Action*: Inspect the tool name and arguments. If deemed malicious, rewrite the response to strip the tool call or drop the connection before the agent can execute it.
 
-## 6. Dashboard Integration
+## 6. Execution-Context Security Guardrails (Destructive Command Blocking)
+
+To intercept catastrophic shell commands, database operations, and system alterations before they are routed to local execution endpoints, `llm-fw` employs a context-aware arguments-filtering engine.
+
+### Core Principles
+* **Targeted Tool Interception:** Scanning only targets the arguments of known execution tools (`execute_command`, `bash`, `ctx_shell`, `powershell`). Arbitrary text payloads (e.g. file writes, chat messages) are ignored to prevent false positives when discussing command options.
+* **Granular Rule Categories:** Evaluation is split into four threat categories:
+  * **Category A: File System Devastation** (e.g., recursive deletion like `rm -rf /`, `rm -rf *`, disk wipes, mass permission changes)
+  * **Category B: Reverse Shells & Network Pivots** (e.g., piped curl/wget execution, netcat listeners, exfiltration POST requests)
+  * **Category C: Process & Resource Exhaustion** (e.g., fork bombs like `:(){ :|:& };:`, mass killing of processes)
+  * **Category D: Developer Tools & Infrastructure** (e.g., force git pushes, hard resets, database tables dropping/truncation, cloud infrastructure destruction via Terraform or AWS CLI)
+
+## 7. Dashboard Integration
 * **New Stats**: "Tools Invoked", "Tools Blocked".
 * **Event Detail**: A new stage badge `[MCP]` to indicate an event was triggered by a tool call.
 * **Payload View**: The dashboard drawer should explicitly format tool arguments and results for easy auditing.
+* **Playground Controls**: Dedicated "Security Guardrails" tab allowing developers to test commands against individual categories and toggle enforcement on/off.
+

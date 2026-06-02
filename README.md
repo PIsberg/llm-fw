@@ -674,7 +674,7 @@ Environment overrides:
 
 ## MCP Monitoring & Tool Firewall
 
-As AI agents increasingly rely on the **Model Context Protocol (MCP)** and local tool execution, securing what the LLM is allowed to execute locally is critical. The firewall natively intercepts the JSON-RPC tool schemas flowing between your agent and the upstream LLM API to provide three layers of defense:
+As AI agents increasingly rely on the **Model Context Protocol (MCP)** and local tool execution, securing what the LLM is allowed to execute locally is critical. The firewall natively intercepts the JSON-RPC tool schemas flowing between your agent and the upstream LLM API to provide four layers of defense:
 
 ### 1. Definition Enforcement (Outbound)
 Agents often expose more tools than necessary (e.g. wildcard filesystem access). `llm-fw` intercepts the `tools` array exposed in the API request and aborts the connection if the agent attempts to advertise a blocked tool (e.g., `execute_command`) to the LLM.
@@ -682,7 +682,16 @@ Agents often expose more tools than necessary (e.g. wildcard filesystem access).
 ### 2. Invocation Blocking (Inbound Streaming Defense)
 If the LLM decides to use a tool, it streams the `tool_use` payload back to the agent. `llm-fw` buffers the inbound HTTP stream and parses JSON chunks on the fly. If a malicious tool invocation is detected, the proxy **instantly drops the connection** (`res.destroy()`). This causes the agent's JSON stream parser to fail with an Unexpected EOF, neutralizing the execution before the local agent even recognizes it.
 
-### 3. Result Scanning & DLP (Outbound)
+### 3. Execution-Context Security Guardrails (Inbound Argument Scanning)
+For known execution tools (`execute_command`, `bash`, `ctx_shell`, `powershell`), `llm-fw` runs a context-aware heuristic check on the command arguments. If the command matches any destructive patterns, it is blocked. The block triggers a non-fatal warning alert in the dashboard and strips the tool use, replacing it with a placeholder note so the agent turn terminates cleanly.
+
+The guardrails cover 4 key threat categories:
+- **Category A: File System Devastation** — recursive deletes (e.g. `rm -rf /`, `rm -rf *`), system drives wiping, disk formatting, and mass permission alterations (`chmod -R 777`).
+- **Category B: Reverse Shells & Network Pivots** — piped remote script execution (`curl ... | bash`), netcat listeners, and unauthorized POST requests targeted at exfiltrating sensitive files (e.g. `/etc/passwd`, `.env`, `.git/config`).
+- **Category C: Process & Resource Exhaustion** — fork bombs (`:(){ :|:& };:`) and mass termination commands (`killall -9`).
+- **Category D: Developer Tools & Infrastructure** — forced git pushes/resets, database annihilation (`DROP DATABASE`, `TRUNCATE TABLE`), and cloud teardowns (`terraform destroy`, `aws ... delete-...`).
+
+### 4. Result Scanning & DLP (Outbound)
 When a safe tool returns data (e.g., `read_file`), that result is sent back to the LLM in the next turn. `llm-fw` extracts the `tool_result` content and subjects it to the standard Data Loss Prevention (DLP) engine. If a tool accidentally reads your `~/.aws/credentials`, the firewall blocks it from being uploaded.
 
 ### Configuration
@@ -691,12 +700,26 @@ When a safe tool returns data (e.g., `read_file`), that result is sent back to t
 {
   "mcp": {
     "enabled": true,
-    "blockedTools": ["execute_command", "delete_database", "eval"]
+    "blockedTools": ["execute_command", "delete_database", "eval"],
+    "guardrailsEnabled": true,
+    "guardrailsCategories": {
+      "a": true,
+      "b": true,
+      "c": true,
+      "d": true
+    }
   }
 }
 ```
 
-Detected events appear in the dashboard under the **MCP / Tool Use** badge with a distinct `mcp-filter` stage chip, logging both `PASSED` legitimate traffic and `BLOCKED` policy violations.
+Environment overrides:
+
+| Variable | Effect |
+|----------|--------|
+| `LLM_FW_MCP_ENABLED` | `true`/`false` — enable or disable the MCP firewall |
+| `LLM_FW_MCP_GUARDRAILS_ENABLED` | `true`/`false` — enable or disable execution-context command guardrails |
+
+Detected events appear in the dashboard under the **MCP / Tool Use** badge with a distinct `mcp-filter` stage chip, logging both `PASSED` legitimate traffic and `BLOCKED` policy violations (with details on the triggered category rule in the event's `mcpRule` metadata).
 
 ---
 
