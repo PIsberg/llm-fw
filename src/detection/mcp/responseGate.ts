@@ -17,6 +17,9 @@ export interface ToolDecision {
   toolName: string
   action: 'block' | 'pass'
   reason?: string
+  // Set when a policy matched but `auditOnly` let the call through; callers
+  // emit a 'warned' audit event instead of a silent 'passed'.
+  audit?: boolean
 }
 
 export interface JsonInspection {
@@ -30,7 +33,7 @@ export function inspectJsonResponse(body: string, parser: PayloadParser, mcp: Mc
   const blockedNames = new Set<string>()
   for (const use of parser.extractToolUses(body)) {
     const result = mcp.checkToolInvocation(use.toolName, use.args)
-    decisions.push({ toolName: use.toolName, action: result.action, reason: result.reason })
+    decisions.push({ toolName: use.toolName, action: result.action, reason: result.reason, audit: result.audit })
     if (result.action === 'block') blockedNames.add(use.toolName)
   }
   return { decisions, blockedNames }
@@ -179,7 +182,9 @@ export class SseToolGate implements SseGate {
         this.blockedAny = true
         return { forward: '', decision: { toolName: name, action: 'block', reason: result.reason } }
       }
-      const decision = this.emittedTools.has(name) ? null : { toolName: name, action: 'pass' as const }
+      const decision = this.emittedTools.has(name)
+        ? null
+        : { toolName: name, action: 'pass' as const, audit: result.audit, reason: result.reason }
       this.emittedTools.add(name)
       return { forward: raw, decision }
     }
@@ -295,7 +300,7 @@ export class OpenAiSseToolGate implements SseGate {
               mutated = true
               continue
             }
-            if (!this.emittedTools.has(name)) decisions.push({ toolName: name, action: 'pass' })
+            if (!this.emittedTools.has(name)) decisions.push({ toolName: name, action: 'pass', audit: result.audit, reason: result.reason })
             this.emittedTools.add(name)
             kept.push(call)
           } else if (this.suppressedIndexes.has(idx)) {
