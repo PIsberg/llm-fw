@@ -6,6 +6,7 @@ import {
   parseCaStorePresent,
   parseIphlpsvcRunning,
   parsePortRedirect,
+  parseLoopbackHosts,
   type DoctorProbe,
 } from '../../src/cli/doctor.js'
 
@@ -252,5 +253,44 @@ Address         Port        Address         Port
     expect(parsePortRedirect('linux', ipt, 8443)).toBe(true)
     expect(parsePortRedirect('linux', ipt, 8444)).toBe(false)
     expect(parsePortRedirect('linux', '-P OUTPUT ACCEPT', 8443)).toBe(false)
+  })
+})
+
+describe('parseLoopbackHosts', () => {
+  const hosts = `
+127.0.0.1 localhost
+# llm-fw sinkhole
+127.0.0.1 api.anthropic.com
+127.0.0.1 api.openai.com generativelanguage.googleapis.com
+::1 api.cohere.com
+10.0.0.5 internal.example.com
+127.0.0.1 api.mistral.ai # inline comment after host`
+
+  it('collects every hostname mapped to 127.0.0.1 / ::1', () => {
+    const set = parseLoopbackHosts(hosts)
+    expect(set.has('api.anthropic.com')).toBe(true)
+    expect(set.has('api.openai.com')).toBe(true)
+    expect(set.has('generativelanguage.googleapis.com')).toBe(true) // 2nd host on a line
+    expect(set.has('api.cohere.com')).toBe(true)                    // ::1
+    expect(set.has('api.mistral.ai')).toBe(true)                    // host before inline comment
+  })
+
+  it('ignores comments and non-loopback mappings', () => {
+    const set = parseLoopbackHosts(hosts)
+    expect(set.has('internal.example.com')).toBe(false) // mapped to 10.0.0.5
+    expect(set.has('llm-fw')).toBe(false)               // part of the comment marker
+  })
+
+  it('does not treat regex metacharacters in a host as a pattern (no injection)', () => {
+    // A bogus hosts entry containing regex specials must be matched literally,
+    // never compiled as a pattern.
+    const weird = '127.0.0.1 a.b\\c+(d)|e.com'
+    const set = parseLoopbackHosts(weird)
+    expect(set.has('a.b\\c+(d)|e.com')).toBe(true)
+    expect(set.has('axbxcd')).toBe(false)
+  })
+
+  it('returns an empty set for empty input', () => {
+    expect(parseLoopbackHosts('').size).toBe(0)
   })
 })

@@ -275,6 +275,27 @@ export function parsePortRedirect(os: OS, output: string, httpsPort: number): bo
   return /--dport\s+443\b/.test(output) && new RegExp(`--to-ports?\\s+${httpsPort}\\b`).test(output)
 }
 
+/**
+ * Hostnames mapped to a loopback address (127.0.0.1 / ::1) in a hosts file.
+ * Parsed line-by-line — never builds a regex from the host text — so an entry
+ * containing regex metacharacters can't break or inject the match. Handles
+ * multiple hosts per line and trailing inline comments.
+ */
+export function parseLoopbackHosts(hostsText: string): Set<string> {
+  const hosts = new Set<string>()
+  for (const line of hostsText.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const parts = trimmed.split(/\s+/)
+    if (parts[0] !== '127.0.0.1' && parts[0] !== '::1') continue
+    for (const host of parts.slice(1)) {
+      if (host.startsWith('#')) break // rest of the line is an inline comment
+      hosts.add(host)
+    }
+  }
+  return hosts
+}
+
 function detectCaTrusted(os: OS): boolean | null {
   if (os === 'win32') {
     const out = safeExec('certutil', ['-store', 'Root'])
@@ -331,10 +352,9 @@ async function probe(): Promise<DoctorProbe> {
   try { hostsText = fs.readFileSync(hostsPath, 'utf8') } catch { /* unreadable */ }
   const sinkholeActive = config.proxy.mode === 'sinkhole' || hostsText.includes('# llm-fw sinkhole')
 
-  // A target is "present" when mapped to loopback anywhere in the hosts file.
-  const missingHostsTargets = config.targets.filter(
-    t => !new RegExp(`^\\s*(127\\.0\\.0\\.1|::1)\\s+${t.replace(/[.]/g, '\\.')}\\s*$`, 'm').test(hostsText)
-  )
+  // A target is "present" when mapped to loopback in the hosts file.
+  const loopbackHosts = parseLoopbackHosts(hostsText)
+  const missingHostsTargets = config.targets.filter(t => !loopbackHosts.has(t))
   const hostsTargetCount = config.targets.length - missingHostsTargets.length
 
   const [proxyListening, dashboardListening, sinkholeListening] = await Promise.all([
