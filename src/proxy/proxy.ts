@@ -13,23 +13,10 @@ import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
-import { inspectJsonResponse, rewriteBlockedJsonResponse, SseToolGate } from '../detection/mcp/responseGate.js'
+import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
 import { ChunkedDecoder } from './dechunk.js'
 import { StringDecoder } from 'node:string_decoder'
-
-function identifyService(hostname: string): string {
-  if (hostname.endsWith('openai.com')) return 'OpenAI'
-  if (hostname.endsWith('anthropic.com')) return 'Anthropic'
-  if (hostname.endsWith('googleapis.com') || hostname.endsWith('google.com') || hostname.endsWith('googleusercontent.com')) return 'Google'
-  if (hostname.endsWith('mistral.ai')) return 'Mistral'
-  if (hostname.endsWith('huggingface.co')) return 'HuggingFace'
-  if (hostname.endsWith('cohere.com') || hostname.endsWith('cohere.ai')) return 'Cohere'
-  if (hostname.endsWith('microsoft.com') || hostname.endsWith('exp-tas.com')) return 'Microsoft'
-  if (hostname.endsWith('npmjs.org') || hostname.endsWith('npmjs.com')) return 'NPM'
-  if (hostname.endsWith('antigravity-unleash.goog')) return 'Antigravity'
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) return 'Local'
-  return 'Custom'
-}
+import { identifyService } from '../config/providers.js'
 
 /**
  * Parse a CONNECT request target (`host:port`) into hostname and port.
@@ -515,7 +502,7 @@ export class ProxyServer {
 
   // Push streamed SSE text through the MCP gate, forward the (possibly filtered)
   // result to the agent, emit audit events, and return the bytes forwarded.
-  private gateSse(gate: SseToolGate, text: string, res: http.ServerResponse, req: http.IncomingMessage, hostname: string): number {
+  private gateSse(gate: SseGate, text: string, res: http.ServerResponse, req: http.IncomingMessage, hostname: string): number {
     const { forward, decisions } = gate.push(text)
     for (const d of decisions) {
       if (d.action === 'block') this.emitMcp('blocked', `Blocked tool invocation: ${d.toolName}`, forward, req, hostname, d.toolName)
@@ -579,7 +566,7 @@ export class ProxyServer {
       let status = 200
       const respHeaders: Record<string, string> = {}
       let jsonBuf = ''
-      let gate: SseToolGate | null = null
+      let gate: SseGate | null = null
       let dechunker: ChunkedDecoder | null = null
       const decoder = new StringDecoder('utf8')
       // Inspected modes operate on the decoded payload, so strip the framing
@@ -617,7 +604,7 @@ export class ProxyServer {
           const payload = (raw: Buffer): string => decoder.write(dechunker ? dechunker.push(raw) : raw)
 
           if (mode === 'sse') {
-            gate = new SseToolGate(this.mcp!)
+            gate = createSseGate(parser!, this.mcp!)
             res.writeHead(status, inspectedHeaders())
             respBodyBytes += this.gateSse(gate, payload(bodyStart), res, req, hostname)
           } else if (mode === 'json') {

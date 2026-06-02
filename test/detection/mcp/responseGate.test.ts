@@ -6,6 +6,8 @@ import {
   inspectJsonResponse,
   rewriteBlockedJsonResponse,
   SseToolGate,
+  OpenAiSseToolGate,
+  createSseGate,
 } from '../../../src/detection/mcp/responseGate.js'
 import type { Config } from '../../../src/types.js'
 
@@ -372,5 +374,114 @@ describe('SseToolGate — flush returns trailing buffer', () => {
     gate.push(stream)
     // All events end with \n\n so buffer should be clear
     expect(gate.flush()).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 4. OpenAiSseToolGate
+// ---------------------------------------------------------------------------
+
+/** Build a single OpenAI SSE event: "data: <json>\n\n". */
+function openAiEvent(data: Record<string, unknown>): string {
+  return `data: ${JSON.stringify(data)}\n\n`
+}
+
+/**
+ * Realistic OpenAI chat-completions tool-call stream:
+ *   - chunk 1: assistant role + tool_call index 0 with its NAME
+ *   - chunks 2-3: argument fragments for index 0
+ *   - chunk 4: terminal finish_reason: 'tool_calls'
+ *   - [DONE]
+ */
+function buildOpenAiToolStream(toolName: string): string {
+  return [
+    openAiEvent({ choices: [{ index: 0, delta: { role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: toolName, arguments: '' } }] }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"cmd"' } }] }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: ':"ls"}' } }] }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+    'data: [DONE]\n\n',
+  ].join('')
+}
+
+/** OpenAI text-only stream (no tool calls). */
+function buildOpenAiTextStream(): string {
+  return [
+    openAiEvent({ choices: [{ index: 0, delta: { role: 'assistant', content: 'Hello' }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: { content: ' world' }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+    'data: [DONE]\n\n',
+  ].join('')
+}
+
+describe('OpenAiSseToolGate — blocked tool (execute_command)', () => {
+  it('suppresses the call, drops argument fragments, downgrades finish_reason to stop', () => {
+    const gate = new OpenAiSseToolGate(mcp)
+    const { forward, decisions } = gate.push(buildOpenAiToolStream('execute_command'))
+
+    const blockDecision = decisions.find(d => d.toolName === 'execute_command')
+    expect(blockDecision?.action).toBe('block')
+
+    // The blocked tool name and its streamed arguments never reach the agent.
+    expect(forward).not.toContain('execute_command')
+    expect(forward).not.toContain('cmd')
+
+    // The assistant turn still opens (role chunk survives, tool_calls stripped).
+    expect(forward).toContain('"role":"assistant"')
+
+    // finish_reason rewritten so the agent ends cleanly instead of awaiting a tool.
+    expect(forward).toContain('"finish_reason":"stop"')
+    expect(forward).not.toContain('"finish_reason":"tool_calls"')
+
+    // [DONE] sentinel is preserved.
+    expect(forward).toContain('[DONE]')
+  })
+})
+
+describe('OpenAiSseToolGate — allowed tool (read_file)', () => {
+  it('forwards the call verbatim and leaves finish_reason as tool_calls', () => {
+    const gate = new OpenAiSseToolGate(mcp)
+    const { forward, decisions } = gate.push(buildOpenAiToolStream('read_file'))
+
+    const passDecision = decisions.find(d => d.toolName === 'read_file')
+    expect(passDecision?.action).toBe('pass')
+
+    expect(forward).toContain('read_file')
+    expect(forward).toContain('cmd')
+    expect(forward).toContain('"finish_reason":"tool_calls"')
+  })
+})
+
+describe('OpenAiSseToolGate — chunk-split robustness', () => {
+  it('splitting the blocked stream into 5-char slices yields the same forward output', () => {
+    const ref = new OpenAiSseToolGate(mcp)
+    const single = ref.push(buildOpenAiToolStream('execute_command')).forward + ref.flush()
+
+    const split = new OpenAiSseToolGate(mcp)
+    const stream = buildOpenAiToolStream('execute_command')
+    let out = ''
+    for (let i = 0; i < stream.length; i += 5) out += split.push(stream.slice(i, i + 5)).forward
+    out += split.flush()
+
+    expect(out).toBe(single)
+  })
+})
+
+describe('OpenAiSseToolGate — text-only stream', () => {
+  it('forwards a plain text stream verbatim with no decisions', () => {
+    const gate = new OpenAiSseToolGate(mcp)
+    const stream = buildOpenAiTextStream()
+    const { forward, decisions } = gate.push(stream)
+    expect(decisions).toHaveLength(0)
+    expect(forward).toBe(stream)
+  })
+})
+
+describe('createSseGate — provider selection', () => {
+  it('returns an OpenAI gate for an OpenAI-compatible parser', () => {
+    expect(createSseGate(getParser('/v1/chat/completions')!, mcp)).toBeInstanceOf(OpenAiSseToolGate)
+  })
+
+  it('returns the Anthropic gate for the Anthropic parser', () => {
+    expect(createSseGate(getParser('/v1/messages')!, mcp)).toBeInstanceOf(SseToolGate)
   })
 })

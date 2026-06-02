@@ -1,6 +1,6 @@
 # Design: Correct MCP Response (Inbound) Interception
 
-This supersedes Phase 4.2 of `PLAN-mcp.md`. The committed implementation of
+This supersedes Phase 4.2 of `docs/plans/PLAN-mcp.md`. The committed implementation of
 response-side `tool_use` interception in `forwardRequest` is unsound and must be
 replaced before the inbound half of the firewall can be trusted.
 

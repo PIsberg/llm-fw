@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { AnthropicParser, GeminiParser, getParser, parsers, extractPartialPrompts } from '../../src/detection/parsers.js'
+import { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, getParser, parsers, extractPartialPrompts } from '../../src/detection/parsers.js'
 
 const a = new AnthropicParser()
 const g = new GeminiParser()
+const o = new OpenAIParser()
+const c = new CohereParser()
 
 describe('AnthropicParser', () => {
   it('supports /v1/messages', () => {
@@ -93,9 +95,140 @@ describe('GeminiParser', () => {
   })
 })
 
+describe('OpenAIParser', () => {
+  it('supports OpenAI / Mistral / DeepSeek style /v1/chat/completions', () => {
+    expect(o.supports('/v1/chat/completions')).toBe(true)
+  })
+
+  it('supports Groq /openai/v1/chat/completions', () => {
+    expect(o.supports('/openai/v1/chat/completions')).toBe(true)
+  })
+
+  it('supports OpenRouter /api/v1/chat/completions', () => {
+    expect(o.supports('/api/v1/chat/completions')).toBe(true)
+  })
+
+  it('supports Azure deployment path with api-version query', () => {
+    expect(o.supports('/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01')).toBe(true)
+  })
+
+  it('supports the Responses API path', () => {
+    expect(o.supports('/v1/responses')).toBe(true)
+  })
+
+  it('does not support /v1/messages (Anthropic)', () => {
+    expect(o.supports('/v1/messages')).toBe(false)
+  })
+
+  it('extracts system and user message content, skipping assistant', () => {
+    const body = JSON.stringify({
+      messages: [
+        { role: 'system', content: 'be safe' },
+        { role: 'assistant', content: 'prior reply' },
+        { role: 'user', content: 'hello there' },
+      ],
+    })
+    const result = o.extractPrompts(body)
+    expect(result).toContain('be safe')
+    expect(result).toContain('hello there')
+    expect(result).not.toContain('prior reply')
+  })
+
+  it('extracts text from array (vision) content parts', () => {
+    const body = JSON.stringify({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'describe this' }, { type: 'image_url', image_url: { url: 'x' } }] }],
+    })
+    expect(o.extractPrompts(body)).toContain('describe this')
+  })
+
+  it('extracts Responses API input string and instructions', () => {
+    const body = JSON.stringify({ instructions: 'sys-prompt', input: 'user-input' })
+    const result = o.extractPrompts(body)
+    expect(result).toContain('sys-prompt')
+    expect(result).toContain('user-input')
+  })
+
+  it('normalizes function tools so the MCP scanner sees a top-level name', () => {
+    const body = JSON.stringify({
+      tools: [{ type: 'function', function: { name: 'execute_command', description: 'run' } }],
+    })
+    const tools = o.extractTools(body)
+    expect(tools).toHaveLength(1)
+    expect((tools[0] as { name: string }).name).toBe('execute_command')
+  })
+
+  it('extracts tool_calls from a chat response, parsing JSON arguments', () => {
+    const body = JSON.stringify({
+      choices: [{ message: { tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"/etc"}' } }] } }],
+    })
+    const uses = o.extractToolUses(body)
+    expect(uses).toHaveLength(1)
+    expect(uses[0].toolName).toBe('read_file')
+    expect(uses[0].args).toEqual({ path: '/etc' })
+  })
+
+  it('extracts tool results from role:tool messages', () => {
+    const body = JSON.stringify({
+      messages: [{ role: 'tool', tool_call_id: 'c1', content: 'file contents' }],
+    })
+    const results = o.extractToolResults(body)
+    expect(results).toHaveLength(1)
+    expect(results[0].toolUseId).toBe('c1')
+    expect(results[0].result).toBe('file contents')
+  })
+
+  it('returns [] on invalid JSON across all extractors', () => {
+    expect(o.extractPrompts('not json{')).toEqual([])
+    expect(o.extractTools('not json{')).toEqual([])
+    expect(o.extractToolResults('not json{')).toEqual([])
+    expect(o.extractToolUses('not json{')).toEqual([])
+  })
+})
+
+describe('CohereParser', () => {
+  it('supports /v1/chat and /v2/chat', () => {
+    expect(c.supports('/v1/chat')).toBe(true)
+    expect(c.supports('/v2/chat')).toBe(true)
+  })
+
+  it('does not collide with OpenAI /chat/completions', () => {
+    expect(c.supports('/v1/chat/completions')).toBe(false)
+  })
+
+  it('extracts v1 message, preamble, and user chat_history', () => {
+    const body = JSON.stringify({
+      message: 'current question',
+      preamble: 'system text',
+      chat_history: [{ role: 'USER', message: 'earlier user' }, { role: 'CHATBOT', message: 'bot reply' }],
+    })
+    const result = c.extractPrompts(body)
+    expect(result).toContain('current question')
+    expect(result).toContain('system text')
+    expect(result).toContain('earlier user')
+    expect(result).not.toContain('bot reply')
+  })
+
+  it('extracts v2 messages', () => {
+    const body = JSON.stringify({ messages: [{ role: 'user', content: 'v2 hello' }] })
+    expect(c.extractPrompts(body)).toContain('v2 hello')
+  })
+})
+
 describe('getParser', () => {
   it('returns AnthropicParser for /v1/messages', () => {
     expect(getParser('/v1/messages')).toBeInstanceOf(AnthropicParser)
+  })
+
+  it('returns OpenAIParser for /v1/chat/completions', () => {
+    expect(getParser('/v1/chat/completions')).toBeInstanceOf(OpenAIParser)
+  })
+
+  it('returns CohereParser for /v1/chat', () => {
+    expect(getParser('/v1/chat')).toBeInstanceOf(CohereParser)
+  })
+
+  it('returns GeminiParser for a Vertex streamGenerateContent path', () => {
+    expect(getParser('/v1/projects/p/locations/us/publishers/google/models/gemini-1.5-pro:streamGenerateContent')).toBeInstanceOf(GeminiParser)
   })
 
   it('returns null for unknown path', () => {
@@ -104,8 +237,8 @@ describe('getParser', () => {
 })
 
 describe('parsers', () => {
-  it('has exactly 2 entries', () => {
-    expect(parsers.length).toBe(2)
+  it('has an entry per supported provider family', () => {
+    expect(parsers.length).toBe(4)
   })
 })
 

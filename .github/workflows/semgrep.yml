@@ -8,10 +8,18 @@ jobs:
   semgrep:
     name: Scan
     runs-on: ubuntu-latest
-    # Maintained, always-latest Semgrep CLI (replaces the deprecated
-    # returntocorp/semgrep-action@v1).
-    container:
-      image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v4
-      - run: semgrep scan --config=p/default --error --metrics=off
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Install the Semgrep CLI from PyPI rather than running inside the
+      # semgrep/semgrep container. The container approach forced a `docker pull`
+      # from Docker Hub on every run, which intermittently fails with registry
+      # timeouts / rate limits ("registry-1.docker.io: context deadline
+      # exceeded"). PyPI is the more reliable source and removes the Docker Hub
+      # dependency entirely.
+      - name: Install Semgrep
+        run: pip install --no-cache-dir semgrep
+      - name: Run Semgrep
+        run: semgrep scan --config=p/default --error --metrics=off

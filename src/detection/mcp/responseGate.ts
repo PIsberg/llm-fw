@@ -1,5 +1,6 @@
 import { McpScanner } from './scanner.js'
 import { PayloadParser } from '../../types.js'
+import { OpenAIParser } from '../parsers.js'
 
 /**
  * Response-side (inbound) MCP interception.
@@ -61,6 +62,29 @@ export function rewriteBlockedJsonResponse(body: string, blockedNames: Set<strin
     return JSON.stringify(data)
   }
 
+  // OpenAI shape: choices[].message.tool_calls[] holding function calls.
+  if (Array.isArray(data.choices)) {
+    for (const choice of data.choices as Array<Record<string, unknown>>) {
+      const message = choice.message as Record<string, unknown> | undefined
+      if (message && Array.isArray(message.tool_calls)) {
+        const calls = message.tool_calls as Array<Record<string, unknown>>
+        const kept = calls.filter(c => {
+          const fn = c.function as Record<string, unknown> | undefined
+          return !(fn && blockedNames.has(fn.name as string))
+        })
+        if (kept.length !== calls.length) {
+          message.tool_calls = kept
+          if (kept.length === 0) {
+            delete message.tool_calls
+            message.content = note
+            choice.finish_reason = 'stop'
+          }
+        }
+      }
+    }
+    return JSON.stringify(data)
+  }
+
   // Gemini shape: candidates[].content.parts[] holding functionCall parts.
   if (Array.isArray(data.candidates)) {
     for (const cand of data.candidates as Array<Record<string, unknown>>) {
@@ -89,6 +113,16 @@ export interface SsePushResult {
 }
 
 /**
+ * Provider-agnostic streaming gate contract. Feed raw response text via `push`
+ * (returns the filtered bytes to forward + any tool decisions); call `flush`
+ * once at end-of-stream to drain trailing buffered text.
+ */
+export interface SseGate {
+  push(text: string): SsePushResult
+  flush(): string
+}
+
+/**
  * Incremental gate for an Anthropic SSE (`text/event-stream`) response.
  *
  * Feed it raw response text as it streams. It forwards every event verbatim
@@ -98,7 +132,7 @@ export interface SsePushResult {
  * terminates cleanly. The tool name is present in `content_block_start`, so the
  * decision is made before any argument bytes are forwarded.
  */
-export class SseToolGate {
+export class SseToolGate implements SseGate {
   private buf = ''
   private readonly suppressedIndexes = new Set<number>()
   private readonly emittedTools = new Set<string>()
@@ -180,4 +214,134 @@ function parseSseData(raw: string): Record<string, unknown> | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Incremental gate for an OpenAI-compatible SSE (`text/event-stream`) response.
+ *
+ * OpenAI streams tool calls differently from Anthropic: each `data:` chunk holds
+ * `choices[].delta.tool_calls[]`. A call's NAME arrives in the first fragment for
+ * a given tool-call index (alongside its id); later fragments for that index
+ * carry only `function.arguments` text. So we decide at the name fragment,
+ * suppress every later fragment for a blocked index, and downgrade the
+ * terminating `finish_reason` from `tool_calls` to `stop` so the agent ends its
+ * turn cleanly. `data: [DONE]` and any non-tool chunk are forwarded verbatim.
+ */
+export class OpenAiSseToolGate implements SseGate {
+  private buf = ''
+  private readonly suppressedIndexes = new Set<number>()
+  private readonly emittedTools = new Set<string>()
+  private blockedAny = false
+
+  constructor(private readonly mcp: McpScanner) {}
+
+  push(text: string): SsePushResult {
+    this.buf += text
+    const forwardParts: string[] = []
+    const decisions: ToolDecision[] = []
+    let sep = this.buf.indexOf('\n\n')
+    while (sep !== -1) {
+      const raw = this.buf.slice(0, sep + 2)
+      this.buf = this.buf.slice(sep + 2)
+      const r = this.handleEvent(raw)
+      if (r.forward) forwardParts.push(r.forward)
+      decisions.push(...r.decisions)
+      sep = this.buf.indexOf('\n\n')
+    }
+    return { forward: forwardParts.join(''), decisions }
+  }
+
+  flush(): string {
+    const rest = this.buf
+    this.buf = ''
+    return rest
+  }
+
+  private handleEvent(raw: string): { forward: string; decisions: ToolDecision[] } {
+    const dataLines: string[] = []
+    for (const line of raw.split('\n')) {
+      if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+    }
+    if (dataLines.length === 0) return { forward: raw, decisions: [] }
+    const payload = dataLines.join('\n')
+    // OpenAI terminates the stream with the literal `data: [DONE]` sentinel.
+    if (payload === '[DONE]') return { forward: raw, decisions: [] }
+
+    let data: Record<string, unknown>
+    try { data = JSON.parse(payload) as Record<string, unknown> } catch { return { forward: raw, decisions: [] } }
+
+    const choices = Array.isArray(data.choices) ? (data.choices as Array<Record<string, unknown>>) : null
+    if (!choices) return { forward: raw, decisions: [] }
+
+    const decisions: ToolDecision[] = []
+    let mutated = false
+
+    for (const choice of choices) {
+      const delta = choice.delta as Record<string, unknown> | undefined
+      const calls = delta && Array.isArray(delta.tool_calls) ? (delta.tool_calls as Array<Record<string, unknown>>) : null
+      if (delta && calls) {
+        const kept: Array<Record<string, unknown>> = []
+        for (const call of calls) {
+          const idx = typeof call.index === 'number' ? call.index : -1
+          const fn = call.function as Record<string, unknown> | undefined
+          const name = fn && typeof fn.name === 'string' ? fn.name : ''
+          if (name) {
+            // First fragment for this tool call — the name is known, so decide now.
+            const result = this.mcp.checkToolInvocation(name, fn?.arguments)
+            if (result.action === 'block') {
+              this.suppressedIndexes.add(idx)
+              this.blockedAny = true
+              decisions.push({ toolName: name, action: 'block', reason: result.reason })
+              mutated = true
+              continue
+            }
+            if (!this.emittedTools.has(name)) decisions.push({ toolName: name, action: 'pass' })
+            this.emittedTools.add(name)
+            kept.push(call)
+          } else if (this.suppressedIndexes.has(idx)) {
+            // Argument fragment belonging to a blocked call — drop it.
+            mutated = true
+          } else {
+            kept.push(call)
+          }
+        }
+        if (kept.length !== calls.length) {
+          if (kept.length > 0) delta.tool_calls = kept
+          else delete delta.tool_calls
+          mutated = true
+        }
+      }
+
+      // Downgrade the terminal stop once any tool was blocked so the agent
+      // doesn't sit waiting to execute a tool it will never receive.
+      if (this.blockedAny && choice.finish_reason === 'tool_calls') {
+        choice.finish_reason = 'stop'
+        mutated = true
+      }
+    }
+
+    if (!mutated) return { forward: raw, decisions }
+
+    // Drop the event if nothing meaningful remains (all deltas empty, no terminal
+    // finish_reason); otherwise forward the rewritten chunk.
+    const empty = choices.every(c => {
+      const d = c.delta as Record<string, unknown> | undefined
+      const deltaEmpty = !d || Object.keys(d).length === 0
+      const fr = c.finish_reason
+      return deltaEmpty && (fr === null || fr === undefined)
+    })
+    if (empty) return { forward: '', decisions }
+    return { forward: `data: ${JSON.stringify(data)}\n\n`, decisions }
+  }
+}
+
+/**
+ * Select the SSE gate matching the provider that produced the response, so the
+ * stream is parsed in its native event format. OpenAI-compatible providers get
+ * the OpenAI gate; everything else (Anthropic natively, Gemini/Cohere as
+ * passthrough) uses the Anthropic-shaped gate.
+ */
+export function createSseGate(parser: PayloadParser, mcp: McpScanner): SseGate {
+  if (parser instanceof OpenAIParser) return new OpenAiSseToolGate(mcp)
+  return new SseToolGate(mcp)
 }

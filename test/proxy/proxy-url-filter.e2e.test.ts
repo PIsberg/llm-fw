@@ -73,7 +73,10 @@ async function queryDashboard(port: number, path: string): Promise<any> {
 // E2E Suite
 // ---------------------------------------------------------------------------
 describe('URL Filter E2E', { timeout: 15000 }, () => {
-  const PROXY_PORT = 18090
+  // Unique per-file port — vitest runs test files in parallel processes, so a
+  // port shared with another e2e file (proxy-mcp also used 18090) races to
+  // bind and fails intermittently with EADDRINUSE.
+  const PROXY_PORT = 18091
   const DASHBOARD_PORT = 17741
 
   let tempDir: string

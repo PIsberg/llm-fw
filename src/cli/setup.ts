@@ -8,8 +8,32 @@ import { execSync, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
+/** True when the current process can modify the hosts file / OS port redirects. */
+function isElevated(): boolean {
+  if (platform() === 'win32') {
+    try {
+      // `net session` succeeds only for an elevated (admin) token.
+      execSync('net session', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // POSIX: root is uid 0.
+  return typeof process.getuid === 'function' && process.getuid() === 0;
+}
+
 export async function run(args: string[]): Promise<void> {
-  const sinkhole = args.includes('--sinkhole');
+  // Sinkhole (OS-level redirect, covers Node.js/native tools that ignore
+  // HTTPS_PROXY) is enabled by DEFAULT alongside the proxy so the firewall just
+  // works with every tool — the user never has to pick a mode. It needs
+  // admin/root; without it we set up proxy mode and explain how to enable the
+  // sinkhole. `--proxy-only` opts out; `--sinkhole` is an explicit synonym for
+  // the default.
+  const proxyOnly = args.includes('--proxy-only');
+  const elevated = isElevated();
+  const sinkhole = !proxyOnly && elevated;
+  const sinkholeWanted = !proxyOnly;
   const llmfwDir = join(homedir(), '.llm-fw');
   const caCertPath = join(llmfwDir, 'ca.crt');
 
@@ -110,31 +134,74 @@ export async function run(args: string[]): Promise<void> {
       'utf8'
     );
     console.log('Sinkhole mode saved to config.');
+  } else {
+    // Proxy-only: either the user opted out, or we lack the privileges to set up
+    // the sinkhole. Persist proxy mode so `start` and `status` are accurate.
+    fs.writeFileSync(
+      join(llmfwDir, 'config.json'),
+      JSON.stringify({ proxy: { mode: 'proxy' } }, null, 2),
+      'utf8'
+    );
   }
 
   console.log('\nllm-fw setup complete.');
 
-  // Proxy env var instructions (OS-specific)
+  // Tell the user exactly which coverage is active, and how to unlock the rest.
+  console.log('\n── Coverage ────────────────────────────────────────────────────────────────');
+  if (sinkhole) {
+    console.log('  ✓ Proxy mode    — tools that honour HTTPS_PROXY (curl, Python, Go, …)');
+    console.log('  ✓ Sinkhole mode — Node.js & native tools (Claude Code, SDKs, …) — no proxy env needed');
+  } else if (sinkholeWanted && !elevated) {
+    console.log('  ✓ Proxy mode    — tools that honour HTTPS_PROXY (curl, Python, Go, …)');
+    console.log('  ✗ Sinkhole mode — SKIPPED (needs admin/root). Re-run setup elevated to also');
+    console.log('    cover Node.js & native tools (Claude Code, SDKs) without proxy env vars:');
+    if (platform() === 'win32') {
+      console.log('      Right-click your terminal → "Run as Administrator", then: llm-fw setup');
+    } else {
+      console.log('      sudo llm-fw setup');
+    }
+  } else {
+    console.log('  ✓ Proxy mode    — tools that honour HTTPS_PROXY (curl, Python, Go, …)');
+    console.log('    (sinkhole skipped via --proxy-only; omit it to also cover Node.js/native tools)');
+  }
+
+  // Env var instructions (OS-specific). What's needed depends on the mode:
+  // sinkhole redirects at the OS level (no HTTPS_PROXY), so Node/native tools
+  // only need the CA trusted; proxy-only needs HTTPS_PROXY set per terminal.
   const os = platform();
   const caCert = join(llmfwDir, 'ca.crt');
-  console.log('\n── Point your tools at the proxy ───────────────────────────────────────────');
-  console.log('  Run these in every terminal where you use LLM tools:\n');
-  if (os === 'win32') {
-    console.log('  PowerShell:');
-    console.log('    $env:HTTPS_PROXY="http://127.0.0.1:8080"');
-    console.log('    $env:NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
-    console.log('\n  Command Prompt:');
-    console.log('    set HTTPS_PROXY=http://127.0.0.1:8080');
-  } else if (os === 'darwin') {
-    console.log('  Terminal (bash / zsh):');
-    console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
-    console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
-    console.log('\n  Add to ~/.zshrc or ~/.bashrc to make it permanent.');
+  if (sinkhole) {
+    console.log('\n── Point your tools at llm-fw ──────────────────────────────────────────────');
+    console.log('  Sinkhole is active — HTTPS_PROXY is NOT required; traffic is redirected at');
+    console.log('  the OS level. Node.js & native tools also need the CA trusted via env var:\n');
+    if (os === 'win32') {
+      console.log('  PowerShell:      $env:NODE_EXTRA_CA_CERTS="' + caCert + '"');
+      console.log('  Command Prompt:  set NODE_EXTRA_CA_CERTS=' + caCert);
+    } else {
+      console.log('  bash / zsh:      export NODE_EXTRA_CA_CERTS="' + caCert + '"');
+      console.log('  Add to ' + (os === 'darwin' ? '~/.zshrc or ~/.bashrc' : '~/.bashrc or ~/.profile') + ' to make it permanent.');
+    }
+    console.log('\n  Then (re)start your LLM tool so it opens a fresh connection.');
   } else {
-    console.log('  bash / zsh:');
-    console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
-    console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
-    console.log('\n  Add to ~/.bashrc or ~/.profile to make it permanent.');
+    console.log('\n── Point your tools at the proxy ───────────────────────────────────────────');
+    console.log('  Run these in every terminal where you use LLM tools:\n');
+    if (os === 'win32') {
+      console.log('  PowerShell:');
+      console.log('    $env:HTTPS_PROXY="http://127.0.0.1:8080"');
+      console.log('    $env:NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
+      console.log('\n  Command Prompt:');
+      console.log('    set HTTPS_PROXY=http://127.0.0.1:8080');
+    } else if (os === 'darwin') {
+      console.log('  Terminal (bash / zsh):');
+      console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
+      console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
+      console.log('\n  Add to ~/.zshrc or ~/.bashrc to make it permanent.');
+    } else {
+      console.log('  bash / zsh:');
+      console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
+      console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
+      console.log('\n  Add to ~/.bashrc or ~/.profile to make it permanent.');
+    }
   }
 
   // Optional: Stage 3 judge setup

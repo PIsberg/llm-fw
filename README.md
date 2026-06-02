@@ -8,7 +8,9 @@
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-brightgreen?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 
-A local prompt injection firewall that intercepts traffic between your tools and LLM APIs (Anthropic, Google Gemini) before it leaves your machine. Malicious prompts are blocked and logged; clean ones are forwarded transparently.
+A local prompt injection firewall that intercepts traffic between your tools and **every major LLM API** before it leaves your machine. Malicious prompts are blocked and logged; clean ones are forwarded transparently.
+
+Works out of the box with OpenAI, Anthropic, Google Gemini/Vertex, Azure OpenAI, Mistral, Groq, OpenRouter, Together, Fireworks, DeepSeek, xAI (Grok), Perplexity, Cohere, Anyscale, and HuggingFace — point any tool at the proxy (or enable the sinkhole) and the firewall covers it automatically. Any OpenAI-compatible endpoint is understood natively.
 
 No changes to your code. No cloud dependencies. Boots in under 2 seconds.
 
@@ -32,7 +34,14 @@ Click any row to open the detail drawer: full decoded payload, heuristic match t
 
 ### Prompt Testing — interactive playground
 
-Paste any prompt and click **Analyze** to get an instant stage-by-stage breakdown without needing a real API client.
+Test **every detector** from one place — pick a category and paste your own input, or click a built-in example of something llm-fw catches:
+
+- **Prompt Injection** — jailbreaks, encoded/obfuscated payloads, multilingual overrides (Stages 1–3)
+- **RAG Poisoning** — instructions smuggled inside `<document>`/`<context>`/code-fence data blocks
+- **Data Loss (DLP)** — API keys, tokens, private keys, credit cards, with a redacted-payload preview
+- **MCP Tools** — check tool names against the allow/deny policy
+- **URL / Exfil** — exfiltration sinks, DGA domains, data-carrying query strings
+- **Rate Limit / DoS** — shows the active behavioral cost-control policy
 
 ![Playground input](docs/images/ss-03-playground-input.png)
 
@@ -69,6 +78,31 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical detail.
 
 ---
 
+## Supported AI services
+
+The firewall ships with a built-in registry of every major AI provider (`src/config/providers.ts`). Each provider's API host is intercepted and inspected in proxy mode and redirected in sinkhole mode — no per-service configuration needed.
+
+| Provider | API host(s) | Wire format |
+|----------|-------------|-------------|
+| OpenAI / Azure OpenAI | `api.openai.com`, `*.openai.azure.com` | OpenAI |
+| Anthropic | `api.anthropic.com` | Anthropic Messages |
+| Google Gemini / Vertex AI | `generativelanguage.googleapis.com`, `aiplatform.googleapis.com` | Gemini |
+| Mistral | `api.mistral.ai` | OpenAI |
+| Groq | `api.groq.com` | OpenAI |
+| OpenRouter | `openrouter.ai` | OpenAI |
+| Together | `api.together.xyz`, `api.together.ai` | OpenAI |
+| Fireworks | `api.fireworks.ai` | OpenAI |
+| DeepSeek | `api.deepseek.com` | OpenAI |
+| xAI (Grok) | `api.x.ai` | OpenAI |
+| Perplexity | `api.perplexity.ai` | OpenAI |
+| Cohere | `api.cohere.com`, `api.cohere.ai` | Cohere |
+| Anyscale | `api.endpoints.anyscale.com` | OpenAI |
+| HuggingFace | `api-inference.huggingface.co` | (passthrough) |
+
+Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format (self-hosted vLLM, LM Studio, LocalAI, …) is parsed natively — add its host to `targets` in your `.llm-fw.json` and it works the same way. Hosts not in the registry still tunnel through the proxy and are screened by the outbound URL filter; only recognised LLM hosts get full payload inspection.
+
+---
+
 ## Prerequisites
 
 - **Node.js 22+**
@@ -87,20 +121,24 @@ npx llm-fw <command>
 
 ---
 
-## Quick Start — HTTPS_PROXY mode
+## Quick Start
 
-Works for `curl`, Python (`requests`/`httpx`), Go, and any tool that reads `HTTPS_PROXY`. **Node.js apps** (Claude Code CLI, Anthropic SDK, `fetch`/`undici`) ignore `HTTPS_PROXY` by design — use [Sinkhole mode](#sinkhole-mode) for those.
+`llm-fw setup` enables **both** coverage modes in one step so it just works with every tool — you never have to pick a mode:
 
-**Step 1 — Set up the local CA and download the model (~30MB, once only):**
+- **Proxy mode** — for `curl`, Python (`requests`/`httpx`), Go, and anything that reads `HTTPS_PROXY`.
+- **Sinkhole mode** — for **Node.js apps** (Claude Code CLI, Anthropic SDK, `fetch`/`undici`) and native binaries that ignore `HTTPS_PROXY`. This redirects traffic at the OS level and needs admin/root.
+
+**Step 1 — Set up (once only):**
 
 ```bash
 llm-fw setup
 ```
 
-Generates a local certificate authority, installs it to your OS trust store, and pre-warms the embedding model.
+Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
 
-> **Windows:** run the terminal as Administrator.  
-> **macOS/Linux:** `sudo llm-fw setup` or enter your password when prompted.
+> **Windows:** run the terminal as Administrator to enable the sinkhole.  
+> **macOS/Linux:** `sudo llm-fw setup` to enable the sinkhole.  
+> Without elevation, setup still configures proxy mode and tells you how to enable the sinkhole later. Pass `--proxy-only` to skip the sinkhole on purpose.
 
 **Step 2 — Start the proxy:**
 
@@ -141,22 +179,24 @@ llm-fw stop
 
 ## Sinkhole mode — for Node.js tools and native binaries {#sinkhole-mode}
 
-Use this when `HTTPS_PROXY` is not enough: Node.js apps (`@anthropic-ai/sdk`, Claude Code CLI, LangChain, …) and native binaries that hardcode their HTTP client will bypass `HTTPS_PROXY` entirely. Sinkhole mode redirects traffic at the OS level — no env var needed in the target tool.
+Sinkhole mode is enabled automatically by `llm-fw setup` when it runs with admin/root — you usually don't need to do anything extra. This section explains what it does and how to enable it if your first `setup` ran unprivileged.
 
-**How it works:** `setup --sinkhole` adds `api.anthropic.com` (and other targets) to your hosts file pointing to `127.0.0.1`, and sets up a local port redirect so connections on port 443 are forwarded to the sinkhole TLS proxy server on port 8443.
+It matters for Node.js apps (`@anthropic-ai/sdk`, Claude Code CLI, LangChain, …) and native binaries that hardcode their HTTP client and bypass `HTTPS_PROXY` entirely. Sinkhole mode redirects traffic at the OS level — no env var needed in the target tool.
 
-**Step 1 — Run setup with admin/root:**
+**How it works:** setup adds every supported provider host (`api.anthropic.com`, `api.openai.com`, …) to your hosts file pointing to `127.0.0.1`, and sets up a local port redirect so connections on port 443 are forwarded to the sinkhole TLS proxy server on port 8443.
+
+**Step 1 — Run setup with admin/root (enables the sinkhole):**
 
 ```bash
 # macOS / Linux
-sudo llm-fw setup --sinkhole
+sudo llm-fw setup
 
 # Windows — open an elevated terminal (right-click → Run as Administrator), then:
-llm-fw setup --sinkhole
+llm-fw setup
 # If npm is not in the elevated PATH, use the full path:
-node "%APPDATA%\..\Local\llm-fw\node_modules\.bin\tsx.cmd" ... setup --sinkhole
+node "%APPDATA%\..\Local\llm-fw\node_modules\.bin\tsx.cmd" ... setup
 # Or from source (elevated terminal in the project folder):
-node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup --sinkhole
+node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup
 ```
 
 This modifies the hosts file and sets up the port redirect (Windows: `netsh portproxy`, macOS: `pf`, Linux: `iptables`). Both are automatically removed when you run `llm-fw stop`.
@@ -219,11 +259,11 @@ set NODE_EXTRA_CA_CERTS=%USERPROFILE%\.llm-fw\ca.crt
 set HTTPS_PROXY=http://127.0.0.1:8080
 ```
 
-For sinkhole mode from source (elevated terminal required):
+To enable the sinkhole from source (elevated terminal required):
 
 ```powershell
 # Windows — elevated PowerShell in the project directory:
-node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup --sinkhole
+node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup
 ```
 
 ---
@@ -705,8 +745,8 @@ LLM_FW_JUDGE_ENABLED=true
 
 | Command | Description |
 |---------|-------------|
-| `llm-fw setup` | Generate CA cert, install to trust store, download model |
-| `llm-fw setup --sinkhole` | Also write hosts file entries (requires admin) |
+| `llm-fw setup` | Generate CA cert, install to trust store, download model, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
+| `llm-fw setup --proxy-only` | Skip the sinkhole; configure proxy mode only (no admin needed) |
 | `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
 | `llm-fw start` | Start proxy and dashboard |
 | `llm-fw stop` | Stop processes; restore hosts file if sinkhole mode |
@@ -719,7 +759,7 @@ LLM_FW_JUDGE_ENABLED=true
 Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 
 - **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview.
-- **Playground tab** — paste any prompt and click Analyze to see a full stage-by-stage breakdown without needing a real client.
+- **Playground tab** — test any detector (prompt injection, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed.
 
 ---
 
@@ -739,13 +779,13 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [PLAN.md](PLAN.md) — implementation plan
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture, sequence diagrams, class diagrams
 - [docs/TESTING.md](docs/TESTING.md) — comprehensive guide on unit, integration, and E2E testing
-- [SPEC-http.md](SPEC-http.md) — specification for outbound HTTP/HTTPS URL interception and exfiltration classification
-- [PLAN-http.md](PLAN-http.md) — implementation plan for outbound URL exfiltration defense
-- [SPEC-dlp.md](SPEC-dlp.md) — specification for Data Loss Prevention & secret redaction
-- [PLAN-dlp.md](PLAN-dlp.md) — implementation plan for Data Loss Prevention
-- [SPEC-dos.md](SPEC-dos.md) — specification for Cost Control & Agentic DoS Protection
-- [PLAN-dos.md](PLAN-dos.md) — implementation plan for Cost Control & Agentic DoS Protection
-- [SPEC-rag.md](SPEC-rag.md) — specification for RAG Context-Poisoning Detection
-- [PLAN-rag.md](PLAN-rag.md) — implementation plan for RAG Context-Poisoning Detection
-- [SPEC-mcp.md](SPEC-mcp.md) — specification for MCP Monitoring & Firewall
-- [PLAN-mcp.md](PLAN-mcp.md) — implementation plan for MCP Monitoring & Firewall
+- [SPEC-http.md](docs/specs/SPEC-http.md) — specification for outbound HTTP/HTTPS URL interception and exfiltration classification
+- [PLAN-http.md](docs/plans/PLAN-http.md) — implementation plan for outbound URL exfiltration defense
+- [SPEC-dlp.md](docs/specs/SPEC-dlp.md) — specification for Data Loss Prevention & secret redaction
+- [PLAN-dlp.md](docs/plans/PLAN-dlp.md) — implementation plan for Data Loss Prevention
+- [SPEC-dos.md](docs/specs/SPEC-dos.md) — specification for Cost Control & Agentic DoS Protection
+- [PLAN-dos.md](docs/plans/PLAN-dos.md) — implementation plan for Cost Control & Agentic DoS Protection
+- [SPEC-rag.md](docs/specs/SPEC-rag.md) — specification for RAG Context-Poisoning Detection
+- [PLAN-rag.md](docs/plans/PLAN-rag.md) — implementation plan for RAG Context-Poisoning Detection
+- [SPEC-mcp.md](docs/specs/SPEC-mcp.md) — specification for MCP Monitoring & Firewall
+- [PLAN-mcp.md](docs/plans/PLAN-mcp.md) — implementation plan for MCP Monitoring & Firewall
