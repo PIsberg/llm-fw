@@ -41,3 +41,21 @@ Integrating this into `src/proxy/proxy.ts` requires intercepting both the reques
    - In the drawer view, format `tool_use` payloads distinctly from standard chat prompts.
 2. **Dashboard UI (`index.html`)**:
    - Add an MCP tab to visualize the most frequently used tools and potentially sensitive arguments.
+
+## Phase 6: Execution-Context Security Guardrails (Destructive Command Blocking)
+Implements SPEC-mcp §6 — scanning the *arguments* of execution tools for catastrophic commands, on top of the name-based allow/deny policy.
+1. **Create `src/detection/mcp/commands.ts`**:
+   - Implement a pure `CommandScanner` with four toggleable rule categories (A: File System Devastation, B: Reverse Shells & Network Pivots, C: Process & Resource Exhaustion, D: Developer Tools & Infrastructure).
+   - `scan(command, enabledCategories)` returns `{ isBlocked, category, reason }`. Patterns must be scoped to avoid false positives on routine commands (e.g. `chown -R user ./dir`, `rm -rf ./build`).
+2. **Wire into `McpScanner.checkToolInvocation`**:
+   - Only scan arguments of known execution tools (`execute_command`, `bash`, `ctx_shell`, `powershell`); ignore arbitrary text payloads to avoid false positives.
+   - `extractCommandString` pulls the command from recognized keys, falling back to scanning *all* string args so a payload can't hide behind a benign field.
+   - The name-based `blockedTools` check runs first and takes precedence over the content scan.
+   - Honor `guardrailsEnabled` / `guardrailsCategories`; under `auditOnly`, surface a flagged-pass so the proxy emits a `warned` event instead of silently passing.
+3. **Config & types** (`src/types.ts`, `src/config/config.ts`):
+   - Add `guardrailsEnabled` and `guardrailsCategories` to `McpConfig`; add the `mcpRule` field to `BlockEvent`.
+   - Support the `LLM_FW_MCP_GUARDRAILS_ENABLED` env override.
+4. **Response-side enforcement** (`src/detection/mcp/responseGate.ts`):
+   - Run the invocation check on every `tool_use` parsed from non-streaming JSON and both SSE gates, stripping/gating blocked calls (see DESIGN-mcp-response.md).
+5. **Playground** (`src/dashboard/server.ts`):
+   - Add a "Security Guardrails" tab: a simulated-tool selector, per-category toggles, and a command input that posts to the `guardrails` analyze endpoint.
