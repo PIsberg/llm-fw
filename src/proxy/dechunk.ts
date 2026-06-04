@@ -6,8 +6,10 @@
  * framing (hex size lines + CRLFs). MCP response inspection needs the actual
  * payload, so feed raw body bytes here as they arrive and get back the decoded
  * payload. Chunk boundaries may land anywhere; chunk extensions and trailers
- * are ignored. The passthrough path does NOT use this — it forwards framing
- * verbatim for the client to decode.
+ * are ignored. The passthrough path uses this too: it decodes the upstream
+ * framing so Node can re-frame the response exactly once. Forwarding the raw
+ * chunk framing instead would double-frame it (the hex size lines leak into the
+ * body the client sees), so this decode is required, not optional.
  */
 export class ChunkedDecoder {
   private buf: Buffer = Buffer.alloc(0)
