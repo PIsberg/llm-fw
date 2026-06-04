@@ -14,6 +14,21 @@ const DASHBOARD_PORT = 7731
 export interface TLSCredentials { cert: string; key: string }
 
 /**
+ * A random, positive 16-byte serial number as a hex string. The CA used to be
+ * hardcoded to '01', so every regenerated CA was byte-indistinguishable by
+ * (issuer, serial) from its predecessor — a stale trust anchor then surfaced as
+ * an opaque CERT_SIGNATURE_FAILURE instead of a clean "unknown issuer". A unique
+ * serial (paired with the subjectKeyIdentifier below) lets validators tell two
+ * generations of the CA apart. The high bit is cleared so the DER INTEGER stays
+ * positive.
+ */
+function randomSerial(): string {
+  const b = randomBytes(16)
+  b[0] = b[0] & 0x7f
+  return b.toString('hex')
+}
+
+/**
  * Restrict the llm-fw directory so only the current user can read it. The
  * directory holds the root CA private key, which is installed into the system
  * trust store — if any local process under the same machine could read it, that
@@ -63,7 +78,7 @@ export class CertFactory {
     const cert = forge.pki.createCertificate();
 
     cert.publicKey = keys.publicKey;
-    cert.serialNumber = '01';
+    cert.serialNumber = randomSerial();
 
     const notBefore = new Date();
     const notAfter = new Date();
@@ -81,6 +96,11 @@ export class CertFactory {
     cert.setExtensions([
       { name: 'basicConstraints', cA: true },
       { name: 'keyUsage', keyCertSign: true, cRLSign: true },
+      // Identifies this CA's key. Leaf certs carry a matching
+      // authorityKeyIdentifier, so when two generations of "llm-fw Local CA"
+      // are trusted at once a validator selects the right one by key id rather
+      // than picking one by name and failing the signature check.
+      { name: 'subjectKeyIdentifier' },
       makeCdpExtension(`http://127.0.0.1:${DASHBOARD_PORT}/crl`),
     ]);
 
@@ -194,6 +214,16 @@ export class CertFactory {
       {
         name: 'subjectAltName',
         altNames: [{ type: 2, value: hostname }],
+      },
+      // Bind this leaf to the CA's key id + serial. forge would otherwise
+      // derive these from the leaf itself (options.cert), so the CA's values
+      // are passed explicitly. This is what lets a client distinguish a leaf
+      // signed by the current CA from one signed by a rotated-out predecessor.
+      {
+        name: 'authorityKeyIdentifier',
+        keyIdentifier: ca.cert.generateSubjectKeyIdentifier().getBytes(),
+        authorityCertIssuer: true,
+        serialNumber: ca.cert.serialNumber,
       },
       makeCdpExtension(`http://127.0.0.1:${DASHBOARD_PORT}/crl`),
     ]);

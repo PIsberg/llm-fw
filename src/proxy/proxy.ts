@@ -20,6 +20,25 @@ import { StringDecoder } from 'node:string_decoder'
 import { identifyService } from '../config/providers.js'
 
 /**
+ * Raised when the upstream socket goes idle for longer than `upstreamTimeoutMs`.
+ * Carries enough context (host, port, how long we waited, and whether we had
+ * already started receiving the response) to make the console line actionable
+ * instead of an anonymous "upstream timeout".
+ */
+export class UpstreamTimeoutError extends Error {
+  constructor(
+    public readonly host: string,
+    public readonly port: number,
+    public readonly waitedMs: number,
+    public readonly timeoutMs: number,
+    public readonly phase: 'awaiting response headers' | 'mid-response stall',
+  ) {
+    super(`upstream timeout after ${waitedMs}ms (${phase}) — ${host}:${port}, limit ${timeoutMs}ms`)
+    this.name = 'UpstreamTimeoutError'
+  }
+}
+
+/**
  * Parse a CONNECT request target (`host:port`) into hostname and port.
  * Handles the case where no port is supplied (e.g. `CONNECT api.anthropic.com`),
  * which previously truncated the final character of the hostname.
@@ -93,7 +112,7 @@ export class ProxyServer {
         try {
           await this.handleRequest(hostname, 443, innerReq, innerRes)
         } catch (err) {
-          console.error('[sinkhole] request error:', err)
+          this.logRequestError('sinkhole', hostname, innerReq, err)
           if (!innerRes.headersSent) {
             innerRes.writeHead(502, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'proxy error' }))
@@ -198,7 +217,7 @@ export class ProxyServer {
       innerServer.on('request', async (innerReq, innerRes) => {
         try { await this.handleRequest(hostname, port, innerReq, innerRes) }
         catch (err) {
-          console.error('[proxy] request error:', err)
+          this.logRequestError('proxy', hostname, innerReq, err)
           if (!innerRes.headersSent) {
             innerRes.writeHead(502, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'proxy error' }))
@@ -206,7 +225,7 @@ export class ProxyServer {
         }
       })
     } catch (err) {
-      console.error('[proxy] CONNECT error:', err)
+      console.error(`[proxy] CONNECT error for ${hostname}:${port}: ${(err as Error)?.message ?? String(err)}`)
       clientSocket.destroy()
     }
   }
@@ -575,9 +594,24 @@ export class ProxyServer {
     })
   }
 
+  // One-line, context-rich console output for failed requests. Expected
+  // operational conditions (upstream idle timeouts) log as a concise warning;
+  // genuinely unexpected errors keep their stack so they stay debuggable.
+  private logRequestError(scope: string, hostname: string, req: http.IncomingMessage, err: unknown): void {
+    const where = `${req.method ?? 'GET'} ${hostname}${req.url ?? '/'}`
+    if (err instanceof UpstreamTimeoutError) {
+      console.warn(`[${scope}] ${err.message} (${where}). The provider sent no data within the idle window; raise proxy.upstreamTimeoutMs if long non-streaming completions are expected.`)
+      return
+    }
+    const e = err as Error
+    console.error(`[${scope}] request error (${where}): ${e?.message ?? String(err)}`)
+    if (e?.stack) console.error(e.stack)
+  }
+
   private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false): Promise<number> {
     const ip = await this.resolver.resolve(hostname)
     return new Promise<number>((resolve, reject) => {
+      const startedAt = Date.now()
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
         const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
@@ -592,8 +626,23 @@ export class ProxyServer {
         if (body.length) upstream.write(body)
       })
 
-      upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => { upstream.destroy(); reject(new Error('upstream timeout')) })
-      upstream.on('error', reject)
+      // Idle timeout: fires when the upstream socket sees no I/O for the
+      // configured window. Note this is an *inactivity* timer — for
+      // non-streaming completions the provider holds the connection silent
+      // until the whole body is generated, so a long generation legitimately
+      // looks idle. We report how long we actually waited and whether the
+      // response had started so the cause is obvious in the console.
+      upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => {
+        const waited = Date.now() - startedAt
+        upstream.destroy()
+        reject(new UpstreamTimeoutError(hostname, port, waited, this.config.proxy.upstreamTimeoutMs,
+          headersDone ? 'mid-response stall' : 'awaiting response headers'))
+      })
+      // Disarm the idle timer and surface the error once. Without clearing the
+      // timer on settle, a socket lingering idle after a completed response
+      // could fire a spurious "upstream timeout" against an already-resolved
+      // request.
+      upstream.on('error', (err: Error) => { upstream.setTimeout(0); reject(err) })
 
       // Parse and stream the response. When the request exposed MCP tools, the
       // response may carry tool_use invocations — inspect them BEFORE the bytes
@@ -640,12 +689,27 @@ export class ProxyServer {
             if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
           }
 
+          // We send `Accept-Encoding: identity` upstream, so a compressed
+          // response means the provider ignored it. Surface it: passthrough
+          // forwards the compressed bytes verbatim (client decodes, fine), but
+          // the inspected json/sse modes decode the body as UTF-8 — gzip/br
+          // bytes would become mojibake → "Failed to parse JSON" downstream.
+          const cenc = (respHeaders['content-encoding'] ?? '').toLowerCase().trim()
+          if (cenc && cenc !== 'identity') {
+            console.warn(`[proxy] upstream ${hostname}${req.url ?? '/'} sent content-encoding: ${cenc} despite Accept-Encoding: identity — response inspection is unreliable for compressed bodies.`)
+          }
+
           const ctype = (respHeaders['content-type'] ?? '').toLowerCase()
           if (mcpEnabled && ctype.includes('text/event-stream')) mode = 'sse'
           else if (mcpEnabled && ctype.includes('application/json')) mode = 'json'
 
-          // Inspected modes need the decoded payload, not the chunk framing.
-          if (mode !== 'passthrough' && (respHeaders['transfer-encoding'] ?? '').toLowerCase().includes('chunked')) {
+          // Whenever upstream framed the body as chunked we must decode it and
+          // let Node re-apply framing — otherwise the raw chunk-size lines reach
+          // the client on top of Node's own framing (double-framing), and the
+          // hex sizes end up embedded in the body → "Failed to parse JSON".
+          // Inspected modes need the decoded payload anyway; passthrough needs
+          // it to stay byte-transparent at the payload level.
+          if ((respHeaders['transfer-encoding'] ?? '').toLowerCase().includes('chunked')) {
             dechunker = new ChunkedDecoder()
           }
           const payload = (raw: Buffer): string => decoder.write(dechunker ? dechunker.push(raw) : raw)
@@ -657,8 +721,13 @@ export class ProxyServer {
           } else if (mode === 'json') {
             jsonBuf += payload(bodyStart) // withhold: we may rewrite it on end
           } else {
-            res.writeHead(status, respHeaders)
-            if (bodyStart.length) { res.write(bodyStart); respBodyBytes += bodyStart.length }
+            // Passthrough. If upstream was chunked, strip the framing headers
+            // and forward the decoded bytes so Node frames the response exactly
+            // once; otherwise forward bytes + content-length verbatim. Stays
+            // binary-safe (no utf-8 round-trip) so file/image payloads survive.
+            res.writeHead(status, dechunker ? inspectedHeaders() : respHeaders)
+            const out = dechunker ? dechunker.push(bodyStart) : bodyStart
+            if (out.length) { res.write(out); respBodyBytes += out.length }
           }
         } else if (mode === 'sse' && gate) {
           respBodyBytes += this.gateSse(gate, decoder.write(dechunker ? dechunker.push(chunk) : chunk), res, req, hostname)
@@ -678,11 +747,12 @@ export class ProxyServer {
           const text = decoder.write(dechunker ? dechunker.push(chunk) : chunk)
           if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
         } else {
-          res.write(chunk)
-          respBodyBytes += chunk.length
+          const out = dechunker ? dechunker.push(chunk) : chunk
+          if (out.length) { res.write(out); respBodyBytes += out.length }
         }
       })
       upstream.on('end', () => {
+        upstream.setTimeout(0) // response complete — disarm the idle timer
         if (mode === 'json' && this.mcp && parser) {
           jsonBuf += decoder.end()
           const { decisions, blockedNames } = inspectJsonResponse(jsonBuf, parser, this.mcp)
@@ -714,7 +784,6 @@ export class ProxyServer {
         if (this.quota && isLlmRequest) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
         resolve(respBodyBytes)
       })
-      upstream.on('error', reject)
     })
   }
 }

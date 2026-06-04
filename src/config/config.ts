@@ -7,7 +7,11 @@ export const DEFAULT_CONFIG: Config = {
     mode: 'proxy',
     port: 8080,
     httpsPort: 8443,
-    upstreamTimeoutMs: 30000,
+    // Idle timeout on the upstream socket. Generous by default: non-streaming
+    // completions hold the connection silent until the whole body is generated,
+    // so a short window aborts legitimate long generations. Lower it if you want
+    // a tighter DoS backstop and only expect streaming traffic.
+    upstreamTimeoutMs: 120000,
     maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
     dnsServers: ['1.1.1.1', '8.8.8.8'],
     urlFilter: {

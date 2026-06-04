@@ -4,6 +4,8 @@ import {
   summarize,
   setEnvCmd,
   parseCaStorePresent,
+  certFingerprintSha1,
+  parseStoreCaFingerprints,
   parseIphlpsvcRunning,
   parsePortRedirect,
   parseLoopbackHosts,
@@ -24,6 +26,7 @@ function probe(overrides: Partial<DoctorProbe> = {}): DoctorProbe {
     pid: 4242,
     caCertExists: true,
     caTrusted: true,
+    caStoreStale: false,
     proxyListening: true,
     dashboardListening: true,
     sinkholeListening: true,
@@ -160,6 +163,18 @@ describe('evaluateProbe', () => {
     it('is informational when trust cannot be determined', () => {
       expect(find(probe({ caTrusted: null }), 'CA trust state could not be verified')?.level).toBe('info')
     })
+
+    it('warns when the trust store holds a rotated-out CA (signature-failure footgun)', () => {
+      const c = find(probe({ caStoreStale: true }), 'rotated-out')
+      expect(c?.level).toBe('warn')
+      expect(c?.fix?.[0]).toContain('certutil -addstore')
+      expect(c?.fix?.some(f => /NODE_EXTRA_CA_CERTS/.test(f))).toBe(true)
+    })
+
+    it('stays quiet when the store CA matches or is undeterminable', () => {
+      expect(titles({ caStoreStale: false }).some(t => t.includes('rotated-out'))).toBe(false)
+      expect(titles({ caStoreStale: null }).some(t => t.includes('rotated-out'))).toBe(false)
+    })
   })
 })
 
@@ -217,6 +232,48 @@ describe('parseCaStorePresent', () => {
   })
   it('returns false when the CA is absent', () => {
     expect(parseCaStorePresent('Subject: CN=DigiCert Global Root, O=DigiCert Inc')).toBe(false)
+  })
+})
+
+describe('certFingerprintSha1', () => {
+  // A throwaway self-signed cert generated for this test; the exact value
+  // doesn't matter, only that the same PEM maps to a stable, lowercase hash and
+  // that round-tripping whitespace doesn't change it.
+  const pem = [
+    '-----BEGIN CERTIFICATE-----',
+    'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest', // not valid DER — see below
+    '-----END CERTIFICATE-----',
+  ].join('\n')
+
+  it('returns null for non-certificate input', () => {
+    expect(certFingerprintSha1('not a pem')).toBeNull()
+  })
+
+  it('is deterministic and lowercase-hex for the same base64 body', () => {
+    const a = certFingerprintSha1(pem)
+    const b = certFingerprintSha1(pem.replace(/\n/g, '\r\n'))
+    expect(a).not.toBeNull()
+    expect(a).toMatch(/^[0-9a-f]{40}$/)
+    expect(a).toBe(b) // whitespace differences must not change the fingerprint
+  })
+})
+
+describe('parseStoreCaFingerprints', () => {
+  it('extracts only llm-fw CA hashes from a Windows certutil -store dump', () => {
+    const dump = [
+      '================ Certificate 0 ================',
+      'Subject: CN=DigiCert Global Root',
+      'Cert Hash(sha1): aa aa aa aa',
+      '================ Certificate 1 ================',
+      'Subject: CN=llm-fw Local CA, O=llm-fw',
+      'Cert Hash(sha1): 1b 2c 3d 4e 5f',
+    ].join('\n')
+    expect(parseStoreCaFingerprints('win32', dump)).toEqual(['1b2c3d4e5f'])
+  })
+
+  it('parses macOS security find-certificate -Z hashes (already CA-filtered)', () => {
+    const out = 'SHA-1 hash: A1B2C3\nkeychain: "/Library/..."\nSHA-1 hash: D4E5F6'
+    expect(parseStoreCaFingerprints('darwin', out)).toEqual(['a1b2c3', 'd4e5f6'])
   })
 })
 

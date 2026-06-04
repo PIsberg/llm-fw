@@ -150,12 +150,12 @@ async function sendProxyRequest(
               if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
             }
             
-            // De-chunk the body if it is chunk-encoded, potentially multiple times
+            // De-chunk once if chunk-encoded. The proxy must frame the response
+            // exactly once; if a second hex size line survives a single decode,
+            // the body was double-framed (the bug this guards against) and the
+            // assertions below will catch it as invalid JSON.
             if (respHeaders['transfer-encoding'] === 'chunked') {
               responseBody = dechunkBody(responseBody)
-              if (/^[0-9a-fA-F]+\r\n/.test(responseBody)) {
-                responseBody = dechunkBody(responseBody)
-              }
             }
             
             resolve({
@@ -238,14 +238,27 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
           method: req.method || '',
           body
         })
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({
+        const payload = JSON.stringify({
           id: 'mock-msg-id',
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Clean response from mock upstream' }],
           model: 'claude-3-opus-20240229'
-        }))
+        })
+        // When the path asks for it, reply with Transfer-Encoding: chunked split
+        // across several writes (no Content-Length). This exercises the proxy's
+        // passthrough de-chunking — a chunked upstream must reach the client
+        // framed exactly once, not double-framed with hex sizes in the body.
+        if ((req.url || '').includes('chunked')) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' })
+          const mid = Math.floor(payload.length / 2)
+          res.write(payload.slice(0, mid))
+          res.write(payload.slice(mid))
+          res.end()
+          return
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(payload)
       })
     })
 
@@ -377,5 +390,28 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
 
     // Upstream must not have received the exfiltration request.
     expect(receivedRequests.length).toBe(originalRequestsLength)
+  })
+
+  it('E2E Case 5: Chunked upstream response is framed exactly once (no double-framing)', async () => {
+    // Benign body with no tools → passthrough mode. The mock replies with
+    // Transfer-Encoding: chunked across multiple writes. Before the fix the
+    // proxy forwarded the upstream chunk framing AND let Node re-frame it, so
+    // hex size lines leaked into the body and JSON.parse failed.
+    const response = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      '/v1/messages?stream=chunked',
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'hello there' }] })
+    )
+
+    expect(response.statusCode).toBe(200)
+    // No residual hex chunk-size line after a single de-chunk → framed once.
+    expect(response.body).not.toMatch(/^[0-9a-fA-F]+\r\n/)
+    const json = JSON.parse(response.body)
+    expect(json.id).toBe('mock-msg-id')
+    expect(json.content[0].text).toContain('Clean response')
   })
 })
