@@ -32,9 +32,11 @@ flowchart TD
 flowchart TD
     subgraph CLI ["src/cli/"]
         setup["setup.ts\n(CA + trust store + model download)"]
+        uninstall["uninstall.ts\n(reverse setup: trust store + hosts + redirect)"]
         start["start.ts\n(boot sequence + PID file)"]
         stop["stop.ts\n(SIGTERM + hosts restore)"]
         status["status.ts"]
+        doctor["doctor.ts\n(diagnostics + fixes)"]
     end
 
     subgraph Config ["src/config/"]
@@ -61,6 +63,9 @@ flowchart TD
         eventBus["eventBus.ts\n(ring buffer + SSE fan-out)"]
     end
 
+    setup --> certs
+    setup --> cfg
+    uninstall --> cfg
     start --> cfg
     start --> proxyServer
     start --> httpServer
@@ -400,8 +405,11 @@ llm-fw/
 ├── src/
 │   ├── cli/
 │   │   ├── setup.ts         # CA generation, trust store, hosts, model download
+│   │   ├── setup-judge.ts   # Ollama model pull + judge config
+│   │   ├── uninstall.ts     # reverse setup: trust store, hosts, redirect, files
 │   │   ├── start.ts         # boot sequence, exit hooks, PID file
 │   │   ├── stop.ts          # SIGTERM + hosts restore
+│   │   ├── doctor.ts        # environment diagnostics + remediation commands
 │   │   └── status.ts
 │   ├── proxy/
 │   │   ├── proxy.ts         # CONNECT handler, dual-mode (8080/443)
@@ -430,4 +438,108 @@ llm-fw/
 ├── spec.md
 ├── PLAN.md
 └── README.md
+```
+
+---
+
+## 12. Install Settings — What `setup` Changes and Why
+
+`llm-fw setup` is not a passive install: to transparently intercept HTTPS it has
+to plant a trust anchor and (in sinkhole mode) redirect traffic at the OS level.
+Every one of those changes is enumerated below with the reason it exists and the
+exact reversal `uninstall` performs. The table is the contract between the two
+commands — anything `setup` writes must appear here with an undo.
+
+### 12.1 Files under `~/.llm-fw/`
+
+| Setting | What it is | Why it's needed | Reversal |
+| --- | --- | --- | --- |
+| `ca.key` | RSA-2048 private key of the local root CA | The proxy signs a per-host leaf cert on the fly for every intercepted domain; without the CA key it can't terminate TLS, so it can't read request bodies to scan them. | delete file |
+| `ca.crt` | Self-signed root CA certificate (CN `llm-fw Local CA`, 10-yr validity) | This is the public half installed into the OS trust store so clients accept the proxy's leaf certs instead of throwing cert errors. | delete file + remove from trust store (§12.2) |
+| `ca.crl` | Empty, CA-signed Certificate Revocation List | Windows Schannel reads the CRL Distribution Point on every cert; with no reachable CRL it rejects the leaf as "revocation status unknown". An empty signed CRL satisfies that check. | delete file |
+| dir perms `0700` / restricted ACL | `chmod 0700` (POSIX) or `icacls` inheritance-strip (Windows) on `~/.llm-fw` | The dir holds the CA private key. Any local process that could read it could silently MITM **all** the user's HTTPS traffic, so only the owner (and SYSTEM) may read the folder. | dir is deleted entirely |
+| `models/` | Cached `Xenova/all-MiniLM-L6-v2` q8 ONNX weights (~30 MB) | Stage 2 embeds prompts locally; caching avoids re-downloading on every start and keeps detection fully offline. | delete dir (`--keep-model` preserves it to avoid a re-download) |
+| `config.json` | `{ "proxy": { "mode": "proxy" \| "sinkhole" } }` | Persists which mode setup configured so `start`, `status`, and `doctor` report and behave correctly without re-passing flags or env vars. Loaded by `config.ts` above project config, below env vars. | delete file |
+| `llm-fw.pid` | PID of the running proxy (written by `start`) | Lets `stop`/`status`/`doctor`/`uninstall` find and signal the live process. | proxy stopped, then file deleted |
+
+### 12.2 OS trust store (CA installed system-wide)
+
+| Platform | Install command | Why | Reversal |
+| --- | --- | --- | --- |
+| Windows | `certutil -addstore -f Root <ca.crt>` | Adds the CA to the machine **Root** store so Schannel-based and Node clients trust the proxy's leaf certs. | `certutil -delstore -f Root "llm-fw Local CA"` |
+| macOS | `security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain` | Same, via the System keychain. | `security delete-certificate -c "llm-fw Local CA" …` |
+| Linux | copy to `/usr/local/share/ca-certificates/` + `update-ca-certificates` | Same, via the system CA bundle. | delete the file + `update-ca-certificates --fresh` |
+
+**Why trust at all:** the proxy presents a cert it generated, not the real
+provider's. Without trusting the CA, every client would (correctly) reject it.
+This is the single most security-sensitive setting — it's why the CA key is
+locked down (§12.1) and why `uninstall` removes the anchor first.
+
+### 12.3 Sinkhole settings (elevated installs only)
+
+Mode A (proxy) needs none of these — it relies on the client honouring
+`HTTPS_PROXY`. Mode B (sinkhole) covers tools that *ignore* proxy env vars
+(Node.js, native SDKs) by redirecting at the OS level, which requires admin/root.
+
+| Setting | What it is | Why it's needed | Reversal |
+| --- | --- | --- | --- |
+| hosts file block | `# llm-fw sinkhole` marker + `127.0.0.1 <host>` for every target provider | Forces DNS for provider domains to loopback so their traffic hits the local TLS server instead of the real API — no client config required. | strip the marker block + any target loopback line (`stripSinkholeBlock`) |
+| `hosts.llm-fw.bak` | Pre-edit copy of the hosts file | Safety net so the original can be restored if anything goes wrong. | delete after the hosts file is cleaned |
+| port redirect | `netsh portproxy 443→httpsPort` (Win) / `pf rdr` (macOS) / `iptables REDIRECT` (Linux) | The sinkhole TLS server runs on an unprivileged port (8443); this forwards loopback `:443` to it so clients reach it on the standard HTTPS port. | delete the rule (`netsh … delete` / `pfctl -F nat` / `iptables -D`) |
+| `iphlpsvc` running | Windows IP Helper service set to auto + started | `netsh portproxy` rules only forward while IP Helper is running. | **left in place** — it's a shared Windows service other software relies on; documented, not reverted |
+
+### 12.4 Stage 3 judge settings (`setup-judge`, optional)
+
+| Setting | What it is | Why it's needed | Reversal |
+| --- | --- | --- | --- |
+| Ollama model pull | e.g. `ollama pull phi3` | Stage 3 runs a local LLM to reason about intent that regex/similarity miss. | **left in place** — the model is shared and reusable; `uninstall` prints `ollama rm <model>` |
+| `.llm-fw.json` judge keys | `detection.judgeEnabled / judgeModel / judgeBlock` written to the project config | Persists that the judge is enabled and which model/blocking mode to use. | strip only those keys (`stripJudgeConfig`); delete the file if nothing user-authored remains |
+
+### 12.5 Environment variables (printed, never set)
+
+`setup` **prints** `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` for the user to
+export; it never sets them itself, so it doesn't own them. `uninstall`
+therefore can't remove them — it reminds the user to `unset` them and delete the
+matching lines from their shell profile.
+
+---
+
+## 13. Uninstall Flow
+
+`llm-fw uninstall` reverses §12 in dependency order: stop the proxy, pull the
+trust anchor, undo the sinkhole, then delete local files. Every OS-touching step
+is best-effort — a step that fails (rule already gone, or not elevated) prints a
+warning and the manual command rather than aborting the rest. The pure
+transforms (`stripSinkholeBlock`, `stripJudgeConfig`) are unit-tested in
+`test/cli/uninstall.test.ts`.
+
+```mermaid
+sequenceDiagram
+    actor U as User (elevated)
+    participant CLI as llm-fw uninstall
+    participant Proc as Running proxy
+    participant OS as OS Trust Store
+    participant Net as hosts + port redirect
+    participant FS as ~/.llm-fw/ + .llm-fw.json
+
+    U->>CLI: llm-fw uninstall [--yes] [--keep-model]
+    CLI-->>U: summary + confirm prompt (unless --yes)
+
+    CLI->>Proc: SIGTERM via pid file
+    Note over CLI,Proc: stop first so nothing is mid-flight
+
+    CLI->>OS: remove "llm-fw Local CA" (certutil/security/update-ca-certificates)
+    OS-->>CLI: trust anchor gone
+
+    alt sinkhole was installed
+        CLI->>Net: stripSinkholeBlock(hosts) + delete .llm-fw.bak
+        CLI->>Net: delete :443 → httpsPort redirect
+    end
+
+    CLI->>FS: stripJudgeConfig(.llm-fw.json)
+    CLI->>FS: delete ca.key/ca.crt/ca.crl/config.json/pid (+ models unless --keep-model)
+    CLI->>FS: rmdir ~/.llm-fw if empty
+
+    CLI-->>U: reminder: unset HTTPS_PROXY / NODE_EXTRA_CA_CERTS;
+    CLI-->>U: iphlpsvc + ollama models left in place
 ```

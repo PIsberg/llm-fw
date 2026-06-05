@@ -84,7 +84,7 @@ export const DEFAULT_CONFIG: Config = {
   targets: AI_PROVIDER_HOSTS,
 };
 
-function deepMerge<T extends object>(target: T, source: Partial<T>): T {
+export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = { ...target };
   for (const key of Object.keys(source) as (keyof T)[]) {
     const srcVal = source[key];
