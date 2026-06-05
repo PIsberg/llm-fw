@@ -40,7 +40,13 @@ export const DEFAULT_CONFIG: Config = {
     chunkSize: 200,
     chunkOverlap: 50,
     judgeEnabled: false,
-    judgeModel: 'phi3',
+    // qwen2.5 is strongly multilingual (Japanese, Korean, Arabic, Russian, CJK,
+    // …) where phi3 is largely English-trained — the judge is the only detection
+    // stage that generalizes across languages, so its model must too. The :3b tag
+    // keeps local latency/footprint close to phi3-mini. Override via
+    // LLM_FW_JUDGE_MODEL. Pair with judgeUnlessBenign so foreign-language prompts
+    // that score zero on the (regex/embedding) cheap stages still reach the judge.
+    judgeModel: 'qwen2.5:3b',
     judgeBlock: false,
     judgeUnlessBenign: false,
   },

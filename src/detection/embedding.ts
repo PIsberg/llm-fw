@@ -34,7 +34,15 @@ export class EmbeddingChecker {
     env.allowLocalModels = false
 
     try {
-      this.extractor = (await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' })) as unknown as FeatureExtractor
+      // Multilingual sentence model (50+ languages, same 384-dim output as the
+      // former English-only all-MiniLM-L6-v2, so cosineSimilarity is unchanged).
+      // This lets Stage 2 cluster a non-English attack near its translated
+      // template in data/attacks.json — the monolingual model could not.
+      // NOTE: the similarity distribution differs from the old model, so the
+      // embeddingBlock/Warn thresholds (config.ts) may need re-tuning against a
+      // labelled corpus; multilingual encoders tend to run higher baseline
+      // cosine, which can raise false positives if the thresholds are left as-is.
+      this.extractor = (await pipeline('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', { dtype: 'q8' })) as unknown as FeatureExtractor
     } catch (err) {
       // The semantic-similarity stage is best-effort. If the model can't be
       // fetched (offline, or HuggingFace rate-limits the download with a 429),

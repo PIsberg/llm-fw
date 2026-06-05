@@ -39,7 +39,7 @@ Five modules + a pipeline orchestrator:
 - Returns `{ score: number, matches: string[] }`
 
 **3c. Embedding checker** (`embedding.ts`)
-- Loads `Xenova/all-MiniLM-L6-v2` via `@huggingface/transformers` (ONNX/WASM)
+- Loads `Xenova/paraphrase-multilingual-MiniLM-L12-v2` via `@huggingface/transformers` (ONNX/WASM)
 - On init: embed all `attacks.json` strings -> `Float32Array[]` cached in memory
 - Per-request:
   1. Normalize input
@@ -47,7 +47,7 @@ Five modules + a pipeline orchestrator:
   3. Embed each chunk individually
   4. Score = max cosine similarity across all chunks
 - Returns `{ similarity: number, nearest: string, chunkCount: number }`
-- Risk: model download (~30MB) on first use — handle in `setup` command
+- Risk: model download (~120MB) on first use — handle in `setup` command
 
 **3d. Judge LLM client** (`judge.ts`)
 - HTTP call to local Ollama API (`/api/generate`)

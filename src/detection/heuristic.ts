@@ -49,7 +49,23 @@ export class HeuristicScorer {
 
           // Italian / Portuguese
           /ignora(re)? (?:tutte\s+|le\s+|as\s+)*(istruzioni|instruções) (precedenti|anteriores)/,
-          /dimentica|esqueça/
+          /dimentica|esqueça/,
+
+          // Japanese (patterns target the post-normalize form: NFD strips the
+          // dakuten off voiced kana, so で→て, ど→と — kanji cores are stable).
+          /(?:指示|命令|規則|指令|ルール)を?(?:すべて)?(?:無視|破棄)/,
+          /(?:指示|命令|規則|指令|ルール)を?忘れ/,
+          /新しい(?:指示|命令|規則|目的|タスク)/,
+
+          // Korean
+          /(?:이전|기존|위의|앞의)?\s?(?:지시|명령|규칙|지침)(?:사항)?(?:을|를)?\s?(?:무시|잊)/,
+          /새로운\s?(?:지시|명령|규칙|작업|임무)/,
+
+          // Arabic (hamza-on-alef أ/إ/آ is preserved by normalize, so match the
+          // hamza flexibly as [اأإآ] — e.g. الأوامر, not bare-alef الاوامر).
+          /تجاهل\s?(?:كل\s?|جميع\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد|التوجيهات)/,
+          /[اأإآ]نس\s?(?:كل\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد)/,
+          /تعليمات\s?جديدة/
         ],
       },
       {
@@ -89,7 +105,22 @@ export class HeuristicScorer {
           // Russian
           /действуй как/,
           /притворись что ты/,
-          /теперь ты/
+          /теперь ты/,
+
+          // Japanese
+          /(?:として(?:振る舞|行動)|のふりをして|を演じて)/,
+          /今から(?:あなたは|君は|お前は|きみは)/,
+
+          // Korean
+          /(?:처럼|같이)\s?행동/,
+          /이제부터\s?(?:너는|당신은|네가)/,
+          /역할(?:을|를)?\s?(?:해|연기|맡)/,
+
+          // Arabic (hamza-on-alef أ/إ/آ is preserved by normalize, so match it
+          // flexibly as [اأإآ] rather than assuming it reduces to bare alef).
+          /تصرف\s?(?:ك[اأإآ]نك|مثل)/,
+          /[اأإآ]نت\s?ال[اأإآ]ن/,
+          /تظاهر/
         ],
       },
       {

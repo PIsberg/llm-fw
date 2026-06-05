@@ -7,7 +7,11 @@ import { JudgeClient } from '../detection/judge.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 
 const OLLAMA_BASE = 'http://localhost:11434'
-const RECOMMENDED = ['phi3', 'llama3.2', 'mistral']
+// Ordered best-first; RECOMMENDED[0] is the default. qwen2.5 leads because it is
+// strongly multilingual — the judge is the only language-general detection stage,
+// so a foreign-language jailbreak is only caught if the judge model speaks it.
+// phi3/mistral remain for English-only setups that want a smaller footprint.
+const RECOMMENDED = ['qwen2.5:3b', 'qwen2.5', 'llama3.2', 'phi3', 'mistral']
 
 function step(n: number, msg: string) { console.log(`\n[${n}] ${msg}`) }
 function ok(msg: string)   { console.log(`    ✓ ${msg}`) }
@@ -57,6 +61,7 @@ export async function run(): Promise<void> {
   ) ?? RECOMMENDED[0]
 
   console.log(`\n  Recommended: ${RECOMMENDED.join(', ')}`)
+  console.log('  (qwen2.5 = multilingual; phi3/mistral = English-focused, smaller)')
   const modelInput = await rl.question(`  Model [${defaultModel}]: `)
   const chosenModel = modelInput.trim() || defaultModel
 

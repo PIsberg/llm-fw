@@ -157,7 +157,7 @@ Decision:
 
 ### Stage 2 — Embedding Similarity (sync, ~20ms)
 
-**Model:** `Xenova/all-MiniLM-L6-v2` (q8, ~30MB) via `@huggingface/transformers` v3 (ONNX/WASM).
+**Model:** `Xenova/paraphrase-multilingual-MiniLM-L12-v2` (q8, ~120MB, 384-dim, 50+ languages) via `@huggingface/transformers` v3 (ONNX/WASM).
 Max sequence length: 512 tokens.
 
 At startup: embed ~100 canonical jailbreak/injection templates -> `Float32Array[]` in memory.
@@ -279,7 +279,7 @@ All values have defaults; can be overridden via `LLM_FW_*` env vars.
 
 ```bash
 npx llm-fw setup             # generate CA cert, install to OS trust store,
-                             # download model (~30MB); HTTPS_PROXY mode only
+                             # download model (~120MB); HTTPS_PROXY mode only
 npx llm-fw setup --sinkhole  # also writes hosts file entries (requires admin)
 npx llm-fw start             # start proxy + dashboard
 npx llm-fw stop              # stop processes; restore hosts file if sinkhole mode
@@ -317,7 +317,7 @@ process.on('uncaughtException', (err) => { cleanup(); process.exit(1); });
 | TLS termination | `node-forge` | Per-host cert + SAN generation, pure JS |
 | Upstream DNS | `node:dns/promises Resolver` | External DNS bypasses local hosts file |
 | Embeddings | `@huggingface/transformers` v3 (ONNX/WASM) | Local, no GPU, no Python |
-| Embedding model | `Xenova/all-MiniLM-L6-v2` q8 | 30MB, ~20ms CPU inference |
+| Embedding model | `Xenova/paraphrase-multilingual-MiniLM-L12-v2` q8 | 120MB, ~30ms CPU inference, 50+ languages |
 | Config resolution | `cosmiconfig` | Standard JS project config pattern |
 | Dashboard | `node:http` + SSE + plain HTML | Instant boot, zero framework |
 
