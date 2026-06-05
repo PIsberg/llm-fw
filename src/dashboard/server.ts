@@ -209,6 +209,28 @@ const HTML = `<!DOCTYPE html>
   .svc-antigravity { background: #f3e8ff; color: #6b21a8; }
   .svc-local       { background: #f3f4f6; color: #374151; }
   .svc-custom      { background: #ede9fe; color: #5b21b6; }
+  .tlog tr.tlog-row { cursor: pointer; }
+  .tlog tr.tlog-row.selected { background: #e8f0fe; }
+  .tlog .ip-cell { color: #444; }
+  .tlog .req-cell { color: #555; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tlog .req-tunnel { color: #999; font-style: italic; }
+
+  /* Traffic detail drawer */
+  .tlog tr.tlog-drawer-row > td { padding: 0; border-top: 2px solid #c5d0e8; background: #f7f9ff; }
+  .tlog-drawer { padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .tlog-drawer h4 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .06em; color: #666; margin-bottom: 8px; }
+  .tlog-drawer .full { grid-column: 1 / -1; }
+  .tlog-drawer dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 0.82rem; }
+  .tlog-drawer dt { color: #888; white-space: nowrap; }
+  .tlog-drawer dd { font-family: monospace; word-break: break-all; }
+  .tlog-body-box { font-family: monospace; font-size: 0.8rem; background: #1e1e1e; color: #d4d4d4;
+    padding: 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all;
+    max-height: 320px; overflow-y: auto; line-height: 1.5; }
+  .tlog-hdrs { font-family: monospace; font-size: 0.78rem; background: #fff; border: 1px solid #e0e0e0;
+    border-radius: 6px; padding: 8px 10px; max-height: 160px; overflow-y: auto; line-height: 1.6; }
+  .tlog-hdrs .hk { color: #1565c0; }
+  .tlog-trunc { font-size: 0.74rem; color: #b3261e; margin-top: 6px; }
+  .tlog-empty { color: #999; font-size: 0.82rem; }
 </style>
 </head>
 <body>
@@ -336,9 +358,9 @@ const HTML = `<!DOCTYPE html>
         <div class="svc-rows" id="svc-rows"><div style="color:#999;font-size:0.85rem">No traffic yet.</div></div>
       </div>
       <div class="tlog-wrap">
-        <div class="tlog-title">Recent Connections</div>
+        <div class="tlog-title">Recent Connections <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#999">— click a row for full request details</span></div>
         <table class="tlog">
-          <thead><tr><th>Time</th><th>Service</th><th>Host</th><th>Sent</th><th>Received</th></tr></thead>
+          <thead><tr><th>Time</th><th>From IP</th><th>Service</th><th>Host</th><th>Request</th><th>Sent</th><th>Received</th></tr></thead>
           <tbody id="tlog-body"></tbody>
         </table>
       </div>
@@ -861,17 +883,100 @@ function renderSvcs() {
 }
 
 const tlogBody = document.getElementById('tlog-body');
+const trafficMetrics = {}; // id -> metric, for the detail drawer
+let openTrafficDrawerId = null;
+
+function reqSummary(m) {
+  if (m.inspected && m.method) {
+    const p = esc((m.method || '') + ' ' + (m.path || '/'));
+    return '<span class="req-cell" title="' + p + '">' + p + '</span>';
+  }
+  return '<span class="req-tunnel" title="Encrypted tunnel — body not inspected">encrypted tunnel</span>';
+}
+
+function renderTrafficDrawer(m) {
+  const left =
+    '<div><h4>Connection</h4><dl>' +
+      '<dt>From IP</dt><dd>' + esc(m.fromIp || 'unknown') + '</dd>' +
+      '<dt>Service</dt><dd>' + esc(m.service) + '</dd>' +
+      '<dt>Host</dt><dd>' + esc(m.host) + '</dd>' +
+      '<dt>Method</dt><dd>' + esc(m.inspected ? (m.method || 'GET') : '—') + '</dd>' +
+      '<dt>Path</dt><dd>' + esc(m.inspected ? (m.path || '/') : '—') + '</dd>' +
+      '<dt>Inspected</dt><dd>' + (m.inspected ? 'yes (TLS intercepted)' : 'no (passthrough tunnel)') + '</dd>' +
+      '<dt>Sent</dt><dd>' + fmtB(m.bytesSent) + '</dd>' +
+      '<dt>Received</dt><dd>' + fmtB(m.bytesReceived) + '</dd>' +
+      '<dt>Time</dt><dd>' + esc(m.timestamp || '') + '</dd>' +
+    '</dl></div>';
+
+  let hdrs;
+  if (m.reqHeaders && Object.keys(m.reqHeaders).length) {
+    hdrs = '<div class="tlog-hdrs">' + Object.keys(m.reqHeaders).map(k =>
+      '<div><span class="hk">' + esc(k) + ':</span> ' + esc(m.reqHeaders[k]) + '</div>').join('') + '</div>';
+  } else {
+    hdrs = '<div class="tlog-empty">Headers not captured for passthrough tunnels.</div>';
+  }
+  const right = '<div><h4>Request Headers</h4>' + hdrs + '</div>';
+
+  let bodyBox;
+  if (m.inspected) {
+    bodyBox = (m.requestBody && m.requestBody.length)
+      ? '<div class="tlog-body-box">' + esc(m.requestBody) + '</div>' +
+        (m.bodyTruncated ? '<div class="tlog-trunc">⚠ Body truncated to 16 KB — showing the first part of the request.</div>' : '')
+      : '<div class="tlog-empty">Empty request body.</div>';
+  } else {
+    bodyBox = '<div class="tlog-empty">This connection was a passthrough TLS tunnel (non-target host), so its contents are encrypted end-to-end and cannot be shown. Only the destination host and byte counts are observable.</div>';
+  }
+  const body = '<div class="full"><h4>Request Body — exactly what is being sent</h4>' + bodyBox + '</div>';
+
+  return '<div class="tlog-drawer">' + left + right + body + '</div>';
+}
+
+function toggleTrafficDrawer(id) {
+  const existing = document.getElementById('tdrawer-' + id);
+  if (existing) {
+    existing.remove();
+    document.getElementById('trow-' + id)?.classList.remove('selected');
+    openTrafficDrawerId = null;
+    return;
+  }
+  if (openTrafficDrawerId) {
+    document.getElementById('tdrawer-' + openTrafficDrawerId)?.remove();
+    document.getElementById('trow-' + openTrafficDrawerId)?.classList.remove('selected');
+  }
+  const m = trafficMetrics[id];
+  if (!m) return;
+  openTrafficDrawerId = id;
+  const row = document.getElementById('trow-' + id);
+  if (!row) return;
+  row.classList.add('selected');
+  row.insertAdjacentHTML('afterend',
+    '<tr class="tlog-drawer-row" id="tdrawer-' + id + '"><td colspan="7">' + renderTrafficDrawer(m) + '</td></tr>');
+}
+
 function addTlogRow(m) {
+  if (m.id) trafficMetrics[m.id] = m;
   const cls = 'svc-' + m.service.toLowerCase().replace(/[^a-z0-9]/g, '-');
   const tr = document.createElement('tr');
+  tr.className = 'tlog-row';
+  if (m.id) tr.id = 'trow-' + m.id;
   tr.innerHTML =
     '<td>' + esc(m.timestamp || '') + '</td>' +
+    '<td class="ip-cell">' + esc(m.fromIp || 'unknown') + '</td>' +
     '<td><span class="svc-badge ' + cls + '">' + esc(m.service) + '</span></td>' +
     '<td>' + esc(m.host) + '</td>' +
+    '<td>' + reqSummary(m) + '</td>' +
     '<td>' + fmtB(m.bytesSent) + '</td>' +
     '<td>' + fmtB(m.bytesReceived) + '</td>';
+  if (m.id) tr.onclick = () => toggleTrafficDrawer(m.id);
   tlogBody.insertBefore(tr, tlogBody.firstChild);
-  while (tlogBody.rows.length > 100) tlogBody.deleteRow(tlogBody.rows.length - 1);
+  while (tlogBody.rows.length > 100) {
+    const last = tlogBody.rows[tlogBody.rows.length - 1];
+    if (last && last.id && last.id.indexOf('tdrawer-') === 0) {
+      const did = last.id.slice('tdrawer-'.length);
+      if (openTrafficDrawerId === did) openTrafficDrawerId = null;
+    }
+    tlogBody.deleteRow(tlogBody.rows.length - 1);
+  }
 }
 
 const tCanvas = document.getElementById('traffic-canvas');

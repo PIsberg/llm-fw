@@ -52,6 +52,32 @@ export function parseConnectTarget(url: string): { hostname: string; port: numbe
   return { hostname, port }
 }
 
+/** Strip the IPv4-mapped IPv6 prefix so the dashboard shows a clean address. */
+export function normalizeIp(addr: string | undefined): string {
+  return (addr ?? '').replace(/^::ffff:/, '') || 'unknown'
+}
+
+/** Max bytes of request body retained on a traffic metric for the detail view. */
+const TRAFFIC_BODY_CAP = 16 * 1024
+
+/**
+ * Headers whose VALUE may carry a credential. We keep the header NAME (so the
+ * detail view shows that auth was present) but replace the value with a marker —
+ * the raw secret must never reach the dashboard or the event ring buffer.
+ */
+const SENSITIVE_HEADERS = new Set(['authorization', 'x-api-key', 'api-key', 'cookie', 'set-cookie', 'proxy-authorization', 'x-goog-api-key'])
+
+/** Return a shallow copy of the request headers with secret values redacted. */
+export function sanitizeHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) {
+    if (v === undefined) continue
+    const value = Array.isArray(v) ? v.join(', ') : String(v)
+    out[k] = SENSITIVE_HEADERS.has(k.toLowerCase()) ? '«redacted»' : value
+  }
+  return out
+}
+
 export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
@@ -184,6 +210,8 @@ export class ProxyServer {
           host: hostname,
           bytesSent: upstream.bytesWritten || 0,
           bytesReceived: upstream.bytesRead || 0,
+          fromIp: normalizeIp(clientSocket.remoteAddress),
+          inspected: false,
         })
       }
 
@@ -545,11 +573,21 @@ export class ProxyServer {
       const isLlmRequest = getParser(innerReq.url ?? '/') !== null
 
       const bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
+      // `body` is the decoded request payload, already DLP-redacted in place when
+      // a finding triggered redact mode, so no raw secret is exposed to the UI.
+      const bodyTruncated = body.length > TRAFFIC_BODY_CAP
       this.eventBus.emitTraffic({
         service: identifyService(hostname),
         host: hostname,
         bytesSent: bodyBuf.length,
         bytesReceived,
+        fromIp: normalizeIp(innerReq.socket.remoteAddress),
+        inspected: true,
+        method: innerReq.method ?? 'GET',
+        path: innerReq.url ?? '/',
+        reqHeaders: sanitizeHeaders(innerReq.headers),
+        requestBody: bodyTruncated ? body.slice(0, TRAFFIC_BODY_CAP) : body,
+        bodyTruncated,
       })
 
       // Account the INPUT (request) tokens against the budget; forwardRequest

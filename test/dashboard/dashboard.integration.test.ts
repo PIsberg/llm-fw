@@ -207,4 +207,39 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     const res = await req(server, 'GET', '/notfound')
     expect(res.status).toBe(404)
   })
+
+  it('GET / HTML exposes the Live Traffic From IP column and detail hint', async () => {
+    const res = await req(server, 'GET', '/')
+    expect(res.status).toBe(200)
+    expect(res.body).toContain('<th>From IP</th>')
+    expect(res.body).toContain('click a row for full request details')
+  })
+
+  it('GET /api/metrics/traffic returns emitted metric with client IP and request detail', async () => {
+    eventBus.emitTraffic({
+      service: 'anthropic',
+      host: 'api.anthropic.com',
+      bytesSent: 123,
+      bytesReceived: 456,
+      fromIp: '192.168.1.42',
+      inspected: true,
+      method: 'POST',
+      path: '/v1/messages',
+      reqHeaders: { 'content-type': 'application/json', authorization: '«redacted»' },
+      requestBody: '{"model":"claude-3-haiku","messages":[]}',
+      bodyTruncated: false,
+    })
+
+    const res = await req(server, 'GET', '/api/metrics/traffic?limit=10')
+    expect(res.status).toBe(200)
+    const parsed = JSON.parse(res.body) as Array<Record<string, unknown>>
+    const m = parsed.find((x) => x.fromIp === '192.168.1.42')
+    expect(m).toBeDefined()
+    expect(m?.inspected).toBe(true)
+    expect(m?.method).toBe('POST')
+    expect(m?.path).toBe('/v1/messages')
+    expect(m?.requestBody).toContain('claude-3-haiku')
+    // Secret header values must never be forwarded verbatim.
+    expect((m?.reqHeaders as Record<string, string>).authorization).toBe('«redacted»')
+  })
 })
