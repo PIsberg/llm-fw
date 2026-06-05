@@ -8,10 +8,10 @@ function freshConfig(): Config {
 }
 
 describe('isStandalone', () => {
-  it('recognises both --stand-alone and --standalone spellings', () => {
-    expect(isStandalone(['--stand-alone'])).toBe(true)
+  it('recognises the canonical --standalone and the --stand-alone alias', () => {
     expect(isStandalone(['--standalone'])).toBe(true)
-    expect(isStandalone(['start', '--stand-alone'])).toBe(true)
+    expect(isStandalone(['--stand-alone'])).toBe(true)
+    expect(isStandalone(['start', '--standalone'])).toBe(true)
   })
 
   it('is false without the flag', () => {

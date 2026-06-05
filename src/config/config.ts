@@ -7,7 +7,7 @@ export const DEFAULT_CONFIG: Config = {
     mode: 'proxy',
     port: 8080,
     httpsPort: 8443,
-    // Local-only by default. `start --stand-alone` overrides this to 0.0.0.0 so
+    // Local-only by default. `start --standalone` overrides this to 0.0.0.0 so
     // other machines on the network can use this host as their LLM proxy.
     bindHost: '127.0.0.1',
     // Idle timeout on the upstream socket. Generous by default: non-streaming

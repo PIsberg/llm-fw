@@ -11,9 +11,12 @@ import { join } from 'node:path';
 import { homedir, platform, networkInterfaces } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
 
-/** True when the `start` args request shared-server mode. */
+/**
+ * True when the `start` args request shared-server mode. `--standalone` is the
+ * canonical spelling; `--stand-alone` is accepted as an alias.
+ */
 export function isStandalone(args: string[]): boolean {
-  return args.includes('--stand-alone') || args.includes('--standalone');
+  return args.includes('--standalone') || args.includes('--stand-alone');
 }
 
 /**

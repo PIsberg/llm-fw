@@ -51,7 +51,7 @@ Commands:
                         and clear ~/.llm-fw. --yes skips the prompt; --keep-model
                         preserves the cached embedding model.
   start                 Start the firewall proxy
-    [--stand-alone]     Run as a shared server: bind the proxy (and dashboard +
+    [--standalone]      Run as a shared server: bind the proxy (and dashboard +
                         CA download) to all interfaces so other machines can use
                         this host as their LLM proxy. Disables the local sinkhole.
   stop                  Stop the firewall proxy

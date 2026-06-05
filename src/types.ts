@@ -10,7 +10,7 @@ export interface ProxyConfig {
   port: number;
   httpsPort: number;
   // Interface the proxy listens on. Defaults to '127.0.0.1' (local-only). Set to
-  // '0.0.0.0' to accept connections from other hosts — what `start --stand-alone`
+  // '0.0.0.0' to accept connections from other hosts — what `start --standalone`
   // does so multiple clients can share one firewall server.
   bindHost: string;
   upstreamTimeoutMs: number;
@@ -35,7 +35,7 @@ export interface DashboardConfig {
   port: number;
   maxEvents: number;
   // Interface the dashboard listens on. Defaults to '127.0.0.1' (local-only).
-  // `start --stand-alone` sets it to '0.0.0.0' so the admin console and the CA
+  // `start --standalone` sets it to '0.0.0.0' so the admin console and the CA
   // download endpoint are reachable from client machines.
   bindHost: string;
 }

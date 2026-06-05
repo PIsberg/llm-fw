@@ -244,17 +244,17 @@ Run llm-fw on a dedicated host (a VM, a Raspberry Pi, a shared dev box) and have
 
 ```bash
 llm-fw setup          # one-time: generate the CA, etc.
-llm-fw start --stand-alone
+llm-fw start --standalone
 ```
 
-`--stand-alone` binds the proxy **and** the dashboard to all interfaces (`0.0.0.0`) and disables the local sinkhole (it only ever redirects traffic on the server itself, so it is useless for remote clients). On start it prints the exact client setup commands, including the server's LAN IP.
+`--standalone` binds the proxy **and** the dashboard to all interfaces (`0.0.0.0`) and disables the local sinkhole (it only ever redirects traffic on the server itself, so it is useless for remote clients). On start it prints the exact client setup commands, including the server's LAN IP. (`--stand-alone` is accepted as an alias.)
 
 **On each client machine:**
 
 1. **Install the firewall's CA certificate** so the client trusts the inspected TLS connections. Download it straight from the server's dashboard:
 
    ```bash
-   # Replace 192.168.1.50 with the server IP printed by `start --stand-alone`
+   # Replace 192.168.1.50 with the server IP printed by `start --standalone`
    curl -o llm-fw-ca.crt http://192.168.1.50:7731/ca.crt?download
    ```
 
@@ -276,7 +276,7 @@ All clients' traffic now appears in the server dashboard's **Live Traffic** tab,
 
 ### Binding & security
 
-| Setting | Default | `--stand-alone` | Override |
+| Setting | Default | `--standalone` | Override |
 | --- | --- | --- | --- |
 | Proxy bind | `127.0.0.1` | `0.0.0.0` | `LLM_FW_PROXY_BIND` |
 | Dashboard bind | `127.0.0.1` | `0.0.0.0` | `LLM_FW_DASHBOARD_BIND` |
