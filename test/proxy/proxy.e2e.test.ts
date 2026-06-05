@@ -392,6 +392,71 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     expect(receivedRequests.length).toBe(originalRequestsLength)
   })
 
+  it('E2E Case 4b: JSON POST to an unrecognized LLM endpoint is forwarded but flagged "unparsed"', async () => {
+    // No parser matches this path, so the injection pipeline cannot inspect the
+    // body. The request must still forward (non-blocking), but a visibility warn
+    // must surface in Live Traffic so the gap is not silent (the Antigravity /
+    // Cloud Code Assist scenario).
+    const response = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      '/v1/experimental/agentic:run',
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({ model: 'claude-x', messages: [{ role: 'user', content: 'hi' }] })
+    )
+
+    // Forwarded, not blocked.
+    expect(response.statusCode).toBe(200)
+
+    const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
+    const unparsed = events.find((e: any) => e.kind === 'unparsed' && e.path === '/v1/experimental/agentic:run')
+    expect(unparsed).toBeDefined()
+    expect(unparsed.action).toBe('warned')
+    expect(unparsed.target).toBe('api.anthropic.com')
+  })
+
+  it('E2E Case 4c: Cross-turn taint — data from a tool result reused in a later outbound request is flagged', async () => {
+    // A distinctive value that DLP/heuristics treat as benign in isolation, but
+    // whose REUSE across turns is the signal.
+    const TAINT = 'Qz7Lm3Xp9Vn2Rt8Wb4Yc6Kd'
+
+    // Turn 1: an untrusted tool result carries the value into the conversation.
+    // This must forward (not blocked) and be recorded as a taint source.
+    await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      '/v1/messages',
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({
+        model: 'claude-3-opus-20240229',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: `internal config token=${TAINT}` }] }],
+      })
+    )
+
+    // Turn 2: a later outbound request reuses that value in its path/query —
+    // untrusted data now driving an outbound action.
+    await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      `/v1/messages?probe=${TAINT}`,
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({ model: 'claude-3-opus-20240229', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] })
+    )
+
+    const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
+    const taintEvent = events.find((e: any) => e.kind === 'taint')
+    expect(taintEvent).toBeDefined()
+    expect(taintEvent.action).toBe('warned')
+    expect(taintEvent.payload_preview).toContain('Untrusted secret')
+  })
+
   it('E2E Case 5: Chunked upstream response is framed exactly once (no double-framing)', async () => {
     // Benign body with no tools → passthrough mode. The mock replies with
     // Transfer-Encoding: chunked across multiple writes. Before the fix the

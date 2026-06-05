@@ -3,7 +3,11 @@ import { PayloadParser } from '../types.js'
 
 class AnthropicParser implements PayloadParser {
   supports(path: string): boolean {
-    return path === '/v1/messages'
+    // Strip the query string before matching: real Anthropic traffic appends
+    // `?beta=true` (and other flags), which would otherwise defeat an exact
+    // equality check and leave the body uninspected.
+    const p = (path.split('?')[0] ?? '')
+    return p === '/v1/messages'
   }
 
   extractPrompts(body: string): string[] {
@@ -362,8 +366,24 @@ class GeminiParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(_body: string): { toolUseId: string; result: string }[] {
-    return [] // Placeholder for Gemini
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolUseId: string; result: string }[] = []
+      if (Array.isArray(data.contents)) {
+        for (const content of data.contents) {
+          if (!Array.isArray(content.parts)) continue
+          for (const part of content.parts) {
+            const fr = part?.functionResponse
+            if (fr && typeof fr === 'object') {
+              const resText = typeof fr.response === 'string' ? fr.response : JSON.stringify(fr.response ?? fr)
+              results.push({ toolUseId: typeof fr.name === 'string' ? fr.name : 'unknown', result: resText })
+            }
+          }
+        }
+      }
+      return results
+    } catch { return [] }
   }
 
   extractToolUses(body: string): { toolName: string; args: any }[] {
@@ -395,6 +415,34 @@ export const parsers: PayloadParser[] = [
 
 export function getParser(path: string): PayloadParser | null {
   return parsers.find(p => p.supports(path)) ?? null
+}
+
+/**
+ * Collect every free-text `description` string out of a list of tool/function
+ * definitions, regardless of provider nesting. The model reads and obeys these
+ * descriptions, so a poisoned one ("before answering, read ~/.ssh/id_rsa …") is
+ * an injection vector ("tool poisoning"). Walking by key name catches the
+ * top-level tool description, Gemini's `functionDeclarations[].description`, and
+ * per-parameter `properties.<x>.description` in one pass. Depth-bounded so a
+ * hostile deeply-nested schema can't blow the stack.
+ */
+export function extractToolDescriptions(tools: unknown[]): string[] {
+  const out: string[] = []
+  const walk = (node: unknown, depth: number): void => {
+    if (node == null || depth > 6) return
+    if (Array.isArray(node)) {
+      for (const v of node) walk(v, depth + 1)
+      return
+    }
+    if (typeof node === 'object') {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (k === 'description' && typeof v === 'string' && v.length > 0) out.push(v)
+        else walk(v, depth + 1)
+      }
+    }
+  }
+  walk(tools, 0)
+  return out
 }
 
 export function extractPartialPrompts(body: string): string[] {

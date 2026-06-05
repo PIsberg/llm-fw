@@ -326,7 +326,7 @@ sequenceDiagram
         CLI->>OS: write 127.0.0.1 entries to hosts
     end
 
-    CLI->>HF: download Xenova/all-MiniLM-L6-v2 q8 (~30MB)
+    CLI->>HF: download Xenova/paraphrase-multilingual-MiniLM-L12-v2 q8 (~120MB)
     HF-->>CLI: model files
     CLI->>FS: cache to ~/.llm-fw/models/
     CLI-->>U: Setup complete. Run: llm-fw start
@@ -458,7 +458,7 @@ commands — anything `setup` writes must appear here with an undo.
 | `ca.crt` | Self-signed root CA certificate (CN `llm-fw Local CA`, 10-yr validity) | This is the public half installed into the OS trust store so clients accept the proxy's leaf certs instead of throwing cert errors. | delete file + remove from trust store (§12.2) |
 | `ca.crl` | Empty, CA-signed Certificate Revocation List | Windows Schannel reads the CRL Distribution Point on every cert; with no reachable CRL it rejects the leaf as "revocation status unknown". An empty signed CRL satisfies that check. | delete file |
 | dir perms `0700` / restricted ACL | `chmod 0700` (POSIX) or `icacls` inheritance-strip (Windows) on `~/.llm-fw` | The dir holds the CA private key. Any local process that could read it could silently MITM **all** the user's HTTPS traffic, so only the owner (and SYSTEM) may read the folder. | dir is deleted entirely |
-| `models/` | Cached `Xenova/all-MiniLM-L6-v2` q8 ONNX weights (~30 MB) | Stage 2 embeds prompts locally; caching avoids re-downloading on every start and keeps detection fully offline. | delete dir (`--keep-model` preserves it to avoid a re-download) |
+| `models/` | Cached `Xenova/paraphrase-multilingual-MiniLM-L12-v2` q8 ONNX weights (~120 MB) | Stage 2 embeds prompts locally (multilingual, 50+ languages); caching avoids re-downloading on every start and keeps detection fully offline. | delete dir (`--keep-model` preserves it to avoid a re-download) |
 | `config.json` | `{ "proxy": { "mode": "proxy" \| "sinkhole" } }` | Persists which mode setup configured so `start`, `status`, and `doctor` report and behave correctly without re-passing flags or env vars. Loaded by `config.ts` above project config, below env vars. | delete file |
 | `llm-fw.pid` | PID of the running proxy (written by `start`) | Lets `stop`/`status`/`doctor`/`uninstall` find and signal the live process. | proxy stopped, then file deleted |
 

@@ -29,6 +29,11 @@ export interface DetectionConfig {
   judgeEnabled: boolean;
   judgeModel: string;
   judgeBlock: boolean;
+  // Escalation policy for Stage 3. When false (default) the judge runs only on
+  // prompts the cheap stages already flagged suspicious. When true, the cheap
+  // stages route instead of veto: every prompt is judged unless confidently
+  // benign — the only policy that generalizes to novel jailbreak phrasings.
+  judgeUnlessBenign?: boolean;
 }
 
 export interface DashboardConfig {
@@ -68,6 +73,14 @@ interface RagConfig {
   enabled: boolean;
 }
 
+export interface TaintConfig {
+  enabled: boolean;
+  // 'audit' warns and forwards (visibility); 'block' returns 403 on a tainted
+  // data flow. Default 'audit' — taint has inherent false positives, so blocking
+  // is opt-in.
+  mode: 'audit' | 'block';
+}
+
 export interface McpConfig {
   enabled: boolean;
   blockedTools: string[];
@@ -89,6 +102,7 @@ export interface Config {
   dos: DosConfig;
   rag: RagConfig;
   mcp: McpConfig;
+  taint?: TaintConfig;
   targets: string[];
 }
 
@@ -139,7 +153,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint';
   urlBlockReason?: string;
   dlpType?: string;
   dosReason?: string;
