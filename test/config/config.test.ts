@@ -40,7 +40,7 @@ describe('loadConfig env overrides', () => {
   const ENV_KEYS = [
     'LLM_FW_PROXY_PORT', 'LLM_FW_PROXY_MODE', 'LLM_FW_HTTPS_PORT',
     'LLM_FW_JUDGE_ENABLED', 'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DLP_MODE',
-    'LLM_FW_DASHBOARD_PORT',
+    'LLM_FW_DASHBOARD_PORT', 'LLM_FW_PROXY_BIND', 'LLM_FW_DASHBOARD_BIND',
   ]
   afterEach(() => { for (const k of ENV_KEYS) delete process.env[k] })
 
@@ -75,5 +75,19 @@ describe('loadConfig env overrides', () => {
     const cfg = await loadConfig()
     expect(cfg.proxy.maxBodyBytes).toBe(DEFAULT_CONFIG.proxy.maxBodyBytes)
     expect(cfg.detection.chunkSize).toBe(DEFAULT_CONFIG.detection.chunkSize)
+  })
+
+  it('defaults the proxy and dashboard bind hosts to local-only', async () => {
+    const cfg = await loadConfig()
+    expect(cfg.proxy.bindHost).toBe('127.0.0.1')
+    expect(cfg.dashboard.bindHost).toBe('127.0.0.1')
+  })
+
+  it('applies bind-host env overrides (standalone exposure)', async () => {
+    process.env.LLM_FW_PROXY_BIND = '0.0.0.0'
+    process.env.LLM_FW_DASHBOARD_BIND = '10.0.0.5'
+    const cfg = await loadConfig()
+    expect(cfg.proxy.bindHost).toBe('0.0.0.0')
+    expect(cfg.dashboard.bindHost).toBe('10.0.0.5')
   })
 })

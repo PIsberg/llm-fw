@@ -236,6 +236,55 @@ llm-fw stop
 
 ---
 
+## Standalone server mode — one firewall for many clients {#standalone-mode}
+
+Run llm-fw on a dedicated host (a VM, a Raspberry Pi, a shared dev box) and have **multiple client machines** route their LLM traffic through it. Every client is then inspected by a single, centrally-managed firewall.
+
+**On the server:**
+
+```bash
+llm-fw setup          # one-time: generate the CA, etc.
+llm-fw start --standalone
+```
+
+`--standalone` binds the proxy **and** the dashboard to all interfaces (`0.0.0.0`) and disables the local sinkhole (it only ever redirects traffic on the server itself, so it is useless for remote clients). On start it prints the exact client setup commands, including the server's LAN IP. (`--stand-alone` is accepted as an alias.)
+
+**On each client machine:**
+
+1. **Install the firewall's CA certificate** so the client trusts the inspected TLS connections. Download it straight from the server's dashboard:
+
+   ```bash
+   # Replace 192.168.1.50 with the server IP printed by `start --standalone`
+   curl -o llm-fw-ca.crt http://192.168.1.50:7731/ca.crt?download
+   ```
+
+   Then add `llm-fw-ca.crt` to the OS / browser **Trusted Root** store (or, for Node.js tools, `export NODE_EXTRA_CA_CERTS=/path/to/llm-fw-ca.crt`).
+
+2. **Point your tools at the proxy:**
+
+   ```bash
+   # macOS / Linux
+   export HTTPS_PROXY=http://192.168.1.50:8080
+   export HTTP_PROXY=http://192.168.1.50:8080
+   ```
+   ```powershell
+   # PowerShell
+   $env:HTTPS_PROXY="http://192.168.1.50:8080"
+   ```
+
+All clients' traffic now appears in the server dashboard's **Live Traffic** tab, tagged with each client's source IP.
+
+### Binding & security
+
+| Setting | Default | `--standalone` | Override |
+| --- | --- | --- | --- |
+| Proxy bind | `127.0.0.1` | `0.0.0.0` | `LLM_FW_PROXY_BIND` |
+| Dashboard bind | `127.0.0.1` | `0.0.0.0` | `LLM_FW_DASHBOARD_BIND` |
+
+> ⚠️ **The proxy becomes reachable by any host that can route to the server.** Run it only on a trusted network, or restrict access with a firewall rule. The dashboard (which shows request payloads) is exposed too — keep it local-only while still sharing the proxy with `LLM_FW_DASHBOARD_BIND=127.0.0.1`.
+
+---
+
 ## Running in development (from source)
 
 ```bash

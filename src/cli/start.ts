@@ -1,4 +1,5 @@
 import { loadConfig } from '../config/config.js';
+import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
 import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
@@ -7,8 +8,40 @@ import { Pipeline } from '../detection/pipeline.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
-import { homedir, platform } from 'node:os';
+import { homedir, platform, networkInterfaces } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
+
+/**
+ * True when the `start` args request shared-server mode. `--standalone` is the
+ * canonical spelling; `--stand-alone` is accepted as an alias.
+ */
+export function isStandalone(args: string[]): boolean {
+  return args.includes('--standalone') || args.includes('--stand-alone');
+}
+
+/**
+ * Apply standalone-server overrides in place: force forward-proxy mode and bind
+ * the proxy + dashboard to all interfaces so remote clients can reach them.
+ * Explicit LLM_FW_*_BIND env vars take precedence over the 0.0.0.0 default.
+ */
+export function applyStandaloneOverrides(
+  config: Config,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  config.proxy.mode = 'proxy';
+  if (!env['LLM_FW_PROXY_BIND']) config.proxy.bindHost = '0.0.0.0';
+  if (!env['LLM_FW_DASHBOARD_BIND']) config.dashboard.bindHost = '0.0.0.0';
+}
+
+/** Best-effort primary non-internal IPv4 address, for printing client setup hints. */
+export function lanIPv4(): string {
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address;
+    }
+  }
+  return '<this-server-ip>';
+}
 
 async function waitForPortFree(port: number, timeoutMs = 5000): Promise<boolean> {
   const { createServer } = await import('node:net');
@@ -48,8 +81,17 @@ function killPortOwner(port: number): void {
   } catch { /* command unavailable */ }
 }
 
-export async function run(): Promise<void> {
+export async function run(args: string[] = []): Promise<void> {
+  const standalone = isStandalone(args);
   const config = await loadConfig();
+
+  // Standalone server mode: expose the proxy (and dashboard/CA download) on all
+  // interfaces so other machines on the network can route their LLM traffic
+  // through this host. The sinkhole (local hosts-file redirect) is irrelevant
+  // here — remote clients reach us purely as a forward HTTPS proxy — so it is
+  // force-disabled below.
+  if (standalone) applyStandaloneOverrides(config);
+
   const llmfwDir = join(homedir(), '.llm-fw');
   const pidFile = join(llmfwDir, 'llm-fw.pid');
 
@@ -83,7 +125,9 @@ export async function run(): Promise<void> {
     try { return fs.readFileSync(hostsPath, 'utf8').includes('# llm-fw sinkhole'); }
     catch { return false; }
   })();
-  const sinkholeActive = config.proxy.mode === 'sinkhole' || hostsHasSinkhole;
+  // In standalone mode the sinkhole is meaningless (it redirects 127.0.0.1 on
+  // THIS host, not the remote clients), so never activate it.
+  const sinkholeActive = !standalone && (config.proxy.mode === 'sinkhole' || hostsHasSinkhole);
 
   // Re-apply sinkhole infrastructure if it was removed by the previous stop.
   // This makes every `start` self-healing: hosts entries and port redirect are
@@ -221,7 +265,7 @@ export async function run(): Promise<void> {
   console.log('Model ready.');
 
   const dashboardServer = createDashboardServer(config, eventBus, pipeline);
-  dashboardServer.listen(config.dashboard.port, () => {
+  dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
   });
 
@@ -234,10 +278,29 @@ export async function run(): Promise<void> {
     console.log(`  Sinkhole TLS: 127.0.0.1:${config.proxy.httpsPort} (via portproxy → :443)`);
   }
 
-  console.log(`llm-fw running.`);
-  console.log(`  Proxy port:  ${config.proxy.port}`);
-  console.log(`  HTTPS_PROXY: http://127.0.0.1:${config.proxy.port}`);
-  console.log(`  Dashboard:   http://127.0.0.1:${config.dashboard.port}`);
+  if (standalone) {
+    const ip = lanIPv4();
+    console.log(`llm-fw running in STANDALONE server mode.`);
+    console.log(`  Proxy:      http://${ip}:${config.proxy.port}  (listening on ${config.proxy.bindHost}:${config.proxy.port})`);
+    console.log(`  Dashboard:  http://${ip}:${config.dashboard.port}`);
+    console.log('');
+    console.log('  Configure each client machine:');
+    console.log(`    1. Download & trust the CA cert:  http://${ip}:${config.dashboard.port}/ca.crt?download`);
+    console.log(`       (install into the OS / browser "Trusted Root" store)`);
+    console.log(`    2. Point tools at the proxy:`);
+    console.log(`         export HTTPS_PROXY=http://${ip}:${config.proxy.port}`);
+    console.log(`         export HTTP_PROXY=http://${ip}:${config.proxy.port}`);
+    console.log('');
+    console.log('  ⚠ Security: the proxy is reachable by any host that can route to this');
+    console.log('    machine. Run it only on a trusted network, or restrict access with a');
+    console.log('    firewall rule. To keep the dashboard local-only while still exposing the');
+    console.log('    proxy, set LLM_FW_DASHBOARD_BIND=127.0.0.1.');
+  } else {
+    console.log(`llm-fw running.`);
+    console.log(`  Proxy port:  ${config.proxy.port}`);
+    console.log(`  HTTPS_PROXY: http://127.0.0.1:${config.proxy.port}`);
+    console.log(`  Dashboard:   http://127.0.0.1:${config.dashboard.port}`);
+  }
 
   // Keep process alive
   setInterval(() => { }, 1 << 30);

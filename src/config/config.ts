@@ -7,6 +7,9 @@ export const DEFAULT_CONFIG: Config = {
     mode: 'proxy',
     port: 8080,
     httpsPort: 8443,
+    // Local-only by default. `start --standalone` overrides this to 0.0.0.0 so
+    // other machines on the network can use this host as their LLM proxy.
+    bindHost: '127.0.0.1',
     // Idle timeout on the upstream socket. Generous by default: non-streaming
     // completions hold the connection silent until the whole body is generated,
     // so a short window aborts legitimate long generations. Lower it if you want
@@ -43,6 +46,7 @@ export const DEFAULT_CONFIG: Config = {
   dashboard: {
     port: 7731,
     maxEvents: 100,
+    bindHost: '127.0.0.1',
   },
   dlp: {
     enabled: true,
@@ -144,6 +148,9 @@ export async function loadConfig(): Promise<Config> {
   if (env['LLM_FW_PROXY_MODE']) {
     config.proxy.mode = env['LLM_FW_PROXY_MODE'] as 'proxy' | 'sinkhole';
   }
+  if (env['LLM_FW_PROXY_BIND']) {
+    config.proxy.bindHost = env['LLM_FW_PROXY_BIND'];
+  }
   if (env['LLM_FW_HTTPS_PORT']) {
     config.proxy.httpsPort = parseInt(env['LLM_FW_HTTPS_PORT'], 10);
   }
@@ -167,6 +174,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_DASHBOARD_PORT']) {
     config.dashboard.port = parseInt(env['LLM_FW_DASHBOARD_PORT'], 10);
+  }
+  if (env['LLM_FW_DASHBOARD_BIND']) {
+    config.dashboard.bindHost = env['LLM_FW_DASHBOARD_BIND'];
   }
   if (env['LLM_FW_DLP_ENABLED']) {
     config.dlp.enabled = env['LLM_FW_DLP_ENABLED'] === 'true';
