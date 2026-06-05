@@ -1200,6 +1200,28 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       return
     }
 
+    // Serve the CA certificate so standalone clients can download and trust it.
+    // Offered both as an inline view and a forced download (?download).
+    if (req.method === 'GET' && (path === '/ca.crt' || path === '/ca.pem')) {
+      const caPath = join(homedir(), '.llm-fw', 'ca.crt')
+      if (fs.existsSync(caPath)) {
+        const caData = fs.readFileSync(caPath)
+        const disposition = url.searchParams.has('download')
+          ? 'attachment; filename="llm-fw-ca.crt"'
+          : 'inline'
+        res.writeHead(200, {
+          'Content-Type': 'application/x-x509-ca-cert',
+          'Content-Length': String(caData.length),
+          'Content-Disposition': disposition,
+        })
+        res.end(caData)
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'CA certificate not found — run "llm-fw setup" first' }))
+      }
+      return
+    }
+
     // Serve the CRL so Windows Schannel can verify revocation status of MITM certs.
     if (req.method === 'GET' && path === '/crl') {
       const crlPath = join(homedir(), '.llm-fw', 'ca.crl')

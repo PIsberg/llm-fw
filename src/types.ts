@@ -9,6 +9,10 @@ export interface ProxyConfig {
   mode: 'proxy' | 'sinkhole';
   port: number;
   httpsPort: number;
+  // Interface the proxy listens on. Defaults to '127.0.0.1' (local-only). Set to
+  // '0.0.0.0' to accept connections from other hosts — what `start --stand-alone`
+  // does so multiple clients can share one firewall server.
+  bindHost: string;
   upstreamTimeoutMs: number;
   maxBodyBytes: number;
   dnsServers: string[];
@@ -30,6 +34,10 @@ export interface DetectionConfig {
 export interface DashboardConfig {
   port: number;
   maxEvents: number;
+  // Interface the dashboard listens on. Defaults to '127.0.0.1' (local-only).
+  // `start --stand-alone` sets it to '0.0.0.0' so the admin console and the CA
+  // download endpoint are reachable from client machines.
+  bindHost: string;
 }
 
 export interface DLPConfig {

@@ -117,7 +117,9 @@ export class ProxyServer {
     this.server.on('connect', (req, socket, head) => {
       void this.handleConnect(req, socket as net.Socket, head)
     })
-    this.server.listen(this.config.proxy.port)
+    // bindHost defaults to local-only; standalone mode sets it to 0.0.0.0 so
+    // remote clients can reach the proxy.
+    this.server.listen(this.config.proxy.port, this.config.proxy.bindHost ?? '127.0.0.1')
   }
 
   startSinkhole(httpsPort: number): void {

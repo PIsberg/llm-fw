@@ -208,6 +208,19 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.status).toBe(404)
   })
 
+  it('GET /ca.crt serves the CA for download, or 404s with an actionable message', async () => {
+    const res = await req(server, 'GET', '/ca.crt?download')
+    // The route is always wired; the outcome depends on whether setup has run.
+    if (res.status === 200) {
+      expect(res.headers['content-type']).toContain('x509')
+      expect(res.headers['content-disposition']).toContain('attachment')
+    } else {
+      expect(res.status).toBe(404)
+      // Distinct from the catch-all 404 — proves the dedicated route handled it.
+      expect(res.body).toContain('CA certificate not found')
+    }
+  })
+
   it('GET / HTML exposes the Live Traffic From IP column and detail hint', async () => {
     const res = await req(server, 'GET', '/')
     expect(res.status).toBe(200)
