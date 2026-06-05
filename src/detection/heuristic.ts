@@ -127,6 +127,29 @@ export class HeuristicScorer {
         ]
       },
       {
+        // Indirect "fictional unrestricted AI" framing (DAN, "Do Anything Now",
+        // EVIL-GPT, …). The persona is *described* as having no rules rather than
+        // commanded with a literal "act as" / "you are now", so the role-hijack
+        // rule misses it. Weight 30 → escalates to the judge on its own; only
+        // blocks (>=50) when paired with verbatim-persona-output below.
+        weight: 30, label: 'unconstrained-persona', patterns: [
+          /\b(ai|a\.i\.|assistant|chat ?bot|bot|model|persona|character|entity|being)\b[^.!?]{0,40}\b(who|that|which|with|having)\b[^.!?]{0,20}\bno\b[^.!?]{0,20}(rules?|restrictions?|limits?|filters?|ethics?|ethical|guidelines?|morals?|boundaries|constraints?|safeguards?|censorship)/,
+          /no ethical (guidelines?|training|constraints?|restrictions?|boundaries|safeguards?|limitations?)/,
+          /never (been )?(given|trained with|taught|had|provided) any (ethical|safety|moral)/,
+          /do anything now/,
+          /\bunfiltered (ai|assistant|model|responses?|answers?)\b/,
+        ],
+      },
+      {
+        // "Write exactly what DAN says" — soliciting a persona's verbatim,
+        // unfiltered output. The structural partner to unconstrained-persona;
+        // together they cross the block threshold deterministically.
+        weight: 20, label: 'verbatim-persona-output', patterns: [
+          /(write|tell me|give me|output|print|show me|provide|reproduce)\b[^.!?]{0,15}(exactly |precisely |verbatim |word for word )?(what|how) \w+ (say|says|said|would say|responds?|answers?|replies|would respond|would answer|would reply)/,
+          /(respond|answer|reply|speak|act|write) (back )?(exactly |precisely )?as \w+ would( say| respond| answer| reply)?\b/,
+        ],
+      },
+      {
         weight: 15, label: 'delimiter-break', patterns: [
           /-{3,}/,
           /={3,}/,

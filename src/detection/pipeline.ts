@@ -1,11 +1,16 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { Config, PipelineResult, BlockEvent } from '../types.js'
-import { getParser, extractPartialPrompts } from './parsers.js'
+import { getParser, extractPartialPrompts, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
+
+// Provenance of a scanned text fragment — which attacker-influenceable surface
+// it came from. Drives the event label so the dashboard distinguishes a direct
+// prompt injection from an indirect one (tool result) or a poisoned tool def.
+type ScanSource = 'prompt' | 'tool_result' | 'tool_definition'
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -32,8 +37,21 @@ export class Pipeline {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
 
-    const prompts = parser.extractPrompts(body)
-    if (!prompts.length) return this.pass(0, 0)
+    // The model reads and acts on more than the user's typed prompt. Inspect
+    // every attacker-influenceable surface that reaches the model, not just
+    // user/system text:
+    //   • prompt          — user + system text (direct injection)
+    //   • tool_result     — tool/function output, retrieved docs, MCP responses,
+    //                       file contents (INDIRECT injection — the primary
+    //                       agentic vector; e.g. Antigravity feeding files back)
+    //   • tool_definition — tool/function `description` fields (TOOL POISONING)
+    // All three ride the same heuristic → embedding → judge → RAG path below.
+    const scanItems: { text: string; source: ScanSource }[] = [
+      ...parser.extractPrompts(body).map(text => ({ text, source: 'prompt' as const })),
+      ...parser.extractToolResults(body).map(tr => ({ text: tr.result, source: 'tool_result' as const })),
+      ...extractToolDescriptions(parser.extractTools(body)).map(text => ({ text, source: 'tool_definition' as const })),
+    ].filter(item => item.text && item.text.length > 0)
+    if (!scanItems.length) return this.pass(0, 0)
 
     const { heuristicBlockThreshold, embeddingBlockThreshold, embeddingWarnThreshold, judgeEnabled, judgeBlock } = this.config.detection
     let lastScore = 0
@@ -42,7 +60,7 @@ export class Pipeline {
     const { heuristicBlockThreshold: ragBlockThreshold } = this.config.detection
     const ragEnabled = this.config.rag?.enabled
 
-    for (const prompt of prompts) {
+    for (const { text: prompt, source } of scanItems) {
       // Stage R — RAG context-poisoning. Isolate retrieved data blocks
       // (<document>, <context>, <search_results>, code fences) and check whether
       // they smuggle active instructions. Two independent signals can block:
@@ -55,7 +73,7 @@ export class Pipeline {
           const ragHeur = ragInjectionScore(prompt, this.heuristic)
           if (ragHeur.score >= ragBlockThreshold) {
             const result: PipelineResult = { action: 'block', stage: 'rag', score: ragHeur.score, similarity: 0, prompt, heuristicMatches: ragHeur.matches }
-            this.emit(result, meta, prompt)
+            this.emit(result, meta, prompt, source)
             return result
           }
 
@@ -66,7 +84,7 @@ export class Pipeline {
             const poisoned = await this.judgeRagBlocks(ragBlocks)
             if (poisoned) {
               const result: PipelineResult = { action: 'block', stage: 'rag', score: 50, similarity: 0, verdict: 'MALICIOUS', prompt, ragTag: poisoned.tag }
-              this.emit(result, meta, prompt)
+              this.emit(result, meta, prompt, source)
               return result
             }
           }
@@ -82,7 +100,7 @@ export class Pipeline {
         const j = await this.judge.classify(prompt)
         if (j.verdict === 'MALICIOUS') {
           const result: PipelineResult = { action: 'block', stage: 'judge', score: 30, similarity: 0, verdict: 'MALICIOUS', prompt }
-          this.emit(result, meta, prompt)
+          this.emit(result, meta, prompt, source)
           return result
         }
       }
@@ -95,7 +113,7 @@ export class Pipeline {
         
         if (h.score >= heuristicBlockThreshold) {
           const result: PipelineResult = { action: 'block', stage: 'heuristic', score: h.score, similarity: 0, prompt: candidate.text, heuristicMatches: h.matches }
-          this.emit(result, meta, prompt)
+          this.emit(result, meta, prompt, source)
           return result
         }
         // Stage 2: embedding (always run, it's fast and catches zero-heuristic semantic variants)
@@ -109,17 +127,32 @@ export class Pipeline {
           
           if (eSim >= embeddingBlockThreshold) {
             const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: eSim, prompt: candidate.text, nearestTemplate: eNearest }
-            this.emit(result, meta, prompt)
+            this.emit(result, meta, prompt, source)
             return result
           }
         }
 
-        // Are we in the escalation range?
-        // A prompt needs to be judged if it is suspicious. It is suspicious if:
-        // 1. Heuristic score is >= 20
-        // 2. OR Embedding similarity is >= embeddingWarnThreshold
+        // Escalation policy — does this candidate reach the Stage 3 judge?
+        //
+        // Default ("suspicious-only"): the cheap stages must produce a POSITIVE
+        // signal first — heuristic >= 20 OR embedding >= warn threshold. Cheap,
+        // but it gates the only general stage behind the brittle ones: a
+        // well-worded jailbreak that scores 0 on heuristics and sits below the
+        // embedding threshold is never judged. This is exactly how the DAN /
+        // "fictional unrestricted AI" class slips through.
+        //
+        // Inverted ("judgeUnlessBenign"): the cheap stages ROUTE rather than
+        // VETO. Every candidate is judged UNLESS it is confidently benign. This
+        // is the policy that generalizes to novel phrasings — the judge reasons
+        // about intent regardless of wording — at the cost of more local judge
+        // calls. The heuristic/embedding stages still short-circuit to an early
+        // block, and still decide warn-vs-pass below; they just no longer get to
+        // suppress the judge on a zero-signal prompt.
         const isSuspicious = h.score >= 20 || eSim >= embeddingWarnThreshold
-        if (!isSuspicious) {
+        const reachesJudge = this.config.detection.judgeUnlessBenign
+          ? !this.isConfidentlyBenign(h.score, eSim, candidate.text)
+          : isSuspicious
+        if (!reachesJudge) {
           continue // benign, skip judge and warning
         }
 
@@ -130,14 +163,14 @@ export class Pipeline {
             const j = await this.judge.classify(candidate.text)
             if (j.verdict === 'MALICIOUS') {
               const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }
-              this.emit(result, meta, prompt)
+              this.emit(result, meta, prompt, source)
               return result
             }
           } else {
             // Async monitoring mode
             this.judge.classify(candidate.text).then(j => {
               if (j.verdict === 'MALICIOUS') {
-                this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }, meta, prompt)
+                this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }, meta, prompt, source)
               }
             }).catch(() => {})
           }
@@ -155,7 +188,7 @@ export class Pipeline {
             nearestTemplate: eNearest,
             heuristicMatches: h.matches 
           }
-          this.emit(result, meta, prompt)
+          this.emit(result, meta, prompt, source)
           return result
         }
 
@@ -180,6 +213,7 @@ export class Pipeline {
     const { heuristicBlockThreshold } = this.config.detection
 
     for (const prompt of prompts) {
+      const source: ScanSource = 'prompt'
       const candidates = extractCandidates(prompt)
       for (const candidate of candidates) {
         const h = this.heuristic.score(candidate.text, candidate.source)
@@ -192,7 +226,7 @@ export class Pipeline {
             prompt: candidate.text,
             heuristicMatches: h.matches
           }
-          this.emit(result, meta, prompt)
+          this.emit(result, meta, prompt, source)
           return result
         }
       }
@@ -229,12 +263,35 @@ export class Pipeline {
     return null
   }
 
+  // Under judgeUnlessBenign, the judge is the default and the cheap stages only
+  // earn a SKIP when a candidate is unmistakably harmless: zero heuristic signal,
+  // low semantic similarity to every known template, AND too short to plausibly
+  // wrap an instruction in a benign-looking scenario. Short malicious prompts
+  // ("ignore previous instructions") carry heuristic signal and are blocked
+  // earlier; a zero-signal prompt long enough to stage a narrative jailbreak is
+  // precisely what the cheap stages cannot adjudicate, so it goes to the judge.
+  // BENIGN_LENGTH_CEILING is the cost/coverage tuning knob — lower judges more
+  // traffic (safer, more local-LLM calls), higher skips more (cheaper, riskier).
+  private static readonly BENIGN_LENGTH_CEILING = 64
+
+  private isConfidentlyBenign(score: number, similarity: number, text: string): boolean {
+    return (
+      score === 0 &&
+      similarity < this.config.detection.embeddingWarnThreshold &&
+      text.trim().length < Pipeline.BENIGN_LENGTH_CEILING
+    )
+  }
+
   private pass(score: number, similarity: number): PipelineResult {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string, source: ScanSource = 'prompt'): void {
     if (!this.onBlock) return
+    // Tag the provenance inline so a tool-result (indirect) or tool-definition
+    // (poisoning) hit is distinguishable from a direct prompt injection in the
+    // existing Live Traffic UI without a schema change.
+    const label = source === 'tool_result' ? '[tool-result] ' : source === 'tool_definition' ? '[tool-def] ' : ''
     this.onBlock({
       stage: result.stage,
       score: result.score,
@@ -242,7 +299,7 @@ export class Pipeline {
       target: meta.target,
       method: meta.method,
       path: meta.path,
-      payload_preview: prompt.slice(0, 120),
+      payload_preview: label + prompt.slice(0, 120 - label.length),
       payload_full: prompt,
       action: result.action === 'block' ? 'blocked' : 'warned',
       heuristicMatches: result.heuristicMatches,

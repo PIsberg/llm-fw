@@ -42,6 +42,7 @@ export const DEFAULT_CONFIG: Config = {
     judgeEnabled: false,
     judgeModel: 'phi3',
     judgeBlock: false,
+    judgeUnlessBenign: false,
   },
   dashboard: {
     port: 7731,
@@ -62,6 +63,10 @@ export const DEFAULT_CONFIG: Config = {
   },
   rag: {
     enabled: true,
+  },
+  taint: {
+    enabled: true,
+    mode: 'audit',
   },
   mcp: {
     enabled: true,
@@ -162,6 +167,15 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_JUDGE_BLOCK']) {
     config.detection.judgeBlock = env['LLM_FW_JUDGE_BLOCK'] === 'true';
+  }
+  if (env['LLM_FW_JUDGE_UNLESS_BENIGN']) {
+    config.detection.judgeUnlessBenign = env['LLM_FW_JUDGE_UNLESS_BENIGN'] === 'true';
+  }
+  if (env['LLM_FW_TAINT_ENABLED'] && config.taint) {
+    config.taint.enabled = env['LLM_FW_TAINT_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_TAINT_MODE'] && config.taint && (env['LLM_FW_TAINT_MODE'] === 'audit' || env['LLM_FW_TAINT_MODE'] === 'block')) {
+    config.taint.mode = env['LLM_FW_TAINT_MODE'];
   }
   if (env['LLM_FW_JUDGE_MODEL']) {
     config.detection.judgeModel = env['LLM_FW_JUDGE_MODEL'];

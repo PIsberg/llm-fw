@@ -12,6 +12,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
+import { TaintTracker, maskToken } from '../detection/taint.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
 import { ChunkedDecoder } from './dechunk.js'
@@ -67,6 +68,23 @@ const TRAFFIC_BODY_CAP = 16 * 1024
  */
 const SENSITIVE_HEADERS = new Set(['authorization', 'x-api-key', 'api-key', 'cookie', 'set-cookie', 'proxy-authorization', 'x-goog-api-key'])
 
+/**
+ * Cheap check that a request body is a structured JSON object — used to flag
+ * "LLM-looking POST to an intercepted host that no parser recognized" without
+ * warning on every binary upload or form post. Bounds the parse to keep a huge
+ * body from blocking the event loop.
+ */
+function looksLikeJsonBody(body: string): boolean {
+  const t = body.trimStart()
+  if (!t.startsWith('{')) return false
+  try {
+    const parsed: unknown = JSON.parse(body)
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+  } catch {
+    return false
+  }
+}
+
 /** Return a shallow copy of the request headers with secret values redacted. */
 export function sanitizeHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
   const out: Record<string, string> = {}
@@ -88,6 +106,7 @@ export class ProxyServer {
   private quota: QuotaManager | null
   private loop: LoopDetector | null
   private mcp: McpScanner | null
+  private taint: TaintTracker | null
   private sandbox: SandboxDetector
   private eventBus: EventBus
   private config: Config
@@ -105,6 +124,10 @@ export class ProxyServer {
     this.quota = config.dos?.enabled ? new QuotaManager(config.dos) : null
     this.loop = config.dos?.enabled ? new LoopDetector() : null
     this.mcp = config.mcp?.enabled ? new McpScanner(config, this.dlp) : null
+    // Taint tracker treats the configured provider/target hosts as benign so a
+    // provider domain mentioned in a tool result doesn't taint the next
+    // legitimate request to that same provider.
+    this.taint = config.taint?.enabled ? new TaintTracker(config.targets) : null
     this.sandbox = new SandboxDetector()
     this.server = http.createServer()
   }
@@ -171,6 +194,45 @@ export class ProxyServer {
     const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
 
     if (!isTarget) {
+      // Cross-turn taint (host level). The destination hostname is visible at
+      // CONNECT even for tunneled hosts we never decrypt. If this host first
+      // appeared inside untrusted tool-result content this session, the agent is
+      // dialing a destination it was told to use by untrusted data — a strong
+      // exfil signal that needs no body inspection. (Only the hostname is
+      // checkable here; path/query taint is caught in handleRequest for
+      // inspected hosts.)
+      if (this.taint) {
+        const sessionKey = normalizeIp(clientSocket.remoteAddress) ?? 'unknown'
+        const findings = this.taint.checkSink(sessionKey, hostname, Date.now())
+        if (findings.length) {
+          const f = findings[0]!
+          const detail = `Outbound connection to a host named in untrusted content: ${maskToken(f.token)}`
+          if (this.config.taint?.mode === 'block') {
+            const errBody = JSON.stringify({ error: 'tainted destination blocked', category: f.category })
+            clientSocket.write(
+              `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(errBody)}\r\nConnection: close\r\n\r\n${errBody}`
+            )
+            clientSocket.destroy()
+            this.eventBus.emit({
+              stage: 'none', score: 100, similarity: 0,
+              target: hostname, method: 'CONNECT', path: '/',
+              payload_preview: detail, payload_full: hostname,
+              action: 'blocked', kind: 'taint',
+              sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
+            })
+            return
+          }
+          this.eventBus.emit({
+            stage: 'none', score: 50, similarity: 0,
+            target: hostname, method: 'CONNECT', path: '/',
+            payload_preview: detail, payload_full: hostname,
+            action: 'warned', kind: 'taint',
+            sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
+          })
+          // audit mode: fall through to normal tunnel handling
+        }
+      }
+
       // URL filter: check hostname before establishing any tunnel
       if (this.urlClassifier) {
         const urlResult = this.urlClassifier.classify(hostname)
@@ -408,6 +470,47 @@ export class ProxyServer {
       // registered parser) are scanned, so binary/file uploads are skipped.
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
+
+      // Stage T — Cross-turn taint tracking (information flow, not content
+      // classification). Flags when a distinctive token (host / secret) that
+      // first entered via an untrusted tool result in a PRIOR request reappears
+      // in this request's destination or path — untrusted data now driving an
+      // outbound action, independent of how the injection was phrased. Runs for
+      // every host (the exfil sink is usually NOT an LLM provider). Sink-checked
+      // first, then this request's own tool results are recorded, so a request
+      // can never taint and then flag itself.
+      if (this.taint) {
+        const sessionKey = normalizeIp(innerReq.socket.remoteAddress) ?? 'unknown'
+        const now = Date.now()
+        const findings = this.taint.checkSink(sessionKey, `${hostname} ${dlpPath}`, now)
+        if (findings.length) {
+          const f = findings[0]!
+          const detail = `Untrusted ${f.category} from a prior tool result reused in outbound request: ${maskToken(f.token)}`
+          if (this.config.taint?.mode === 'block') {
+            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.end(JSON.stringify({ error: 'tainted data flow blocked', category: f.category }))
+            emitEvent({
+              stage: 'none', score: 100, similarity: 0,
+              target: hostname, method, path: dlpPath,
+              payload_preview: detail, payload_full: `${method} ${hostname}${dlpPath}`,
+              action: 'blocked', kind: 'taint',
+            })
+            return
+          }
+          emitEvent({
+            stage: 'none', score: 50, similarity: 0,
+            target: hostname, method, path: dlpPath,
+            payload_preview: detail, payload_full: `${method} ${hostname}${dlpPath}`,
+            action: 'warned', kind: 'taint',
+          })
+        }
+        const taintParser = getParser(dlpPath)
+        if (taintParser) {
+          const untrusted = taintParser.extractToolResults(body).map(t => t.result).join('\n')
+          if (untrusted) this.taint.recordSource(sessionKey, untrusted, now)
+        }
+      }
+
       if (this.dlp && getParser(dlpPath) !== null) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
@@ -483,12 +586,35 @@ export class ProxyServer {
         this.loop.record(body)
       }
 
+      // Stage 0.9 — Visibility for unrecognized LLM endpoints. We only MITM
+      // target hosts, so a POST with a JSON body that no parser recognizes is an
+      // LLM-looking request the injection pipeline silently passes — e.g. a
+      // newer/agentic endpoint (Google Antigravity / Cloud Code Assist, a Vertex
+      // path variant). Surface it as a non-blocking warn so it appears in Live
+      // Traffic and someone can add a parser, instead of it vanishing.
+      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body)) {
+        emitEvent({
+          stage: 'none',
+          score: 0,
+          similarity: 0,
+          target: hostname,
+          method,
+          path: dlpPath,
+          // Path is the actionable signal; the body is unparsed and has not been
+          // DLP-scanned, so don't dump it (it may carry secrets).
+          payload_preview: `Unrecognized LLM endpoint — body not inspected: ${method} ${dlpPath}`,
+          payload_full: `${method} ${dlpPath}`,
+          action: 'warned',
+          kind: 'unparsed',
+        })
+      }
+
       const result = await this.pipeline.run(
         innerReq.url ?? '/',
         body,
-        { 
-          target: hostname, 
-          method: innerReq.method ?? 'GET', 
+        {
+          target: hostname,
+          method: innerReq.method ?? 'GET',
           path: innerReq.url ?? '/',
           sandboxClient: sb.client,
           isSandboxed: sb.sandboxed,
