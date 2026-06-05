@@ -33,6 +33,11 @@ switch (command) {
     await run();
     break;
   }
+  case 'uninstall': {
+    const { run } = await import('./uninstall.js');
+    await run(args);
+    break;
+  }
   default: {
     console.log(`Usage: llm-fw <command> [options]
 
@@ -41,6 +46,10 @@ Commands:
                         default (sinkhole needs admin/root); --proxy-only skips
                         the sinkhole and covers only HTTPS_PROXY-aware tools.
   setup-judge           Install an Ollama model and enable Stage 3 judge
+  uninstall [--yes]     Reverse setup: remove the CA from the OS trust store,
+    [--keep-model]      restore the hosts file, delete the :443 port redirect,
+                        and clear ~/.llm-fw. --yes skips the prompt; --keep-model
+                        preserves the cached embedding model.
   start                 Start the firewall proxy
   stop                  Stop the firewall proxy
   status                Show firewall status

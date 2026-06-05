@@ -268,6 +268,69 @@ node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup
 
 ---
 
+## Uninstall
+
+`llm-fw uninstall` reverses everything `setup` did. Run it from the **same
+privilege level you installed with** — undoing the trust-store entry, the hosts
+file, and the port redirect all require admin/root, exactly as installing them
+did.
+
+```bash
+# Reverse setup (prompts for confirmation):
+llm-fw uninstall
+
+# From source:
+npm run dev uninstall
+```
+
+```powershell
+# Windows — elevated PowerShell (matches an elevated/sinkhole install):
+node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" uninstall
+```
+
+What it does, in order:
+
+1. **Stops** any running proxy (via the PID file) so nothing is mid-flight.
+2. **Removes the root CA** (`llm-fw Local CA`) from the OS trust store.
+3. **Restores the hosts file** — strips the `# llm-fw sinkhole` block and deletes
+   the `hosts.llm-fw.bak` backup (sinkhole installs only).
+4. **Deletes the port redirect** (`netsh portproxy` / `pf` / `iptables`) that
+   forwarded `:443` → `8443`.
+5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, persisted mode, PID file, and the
+   cached embedding model.
+6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)
+   from the project `.llm-fw.json`, keeping any settings you authored yourself.
+
+Flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--yes`, `-y` | Skip the confirmation prompt (for scripts/CI). |
+| `--keep-model` | Preserve the cached embedding model (~30 MB) to avoid re-downloading on a later reinstall. |
+
+**Left in place** (shared resources `setup` didn't exclusively create):
+
+- The Windows **IP Helper service** (`iphlpsvc`) — other software relies on it.
+- Any **Ollama judge model** you pulled — remove with `ollama rm <model>`.
+- The `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` **environment variables** — `setup`
+  only printed them for you to export, so it never owned them. Unset them and
+  delete the matching lines from your shell profile:
+
+  ```bash
+  # macOS / Linux
+  unset HTTPS_PROXY NODE_EXTRA_CA_CERTS
+  ```
+
+  ```powershell
+  # PowerShell (current session, then persisted values)
+  Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS
+  setx HTTPS_PROXY "" ; setx NODE_EXTRA_CA_CERTS ""
+  ```
+
+Run `llm-fw doctor` afterwards to confirm a clean teardown.
+
+---
+
 ## IDE Integration (Antigravity IDE & VS Code)
 
 Because IDEs like Antigravity and VS Code often use internal DNS resolution (which bypasses the OS `hosts` file), Sinkhole mode may not intercept their LLM requests directly. To use `llm-fw` with Antigravity IDE or VS Code:

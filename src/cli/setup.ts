@@ -9,7 +9,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
 /** True when the current process can modify the hosts file / OS port redirects. */
-function isElevated(): boolean {
+export function isElevated(): boolean {
   if (platform() === 'win32') {
     try {
       // `net session` succeeds only for an elevated (admin) token.
