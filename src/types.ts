@@ -161,4 +161,18 @@ export interface TrafficMetric {
   host: string;
   bytesSent: number;
   bytesReceived: number;
+  /** Client (source) IP address that opened the connection. */
+  fromIp?: string;
+  /** Whether the proxy TLS-inspected the request body (target hosts only). */
+  inspected?: boolean;
+  /** HTTP method — inspected requests only. */
+  method?: string;
+  /** Request path — inspected requests only. */
+  path?: string;
+  /** Sanitized request headers (auth/secret values redacted) — inspected requests only. */
+  reqHeaders?: Record<string, string>;
+  /** Decoded request body, truncated — inspected requests only. */
+  requestBody?: string;
+  /** True when requestBody was truncated to the size cap. */
+  bodyTruncated?: boolean;
 }
