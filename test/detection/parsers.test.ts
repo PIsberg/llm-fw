@@ -11,6 +11,10 @@ describe('AnthropicParser', () => {
     expect(a.supports('/v1/messages')).toBe(true)
   })
 
+  it('supports /v1/messages with a query string (?beta=true)', () => {
+    expect(a.supports('/v1/messages?beta=true')).toBe(true)
+  })
+
   it('does not support /v1/completions', () => {
     expect(a.supports('/v1/completions')).toBe(false)
   })

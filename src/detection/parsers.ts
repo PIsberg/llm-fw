@@ -3,7 +3,11 @@ import { PayloadParser } from '../types.js'
 
 class AnthropicParser implements PayloadParser {
   supports(path: string): boolean {
-    return path === '/v1/messages'
+    // Strip the query string before matching: real Anthropic traffic appends
+    // `?beta=true` (and other flags), which would otherwise defeat an exact
+    // equality check and leave the body uninspected.
+    const p = (path.split('?')[0] ?? '')
+    return p === '/v1/messages'
   }
 
   extractPrompts(body: string): string[] {

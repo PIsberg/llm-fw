@@ -85,6 +85,23 @@ function looksLikeJsonBody(body: string): boolean {
   }
 }
 
+/**
+ * Known non-LLM JSON endpoints on intercepted hosts: telemetry, analytics, and
+ * event-logging batches that ride the same hosts as the model APIs but carry no
+ * prompt. They are JSON POSTs, so they would otherwise trip the Stage 0.9
+ * "unrecognized LLM endpoint" warn as pure noise. Matched on the path suffix
+ * (query string stripped) so we don't surface them as missing parsers.
+ */
+const NON_LLM_JSON_PATH_SUFFIXES = [
+  '/api/event_logging/v2/batch',
+  '/api/event_logging',
+]
+
+function isKnownNonLlmEndpoint(path: string): boolean {
+  const p = (path.split('?')[0] ?? '')
+  return NON_LLM_JSON_PATH_SUFFIXES.some(suffix => p.endsWith(suffix))
+}
+
 /** Return a shallow copy of the request headers with secret values redacted. */
 export function sanitizeHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
   const out: Record<string, string> = {}
@@ -592,7 +609,7 @@ export class ProxyServer {
       // newer/agentic endpoint (Google Antigravity / Cloud Code Assist, a Vertex
       // path variant). Surface it as a non-blocking warn so it appears in Live
       // Traffic and someone can add a parser, instead of it vanishing.
-      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body)) {
+      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body) && !isKnownNonLlmEndpoint(dlpPath)) {
         emitEvent({
           stage: 'none',
           score: 0,
