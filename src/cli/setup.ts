@@ -88,6 +88,58 @@ function configureIdeProxies(proxyUrl: string): void {
   }
 }
 
+/**
+ * Idempotently add the llm-fw `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` exports to a
+ * shell-profile's text. Any previous llm-fw block (marker + loopback proxy /
+ * `.llm-fw/ca.crt` exports) is stripped first, so re-running setup never stacks
+ * duplicates. Pure (no I/O) so it can be unit-tested; the inverse lives in
+ * `uninstall.stripProfileEnvVars`.
+ */
+export function addProfileEnvVars(profileContent: string, proxyUrl: string): string {
+  const kept = profileContent.split(/\r?\n/).filter(line => {
+    const t = line.trim();
+    if (t === '# llm-fw env') return false;
+    if (t.startsWith('export HTTPS_PROXY=') && (t.includes('127.0.0.1:') || t.includes('localhost:'))) return false;
+    if (t.startsWith('export NODE_EXTRA_CA_CERTS=') && t.includes('.llm-fw/ca.crt')) return false;
+    return true;
+  }).join('\n').replace(/\n+$/, '');
+
+  const block = `# llm-fw env\nexport HTTPS_PROXY=${proxyUrl}\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n`;
+  return (kept ? kept + '\n\n' : '') + block;
+}
+
+/**
+ * Persist `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` so every new shell points at
+ * the firewall without the user exporting anything by hand. Windows writes them
+ * to the user environment (HKCU) via `setx`; POSIX appends to the shell profile.
+ * `uninstall` reverses both (`removeEnvVars` / `stripProfileEnvVars`). Best-effort:
+ * a failure prints a warning rather than aborting setup.
+ */
+function configureEnvVars(proxyUrl: string, caCertPath: string): void {
+  const os = platform();
+  try {
+    if (os === 'win32') {
+      // setx writes HKCU\Environment and broadcasts WM_SETTINGCHANGE, so new
+      // terminals inherit the values (the current one must be reopened). Store
+      // the resolved CA path — setx creates REG_SZ, which does not expand %VARS%.
+      execFileSync('setx', ['HTTPS_PROXY', proxyUrl], { stdio: 'ignore' });
+      execFileSync('setx', ['NODE_EXTRA_CA_CERTS', caCertPath], { stdio: 'ignore' });
+      console.log('  ✓ Set HTTPS_PROXY + NODE_EXTRA_CA_CERTS in your user environment (open a new terminal to load them).');
+    } else {
+      const shell = process.env.SHELL || '';
+      const profile = shell.includes('zsh') ? join(homedir(), '.zshrc')
+        : shell.includes('bash') ? join(homedir(), '.bashrc')
+        : (['.zshrc', '.bashrc', '.profile', '.bash_profile']
+            .map(p => join(homedir(), p)).find(p => fs.existsSync(p)) || join(homedir(), '.profile'));
+      const prev = fs.existsSync(profile) ? fs.readFileSync(profile, 'utf8') : '';
+      fs.writeFileSync(profile, addProfileEnvVars(prev, proxyUrl), 'utf8');
+      console.log(`  ✓ Added HTTPS_PROXY + NODE_EXTRA_CA_CERTS to ${profile} (run "source ${profile}" or open a new shell).`);
+    }
+  } catch (err) {
+    console.warn('  ⚠ Could not set environment variables automatically: ' + (err as Error).message);
+  }
+}
+
 export async function run(args: string[]): Promise<void> {
   // Sinkhole (OS-level redirect, covers Node.js/native tools that ignore
   // HTTPS_PROXY) is enabled by DEFAULT alongside the proxy so the firewall just
@@ -252,9 +304,11 @@ export async function run(args: string[]): Promise<void> {
     );
   }
 
-  // Configure IDE proxy settings
+  // Configure IDE proxy settings + persist the proxy/CA env vars so new shells
+  // are covered automatically (reversed by uninstall).
   const proxyUrl = 'http://127.0.0.1:' + config.proxy.port;
   configureIdeProxies(proxyUrl);
+  configureEnvVars(proxyUrl, caCertPath);
 
   console.log('\nllm-fw setup complete.');
 
@@ -284,37 +338,22 @@ export async function run(args: string[]): Promise<void> {
   const caCert = join(llmfwDir, 'ca.crt');
   if (sinkhole) {
     console.log('\n── Point your tools at llm-fw ──────────────────────────────────────────────');
-    console.log('  Sinkhole is active — HTTPS_PROXY is NOT required; traffic is redirected at');
-    console.log('  the OS level. Node.js & native tools also need the CA trusted via env var:\n');
-    if (os === 'win32') {
-      console.log('  PowerShell:      $env:NODE_EXTRA_CA_CERTS="' + caCert + '"');
-      console.log('  Command Prompt:  set NODE_EXTRA_CA_CERTS=' + caCert);
-    } else {
-      console.log('  bash / zsh:      export NODE_EXTRA_CA_CERTS="' + caCert + '"');
-      console.log('  Add to ' + (os === 'darwin' ? '~/.zshrc or ~/.bashrc' : '~/.bashrc or ~/.profile') + ' to make it permanent.');
-    }
-    console.log('\n  Then (re)start your LLM tool so it opens a fresh connection.');
+    console.log('  Sinkhole is active — traffic is redirected at the OS level, so HTTPS_PROXY');
+    console.log('  is not strictly required; setup set it anyway for proxy-aware tools.');
+    console.log('  HTTPS_PROXY + NODE_EXTRA_CA_CERTS were set persistently (see ✓ above).');
   } else {
     console.log('\n── Point your tools at the proxy ───────────────────────────────────────────');
-    console.log('  Run these in every terminal where you use LLM tools:\n');
-    if (os === 'win32') {
-      console.log('  PowerShell:');
-      console.log('    $env:HTTPS_PROXY="http://127.0.0.1:8080"');
-      console.log('    $env:NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
-      console.log('\n  Command Prompt:');
-      console.log('    set HTTPS_PROXY=http://127.0.0.1:8080');
-    } else if (os === 'darwin') {
-      console.log('  Terminal (bash / zsh):');
-      console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
-      console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
-      console.log('\n  Add to ~/.zshrc or ~/.bashrc to make it permanent.');
-    } else {
-      console.log('  bash / zsh:');
-      console.log('    export HTTPS_PROXY=http://127.0.0.1:8080');
-      console.log('    export NODE_EXTRA_CA_CERTS="' + caCert + '"  # Node.js clients only');
-      console.log('\n  Add to ~/.bashrc or ~/.profile to make it permanent.');
-    }
+    console.log('  HTTPS_PROXY + NODE_EXTRA_CA_CERTS were set persistently (see ✓ above), so new');
+    console.log('  terminals are covered automatically — no per-terminal exports needed.');
   }
+  console.log('\n  To load them into THIS terminal (or any already-open shell) right now:\n');
+  if (os === 'win32') {
+    console.log('    PowerShell:      $env:HTTPS_PROXY="' + proxyUrl + '"; $env:NODE_EXTRA_CA_CERTS="' + caCert + '"');
+    console.log('    Command Prompt:  set HTTPS_PROXY=' + proxyUrl + ' ^& set NODE_EXTRA_CA_CERTS=' + caCert);
+  } else {
+    console.log('    export HTTPS_PROXY=' + proxyUrl + ' NODE_EXTRA_CA_CERTS="' + caCert + '"');
+  }
+  console.log('\n  Then (re)start your LLM tool so it opens a fresh connection.');
 
   // Optional: Stage 3 judge setup
   console.log('\n── Stage 3: Ollama Judge (optional) ────────────────────────────────────────');

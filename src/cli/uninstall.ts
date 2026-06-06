@@ -102,15 +102,18 @@ export function stripJudgeConfig(parsed: Record<string, unknown>): Record<string
 }
 
 /**
- * Strip export statements for HTTPS_PROXY and NODE_EXTRA_CA_CERTS if they point
- * to llm-fw destinations. Returns the cleaned text.
+ * Strip the env-var exports `setup` (`addProfileEnvVars`) wrote into a shell
+ * profile: the `# llm-fw env` marker, an HTTPS_PROXY export pointing at a
+ * loopback proxy (any port), and a NODE_EXTRA_CA_CERTS export pointing at
+ * `~/.llm-fw/ca.crt`. A user's own corporate-proxy or unrelated CA export is
+ * left untouched. Returns the cleaned text.
  */
 export function stripProfileEnvVars(profileContent: string): string {
   const lines = profileContent.split(/\r?\n/);
   const cleanedLines = lines.filter(line => {
     const trimmed = line.trim();
-    // Match export HTTPS_PROXY=... containing 127.0.0.1:8080 or export NODE_EXTRA_CA_CERTS=... containing .llm-fw/ca.crt
-    if (trimmed.startsWith('export HTTPS_PROXY=') && (trimmed.includes('127.0.0.1:8080') || trimmed.includes('localhost:8080'))) {
+    if (trimmed === '# llm-fw env') return false;
+    if (trimmed.startsWith('export HTTPS_PROXY=') && (trimmed.includes('127.0.0.1:') || trimmed.includes('localhost:'))) {
       return false;
     }
     if (trimmed.startsWith('export NODE_EXTRA_CA_CERTS=') && trimmed.includes('.llm-fw/ca.crt')) {

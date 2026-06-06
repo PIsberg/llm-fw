@@ -167,7 +167,7 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
       level: 'fail',
       title: 'HTTPS_PROXY not pointing at the proxy',
       detail: p.httpsProxyEnv ? `current: ${p.httpsProxyEnv}` : 'unset',
-      fix: [setEnvCmd(p.os, 'HTTPS_PROXY', proxyUrl)],
+      fix: [setEnvCmd(p.os, 'HTTPS_PROXY', proxyUrl), 'llm-fw setup sets this persistently — re-run it, then open a new terminal'],
     })
   }
 
@@ -180,13 +180,14 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
       level: 'warn',
       title: 'NODE_EXTRA_CA_CERTS does not point at the llm-fw CA',
       detail: `current:  ${p.nodeExtraCaCertsEnv}\nexpected: ${p.caCertPath}`,
-      fix: [setEnvCmd(p.os, 'NODE_EXTRA_CA_CERTS', p.caCertPath)],
+      fix: [setEnvCmd(p.os, 'NODE_EXTRA_CA_CERTS', p.caCertPath), 'llm-fw setup sets this persistently — re-run it, then open a new terminal'],
     })
   } else {
     checks.push({
       level: 'warn',
       title: 'NODE_EXTRA_CA_CERTS not set (required for Node.js clients: Claude Code, SDKs)',
-      fix: [setEnvCmd(p.os, 'NODE_EXTRA_CA_CERTS', p.caCertPath)],
+      detail: 'llm-fw setup sets this persistently; an already-open terminal won\'t see it until reopened',
+      fix: [setEnvCmd(p.os, 'NODE_EXTRA_CA_CERTS', p.caCertPath), 'or re-run: llm-fw setup'],
     })
   }
 
