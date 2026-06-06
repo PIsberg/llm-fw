@@ -28,7 +28,7 @@ All intercepted requests appear instantly with detection stage, score, and paylo
 
 ### Expanded event detail
 
-Click any row to open the detail drawer: full decoded payload, heuristic match tags, nearest attack template, and request metadata.
+Click any row to open the detail drawer: full decoded payload, heuristic match tags, nearest attack template, and request metadata. A **Mark as false positive** button whitelists the event — its payload is appended to `~/.llm-fw/whitelist.json` so you can build a curated record of benign prompts the detectors flagged.
 
 ![Event detail drawer](docs/images/ss-02-event-detail.png)
 
@@ -42,6 +42,8 @@ Test **every detector** from one place — pick a category and paste your own in
 - **MCP Tools** — check tool names against the allow/deny policy
 - **URL / Exfil** — exfiltration sinks, DGA domains, data-carrying query strings
 - **Rate Limit / DoS** — shows the active behavioral cost-control policy
+
+On the text-based categories (Prompt Injection, RAG, DLP), a **Translate** control sits below the input: pick any language Google Translate supports, click **Translate**, and the prompt is re-expressed in that locale and re-analyzed automatically — so you can probe how the multilingual detectors hold up across dozens of languages without leaving the dashboard.
 
 ![Playground input](docs/images/ss-03-playground-input.png)
 
@@ -134,7 +136,7 @@ npx llm-fw <command>
 llm-fw setup
 ```
 
-Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
+Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
 
 > **Windows:** run the terminal as Administrator to enable the sinkhole.  
 > **macOS/Linux:** `sudo llm-fw setup` to enable the sinkhole.  
@@ -162,6 +164,7 @@ $env:NODE_EXTRA_CA_CERTS="$env:USERPROFILE\.llm-fw\ca.crt"   # required for Node
 # Windows cmd
 set HTTPS_PROXY=http://127.0.0.1:8080
 set NODE_EXTRA_CA_CERTS=%USERPROFILE%\.llm-fw\ca.crt
+```
 
 > `NODE_EXTRA_CA_CERTS` is needed because Node.js uses its own CA bundle and ignores the OS trust store — even after the CA is installed system-wide.
 
@@ -345,10 +348,17 @@ What it does, in order:
    the `hosts.llm-fw.bak` backup (sinkhole installs only).
 4. **Deletes the port redirect** (`netsh portproxy` / `pf` / `iptables`) that
    forwarded `:443` → `8443`.
-5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, persisted mode, PID file, and the
-   cached embedding model.
+5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, persisted mode, PID file, the
+   `whitelist.json` false-positive store, and the cached embedding model.
 6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)
    from the project `.llm-fw.json`, keeping any settings you authored yourself.
+7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)
+   that setup wrote into VS Code / Antigravity `settings.json`.
+8. **Removes the `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` environment variables** —
+   from the Windows registry (user, plus machine scope when elevated), or from
+   your shell profiles (`~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.bash_profile`)
+   on macOS/Linux. Already-open shell sessions keep their copies until you unset
+   them (see below).
 
 Flags:
 
@@ -357,24 +367,24 @@ Flags:
 | `--yes`, `-y` | Skip the confirmation prompt (for scripts/CI). |
 | `--keep-model` | Preserve the cached embedding model (~30 MB) to avoid re-downloading on a later reinstall. |
 
+**Active shell sessions:** uninstall clears the persisted `HTTPS_PROXY` /
+`NODE_EXTRA_CA_CERTS` values (registry / shell profiles), but a terminal that was
+already open keeps its in-memory copy. Clear the current session manually:
+
+```bash
+# macOS / Linux
+unset HTTPS_PROXY NODE_EXTRA_CA_CERTS
+```
+
+```powershell
+# PowerShell (current session)
+Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS
+```
+
 **Left in place** (shared resources `setup` didn't exclusively create):
 
 - The Windows **IP Helper service** (`iphlpsvc`) — other software relies on it.
 - Any **Ollama judge model** you pulled — remove with `ollama rm <model>`.
-- The `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` **environment variables** — `setup`
-  only printed them for you to export, so it never owned them. Unset them and
-  delete the matching lines from your shell profile:
-
-  ```bash
-  # macOS / Linux
-  unset HTTPS_PROXY NODE_EXTRA_CA_CERTS
-  ```
-
-  ```powershell
-  # PowerShell (current session, then persisted values)
-  Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS
-  setx HTTPS_PROXY "" ; setx NODE_EXTRA_CA_CERTS ""
-  ```
 
 Run `llm-fw doctor` afterwards to confirm a clean teardown.
 
@@ -382,7 +392,9 @@ Run `llm-fw doctor` afterwards to confirm a clean teardown.
 
 ## IDE Integration (Antigravity IDE & VS Code)
 
-Because IDEs like Antigravity and VS Code often use internal DNS resolution (which bypasses the OS `hosts` file), Sinkhole mode may not intercept their LLM requests directly. To use `llm-fw` with Antigravity IDE or VS Code:
+Because IDEs like Antigravity and VS Code often use internal DNS resolution (which bypasses the OS `hosts` file), Sinkhole mode may not intercept their LLM requests directly. So `llm-fw setup` **configures this for you automatically**: it scans for VS Code and Antigravity IDE `settings.json` files and writes `http.proxy` (pointing at the proxy, default `http://127.0.0.1:8080`) and `http.proxyStrictSSL: false`. `llm-fw uninstall` removes those keys again. You only need to **restart the IDE / reload the window** for the change to take effect.
+
+If you want to do it by hand (or your IDE wasn't detected because it had no existing `settings.json`):
 
 1. Open your IDE Settings (**Ctrl + ,** or **Cmd + ,**).
 2. Search for **`Proxy`** (specifically the `http.proxy` setting).
@@ -885,7 +897,7 @@ LLM_FW_JUDGE_ENABLED=true
 
 | Command | Description |
 |---------|-------------|
-| `llm-fw setup` | Generate CA cert, install to trust store, download model, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
+| `llm-fw setup` | Generate CA cert, install to trust store, download model, auto-configure the proxy in detected VS Code / Antigravity IDE settings, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
 | `llm-fw setup --proxy-only` | Skip the sinkhole; configure proxy mode only (no admin needed) |
 | `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
 | `llm-fw start` | Start proxy and dashboard |
@@ -923,8 +935,8 @@ $ llm-fw doctor
 
 Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 
-- **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview.
-- **Playground tab** — test any detector (prompt injection, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed.
+- **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview. Expand any event to see the full payload and **Mark as false positive** (persisted to `~/.llm-fw/whitelist.json`).
+- **Playground tab** — test any detector (prompt injection, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed. Text categories include a **Translate** control to re-express the input in any Google-Translate-supported language and re-run the pipeline.
 
 ---
 
