@@ -168,6 +168,17 @@ export interface BlockEvent {
   sandboxConfidence?: number;
 }
 
+// An event an operator marked as a false positive, persisted to
+// ~/.llm-fw/whitelist.json so the decision survives restarts.
+export interface WhitelistEntry {
+  id: string;
+  payload: string;
+  stage: string;
+  target: string;
+  whitelistedAt: string;
+  reason?: string;
+}
+
 export interface PayloadParser {
   supports(path: string): boolean;
   extractPrompts(body: string): string[];

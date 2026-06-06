@@ -9,6 +9,7 @@ import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
+import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -126,6 +127,15 @@ const HTML = `<!DOCTYPE html>
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 2px 4px rgba(21,101,192,0.15); }
   .btn:hover { background: #1976d2; transform: translateY(-1px); box-shadow: 0 4px 8px rgba(21,101,192,0.25); }
   .btn:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(21,101,192,0.15); }
+  /* Translate bar */
+  .pg-translate { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .pg-translate-label { font-size: 0.8rem; color: #555; }
+  .pg-translate-select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff;
+    font-size: 0.82rem; max-width: 220px; }
+  .pg-translate-btn { margin-top: 0; padding: 6px 14px; font-size: 0.8rem; }
+  .pg-translate-status { font-size: 0.8rem; color: #666; }
+  .pg-translate-status.error { color: #b3261e; }
+
   .pg-results { margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px; }
   .pg-verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; }
   .pg-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -299,6 +309,12 @@ const HTML = `<!DOCTYPE html>
 
       <div id="pg-text-wrap">
         <textarea id="prompt-input" rows="4" placeholder="Enter text to analyze, or click an example above..."></textarea>
+        <div class="pg-translate" id="pg-translate">
+          <span class="pg-translate-label">Translate to</span>
+          <select id="translate-lang" class="pg-translate-select"></select>
+          <button class="btn pg-translate-btn" type="button" onclick="translateInjection(this)">Translate</button>
+          <span id="translate-status" class="pg-translate-status"></span>
+        </div>
       </div>
       <div id="pg-url-wrap" style="display:none">
         <input class="pg-url-input" id="url-input" type="text" placeholder="e.g. webhook.site or https://evil.ngrok.io/exfil?data=..." />
@@ -515,11 +531,38 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section">' +
         '<h4>Nearest Attack Template</h4>' + nearestHtml +
       '</div>' +
+      '<div class="drawer-section drawer-full">' +
+        '<button class="btn" onclick="whitelistEvent(\'' + esc(id) + '\', this)">Mark as false positive</button>' +
+        '<span id="wl-status-' + esc(id) + '" style="margin-left:12px;font-size:0.82rem;color:#388e3c"></span>' +
+      '</div>' +
     '</div>' +
     '</td></tr>';
 
   const row = document.getElementById('row-' + id);
   if (row) row.insertAdjacentHTML('afterend', drawerHtml);
+}
+
+// ── Whitelist (false positive) ────────────────────────────────────────────────
+async function whitelistEvent(id, btn) {
+  const status = document.getElementById('wl-status-' + id);
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/whitelist', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    const d = await res.json();
+    if (res.ok) {
+      if (status) status.textContent = '✓ Saved to whitelist';
+      btn.textContent = 'Whitelisted';
+    } else {
+      btn.disabled = false;
+      if (status) { status.style.color = '#b3261e'; status.textContent = 'Error: ' + (d.error || res.status); }
+    }
+  } catch (err) {
+    btn.disabled = false;
+    if (status) { status.style.color = '#b3261e'; status.textContent = 'Error: ' + err.message; }
+  }
 }
 
 // ── Append event row ──────────────────────────────────────────────────────────
@@ -825,9 +868,54 @@ async function analyzePrompt() {
   }
 }
 
+// ── Translate injection text ──────────────────────────────────────────────────
+// Populate the language picker from the full Google Translate list (served by
+// /api/languages). Default the selection to Spanish — a useful first multilingual
+// probe — falling back to the first language if it is somehow absent.
+async function loadLanguages() {
+  const sel = document.getElementById('translate-lang');
+  if (!sel) return;
+  try {
+    const langs = await (await fetch('/api/languages')).json();
+    sel.innerHTML = langs.map(l => '<option value="' + esc(l.code) + '">' + esc(l.name) + '</option>').join('');
+    if (langs.some(l => l.code === 'es')) sel.value = 'es';
+  } catch (_) {
+    sel.innerHTML = '<option value="es">Spanish</option>';
+  }
+}
+
+async function translateInjection(btn) {
+  const ta = document.getElementById('prompt-input');
+  const sel = document.getElementById('translate-lang');
+  const status = document.getElementById('translate-status');
+  const text = (ta.value || '').trim();
+  if (!text) { status.className = 'pg-translate-status error'; status.textContent = 'Enter or pick an example first.'; return; }
+  const target = sel.value;
+  btn.disabled = true;
+  status.className = 'pg-translate-status';
+  status.textContent = 'Translating…';
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, target })
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status));
+    ta.value = d.translated;
+    status.textContent = 'Translated ' + (d.detectedSource || 'auto') + ' → ' + target + '. Re-analyzing…';
+    analyzePrompt();
+  } catch (err) {
+    status.className = 'pg-translate-status error';
+    status.textContent = 'Translate failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // Initialise the default category's description + examples.
 document.getElementById('pg-desc').textContent = PG_DESC.injection;
 renderExamples('injection');
+loadLanguages();
 
 // ── Live Traffic ──────────────────────────────────────────────────────────────
 const CHART_LEN = 60;
@@ -1179,6 +1267,81 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         } catch (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: String(err) }))
+        }
+      })() })
+      req.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'request read error' }))
+      })
+      return
+    }
+
+    // Mark a buffered event as a false positive; persists it to
+    // ~/.llm-fw/whitelist.json via the EventBus.
+    if (req.method === 'POST' && path === '/api/whitelist') {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        try {
+          const { id, reason } = JSON.parse(body || '{}') as { id?: string; reason?: string }
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'id is required' }))
+            return
+          }
+          const entry = eventBus.whitelist(id, reason)
+          if (!entry) {
+            res.writeHead(404, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'event not found' }))
+            return
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, entry }))
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: String(err) }))
+        }
+      })
+      req.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'request read error' }))
+      })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/api/whitelist') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(eventBus.readWhitelist()))
+      return
+    }
+
+    // Full Google Translate language list, used to populate the playground's
+    // language picker.
+    if (req.method === 'GET' && path === '/api/languages') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(TRANSLATE_LANGUAGES))
+      return
+    }
+
+    // Translate the playground's injection text into a target language so the
+    // same attack can be exercised across locales. Server-side to dodge CORS.
+    if (req.method === 'POST' && path === '/api/translate') {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => { void (async () => {
+        try {
+          const { text, target, source } = JSON.parse(body || '{}') as { text?: string; target?: string; source?: string }
+          if (!text || !target) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'text and target are required' }))
+            return
+          }
+          const result = await translateText(text, target, source ?? 'auto')
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(result))
+        } catch (err) {
+          res.writeHead(502, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: String(err instanceof Error ? err.message : err) }))
         }
       })() })
       req.on('error', () => {
