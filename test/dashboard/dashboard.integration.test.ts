@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
 import http from 'node:http'
+import vm from 'node:vm'
 
 vi.mock('../../src/detection/pipeline.js', () => ({
   Pipeline: vi.fn().mockImplementation(function() {
@@ -109,6 +110,17 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     const res = await req(server, 'GET', '/')
     expect(res.status).toBe(200)
     expect(res.body).toContain('DOCTYPE')
+  })
+
+  // Regression guard: the dashboard's behaviour lives in one big inline <script>.
+  // A single syntax error there (e.g. a mis-escaped quote in a JS-built HTML
+  // string) silently breaks every handler and only surfaces in the browser/e2e.
+  // Compile it here (compile-only, never executed) so such breakage fails fast.
+  it('GET / inline <script> compiles without a syntax error', async () => {
+    const res = await req(server, 'GET', '/')
+    const match = res.body.match(/<script>([\s\S]*?)<\/script>/)
+    expect(match).not.toBeNull()
+    expect(() => new vm.Script(match![1])).not.toThrow()
   })
 
   it('GET /api/events returns 200 JSON array', async () => {

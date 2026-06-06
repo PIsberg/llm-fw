@@ -532,14 +532,20 @@ function toggleDrawer(id, ev) {
         '<h4>Nearest Attack Template</h4>' + nearestHtml +
       '</div>' +
       '<div class="drawer-section drawer-full">' +
-        '<button class="btn" onclick="whitelistEvent(\'' + esc(id) + '\', this)">Mark as false positive</button>' +
+        '<button class="btn" id="wl-btn-' + esc(id) + '">Mark as false positive</button>' +
         '<span id="wl-status-' + esc(id) + '" style="margin-left:12px;font-size:0.82rem;color:#388e3c"></span>' +
       '</div>' +
     '</div>' +
     '</td></tr>';
 
   const row = document.getElementById('row-' + id);
-  if (row) row.insertAdjacentHTML('afterend', drawerHtml);
+  if (row) {
+    row.insertAdjacentHTML('afterend', drawerHtml);
+    // Wire the handler in JS (rather than an inline onclick) so the event id
+    // never has to be quote-escaped inside this HTML template literal.
+    const wlBtn = document.getElementById('wl-btn-' + id);
+    if (wlBtn) wlBtn.onclick = () => whitelistEvent(id, wlBtn);
+  }
 }
 
 // ── Whitelist (false positive) ────────────────────────────────────────────────
