@@ -11,16 +11,19 @@ import { loadConfig } from '../config/config.js';
  * `llm-fw uninstall` — reverse every change `setup` (and `setup-judge`) made,
  * returning the machine to its pre-install state.
  *
- * Install touches four classes of state, and uninstall undoes each:
- *   1. Files under ~/.llm-fw/      — CA key/cert/CRL, model cache, mode + pid.
+ * Install touches six classes of state, and uninstall undoes each:
+ *   1. Files under ~/.llm-fw/      — CA key/cert/CRL, model cache, whitelist,
+ *                                     mode + pid.
  *   2. The OS trust store          — the root CA was added so leaf certs verify.
  *   3. The hosts file + a port      — the sinkhole redirect (elevated installs).
  *      redirect rule
  *   4. The project .llm-fw.json     — judge settings written by setup-judge.
- *
- * Environment variables (HTTPS_PROXY, NODE_EXTRA_CA_CERTS) are NOT removed here:
- * setup only ever *prints* them for the user to export, so it never owned them —
- * we just remind the user to unset them.
+ *   5. IDE proxy settings           — http.proxy / http.proxyStrictSSL written
+ *                                     to VS Code / Antigravity settings.json.
+ *   6. Env vars                     — HTTPS_PROXY / NODE_EXTRA_CA_CERTS removed
+ *                                     from the registry (Windows) or shell
+ *                                     profiles (macOS/Linux); active shell
+ *                                     sessions still need a manual unset.
  *
  * The OS-touching steps are best-effort: each is wrapped so a single failure
  * (e.g. the rule was already gone, or we lack admin) reports a clear line and a
@@ -242,7 +245,7 @@ function cleanProjectConfig(): void {
 
 /** Remove the files llm-fw created under ~/.llm-fw, then the dir if it's empty. */
 function removeLlmfwFiles(llmfwDir: string, keepModel: boolean): void {
-  const files = ['config.json', 'ca.crt', 'ca.key', 'ca.crl', 'llm-fw.pid'];
+  const files = ['config.json', 'ca.crt', 'ca.key', 'ca.crl', 'llm-fw.pid', 'whitelist.json'];
   for (const f of files) {
     try { fs.rmSync(join(llmfwDir, f), { force: true }); } catch { /* ignore */ }
   }

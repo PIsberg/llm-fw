@@ -31,8 +31,8 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph CLI ["src/cli/"]
-        setup["setup.ts\n(CA + trust store + model download)"]
-        uninstall["uninstall.ts\n(reverse setup: trust store + hosts + redirect)"]
+        setup["setup.ts\n(CA + trust store + model + IDE proxy config)"]
+        uninstall["uninstall.ts\n(reverse setup: trust store + hosts + redirect + IDE + env vars)"]
         start["start.ts\n(boot sequence + PID file)"]
         stop["stop.ts\n(SIGTERM + hosts restore)"]
         status["status.ts"]
@@ -59,8 +59,9 @@ flowchart TD
     end
 
     subgraph Dashboard ["src/dashboard/"]
-        httpServer["server.ts\n(GET / + SSE + POST /api/test)"]
-        eventBus["eventBus.ts\n(ring buffer + SSE fan-out)"]
+        httpServer["server.ts\n(GET / + SSE + /api/test + /api/whitelist + /api/translate)"]
+        eventBus["eventBus.ts\n(ring buffer + SSE fan-out + whitelist persistence)"]
+        translate["translate.ts\n(Google Translate gtx client + language list)"]
     end
 
     setup --> certs
@@ -80,6 +81,7 @@ flowchart TD
     proxyServer --> eventBus
     httpServer --> eventBus
     httpServer --> pipeline
+    httpServer --> translate
 ```
 
 ---
@@ -194,6 +196,17 @@ classDiagram
         +emit(event: BlockEvent) void
         +subscribe(res: SSEResponse) void
         +getRecent(limit: number) BlockEvent[]
+        +whitelist(id: string, reason?: string) WhitelistEntry
+        +readWhitelist() WhitelistEntry[]
+    }
+
+    class WhitelistEntry {
+        +id: string
+        +payload: string
+        +stage: string
+        +target: string
+        +whitelistedAt: string
+        +reason: string
     }
 
     class BlockEvent {
@@ -214,6 +227,7 @@ classDiagram
     ProxyServer --> Pipeline
     ProxyServer --> EventBus
     EventBus --> BlockEvent
+    EventBus --> WhitelistEntry
 ```
 
 ---
@@ -329,7 +343,9 @@ sequenceDiagram
     CLI->>HF: download Xenova/paraphrase-multilingual-MiniLM-L12-v2 q8 (~120MB)
     HF-->>CLI: model files
     CLI->>FS: cache to ~/.llm-fw/models/
-    CLI-->>U: Setup complete. Run: llm-fw start
+
+    CLI->>FS: configureIdeProxies() — write http.proxy + http.proxyStrictSSL into any detected VS Code / Antigravity settings.json
+    CLI-->>U: Setup complete (prints active modes + env-var hints). Run: llm-fw start
 ```
 
 ---
@@ -404,9 +420,9 @@ flowchart LR
 llm-fw/
 ├── src/
 │   ├── cli/
-│   │   ├── setup.ts         # CA generation, trust store, hosts, model download
+│   │   ├── setup.ts         # CA gen, trust store, hosts, model, IDE proxy config
 │   │   ├── setup-judge.ts   # Ollama model pull + judge config
-│   │   ├── uninstall.ts     # reverse setup: trust store, hosts, redirect, files
+│   │   ├── uninstall.ts     # reverse setup: trust store, hosts, redirect, IDE, env vars, files
 │   │   ├── start.ts         # boot sequence, exit hooks, PID file
 │   │   ├── stop.ts          # SIGTERM + hosts restore
 │   │   ├── doctor.ts        # environment diagnostics + remediation commands
@@ -423,8 +439,9 @@ llm-fw/
 │   │   ├── judge.ts         # Ollama HTTP client
 │   │   └── pipeline.ts      # orchestrator
 │   ├── dashboard/
-│   │   ├── server.ts        # HTTP server (Events + Playground + /api/test)
-│   │   └── eventBus.ts      # ring buffer + SSE fan-out
+│   │   ├── server.ts        # HTTP server (Events + Playground + /api/test + whitelist + translate)
+│   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
+│   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/
 │       └── config.ts        # cosmiconfig + env overrides + defaults
 ├── data/
@@ -461,6 +478,7 @@ commands — anything `setup` writes must appear here with an undo.
 | `models/` | Cached `Xenova/paraphrase-multilingual-MiniLM-L12-v2` q8 ONNX weights (~120 MB) | Stage 2 embeds prompts locally (multilingual, 50+ languages); caching avoids re-downloading on every start and keeps detection fully offline. | delete dir (`--keep-model` preserves it to avoid a re-download) |
 | `config.json` | `{ "proxy": { "mode": "proxy" \| "sinkhole" } }` | Persists which mode setup configured so `start`, `status`, and `doctor` report and behave correctly without re-passing flags or env vars. Loaded by `config.ts` above project config, below env vars. | delete file |
 | `llm-fw.pid` | PID of the running proxy (written by `start`) | Lets `stop`/`status`/`doctor`/`uninstall` find and signal the live process. | proxy stopped, then file deleted |
+| `whitelist.json` | False-positive store — events an operator marked "not malicious" via the dashboard (written lazily by `EventBus.whitelist`, only if used) | Records benign prompts the detectors flagged so they can be reviewed/curated; survives restarts. | delete file |
 
 ### 12.2 OS trust store (CA installed system-wide)
 
@@ -495,23 +513,46 @@ Mode A (proxy) needs none of these — it relies on the client honouring
 | Ollama model pull | e.g. `ollama pull phi3` | Stage 3 runs a local LLM to reason about intent that regex/similarity miss. | **left in place** — the model is shared and reusable; `uninstall` prints `ollama rm <model>` |
 | `.llm-fw.json` judge keys | `detection.judgeEnabled / judgeModel / judgeBlock` written to the project config | Persists that the judge is enabled and which model/blocking mode to use. | strip only those keys (`stripJudgeConfig`); delete the file if nothing user-authored remains |
 
-### 12.5 Environment variables (printed, never set)
+### 12.5 IDE proxy settings (auto-configured)
+
+IDEs such as VS Code and Antigravity often resolve DNS internally, so sinkhole
+mode may not catch their LLM traffic. `setup` therefore writes proxy settings
+into any detected IDE `settings.json` so their requests flow through the proxy.
+
+| Setting | What it is | Why it's needed | Reversal |
+| --- | --- | --- | --- |
+| `http.proxy` | Set to `http://127.0.0.1:<proxyPort>` in VS Code / Antigravity `settings.json` (only files that already exist are touched) | Routes the IDE's own HTTP(S) traffic through llm-fw even though it bypasses the OS `hosts` sinkhole. | `removeIdeProxySettings` deletes the key when it still points at loopback |
+| `http.proxyStrictSSL` | Set to `false` alongside `http.proxy` | The proxy presents an llm-fw-signed leaf cert; without `NODE_EXTRA_CA_CERTS` the IDE would otherwise reject it. | deleted together with `http.proxy` |
+
+The reversible host resolution and write/strip helpers (`getIdeSettingsPaths`,
+`stripIdeProxyConfig`) are shared between `setup` and `uninstall`.
+
+### 12.6 Environment variables (set by the user, cleaned on uninstall)
 
 `setup` **prints** `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` for the user to
-export; it never sets them itself, so it doesn't own them. `uninstall`
-therefore can't remove them — it reminds the user to `unset` them and delete the
-matching lines from their shell profile.
+export; it does not set them itself. For convenience, `uninstall` still **clears**
+any llm-fw-pointing copies it finds so a teardown leaves no dangling proxy
+config:
+
+| Platform | Where they're cleared | How |
+| --- | --- | --- |
+| Windows | `HKCU\Environment` (always) + `HKLM\…\Session Manager\Environment` (when elevated) | `reg delete … /v HTTPS_PROXY /f`, same for `NODE_EXTRA_CA_CERTS` |
+| macOS / Linux | `~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.bash_profile` | `stripProfileEnvVars` removes `export` lines pointing at the proxy / `~/.llm-fw/ca.crt` |
+
+Already-open shell sessions keep their in-memory copies; `uninstall` prints the
+manual `unset` / `Remove-Item Env:` command for the current session.
 
 ---
 
 ## 13. Uninstall Flow
 
 `llm-fw uninstall` reverses §12 in dependency order: stop the proxy, pull the
-trust anchor, undo the sinkhole, then delete local files. Every OS-touching step
-is best-effort — a step that fails (rule already gone, or not elevated) prints a
-warning and the manual command rather than aborting the rest. The pure
-transforms (`stripSinkholeBlock`, `stripJudgeConfig`) are unit-tested in
-`test/cli/uninstall.test.ts`.
+trust anchor, undo the sinkhole, delete local files, then strip the IDE proxy
+settings and the persisted env vars. Every OS-touching step is best-effort — a
+step that fails (rule already gone, or not elevated) prints a warning and the
+manual command rather than aborting the rest. The pure transforms
+(`stripSinkholeBlock`, `stripJudgeConfig`, `stripProfileEnvVars`,
+`stripIdeProxyConfig`) are unit-tested in `test/cli/uninstall.test.ts`.
 
 ```mermaid
 sequenceDiagram
@@ -537,9 +578,12 @@ sequenceDiagram
     end
 
     CLI->>FS: stripJudgeConfig(.llm-fw.json)
-    CLI->>FS: delete ca.key/ca.crt/ca.crl/config.json/pid (+ models unless --keep-model)
+    CLI->>FS: delete ca.key/ca.crt/ca.crl/config.json/pid/whitelist.json (+ models unless --keep-model)
     CLI->>FS: rmdir ~/.llm-fw if empty
 
-    CLI-->>U: reminder: unset HTTPS_PROXY / NODE_EXTRA_CA_CERTS;
+    CLI->>FS: removeEnvVars() — registry (Win) / shell profiles (POSIX)
+    CLI->>FS: removeIdeProxySettings() — VS Code / Antigravity settings.json
+
+    CLI-->>U: reminder: unset HTTPS_PROXY / NODE_EXTRA_CA_CERTS in open shells;
     CLI-->>U: iphlpsvc + ollama models left in place
 ```
