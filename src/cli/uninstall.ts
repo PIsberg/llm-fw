@@ -4,8 +4,8 @@ import { homedir, platform } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { isElevated, getIdeSettingsPaths } from './setup.js';
 import { loadConfig } from '../config/config.js';
-import { isElevated } from './setup.js';
 
 /**
  * `llm-fw uninstall` — reverse every change `setup` (and `setup-judge`) made,
@@ -96,6 +96,40 @@ export function stripJudgeConfig(parsed: Record<string, unknown>): Record<string
   }
 
   return Object.keys(next).length === 0 ? null : next;
+}
+
+/**
+ * Strip export statements for HTTPS_PROXY and NODE_EXTRA_CA_CERTS if they point
+ * to llm-fw destinations. Returns the cleaned text.
+ */
+export function stripProfileEnvVars(profileContent: string): string {
+  const lines = profileContent.split(/\r?\n/);
+  const cleanedLines = lines.filter(line => {
+    const trimmed = line.trim();
+    // Match export HTTPS_PROXY=... containing 127.0.0.1:8080 or export NODE_EXTRA_CA_CERTS=... containing .llm-fw/ca.crt
+    if (trimmed.startsWith('export HTTPS_PROXY=') && (trimmed.includes('127.0.0.1:8080') || trimmed.includes('localhost:8080'))) {
+      return false;
+    }
+    if (trimmed.startsWith('export NODE_EXTRA_CA_CERTS=') && trimmed.includes('.llm-fw/ca.crt')) {
+      return false;
+    }
+    return true;
+  });
+  return cleanedLines.join('\n');
+}
+
+/**
+ * Strip IDE proxy keys (http.proxy and http.proxyStrictSSL) if they match llm-fw.
+ */
+export function stripIdeProxyConfig(parsed: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...parsed };
+  const currentProxy = next['http.proxy'];
+
+  if (typeof currentProxy === 'string' && (/(?:127\.0\.0\.1|localhost|::1):\d+/.test(currentProxy))) {
+    delete next['http.proxy'];
+    delete next['http.proxyStrictSSL'];
+  }
+  return next;
 }
 
 // ── OS-touching steps ─────────────────────────────────────────────────────────
@@ -222,6 +256,98 @@ function removeLlmfwFiles(llmfwDir: string, keepModel: boolean): void {
   } catch { /* dir missing or not empty */ }
 }
 
+/** Remove environment variables HTTPS_PROXY and NODE_EXTRA_CA_CERTS if they point to llm-fw. */
+function removeEnvVars(): void {
+  const os = platform();
+  try {
+    if (os === 'win32') {
+      let clearedUser = false;
+      // Clear User environment variables
+      try {
+        execSync('reg delete HKCU\\Environment /v HTTPS_PROXY /f', { stdio: 'ignore' });
+        clearedUser = true;
+      } catch { /* may not exist */ }
+      try {
+        execSync('reg delete HKCU\\Environment /v NODE_EXTRA_CA_CERTS /f', { stdio: 'ignore' });
+        clearedUser = true;
+      } catch { /* may not exist */ }
+      
+      let clearedSystem = false;
+      // Clear System environment variables (if elevated)
+      if (isElevated()) {
+        try {
+          execSync('reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v HTTPS_PROXY /f', { stdio: 'ignore' });
+          clearedSystem = true;
+        } catch { /* may not exist */ }
+        try {
+          execSync('reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v NODE_EXTRA_CA_CERTS /f', { stdio: 'ignore' });
+          clearedSystem = true;
+        } catch { /* may not exist */ }
+      }
+      
+      if (clearedUser || clearedSystem) {
+        ok('Removed environment variables (HTTPS_PROXY, NODE_EXTRA_CA_CERTS) from registry');
+      } else {
+        skip('No llm-fw environment variables found in registry');
+      }
+    } else {
+      // macOS / Linux: clean up shell profiles (~/.bashrc, ~/.zshrc, ~/.profile, ~/.bash_profile)
+      const profiles = ['.bashrc', '.zshrc', '.profile', '.bash_profile']
+        .map(p => join(homedir(), p))
+        .filter(p => fs.existsSync(p));
+      
+      let modifiedAny = false;
+      for (const p of profiles) {
+        try {
+          const content = fs.readFileSync(p, 'utf8');
+          const cleaned = stripProfileEnvVars(content);
+          if (content !== cleaned) {
+            fs.writeFileSync(p, cleaned, 'utf8');
+            modifiedAny = true;
+          }
+        } catch { /* ignore read/write errors for individual profiles */ }
+      }
+      
+      if (modifiedAny) {
+        ok('Cleaned environment variables from shell profile files');
+      } else {
+        skip('No llm-fw environment variables found in shell profiles');
+      }
+    }
+  } catch (err) {
+    warn('Could not clean environment variables automatically: ' + (err as Error).message);
+  }
+}
+
+/** Scan for IDE settings and remove the proxy settings if they belong to llm-fw. */
+function removeIdeProxySettings(): void {
+  const paths = getIdeSettingsPaths();
+  let modifiedAny = false;
+
+  for (const p of paths) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const content = fs.readFileSync(p, 'utf8');
+      let config: Record<string, unknown>;
+      try {
+        config = JSON.parse(content) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      const cleaned = stripIdeProxyConfig(config);
+      if (JSON.stringify(config) !== JSON.stringify(cleaned)) {
+        fs.writeFileSync(p, JSON.stringify(cleaned, null, 4), 'utf8');
+        modifiedAny = true;
+      }
+    } catch { /* ignore individual write/read errors */ }
+  }
+
+  if (modifiedAny) {
+    ok('Removed proxy settings from IDE configurations');
+  }
+}
+
 // ── orchestration ─────────────────────────────────────────────────────────────
 
 export async function run(args: string[]): Promise<void> {
@@ -263,17 +389,17 @@ export async function run(args: string[]): Promise<void> {
   // 3. Local files.
   cleanProjectConfig();
   removeLlmfwFiles(llmfwDir, keepModel);
+  removeEnvVars();
+  removeIdeProxySettings();
 
   // 4. Remind about the env vars setup told the user to set (we don't own them).
-  console.log('\n── One manual step ─────────────────────────────────────────────────────────');
-  console.log('  setup never set environment variables itself — it asked you to. Unset any');
-  console.log('  you added, in each shell / profile where you set them:');
+  console.log('\n── Active shell sessions ───────────────────────────────────────────────────');
+  console.log('  Environment variables were removed from registry/profiles, but active shell');
+  console.log('  sessions still retain them. To clean your current session, run:');
   if (platform() === 'win32') {
     console.log('    Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS   # current session');
-    console.log('    setx HTTPS_PROXY "" ; setx NODE_EXTRA_CA_CERTS ""      # persisted values');
   } else {
     console.log('    unset HTTPS_PROXY NODE_EXTRA_CA_CERTS                  # current session');
-    console.log('    …and delete the matching export lines from ~/.bashrc / ~/.zshrc / ~/.profile');
   }
   console.log('\n  Note: the Windows IP Helper service (iphlpsvc) and any Ollama judge model are');
   console.log('  shared system resources and are left in place. Remove them yourself if unused:');

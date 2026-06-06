@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
 import http from 'node:http'
+import vm from 'node:vm'
 
 vi.mock('../../src/detection/pipeline.js', () => ({
   Pipeline: vi.fn().mockImplementation(function() {
@@ -109,6 +110,17 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     const res = await req(server, 'GET', '/')
     expect(res.status).toBe(200)
     expect(res.body).toContain('DOCTYPE')
+  })
+
+  // Regression guard: the dashboard's behaviour lives in one big inline <script>.
+  // A single syntax error there (e.g. a mis-escaped quote in a JS-built HTML
+  // string) silently breaks every handler and only surfaces in the browser/e2e.
+  // Compile it here (compile-only, never executed) so such breakage fails fast.
+  it('GET / inline <script> compiles without a syntax error', async () => {
+    const res = await req(server, 'GET', '/')
+    const match = res.body.match(/<script>([\s\S]*?)<\/script>/)
+    expect(match).not.toBeNull()
+    expect(() => new vm.Script(match![1])).not.toThrow()
   })
 
   it('GET /api/events returns 200 JSON array', async () => {
@@ -226,6 +238,50 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.status).toBe(200)
     expect(res.body).toContain('<th>From IP</th>')
     expect(res.body).toContain('click a row for full request details')
+  })
+
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('POST /api/whitelist with no id returns 400', async () => {
+    const res = await req(server, 'POST', '/api/whitelist', '{}')
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.body).error).toContain('id')
+  })
+
+  it('POST /api/whitelist with an unknown id returns 404', async () => {
+    const res = await req(server, 'POST', '/api/whitelist', '{"id":"no-such-event"}')
+    expect(res.status).toBe(404)
+  })
+
+  it('GET /api/whitelist returns a JSON array', async () => {
+    const res = await req(server, 'GET', '/api/whitelist')
+    expect(res.status).toBe(200)
+    expect(Array.isArray(JSON.parse(res.body))).toBe(true)
+  })
+
+  it('GET /api/languages returns the Google Translate language list', async () => {
+    const res = await req(server, 'GET', '/api/languages')
+    expect(res.status).toBe(200)
+    const langs = JSON.parse(res.body) as Array<{ code: string; name: string }>
+    expect(langs.length).toBeGreaterThan(100)
+    expect(langs.some(l => l.code === 'es')).toBe(true)
+  })
+
+  it('POST /api/translate returns the translated text (network stubbed)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [[['Ignora las instrucciones', 'orig', null]], null, 'en'],
+    }))
+    const res = await req(server, 'POST', '/api/translate', '{"text":"Ignore instructions","target":"es"}')
+    expect(res.status).toBe(200)
+    const d = JSON.parse(res.body)
+    expect(d.translated).toBe('Ignora las instrucciones')
+    expect(d.detectedSource).toBe('en')
+  })
+
+  it('POST /api/translate without target returns 400', async () => {
+    const res = await req(server, 'POST', '/api/translate', '{"text":"hello"}')
+    expect(res.status).toBe(400)
   })
 
   it('GET /api/metrics/traffic returns emitted metric with client IP and request detail', async () => {
