@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripSinkholeBlock, stripJudgeConfig } from '../../src/cli/uninstall.js'
+import { stripSinkholeBlock, stripJudgeConfig, stripProfileEnvVars, stripIdeProxyConfig } from '../../src/cli/uninstall.js'
 
 const TARGETS = ['api.anthropic.com', 'generativelanguage.googleapis.com']
 
@@ -90,5 +90,76 @@ describe('stripJudgeConfig', () => {
   it('returns the object unchanged when there is no judge config', () => {
     const parsed = { targets: ['api.anthropic.com'] }
     expect(stripJudgeConfig(parsed)).toEqual({ targets: ['api.anthropic.com'] })
+  })
+})
+
+describe('stripProfileEnvVars', () => {
+  it('removes export statements for HTTPS_PROXY and NODE_EXTRA_CA_CERTS pointing to llm-fw', () => {
+    const profile = [
+      '# my exports',
+      'export PATH=$PATH:/some/path',
+      'export HTTPS_PROXY=http://127.0.0.1:8080',
+      'export NODE_EXTRA_CA_CERTS=/Users/name/.llm-fw/ca.crt',
+      'export OTHER_VAR=value',
+    ].join('\n')
+
+    const out = stripProfileEnvVars(profile)
+    expect(out).toContain('export PATH=$PATH:/some/path')
+    expect(out).toContain('export OTHER_VAR=value')
+    expect(out).not.toContain('export HTTPS_PROXY=')
+    expect(out).not.toContain('export NODE_EXTRA_CA_CERTS=')
+  })
+
+  it('preserves other proxy/cert variables not matching llm-fw destinations', () => {
+    const profile = [
+      'export HTTPS_PROXY=http://my-corporate-proxy:8080',
+      'export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt',
+    ].join('\n')
+
+    const out = stripProfileEnvVars(profile)
+    expect(out).toContain('export HTTPS_PROXY=http://my-corporate-proxy:8080')
+    expect(out).toContain('export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt')
+  })
+
+  it('handles CRLF line endings', () => {
+    const profile = 'export PATH=/bin\r\nexport HTTPS_PROXY=http://localhost:8080\r\n'
+    const out = stripProfileEnvVars(profile)
+    expect(out).toContain('export PATH=/bin')
+    expect(out).not.toContain('export HTTPS_PROXY=')
+  })
+})
+
+describe('stripIdeProxyConfig', () => {
+  it('removes proxy keys if configured to llm-fw localhost/127.0.0.1 default proxy', () => {
+    const config = {
+      'python.languageServer': 'Default',
+      'http.proxy': 'http://127.0.0.1:8080',
+      'http.proxyStrictSSL': false
+    }
+
+    const out = stripIdeProxyConfig(config)
+    expect(out).toEqual({ 'python.languageServer': 'Default' })
+  })
+
+  it('removes proxy keys if configured to localhost or custom port matching localhost patterns', () => {
+    const config = {
+      'http.proxy': 'http://localhost:8443',
+      'http.proxyStrictSSL': false,
+      'other.setting': true
+    }
+
+    const out = stripIdeProxyConfig(config)
+    expect(out).toEqual({ 'other.setting': true })
+  })
+
+  it('preserves proxy keys if they point to an external or corporate proxy', () => {
+    const config = {
+      'http.proxy': 'http://proxy.corp.example.com:8080',
+      'http.proxyStrictSSL': true,
+      'other.setting': true
+    }
+
+    const out = stripIdeProxyConfig(config)
+    expect(out).toEqual(config)
   })
 })

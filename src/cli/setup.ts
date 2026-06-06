@@ -23,6 +23,71 @@ export function isElevated(): boolean {
   return typeof process.getuid === 'function' && process.getuid() === 0;
 }
 
+/** Resolve existing settings.json paths for VS Code and Antigravity IDE on the host. */
+export function getIdeSettingsPaths(): string[] {
+  const os = platform();
+  const paths: string[] = [];
+
+  if (os === 'win32') {
+    const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+    paths.push(
+      join(appData, 'Antigravity IDE', 'User', 'settings.json'),
+      join(appData, 'Code', 'User', 'settings.json')
+    );
+  } else if (os === 'darwin') {
+    paths.push(
+      join(homedir(), 'Library', 'Application Support', 'Antigravity IDE', 'User', 'settings.json'),
+      join(homedir(), 'Library', 'Application Support', 'Code', 'User', 'settings.json')
+    );
+  } else {
+    paths.push(
+      join(homedir(), '.config', 'Antigravity IDE', 'User', 'settings.json'),
+      join(homedir(), '.config', 'Code', 'User', 'settings.json')
+    );
+  }
+
+  return paths.filter(p => fs.existsSync(p));
+}
+
+/** Inject proxy configuration settings to detect and direct IDE network traffic. */
+function configureIdeProxies(proxyUrl: string): void {
+  const paths = getIdeSettingsPaths();
+  let modifiedAny = false;
+
+  for (const p of paths) {
+    try {
+      let config: Record<string, unknown> = {};
+      if (fs.existsSync(p)) {
+        try {
+          config = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
+        } catch {
+          // corrupt JSON, start fresh or skip
+          continue;
+        }
+      }
+
+      let changed = false;
+      if (config['http.proxy'] !== proxyUrl) {
+        config['http.proxy'] = proxyUrl;
+        changed = true;
+      }
+      if (config['http.proxyStrictSSL'] !== false) {
+        config['http.proxyStrictSSL'] = false;
+        changed = true;
+      }
+
+      if (changed) {
+        fs.writeFileSync(p, JSON.stringify(config, null, 4), 'utf8');
+        modifiedAny = true;
+      }
+    } catch { /* ignore individual write/read errors */ }
+  }
+
+  if (modifiedAny) {
+    console.log('  ✓ Configured proxy settings in IDE configurations (settings.json).');
+  }
+}
+
 export async function run(args: string[]): Promise<void> {
   // Sinkhole (OS-level redirect, covers Node.js/native tools that ignore
   // HTTPS_PROXY) is enabled by DEFAULT alongside the proxy so the firewall just
@@ -186,6 +251,10 @@ export async function run(args: string[]): Promise<void> {
       'utf8'
     );
   }
+
+  // Configure IDE proxy settings
+  const proxyUrl = 'http://127.0.0.1:' + config.proxy.port;
+  configureIdeProxies(proxyUrl);
 
   console.log('\nllm-fw setup complete.');
 
