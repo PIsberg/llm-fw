@@ -127,6 +127,18 @@ describe('stripProfileEnvVars', () => {
     expect(out).toContain('export PATH=/bin')
     expect(out).not.toContain('export HTTPS_PROXY=')
   })
+
+  it('removes the "# llm-fw env" marker comment setup writes', () => {
+    const profile = '# llm-fw env\nexport HTTPS_PROXY=http://127.0.0.1:8080\n'
+    const out = stripProfileEnvVars(profile)
+    expect(out).not.toContain('# llm-fw env')
+    expect(out).not.toContain('export HTTPS_PROXY=')
+  })
+
+  it('removes a loopback HTTPS_PROXY on a non-default port', () => {
+    const profile = 'export HTTPS_PROXY=http://127.0.0.1:9090\n'
+    expect(stripProfileEnvVars(profile)).not.toContain('export HTTPS_PROXY=')
+  })
 })
 
 describe('stripIdeProxyConfig', () => {

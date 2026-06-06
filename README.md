@@ -136,7 +136,7 @@ npx llm-fw <command>
 llm-fw setup
 ```
 
-Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
+Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, **sets the `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` environment variables for you** (Windows user environment via `setx`; macOS/Linux shell profile), auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
 
 > **Windows:** run the terminal as Administrator to enable the sinkhole.  
 > **macOS/Linux:** `sudo llm-fw setup` to enable the sinkhole.  
@@ -152,21 +152,25 @@ Running a second time automatically stops the previous instance first.
 
 **Step 3 — Point your tools at the proxy:**
 
+`setup` already set `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` persistently, so **new
+terminals are covered automatically** — just open a fresh one. To load them into
+a shell that was already open (without reopening it), run:
+
 ```bash
 # macOS / Linux
 export HTTPS_PROXY=http://127.0.0.1:8080
-export NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"   # required for Node.js tools
+export NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"
 
 # PowerShell
 $env:HTTPS_PROXY="http://127.0.0.1:8080"
-$env:NODE_EXTRA_CA_CERTS="$env:USERPROFILE\.llm-fw\ca.crt"   # required for Node.js tools
+$env:NODE_EXTRA_CA_CERTS="$env:USERPROFILE\.llm-fw\ca.crt"
 
 # Windows cmd
 set HTTPS_PROXY=http://127.0.0.1:8080
 set NODE_EXTRA_CA_CERTS=%USERPROFILE%\.llm-fw\ca.crt
 ```
 
-> `NODE_EXTRA_CA_CERTS` is needed because Node.js uses its own CA bundle and ignores the OS trust store — even after the CA is installed system-wide.
+> `NODE_EXTRA_CA_CERTS` is needed because Node.js uses its own CA bundle and ignores the OS trust store — even after the CA is installed system-wide. (In sinkhole mode `HTTPS_PROXY` isn't strictly required, but setup sets it anyway so proxy-aware tools are covered too.)
 
 **Step 4 — Open the dashboard:**
 
@@ -897,7 +901,7 @@ LLM_FW_JUDGE_ENABLED=true
 
 | Command | Description |
 |---------|-------------|
-| `llm-fw setup` | Generate CA cert, install to trust store, download model, auto-configure the proxy in detected VS Code / Antigravity IDE settings, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
+| `llm-fw setup` | Generate CA cert, install to trust store, download model, set `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` (user env / shell profile), auto-configure the proxy in detected VS Code / Antigravity IDE settings, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
 | `llm-fw setup --proxy-only` | Skip the sinkhole; configure proxy mode only (no admin needed) |
 | `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
 | `llm-fw start` | Start proxy and dashboard |
@@ -915,7 +919,7 @@ What it verifies:
 
 - **Process & listeners** — `llm-fw` running, proxy + dashboard ports accepting connections, and (in sinkhole mode) the sinkhole TLS server on its HTTPS port.
 - **CA** — `~/.llm-fw/ca.crt` exists and is present in the OS trust store.
-- **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs).
+- **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs). `setup` sets both persistently, but `doctor` inspects the **current shell**, so if it reports them unset right after install, just open a new terminal (or run the per-session export it prints).
 - **Sinkhole plumbing** — provider hosts are redirected to `127.0.0.1` in the hosts file and the OS-level `:443` redirect is in place (Windows `netsh portproxy`, macOS `pf`, Linux `iptables`).
 - **Windows only** — the **IP Helper service (`iphlpsvc`)** is running, which `netsh portproxy` depends on; if stopped, doctor prints `sc config iphlpsvc start= auto` / `net start iphlpsvc`.
 

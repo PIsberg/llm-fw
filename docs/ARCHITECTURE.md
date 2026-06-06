@@ -31,7 +31,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph CLI ["src/cli/"]
-        setup["setup.ts\n(CA + trust store + model + IDE proxy config)"]
+        setup["setup.ts\n(CA + trust store + model + IDE proxy + env vars)"]
         uninstall["uninstall.ts\n(reverse setup: trust store + hosts + redirect + IDE + env vars)"]
         start["start.ts\n(boot sequence + PID file)"]
         stop["stop.ts\n(SIGTERM + hosts restore)"]
@@ -345,7 +345,8 @@ sequenceDiagram
     CLI->>FS: cache to ~/.llm-fw/models/
 
     CLI->>FS: configureIdeProxies() — write http.proxy + http.proxyStrictSSL into any detected VS Code / Antigravity settings.json
-    CLI-->>U: Setup complete (prints active modes + env-var hints). Run: llm-fw start
+    CLI->>FS: configureEnvVars() — set HTTPS_PROXY + NODE_EXTRA_CA_CERTS (setx on Windows / shell profile on POSIX)
+    CLI-->>U: Setup complete (prints active modes + a per-session export for open shells). Run: llm-fw start
 ```
 
 ---
@@ -420,7 +421,7 @@ flowchart LR
 llm-fw/
 ├── src/
 │   ├── cli/
-│   │   ├── setup.ts         # CA gen, trust store, hosts, model, IDE proxy config
+│   │   ├── setup.ts         # CA gen, trust store, hosts, model, IDE proxy, env vars
 │   │   ├── setup-judge.ts   # Ollama model pull + judge config
 │   │   ├── uninstall.ts     # reverse setup: trust store, hosts, redirect, IDE, env vars, files
 │   │   ├── start.ts         # boot sequence, exit hooks, PID file
@@ -527,20 +528,25 @@ into any detected IDE `settings.json` so their requests flow through the proxy.
 The reversible host resolution and write/strip helpers (`getIdeSettingsPaths`,
 `stripIdeProxyConfig`) are shared between `setup` and `uninstall`.
 
-### 12.6 Environment variables (set by the user, cleaned on uninstall)
+### 12.6 Environment variables (set by setup, cleaned on uninstall)
 
-`setup` **prints** `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` for the user to
-export; it does not set them itself. For convenience, `uninstall` still **clears**
-any llm-fw-pointing copies it finds so a teardown leaves no dangling proxy
-config:
+`setup` **sets** `HTTPS_PROXY` (→ `http://127.0.0.1:<proxyPort>`) and
+`NODE_EXTRA_CA_CERTS` (→ `~/.llm-fw/ca.crt`) persistently so new shells point at
+the firewall without any manual export. It still prints a per-session command for
+already-open terminals (which can't inherit the change). `uninstall` reverses it.
 
-| Platform | Where they're cleared | How |
-| --- | --- | --- |
-| Windows | `HKCU\Environment` (always) + `HKLM\…\Session Manager\Environment` (when elevated) | `reg delete … /v HTTPS_PROXY /f`, same for `NODE_EXTRA_CA_CERTS` |
-| macOS / Linux | `~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.bash_profile` | `stripProfileEnvVars` removes `export` lines pointing at the proxy / `~/.llm-fw/ca.crt` |
+| Platform | What `setup` writes | How | Reversal |
+| --- | --- | --- | --- |
+| Windows | `HKCU\Environment` (user scope) | `setx HTTPS_PROXY …` / `setx NODE_EXTRA_CA_CERTS …` (REG_SZ; broadcasts `WM_SETTINGCHANGE`) | `reg delete HKCU\Environment /v … /f` — plus `HKLM\…\Session Manager\Environment` when uninstall runs elevated |
+| macOS / Linux | the user's shell profile (`~/.zshrc`, `~/.bashrc`, else `~/.profile`) | `addProfileEnvVars` appends a `# llm-fw env` block with both `export`s, stripping any prior block first (idempotent) | `stripProfileEnvVars` removes the marker + the loopback-proxy / `~/.llm-fw/ca.crt` exports |
 
-Already-open shell sessions keep their in-memory copies; `uninstall` prints the
-manual `unset` / `Remove-Item Env:` command for the current session.
+Both transforms are pure and unit-tested (`addProfileEnvVars` in
+`test/cli/setup.test.ts`, `stripProfileEnvVars` in `test/cli/uninstall.test.ts`);
+a user's own corporate-proxy / unrelated-CA exports are left untouched. Already-open
+shell sessions keep their in-memory copies; `uninstall` prints the manual `unset`
+/ `Remove-Item Env:` command for the current session. `doctor` reads the live
+process environment, so it reports these as set only once a new shell has loaded
+them.
 
 ---
 
