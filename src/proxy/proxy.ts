@@ -18,7 +18,26 @@ import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate
 import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
+import zlib from 'node:zlib'
 import { identifyService } from '../config/providers.js'
+import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
+
+/**
+ * Decompress a fully-buffered response body by its Content-Encoding so the
+ * inspected paths (MCP tool rewrite, response-exfil scan) see plaintext. Some
+ * servers send raw (headerless) deflate, so fall back to inflateRaw. Throws on a
+ * corrupt/truncated stream — the caller forwards the original bytes on failure.
+ */
+function decompressBody(buf: Buffer, encoding: string): Buffer {
+  const enc = encoding.toLowerCase().trim()
+  if (!enc || enc === 'identity') return buf
+  if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(buf)
+  if (enc === 'br') return zlib.brotliDecompressSync(buf)
+  if (enc === 'deflate') {
+    try { return zlib.inflateSync(buf) } catch { return zlib.inflateRawSync(buf) }
+  }
+  return buf // unknown encoding — treat as opaque
+}
 
 /**
  * Raised when the upstream socket goes idle for longer than `upstreamTimeoutMs`.
@@ -780,6 +799,35 @@ export class ProxyServer {
     })
   }
 
+  /**
+   * Scan decoded response text for data-exfiltration markup (markdown/HTML image
+   * & link URLs to exfil sinks, judged by the URL classifier). Emits an event per
+   * finding. Returns the neutralized text when blocking is enabled AND the body is
+   * still rewritable (buffered, non-streamed); otherwise null (audit / can't strip).
+   */
+  private runResponseExfilScan(text: string, req: http.IncomingMessage, hostname: string, canNeutralize: boolean): string | null {
+    if (!this.config.responseScan?.enabled) return null
+    const findings = scanResponseExfil(text, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
+    if (!findings.length) return null
+    const block = this.config.responseScan.mode === 'block' && canNeutralize
+    for (const f of findings) {
+      this.eventBus.emit({
+        stage: 'response-exfil',
+        score: 100,
+        similarity: 0,
+        target: hostname,
+        method: req.method ?? 'GET',
+        path: req.url ?? '/',
+        payload_preview: `${block ? 'Blocked' : 'Detected'} response exfil (${f.kind}): ${f.url.slice(0, 160)}`,
+        payload_full: f.url,
+        action: block ? 'blocked' : 'warned',
+        kind: 'response-exfil',
+        exfilUrl: f.url,
+      })
+    }
+    return block ? neutralizeExfil(text, findings) : null
+  }
+
   // One-line, context-rich console output for failed requests. Expected
   // operational conditions (upstream idle timeouts) log as a concise warning;
   // genuinely unexpected errors keep their stack so they stay debuggable.
@@ -835,29 +883,51 @@ export class ProxyServer {
       // reach the agent (see DESIGN-mcp-response.md): non-streaming JSON is
       // buffered and rewritten tool-free; streaming SSE is gated per tool block.
       // Everything else streams straight through untouched.
+      // Inspected modes (MCP tool rewrite + response-exfil scan) need the
+      // DECODED, DECOMPRESSED payload. JSON: buffer raw bytes, decompress+inspect
+      // at end. SSE: gate/forward live, scan the accumulated text at flush.
+      // Everything else streams through untouched.
       const parser = getParser(req.url ?? '/')
-      const mcpEnabled = !!(this.config.mcp.enabled && mcpInspect && parser)
+      const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
+      const responseScanActive = this.config.responseScan?.enabled === true
+      const wantInspect = mcpActive || responseScanActive
       const maxResp = this.config.proxy.maxBodyBytes
 
       let headersDone = false
       let rawHeaders = ''
       let respBodyBytes = 0
-      // 'json' buffers the whole body for inspection; 'json-stream' is the
-      // fail-open fallback once an oversized body forces us to start flushing.
-      let mode: 'passthrough' | 'json' | 'json-stream' | 'sse' = 'passthrough'
+      // 'raw-stream' is the fail-open passthrough after an oversized inspected body.
+      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' = 'passthrough'
       let status = 200
       const respHeaders: Record<string, string> = {}
-      let jsonBuf = ''
+      let cenc = ''
+      const jsonChunks: Buffer[] = []
+      let jsonRawLen = 0
+      let sseText = ''
       let gate: SseGate | null = null
       let dechunker: ChunkedDecoder | null = null
       const decoder = new StringDecoder('utf8')
-      // Inspected modes operate on the decoded payload, so strip the framing
-      // headers and let Node re-frame whatever we forward.
+
+      // Inspected modes forward decompressed plaintext, so drop framing AND
+      // content-encoding (else the client would try to gunzip plaintext).
       const inspectedHeaders = (): Record<string, string> => {
         const h = { ...respHeaders }
-        delete h['content-length']
-        delete h['transfer-encoding']
+        delete h['content-length']; delete h['transfer-encoding']; delete h['content-encoding']
         return h
+      }
+      // Fail-open passthrough of still-encoded bytes: drop framing but KEEP
+      // content-encoding so the client decodes them itself.
+      const failoverHeaders = (): Record<string, string> => {
+        const h = { ...respHeaders }
+        delete h['content-length']; delete h['transfer-encoding']
+        return h
+      }
+      // SSE: accumulate decoded text for the exfil scan, then forward — through
+      // the MCP gate when active, else verbatim.
+      const feedSse = (text: string) => {
+        if (sseText.length < maxResp) sseText += text
+        if (gate) respBodyBytes += this.gateSse(gate, text, res, req, hostname)
+        else if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
       }
 
       upstream.on('data', (chunk: Buffer) => {
@@ -874,64 +944,58 @@ export class ProxyServer {
             const ci = line.indexOf(': ')
             if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
           }
-
-          // We send `Accept-Encoding: identity` upstream, so a compressed
-          // response means the provider ignored it. Surface it: passthrough
-          // forwards the compressed bytes verbatim (client decodes, fine), but
-          // the inspected json/sse modes decode the body as UTF-8 — gzip/br
-          // bytes would become mojibake → "Failed to parse JSON" downstream.
-          const cenc = (respHeaders['content-encoding'] ?? '').toLowerCase().trim()
-          if (cenc && cenc !== 'identity') {
-            console.warn(`[proxy] upstream ${hostname}${req.url ?? '/'} sent content-encoding: ${cenc} despite Accept-Encoding: identity — response inspection is unreliable for compressed bodies.`)
-          }
+          cenc = (respHeaders['content-encoding'] ?? '').toLowerCase().trim()
+          const compressed = cenc !== '' && cenc !== 'identity'
 
           const ctype = (respHeaders['content-type'] ?? '').toLowerCase()
-          if (mcpEnabled && ctype.includes('text/event-stream')) mode = 'sse'
-          else if (mcpEnabled && ctype.includes('application/json')) mode = 'json'
+          if (wantInspect && ctype.includes('text/event-stream')) {
+            // Streaming decompression is unsupported — a compressed SSE stream
+            // falls back to untouched passthrough rather than risk corruption.
+            mode = compressed ? 'passthrough' : 'sse'
+          } else if (wantInspect && ctype.includes('application/json')) {
+            mode = 'json'
+          }
 
-          // Whenever upstream framed the body as chunked we must decode it and
-          // let Node re-apply framing — otherwise the raw chunk-size lines reach
-          // the client on top of Node's own framing (double-framing), and the
-          // hex sizes end up embedded in the body → "Failed to parse JSON".
-          // Inspected modes need the decoded payload anyway; passthrough needs
-          // it to stay byte-transparent at the payload level.
+          // Decode chunked framing so we can re-frame once (and, for JSON,
+          // decompress the assembled body at end).
           if ((respHeaders['transfer-encoding'] ?? '').toLowerCase().includes('chunked')) {
             dechunker = new ChunkedDecoder()
           }
-          const payload = (raw: Buffer): string => decoder.write(dechunker ? dechunker.push(raw) : raw)
+          const dechunk = (raw: Buffer): Buffer => dechunker ? dechunker.push(raw) : raw
 
           if (mode === 'sse') {
-            gate = createSseGate(parser!, this.mcp!)
+            gate = mcpActive ? createSseGate(parser!, this.mcp) : null
             res.writeHead(status, inspectedHeaders())
-            respBodyBytes += this.gateSse(gate, payload(bodyStart), res, req, hostname)
+            feedSse(decoder.write(dechunk(bodyStart)))
           } else if (mode === 'json') {
-            jsonBuf += payload(bodyStart) // withhold: we may rewrite it on end
+            const b = dechunk(bodyStart)
+            if (b.length) { jsonChunks.push(b); jsonRawLen += b.length }
           } else {
-            // Passthrough. If upstream was chunked, strip the framing headers
-            // and forward the decoded bytes so Node frames the response exactly
-            // once; otherwise forward bytes + content-length verbatim. Stays
-            // binary-safe (no utf-8 round-trip) so file/image payloads survive.
-            res.writeHead(status, dechunker ? inspectedHeaders() : respHeaders)
-            const out = dechunker ? dechunker.push(bodyStart) : bodyStart
+            // Passthrough. Keep content-encoding (failoverHeaders) when we had to
+            // dechunk; else forward bytes + original headers verbatim. Binary-safe
+            // (no utf-8 round-trip) so file/image payloads survive.
+            res.writeHead(status, dechunker ? failoverHeaders() : respHeaders)
+            const out = dechunk(bodyStart)
             if (out.length) { res.write(out); respBodyBytes += out.length }
           }
-        } else if (mode === 'sse' && gate) {
-          respBodyBytes += this.gateSse(gate, decoder.write(dechunker ? dechunker.push(chunk) : chunk), res, req, hostname)
+        } else if (mode === 'sse') {
+          feedSse(decoder.write(dechunker ? dechunker.push(chunk) : chunk))
         } else if (mode === 'json') {
-          jsonBuf += decoder.write(dechunker ? dechunker.push(chunk) : chunk)
-          if (jsonBuf.length > maxResp) {
-            // Oversized — fail open: emit a warning, flush what we have, and
-            // stream the decoded remainder without inspection.
-            this.emitMcp('passed', `Response too large to inspect (${jsonBuf.length}B)`, '', req, hostname)
-            res.writeHead(status, inspectedHeaders())
-            res.write(Buffer.from(jsonBuf, 'utf8'))
-            respBodyBytes += Buffer.byteLength(jsonBuf)
-            jsonBuf = ''
-            mode = 'json-stream'
+          const b = dechunker ? dechunker.push(chunk) : chunk
+          if (b.length) { jsonChunks.push(b); jsonRawLen += b.length }
+          if (jsonRawLen > maxResp) {
+            // Oversized — fail open: forward the still-(maybe-)encoded bytes
+            // verbatim and stop inspecting.
+            this.emitMcp('passed', `Response too large to inspect (${jsonRawLen}B)`, '', req, hostname)
+            res.writeHead(status, failoverHeaders())
+            const buffered = Buffer.concat(jsonChunks)
+            if (buffered.length) { res.write(buffered); respBodyBytes += buffered.length }
+            jsonChunks.length = 0
+            mode = 'raw-stream'
           }
-        } else if (mode === 'json-stream') {
-          const text = decoder.write(dechunker ? dechunker.push(chunk) : chunk)
-          if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
+        } else if (mode === 'raw-stream') {
+          const out = dechunker ? dechunker.push(chunk) : chunk
+          if (out.length) { res.write(out); respBodyBytes += out.length }
         } else {
           const out = dechunker ? dechunker.push(chunk) : chunk
           if (out.length) { res.write(out); respBodyBytes += out.length }
@@ -939,34 +1003,54 @@ export class ProxyServer {
       })
       upstream.on('end', () => {
         upstream.setTimeout(0) // response complete — disarm the idle timer
-        if (mode === 'json' && this.config.mcp.enabled && parser) {
-          jsonBuf += decoder.end()
-          const { decisions, blockedNames } = inspectJsonResponse(jsonBuf, parser, this.mcp)
-          for (const d of decisions) {
-            if (d.action === 'block') {
-              const preview = d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`
-              this.emitMcp('blocked', preview, jsonBuf, req, hostname, d.toolName, d.reason)
-            } else if (d.audit) {
-              const preview = d.reason ? `Audit: would block ${d.toolName} (${d.reason})` : `Audit: would block ${d.toolName}`
-              this.emitMcp('warned', preview, jsonBuf, req, hostname, d.toolName, d.reason)
-            } else {
-              this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, jsonBuf, req, hostname, d.toolName)
-            }
+        if (mode === 'json') {
+          const raw = Buffer.concat(jsonChunks)
+          let text: string
+          try {
+            text = decompressBody(raw, cenc).toString('utf8')
+          } catch (err) {
+            // Corrupt/truncated compressed body — forward verbatim, uninspected.
+            console.warn(`[proxy] could not decompress ${cenc} response from ${hostname}${req.url ?? '/'}: ${(err as Error)?.message ?? String(err)}`)
+            res.writeHead(status, failoverHeaders())
+            res.end(raw)
+            respBodyBytes = raw.length
+            if (this.config.dos.enabled && isLlmRequest) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
+            resolve(respBodyBytes)
+            return
           }
-          const finalBody = blockedNames.size > 0 ? rewriteBlockedJsonResponse(jsonBuf, blockedNames) : jsonBuf
+
+          let finalBody = text
+          if (mcpActive && parser) {
+            const { decisions, blockedNames } = inspectJsonResponse(text, parser, this.mcp)
+            for (const d of decisions) {
+              if (d.action === 'block') {
+                this.emitMcp('blocked', d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`, text, req, hostname, d.toolName, d.reason)
+              } else if (d.audit) {
+                this.emitMcp('warned', d.reason ? `Audit: would block ${d.toolName} (${d.reason})` : `Audit: would block ${d.toolName}`, text, req, hostname, d.toolName, d.reason)
+              } else {
+                this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, text, req, hostname, d.toolName)
+              }
+            }
+            if (blockedNames.size > 0) finalBody = rewriteBlockedJsonResponse(finalBody, blockedNames)
+          }
+
+          // Response-exfil scan on the buffered body → can neutralize when mode=block.
+          const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
+          if (neutralized !== null) finalBody = neutralized
+
           res.writeHead(status, inspectedHeaders())
           res.end(Buffer.from(finalBody, 'utf8'))
           respBodyBytes = Buffer.byteLength(finalBody)
         } else {
-          if (mode === 'sse' && gate) {
-            const tail = gate.flush()
-            if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) }
+          if (mode === 'sse') {
+            if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
+            // Already streamed → audit only (cannot retract sent bytes).
+            this.runResponseExfilScan(sseText, req, hostname, false)
           }
           res.end()
         }
         // Account the RESPONSE size against the token budget. Runaway agents and
-        // large generations rack up cost on the response side, not just input,
-        // so a budget that ignored responses would badly under-count.
+        // large generations rack up cost on the response side, not just input.
         if (this.config.dos.enabled && isLlmRequest) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
         resolve(respBodyBytes)
       })

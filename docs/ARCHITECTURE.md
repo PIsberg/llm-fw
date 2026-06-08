@@ -435,6 +435,7 @@ llm-fw/
 │   ├── detection/
 │   │   ├── normalize.ts     # Unicode NFKC + zero-width/invisible-char strip
 │   │   ├── asciiSmuggling.ts# invisible-char (Unicode-tag/bidi) smuggling detector
+│   │   ├── responseExfil.ts # response-side markdown/HTML exfil-URL detector
 │   │   ├── parsers.ts       # Anthropic + Gemini payload extractors
 │   │   ├── heuristic.ts     # weighted phrase scorer
 │   │   ├── embedding.ts     # ONNX model + sliding-window checker

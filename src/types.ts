@@ -43,6 +43,12 @@ export interface DashboardConfig {
   // `start --standalone` sets it to '0.0.0.0' so the admin console and the CA
   // download endpoint are reachable from client machines.
   bindHost: string;
+  // Shared secret required to access the dashboard from a NON-loopback address.
+  // Loopback (the operator on the same machine) always bypasses auth. When the
+  // dashboard is reachable remotely (bindHost not local) and no token is set, one
+  // is auto-generated at startup and logged, so a standalone dashboard is never
+  // left open. Override via LLM_FW_DASHBOARD_TOKEN.
+  authToken?: string;
 }
 
 export interface DLPConfig {
@@ -71,6 +77,16 @@ export interface DosConfig {
 
 interface RagConfig {
   enabled: boolean;
+}
+
+export interface ResponseScanConfig {
+  // Scan the MODEL'S RESPONSE for data-exfiltration markup (markdown/HTML image
+  // and link URLs pointing at exfil sinks). 'audit' emits an event and forwards
+  // unchanged; 'block' additionally neutralizes the offending URL in buffered
+  // (non-streaming) JSON responses. Default audit — rewriting model output is
+  // intrusive, so blocking is opt-in.
+  enabled: boolean;
+  mode: 'block' | 'audit';
 }
 
 export interface AsciiSmugglingConfig {
@@ -111,6 +127,7 @@ export interface Config {
   mcp: McpConfig;
   taint?: TaintConfig;
   asciiSmuggling?: AsciiSmugglingConfig;
+  responseScan?: ResponseScanConfig;
   targets: string[];
 }
 
@@ -162,8 +179,10 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil';
   urlBlockReason?: string;
+  // Exfil URL found in the model's response by the response-side scanner.
+  exfilUrl?: string;
   // Invisible-character channels found by the ASCII-smuggling detector
   // (e.g. ['unicode-tags']), shown in the event detail.
   smuggleRanges?: string[];

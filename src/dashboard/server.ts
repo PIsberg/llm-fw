@@ -1,5 +1,6 @@
 import http from 'node:http'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { Config } from '../types.js'
@@ -75,6 +76,7 @@ const HTML = `<!DOCTYPE html>
   .chip-rag         { background: #d1c4e9; color: #311b92; }
   .chip-mcp-filter  { background: #b2ebf2; color: #006064; }
   .chip-ascii-smuggling { background: #ffe0e6; color: #880e4f; }
+  .chip-response-exfil { background: #ffe0b2; color: #7c3800; }
 
   /* Score bar */
   .score-bar { display: flex; align-items: center; gap: 6px; }
@@ -286,6 +288,7 @@ const HTML = `<!DOCTYPE html>
     <div class="stat"><div class="stat-label">RAG Poisoning</div><div class="stat-value blocked" id="s-rag">0</div></div>
     <div class="stat"><div class="stat-label">MCP / Tool Use</div><div class="stat-value blocked" id="s-mcp">0</div></div>
     <div class="stat"><div class="stat-label">ASCII Smuggling</div><div class="stat-value blocked" id="s-ascii">0</div></div>
+    <div class="stat"><div class="stat-label">Response Exfil</div><div class="stat-value blocked" id="s-exfil">0</div></div>
   </div>
 
   <div class="tabs">
@@ -433,7 +436,7 @@ function showTab(name, btn) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0, mcp: 0, ascii: 0 };
+const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0, mcp: 0, ascii: 0, exfil: 0 };
 function updateStats(ev) {
   stats.total++;
   if (ev.action === 'blocked') stats.blocked++;
@@ -448,6 +451,7 @@ function updateStats(ev) {
   else if (ev.stage === 'rag') stats.rag++;
   else if (ev.stage === 'mcp-filter') stats.mcp++;
   else if (ev.stage === 'ascii-smuggling') stats.ascii++;
+  else if (ev.stage === 'response-exfil') stats.exfil++;
   document.getElementById('s-total').textContent = stats.total;
   document.getElementById('s-blocked').textContent = stats.blocked;
   document.getElementById('s-warned').textContent = stats.warned;
@@ -460,6 +464,7 @@ function updateStats(ev) {
   document.getElementById('s-rag').textContent = stats.rag;
   if (document.getElementById('s-mcp')) document.getElementById('s-mcp').textContent = stats.mcp;
   if (document.getElementById('s-ascii')) document.getElementById('s-ascii').textContent = stats.ascii;
+  if (document.getElementById('s-exfil')) document.getElementById('s-exfil').textContent = stats.exfil;
 }
 
 // ── Escape ────────────────────────────────────────────────────────────────────
@@ -508,6 +513,9 @@ function detailCell(ev) {
   }
   if (ev.stage === 'ascii-smuggling') {
     return '<span class="detail-tag">' + esc(ev.smuggleRanges && ev.smuggleRanges.length ? ev.smuggleRanges.join(', ') : 'hidden-chars') + '</span>';
+  }
+  if (ev.stage === 'response-exfil') {
+    return '<span class="detail-tag" title="' + esc(ev.exfilUrl || '') + '">' + esc(ev.exfilUrl ? ev.exfilUrl.slice(0, 40) + (ev.exfilUrl.length > 40 ? '…' : '') : 'exfil-url') + '</span>';
   }
   return '—';
 }
@@ -1009,6 +1017,8 @@ const SETTINGS_SCHEMA = [
     { key: 'rag', label: 'RAG context-poisoning' },
     { key: 'dlp', label: 'Data Loss Prevention (DLP)' },
     { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'] },
+    { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs in the model response' },
+    { key: 'responseScanMode', label: 'Response scan mode', type: 'select', options: ['audit', 'block'] },
   ]},
   { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails.', rows: [
     { key: 'mcp', label: 'MCP tool policy' },
@@ -1323,6 +1333,8 @@ interface SettingsView {
   taint: boolean
   taintMode: 'audit' | 'block'
   urlFilter: boolean
+  responseScan: boolean
+  responseScanMode: 'block' | 'audit'
 }
 
 // Defensive `?.`/defaults throughout: production config is always fully merged
@@ -1348,6 +1360,8 @@ function readSettings(config: Config): SettingsView {
     taint: config.taint?.enabled ?? false,
     taintMode: config.taint?.mode ?? 'audit',
     urlFilter: config.proxy?.urlFilter?.enabled ?? true,
+    responseScan: config.responseScan?.enabled ?? true,
+    responseScanMode: config.responseScan?.mode ?? 'audit',
   }
 }
 
@@ -1370,11 +1384,13 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   mcpCatD: (c, v) => { c.mcp.guardrailsCategories.d = v },
   taint: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).enabled = v },
   urlFilter: (c, v) => { c.proxy.urlFilter.enabled = v },
+  responseScan: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).enabled = v },
 }
 
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
+  responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).mode = v as 'block' | 'audit' } },
 }
 
 // Reconstruct the toggle-relevant subset of config as a nested partial for
@@ -1399,6 +1415,7 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
     taint: { enabled: config.taint?.enabled ?? false, mode: config.taint?.mode ?? 'audit' },
     proxy: { urlFilter: { enabled: config.proxy.urlFilter.enabled } },
     asciiSmuggling: { enabled: config.asciiSmuggling?.enabled ?? true },
+    responseScan: { enabled: config.responseScan?.enabled ?? true, mode: config.responseScan?.mode ?? 'audit' },
   }
 }
 
@@ -1469,7 +1486,63 @@ function checkSameOrigin(req: http.IncomingMessage): { ok: true } | { ok: false;
   return { ok: true }
 }
 
+// ── Dashboard authentication ──────────────────────────────────────────────────
+// The dashboard exposes captured payloads and (now) defense toggles, so it must
+// not be open when reachable from the network. Policy: the operator on the SAME
+// machine (loopback) always has access with zero config; any NON-loopback client
+// must present the shared token. Bootstrap endpoints that serve the public CA are
+// always open (a client needs the CA before it can trust anything).
+const AUTH_EXEMPT_PATHS = new Set(['/ca.crt', '/ca.pem', '/crl'])
+
+export function isLoopbackAddr(addr: string | undefined): boolean {
+  if (!addr) return false
+  const a = addr.replace(/^::ffff:/, '')
+  return a === '127.0.0.1' || a === '::1' || a.startsWith('127.')
+}
+
+/** Pull a presented token from Authorization (Bearer/Basic), ?token=, in that order. */
+export function presentedToken(req: http.IncomingMessage, url: URL): string {
+  const auth = req.headers.authorization ?? ''
+  if (auth.startsWith('Bearer ')) return auth.slice(7).trim()
+  if (auth.startsWith('Basic ')) {
+    try {
+      const decoded = Buffer.from(auth.slice(6).trim(), 'base64').toString('utf8')
+      // "user:token" — the token is the password half (the username is ignored).
+      return decoded.slice(decoded.indexOf(':') + 1)
+    } catch { /* malformed */ }
+  }
+  return url.searchParams.get('token') ?? ''
+}
+
+/** Constant-time token comparison that tolerates differing lengths. */
+export function tokenMatches(presented: string, expected: string): boolean {
+  if (!presented || !expected) return false
+  const a = Buffer.from(presented)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
+}
+
 export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline): http.Server {
+  // Effective auth token: configured value, else a generated one so a
+  // remotely-reachable dashboard is never left open. Loopback callers bypass auth
+  // entirely, so a purely local dashboard never needs the token.
+  const bindLocal = isLoopbackAddr(config.dashboard.bindHost) || config.dashboard.bindHost === undefined
+  const authToken = config.dashboard.authToken || crypto.randomBytes(24).toString('hex')
+  if (!bindLocal) {
+    if (config.dashboard.authToken) {
+      console.log('[dashboard] remote access requires the configured auth token (Authorization: Bearer <token>, or Basic with the token as the password).')
+    } else {
+      console.log(`[dashboard] reachable remotely — auth token (no LLM_FW_DASHBOARD_TOKEN set): ${authToken}`)
+    }
+  }
+
+  const isAuthorized = (req: http.IncomingMessage, url: URL, path: string): boolean => {
+    if (isLoopbackAddr(req.socket.remoteAddress)) return true
+    if (AUTH_EXEMPT_PATHS.has(path)) return true
+    return tokenMatches(presentedToken(req, url), authToken)
+  }
+
   const urlClassifier = config.proxy.urlFilter.enabled
     ? new UrlClassifier(config.proxy.urlFilter)
     : null
@@ -1482,6 +1555,17 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   return http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${config.dashboard.port}`)
     const path = url.pathname
+
+    // Auth gate — loopback bypasses; non-loopback needs the token. 401 with a
+    // Basic challenge so a remote browser is prompted natively.
+    if (!isAuthorized(req, url, path)) {
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': 'Basic realm="llm-fw dashboard", charset="UTF-8"',
+      })
+      res.end(JSON.stringify({ error: 'authentication required' }))
+      return
+    }
 
     if (req.method === 'GET' && path === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })

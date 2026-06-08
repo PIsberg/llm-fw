@@ -4,6 +4,18 @@
 
 ---
 
+## 🎯 Detection accuracy regression gate
+
+`test/detection/accuracy.eval.test.ts` runs the real cheap pipeline (heuristic + embedding, judge off) over a **labeled adversarial corpus** (`test/detection/fixtures/corpus.json`) and asserts:
+
+- **precision ≥ 95%** — benign prompts (incl. hard negatives that mention "ignore"/"system"/"override" legitimately) are almost never blocked;
+- **recall ≥ 80%** — overall fraction of attacks blocked;
+- **per-category recall ≥ 60%** — every attack family (override, persona, system-extraction, delimiter, fake-mode, social-engineering, encoding, multilingual, RAG) stays covered.
+
+Unlike the load test (which *samples* under concurrency through the proxy), this gate is **deterministic and exhaustive** — every corpus entry runs every time — and it executes as part of `npm run test:run`, so CI fails on any detection change that silently regresses coverage. **Grow the corpus, not the thresholds**, when adding a detector or fixing a miss; lower a threshold only with a deliberate, documented reason.
+
+---
+
 ## 🚀 Quick Start: Running Tests
 
 To run the entire test suite locally:
