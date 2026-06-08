@@ -80,6 +80,13 @@ export const DEFAULT_CONFIG: Config = {
   asciiSmuggling: {
     enabled: true,
   },
+  // Scan the model's RESPONSE for data-exfiltration markup (markdown/HTML image
+  // & link URLs to exfil sinks). Audit by default — rewriting model output is
+  // intrusive, so blocking is opt-in.
+  responseScan: {
+    enabled: true,
+    mode: 'audit',
+  },
   mcp: {
     enabled: true,
     // Tools blocked outright by name. Note: a name on this list is rejected by
@@ -204,6 +211,9 @@ export async function loadConfig(): Promise<Config> {
   if (env['LLM_FW_DASHBOARD_BIND']) {
     config.dashboard.bindHost = env['LLM_FW_DASHBOARD_BIND'];
   }
+  if (env['LLM_FW_DASHBOARD_TOKEN']) {
+    config.dashboard.authToken = env['LLM_FW_DASHBOARD_TOKEN'];
+  }
   if (env['LLM_FW_DLP_ENABLED']) {
     config.dlp.enabled = env['LLM_FW_DLP_ENABLED'] === 'true';
   }
@@ -233,6 +243,12 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_ASCII_SMUGGLING_ENABLED'] && config.asciiSmuggling) {
     config.asciiSmuggling.enabled = env['LLM_FW_ASCII_SMUGGLING_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_RESPONSE_SCAN_ENABLED'] && config.responseScan) {
+    config.responseScan.enabled = env['LLM_FW_RESPONSE_SCAN_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_RESPONSE_SCAN_MODE'] && config.responseScan && (env['LLM_FW_RESPONSE_SCAN_MODE'] === 'block' || env['LLM_FW_RESPONSE_SCAN_MODE'] === 'audit')) {
+    config.responseScan.mode = env['LLM_FW_RESPONSE_SCAN_MODE'];
   }
 
   return config;

