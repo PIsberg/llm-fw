@@ -1325,26 +1325,29 @@ interface SettingsView {
   urlFilter: boolean
 }
 
+// Defensive `?.`/defaults throughout: production config is always fully merged
+// from DEFAULT_CONFIG, but a partial config (e.g. an embedder, or the screenshot
+// launcher) must never make this endpoint throw a 500.
 function readSettings(config: Config): SettingsView {
   return {
     asciiSmuggling: config.asciiSmuggling?.enabled ?? true,
-    promptInjectionJudge: config.detection.judgeEnabled,
-    judgeBlock: config.detection.judgeBlock,
-    judgeUnlessBenign: config.detection.judgeUnlessBenign ?? false,
-    rag: config.rag.enabled,
-    dlp: config.dlp.enabled,
-    dlpMode: config.dlp.mode,
-    dos: config.dos.enabled,
-    dosLoopDetection: config.dos.loopDetectionEnabled,
-    mcp: config.mcp.enabled,
-    mcpGuardrails: config.mcp.guardrailsEnabled,
-    mcpCatA: config.mcp.guardrailsCategories.a,
-    mcpCatB: config.mcp.guardrailsCategories.b,
-    mcpCatC: config.mcp.guardrailsCategories.c,
-    mcpCatD: config.mcp.guardrailsCategories.d,
+    promptInjectionJudge: config.detection?.judgeEnabled ?? false,
+    judgeBlock: config.detection?.judgeBlock ?? false,
+    judgeUnlessBenign: config.detection?.judgeUnlessBenign ?? false,
+    rag: config.rag?.enabled ?? true,
+    dlp: config.dlp?.enabled ?? true,
+    dlpMode: config.dlp?.mode ?? 'redact',
+    dos: config.dos?.enabled ?? true,
+    dosLoopDetection: config.dos?.loopDetectionEnabled ?? true,
+    mcp: config.mcp?.enabled ?? true,
+    mcpGuardrails: config.mcp?.guardrailsEnabled ?? true,
+    mcpCatA: config.mcp?.guardrailsCategories?.a ?? true,
+    mcpCatB: config.mcp?.guardrailsCategories?.b ?? true,
+    mcpCatC: config.mcp?.guardrailsCategories?.c ?? true,
+    mcpCatD: config.mcp?.guardrailsCategories?.d ?? true,
     taint: config.taint?.enabled ?? false,
     taintMode: config.taint?.mode ?? 'audit',
-    urlFilter: config.proxy.urlFilter.enabled,
+    urlFilter: config.proxy?.urlFilter?.enabled ?? true,
   }
 }
 
