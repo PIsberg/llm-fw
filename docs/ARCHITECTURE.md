@@ -142,7 +142,7 @@ classDiagram
 
     class PipelineResult {
         +action: block|pass|warn
-        +stage: heuristic|embedding|judge|none
+        +stage: heuristic|embedding|judge|rag|ascii-smuggling|none
         +score: number
         +similarity: number
         +verdict: string
@@ -433,14 +433,15 @@ llm-fw/
 │   │   ├── certs.ts         # CA + per-host SAN cert factory
 │   │   └── upstream.ts      # external DNS resolver + LRU cache
 │   ├── detection/
-│   │   ├── normalize.ts     # Unicode NFKC + zero-width strip
+│   │   ├── normalize.ts     # Unicode NFKC + zero-width/invisible-char strip
+│   │   ├── asciiSmuggling.ts# invisible-char (Unicode-tag/bidi) smuggling detector
 │   │   ├── parsers.ts       # Anthropic + Gemini payload extractors
 │   │   ├── heuristic.ts     # weighted phrase scorer
 │   │   ├── embedding.ts     # ONNX model + sliding-window checker
 │   │   ├── judge.ts         # Ollama HTTP client
 │   │   └── pipeline.ts      # orchestrator
 │   ├── dashboard/
-│   │   ├── server.ts        # HTTP server (Events + Playground + /api/test + whitelist + translate)
+│   │   ├── server.ts        # HTTP server (Events + Playground + Settings + /api/test + /api/settings + whitelist + translate)
 │   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
 │   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/

@@ -73,6 +73,13 @@ interface RagConfig {
   enabled: boolean;
 }
 
+export interface AsciiSmugglingConfig {
+  // Detect & block invisible-character instruction smuggling (Unicode Tags
+  // block, bidi overrides, plane-14 variation selectors). On by default — the
+  // presence of these channels in prompt text is essentially never legitimate.
+  enabled: boolean;
+}
+
 export interface TaintConfig {
   enabled: boolean;
   // 'audit' warns and forwards (visibility); 'block' returns 403 on a tainted
@@ -103,6 +110,7 @@ export interface Config {
   rag: RagConfig;
   mcp: McpConfig;
   taint?: TaintConfig;
+  asciiSmuggling?: AsciiSmugglingConfig;
   targets: string[];
 }
 
@@ -124,7 +132,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'none';
+  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -132,6 +140,7 @@ export interface PipelineResult {
   heuristicMatches?: string[];
   nearestTemplate?: string;
   ragTag?: string;
+  smuggleRanges?: string[];
 }
 
 export interface SandboxResult {
@@ -153,8 +162,11 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling';
   urlBlockReason?: string;
+  // Invisible-character channels found by the ASCII-smuggling detector
+  // (e.g. ['unicode-tags']), shown in the event detail.
+  smuggleRanges?: string[];
   dlpType?: string;
   dosReason?: string;
   ragTag?: string;

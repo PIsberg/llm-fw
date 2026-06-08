@@ -118,12 +118,17 @@ export class ProxyServer {
   private certFactory: CertFactory
   private resolver: UpstreamResolver
   private pipeline: Pipeline
-  private urlClassifier: UrlClassifier | null
-  private dlp: DlpScanner | null
-  private quota: QuotaManager | null
-  private loop: LoopDetector | null
-  private mcp: McpScanner | null
-  private taint: TaintTracker | null
+  // Every defense scanner is constructed unconditionally; whether it RUNS is
+  // decided per-request against the live `config.*.enabled` flag (see the gates
+  // in handleConnect/handleRequest). The proxy and dashboard share one Config
+  // object in this process, so a Settings-tab toggle takes effect on the next
+  // request with no restart.
+  private urlClassifier: UrlClassifier
+  private dlp: DlpScanner
+  private quota: QuotaManager
+  private loop: LoopDetector
+  private mcp: McpScanner
+  private taint: TaintTracker
   private sandbox: SandboxDetector
   private eventBus: EventBus
   private config: Config
@@ -134,17 +139,15 @@ export class ProxyServer {
     this.certFactory = new CertFactory()
     this.resolver = new UpstreamResolver(config.proxy)
     this.pipeline = new Pipeline(config, partial => eventBus.emit(partial))
-    this.urlClassifier = config.proxy.urlFilter.enabled
-      ? new UrlClassifier(config.proxy.urlFilter)
-      : null
-    this.dlp = config.dlp?.enabled ? new DlpScanner(config.dlp) : null
-    this.quota = config.dos?.enabled ? new QuotaManager(config.dos) : null
-    this.loop = config.dos?.enabled ? new LoopDetector() : null
-    this.mcp = config.mcp?.enabled ? new McpScanner(config, this.dlp) : null
+    this.urlClassifier = new UrlClassifier(config.proxy.urlFilter)
+    this.dlp = new DlpScanner(config.dlp)
+    this.quota = new QuotaManager(config.dos)
+    this.loop = new LoopDetector()
+    this.mcp = new McpScanner(config, this.dlp)
     // Taint tracker treats the configured provider/target hosts as benign so a
     // provider domain mentioned in a tool result doesn't taint the next
     // legitimate request to that same provider.
-    this.taint = config.taint?.enabled ? new TaintTracker(config.targets) : null
+    this.taint = new TaintTracker(config.targets)
     this.sandbox = new SandboxDetector()
     this.server = http.createServer()
   }
@@ -218,7 +221,7 @@ export class ProxyServer {
       // exfil signal that needs no body inspection. (Only the hostname is
       // checkable here; path/query taint is caught in handleRequest for
       // inspected hosts.)
-      if (this.taint) {
+      if (this.config.taint?.enabled) {
         const sessionKey = normalizeIp(clientSocket.remoteAddress) ?? 'unknown'
         const findings = this.taint.checkSink(sessionKey, hostname, Date.now())
         if (findings.length) {
@@ -251,7 +254,7 @@ export class ProxyServer {
       }
 
       // URL filter: check hostname before establishing any tunnel
-      if (this.urlClassifier) {
+      if (this.config.proxy.urlFilter.enabled) {
         const urlResult = this.urlClassifier.classify(hostname)
         if (urlResult.action === 'block') {
           const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })
@@ -358,7 +361,7 @@ export class ProxyServer {
       // Stage -1 — Cost control / agentic DoS circuit breaker. The RPM and
       // session-budget checks run BEFORE the body is buffered so a run-away
       // agent is throttled as cheaply as possible.
-      if (this.quota) {
+      if (this.config.dos.enabled) {
         const q = this.quota.checkRpm()
         if (!q.allowed) {
           innerRes.writeHead(429, {
@@ -408,7 +411,7 @@ export class ProxyServer {
       // parsed, so screen it BEFORE buffering the body or running the
       // pipeline: an exfil path (e.g. a query string carrying stolen data)
       // is then rejected as early and cheaply as possible.
-      if (this.urlClassifier) {
+      if (this.config.proxy.urlFilter.enabled) {
         const pathResult = this.urlClassifier.classifyPath(dosPath)
         if (pathResult.action === 'block') {
           innerRes.writeHead(403, { 'Content-Type': 'application/json' })
@@ -496,7 +499,7 @@ export class ProxyServer {
       // every host (the exfil sink is usually NOT an LLM provider). Sink-checked
       // first, then this request's own tool results are recorded, so a request
       // can never taint and then flag itself.
-      if (this.taint) {
+      if (this.config.taint?.enabled) {
         const sessionKey = normalizeIp(innerReq.socket.remoteAddress) ?? 'unknown'
         const now = Date.now()
         const findings = this.taint.checkSink(sessionKey, `${hostname} ${dlpPath}`, now)
@@ -528,7 +531,7 @@ export class ProxyServer {
         }
       }
 
-      if (this.dlp && getParser(dlpPath) !== null) {
+      if (this.config.dlp.enabled && getParser(dlpPath) !== null) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
           // NEVER log the raw secret value — only its type(s).
@@ -581,7 +584,7 @@ export class ProxyServer {
       // Stage 0.5 — Behavioral loop detection. Only LLM JSON requests (those
       // with a registered parser) are tracked, mirroring DLP scoping. An
       // agent stuck resending the identical body trips the circuit breaker.
-      if (this.loop && this.config.dos.loopDetectionEnabled && getParser(dlpPath) !== null) {
+      if (this.config.dos.enabled && this.config.dos.loopDetectionEnabled && getParser(dlpPath) !== null) {
         if (this.loop.isLooping(body)) {
           innerRes.writeHead(429, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'Agent Loop Detected' }))
@@ -649,7 +652,7 @@ export class ProxyServer {
       // response may carry tool_use invocations, so flag it for inbound MCP
       // inspection in forwardRequest (normal chat traffic stays on the fast path).
       let mcpInspectResponse = false
-      if (this.mcp && getParser(innerReq.url ?? '/') !== null) {
+      if (this.config.mcp.enabled && getParser(innerReq.url ?? '/') !== null) {
         const parser = getParser(innerReq.url ?? '/')!
         const tools = parser.extractTools(body)
         if (tools.length > 0) {
@@ -737,7 +740,7 @@ export class ProxyServer {
 
       // Account the INPUT (request) tokens against the budget; forwardRequest
       // additionally accounts the response tokens as they stream back.
-      if (this.quota && isLlmRequest) this.quota.addTokens(this.quota.estimateTokens(body))
+      if (this.config.dos.enabled && isLlmRequest) this.quota.addTokens(this.quota.estimateTokens(body))
     }
   }
 
@@ -833,7 +836,7 @@ export class ProxyServer {
       // buffered and rewritten tool-free; streaming SSE is gated per tool block.
       // Everything else streams straight through untouched.
       const parser = getParser(req.url ?? '/')
-      const mcpEnabled = !!(this.mcp && mcpInspect && parser)
+      const mcpEnabled = !!(this.config.mcp.enabled && mcpInspect && parser)
       const maxResp = this.config.proxy.maxBodyBytes
 
       let headersDone = false
@@ -936,7 +939,7 @@ export class ProxyServer {
       })
       upstream.on('end', () => {
         upstream.setTimeout(0) // response complete — disarm the idle timer
-        if (mode === 'json' && this.mcp && parser) {
+        if (mode === 'json' && this.config.mcp.enabled && parser) {
           jsonBuf += decoder.end()
           const { decisions, blockedNames } = inspectJsonResponse(jsonBuf, parser, this.mcp)
           for (const d of decisions) {
@@ -964,7 +967,7 @@ export class ProxyServer {
         // Account the RESPONSE size against the token budget. Runaway agents and
         // large generations rack up cost on the response side, not just input,
         // so a budget that ignored responses would badly under-count.
-        if (this.quota && isLlmRequest) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
+        if (this.config.dos.enabled && isLlmRequest) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
         resolve(respBodyBytes)
       })
     })
