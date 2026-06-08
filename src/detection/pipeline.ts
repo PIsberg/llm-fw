@@ -5,6 +5,7 @@ import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
+import { detectHiddenChars } from './asciiSmuggling.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
@@ -61,6 +62,29 @@ export class Pipeline {
     const ragEnabled = this.config.rag?.enabled
 
     for (const { text: prompt, source } of scanItems) {
+      // Stage S — ASCII smuggling. Invisible-character instruction smuggling
+      // (Unicode Tags block, bidi overrides, plane-14 variation selectors).
+      // Checked on the RAW prompt BEFORE normalization strips the characters.
+      // Presence of these channels is essentially never legitimate in prompt
+      // text, so detection alone blocks. The recovered (decoded) instruction is
+      // surfaced in the event so an operator can see what was hidden.
+      if (this.config.asciiSmuggling?.enabled) {
+        const hidden = detectHiddenChars(prompt)
+        if (hidden.hasHidden) {
+          const decodedNote = hidden.decoded ? ` decoded: "${hidden.decoded.slice(0, 120)}"` : ''
+          const result: PipelineResult = {
+            action: 'block',
+            stage: 'ascii-smuggling',
+            score: 100,
+            similarity: 0,
+            prompt: hidden.decoded || prompt,
+            smuggleRanges: hidden.ranges,
+          }
+          this.emit(result, meta, `[hidden: ${hidden.ranges.join(', ')}]${decodedNote}`, source)
+          return result
+        }
+      }
+
       // Stage R — RAG context-poisoning. Isolate retrieved data blocks
       // (<document>, <context>, <search_results>, code fences) and check whether
       // they smuggle active instructions. Two independent signals can block:
@@ -286,7 +310,7 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string, source: ScanSource = 'prompt'): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string, source: ScanSource = 'prompt'): void {
     if (!this.onBlock) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
@@ -308,8 +332,9 @@ export class Pipeline {
       sandboxClient: meta.sandboxClient,
       isSandboxed: meta.isSandboxed,
       sandboxConfidence: meta.sandboxConfidence,
-      kind: result.stage === 'rag' ? 'rag' : undefined,
+      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : undefined,
       ragTag: result.ragTag,
+      smuggleRanges: result.smuggleRanges,
     })
   }
 }

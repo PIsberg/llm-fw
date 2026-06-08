@@ -1,3 +1,5 @@
+import { HIDDEN_CHAR_STRIP_RE } from './asciiSmuggling.js'
+
 function translateHomoglyphs(text: string): string {
   const homoglyphs: Record<string, string> = {
     'а': 'a', 'в': 'b', 'с': 'c', 'е': 'e', 'н': 'h', 'і': 'i', 'к': 'k', 'м': 'm', 'о': 'o', 'р': 'p', 'ѕ': 's', 'т': 't', 'х': 'x', 'у': 'y', 'з': 'z',
@@ -189,6 +191,12 @@ export function normalize(text: string): string {
 
   // Prevents zero-width character injection to split tokens invisibly
   result = result.replace(/[​‌‍﻿­]/g, '');
+
+  // Strips invisible smuggling channels (Unicode Tags, bidi controls, variation
+  // selectors) so a hidden payload cannot fragment tokens for the heuristic /
+  // embedding stages. The raw prompt is scanned for these by detectHiddenChars()
+  // BEFORE normalization, so removing them here never erases evidence.
+  result = result.replace(HIDDEN_CHAR_STRIP_RE, '');
 
   // Prevents punctuation flooding to bypass keyword or pattern detectors
   result = result.replace(/([^\p{L}\p{N}\s])\1{2,}/gu, '$1');

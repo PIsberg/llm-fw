@@ -311,4 +311,74 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     // Secret header values must never be forwarded verbatim.
     expect((m?.reqHeaders as Record<string, string>).authorization).toBe('«redacted»')
   })
+
+  // ── Settings (live defense toggles) ─────────────────────────────────────────
+  it('GET /api/settings returns the toggle state', async () => {
+    const res = await req(server, 'GET', '/api/settings')
+    expect(res.status).toBe(200)
+    const s = JSON.parse(res.body)
+    expect(s).toHaveProperty('asciiSmuggling')
+    expect(s).toHaveProperty('dlpMode')
+    expect(s).toHaveProperty('mcpGuardrails')
+    // Reflects DEFAULT_CONFIG.
+    expect(s.asciiSmuggling).toBe(true)
+    expect(s.dlpMode).toBe('redact')
+  })
+
+  // Validation rejections never reach the persist path (applied list is empty),
+  // so these assert behaviour without touching ~/.llm-fw/config.json.
+  it('POST /api/settings rejects an unknown key with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"notARealSetting":true}')
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.body).error).toContain('no valid settings')
+  })
+
+  it('POST /api/settings rejects a wrong-typed value with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"asciiSmuggling":"yes"}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects an invalid enum value with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"dlpMode":"nuke"}')
+    expect(res.status).toBe(400)
+  })
+
+  // CSRF guard on state-changing POSTs: reject non-JSON content types and
+  // cross-origin requests so a page in the operator's browser cannot disable a
+  // defense via /api/settings.
+  function rawPost(path: string, body: string, headers: Record<string, string>): Promise<{ status: number }> {
+    const addr = server.address() as { port: number }
+    return new Promise((resolve, reject) => {
+      const request = http.request(
+        { hostname: '127.0.0.1', port: addr.port, path, method: 'POST', headers: { 'Content-Length': Buffer.byteLength(body), ...headers } },
+        (res) => { res.resume(); res.on('end', () => resolve({ status: res.statusCode ?? 0 })) },
+      )
+      request.on('error', reject)
+      request.write(body)
+      request.end()
+    })
+  }
+
+  it('POST /api/settings rejects a non-JSON content type with 415', async () => {
+    const res = await rawPost('/api/settings', 'dlp=false', { 'Content-Type': 'text/plain' })
+    expect(res.status).toBe(415)
+  })
+
+  it('POST /api/settings rejects a cross-origin request with 403', async () => {
+    const res = await rawPost('/api/settings', '{"dlp":false}', { 'Content-Type': 'application/json', Origin: 'http://evil.example.com' })
+    expect(res.status).toBe(403)
+  })
+
+  it('POST /api/whitelist rejects a cross-origin request with 403', async () => {
+    const res = await rawPost('/api/whitelist', '{"id":"x"}', { 'Content-Type': 'application/json', Origin: 'http://evil.example.com' })
+    expect(res.status).toBe(403)
+  })
+
+  it('GET / HTML exposes the Settings tab and the ASCII Smuggling defense', async () => {
+    const res = await req(server, 'GET', '/')
+    expect(res.status).toBe(200)
+    expect(res.body).toContain("showTab('settings', this)")
+    expect(res.body).toContain('ASCII Smuggling')
+    expect(res.body).toContain('s-ascii')
+  })
 })

@@ -37,6 +37,7 @@ Click any row to open the detail drawer: full decoded payload, heuristic match t
 Test **every detector** from one place — pick a category and paste your own input, or click a built-in example of something llm-fw catches:
 
 - **Prompt Injection** — jailbreaks, encoded/obfuscated payloads, multilingual overrides (Stages 1–3)
+- **ASCII Smuggling** — instructions hidden in invisible Unicode characters (Tags block, bidi overrides, variation selectors); the example encodes a hidden override you cannot see but the LLM would read
 - **RAG Poisoning** — instructions smuggled inside `<document>`/`<context>`/code-fence data blocks
 - **Data Loss (DLP)** — API keys, tokens, private keys, credit cards, with a redacted-payload preview
 - **MCP Tools** — check tool names against the allow/deny policy
@@ -800,6 +801,48 @@ Environment overrides:
 
 ---
 
+## ASCII Smuggling Detection
+
+A growing class of prompt injection hides instructions in **invisible characters** that render as nothing to a human (and to this dashboard) but are still tokenized and obeyed by the LLM. Standard normalization strips ordinary zero-width characters but not these ranges, so a payload written in them otherwise passes every other stage untouched.
+
+`llm-fw` scans the **raw** prompt — before normalization — for three smuggling channels:
+
+- **Unicode Tags block** (`U+E0000`–`U+E007F`) — the primary "ASCII smuggling" vector. `U+E0020`–`U+E007E` mirror printable ASCII, so an entire sentence can be encoded invisibly and is recovered verbatim by the detector.
+- **Bidi overrides** (`U+202D`, `U+202E`) — reorder rendered text so what a reviewer sees differs from the bytes the model receives (Trojan-Source-style).
+- **Plane-14 variation selectors** (`U+E0100`–`U+E01EF`) — zero-width selectors with no legitimate use in prompt text.
+
+Common-and-benign invisibles (emoji zero-width joiners, `U+FE0F`, bidi isolates, RTL marks) are reported but **not** blocked on their own, to avoid false positives on legitimate multilingual and emoji text.
+
+A hit is blocked with `403 { "error": "prompt injection detected", "stage": "ascii-smuggling", … }`; the **decoded** hidden instruction is surfaced in the event so an operator can see exactly what was concealed. Events appear on the dashboard under the **ASCII Smuggling** badge with an `ascii-smuggling` stage chip.
+
+### Configuration
+
+```json
+{
+  "asciiSmuggling": {
+    "enabled": true
+  }
+}
+```
+
+Environment overrides:
+
+| Variable | Effect |
+|----------|--------|
+| `LLM_FW_ASCII_SMUGGLING_ENABLED` | `true`/`false` — enable or disable invisible-character smuggling detection |
+
+---
+
+## Settings — toggle defenses live
+
+The dashboard's **Settings** tab lets you enable or disable each defense (attack type) at runtime: prompt-injection judge modes, ASCII smuggling, RAG poisoning, DLP (and mode), MCP tool policy + command-guardrail categories A–D, URL/exfil filter, cross-turn taint (and mode), and rate-limit/DoS breakers.
+
+Toggles take effect on the **next proxy request** — the dashboard and proxy share one in-memory config in the same process, and every defense now reads its `enabled` flag per-request, so there is no restart. Changes are persisted to `~/.llm-fw/config.json` (deep-merged, so unrelated keys like `proxy.mode` are preserved) and survive restarts.
+
+The same toggles are available headless via the `LLM_FW_*_ENABLED` environment variables documented in each section above, or by editing `~/.llm-fw/config.json` directly.
+
+---
+
 ## MCP Monitoring & Tool Firewall
 
 As AI agents increasingly rely on the **Model Context Protocol (MCP)** and local tool execution, securing what the LLM is allowed to execute locally is critical. The firewall natively intercepts the JSON-RPC tool schemas flowing between your agent and the upstream LLM API to provide four layers of defense:
@@ -940,7 +983,8 @@ $ llm-fw doctor
 Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 
 - **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview. Expand any event to see the full payload and **Mark as false positive** (persisted to `~/.llm-fw/whitelist.json`).
-- **Playground tab** — test any detector (prompt injection, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed. Text categories include a **Translate** control to re-express the input in any Google-Translate-supported language and re-run the pipeline.
+- **Playground tab** — test any detector (prompt injection, ASCII smuggling, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed. Text categories include a **Translate** control to re-express the input in any Google-Translate-supported language and re-run the pipeline.
+- **Settings tab** — enable/disable each defense (attack type) live; changes apply on the next proxy request and persist to `~/.llm-fw/config.json` with no restart.
 
 ---
 

@@ -74,6 +74,12 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     mode: 'audit',
   },
+  // Invisible-character instruction smuggling (Unicode Tags, bidi overrides,
+  // plane-14 variation selectors). On by default — these channels are
+  // essentially never legitimate in prompt text.
+  asciiSmuggling: {
+    enabled: true,
+  },
   mcp: {
     enabled: true,
     // Tools blocked outright by name. Note: a name on this list is rejected by
@@ -224,6 +230,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_MCP_GUARDRAILS_ENABLED']) {
     config.mcp.guardrailsEnabled = env['LLM_FW_MCP_GUARDRAILS_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_ASCII_SMUGGLING_ENABLED'] && config.asciiSmuggling) {
+    config.asciiSmuggling.enabled = env['LLM_FW_ASCII_SMUGGLING_ENABLED'] === 'true';
   }
 
   return config;
