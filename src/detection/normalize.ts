@@ -6,7 +6,15 @@ function translateHomoglyphs(text: string): string {
     'А': 'a', 'В': 'b', 'С': 'c', 'Е': 'e', 'Н': 'h', 'І': 'i', 'К': 'k', 'М': 'm', 'О': 'o', 'Р': 'p', 'Ѕ': 's', 'Т': 't', 'Х': 'x', 'У': 'y', 'З': 'z',
     'α': 'a', 'β': 'b', 'ε': 'e', 'η': 'h', 'ι': 'i', 'κ': 'k', 'μ': 'm', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'χ': 'x', 'υ': 'y'
   }
-  return text.split('').map(char => homoglyphs[char] || char).join('')
+  // Homoglyph substitution only makes sense for MIXED-script tokens (Latin text
+  // with lookalike Cyrillic/Greek letters spliced in to evade keyword regexes).
+  // A token written entirely in Cyrillic/Greek is legitimate foreign-language
+  // text — translating it char-by-char mangles it (е.g. "инструкции" →
+  // "ihctpykcii") and breaks the non-English heuristic patterns.
+  return text.split(/(\s+)/).map(token => {
+    if (!/[a-zA-Z]/.test(token)) return token
+    return token.split('').map(char => homoglyphs[char] || char).join('')
+  }).join('')
 }
 
 function decodeLeetspeak(text: string): string {
@@ -169,6 +177,45 @@ function decodePigLatin(text: string): string[] {
   return Array.from(new Set(candidates))
 }
 
+function decodeUrlCandidates(text: string): { text: string; source: string }[] {
+  if (!/%[0-9a-fA-F]{2}/.test(text)) return []
+  try {
+    const decoded = decodeURIComponent(text)
+    if (decoded !== text) return [{ text: decoded, source: 'urlencoded' }]
+  } catch {
+    // Malformed escapes — fall back to decoding just the valid sequences.
+    const partial = text.replace(/%([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+    if (partial !== text) return [{ text: partial, source: 'urlencoded' }]
+  }
+  return []
+}
+
+/**
+ * Collapse letter-spacing evasion: "i g n o r e   a l l" → "ignore all".
+ * Runs of single-character tokens are joined into words; multi-space gaps
+ * (or any multi-char token) act as word boundaries. Hyphen-spelled commands
+ * ("I-G-N-O-R-E") are collapsed the same way.
+ */
+function decodeSpacedCandidates(text: string): { text: string; source: string }[] {
+  const results: { text: string; source: string }[] = []
+
+  const tokens = text.split(/[^\S\r\n]+/).filter(t => t.length > 0)
+  const singles = tokens.filter(t => t.length === 1 && /[\p{L}\p{N}]/u.test(t))
+  if (tokens.length >= 10 && singles.length / tokens.length > 0.6) {
+    const despaced = text
+      .split(/\s{2,}|\n/)
+      .map(group => group.split(/\s+/).map(t => (t.length === 1 ? t : ` ${t} `)).join(''))
+      .join(' ')
+    results.push({ text: despaced, source: 'spaced' })
+  }
+
+  if (/(?:\p{L}-){3,}\p{L}/u.test(text)) {
+    results.push({ text: text.replace(/(\p{L})-(?=\p{L}\b)/gu, '$1'), source: 'hyphen-spelled' })
+  }
+
+  return results
+}
+
 function decodeReversedCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
   const reversedAll = text.split('').reverse().join('')
@@ -227,7 +274,9 @@ export function extractCandidates(text: string): { text: string; source: string 
     decodeBinaryCandidates,
     decodeMorseCandidates,
     decodeCaesarCandidates,
-    decodeReversedCandidates
+    decodeReversedCandidates,
+    decodeUrlCandidates,
+    decodeSpacedCandidates
   ]
 
   for (const decoder of decoders) {
