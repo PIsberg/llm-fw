@@ -11,16 +11,25 @@ export class HeuristicScorer {
       {
         weight: 50, label: 'system-override', patterns: [
           // English
-          /ig[a-z]{1,3}(?:re|er|r)\b (all |the )?(previous|prior|above|old) (instructions?|rules?|prompts?|commands?)/,
+          /ig[a-z]{1,3}(?:re|er|r)\b (all |the |your |my )?(previous|prior|above|old) (instructions?|rules?|prompts?|commands?)/,
+          /ig[a-z]{1,3}(?:re|er|r)\b (your |the )?(evaluation |screening )?criteria/,
+          /you have no restrictions/,
           /ig[a-z]{1,3}(?:re|er|r)\b (instructions?|rules?|prompts?|commands?)/,
           /forget (your |all |the )?(previous|prior|above|original|system)? ?(instructions?|rules?|context|prompts?)/,
-          /disregard (all |the |any )?(previous|above|prior|original)? ?(instructions?|rules?|commands?)/,
+          /disregard (all |the |any |your |my )?(previous|above|prior|original)? ?(instructions?|rules?|commands?|guidelines?|polic(?:y|ies)|safety)/,
           /new (primary |main |core )?(instructions?|mandate|directive|objective|task)/,
           /override (your |all |the )?(instructions?|rules?|system|guidelines|constraints)/,
           /your (new |real |actual |true )?(instructions?|purpose|role|goal|directive)/,
           /system prompt (is|was|has been|should be)/,
           /unrestricted/,
-          
+          /(instructions?|rules?|guidelines?|constraints?|polic(?:y|ies)) (is|are|were|have been) (cancelled|canceled|revoked|suspended|void|voided|lifted|removed|reset|replaced|overridden)/,
+          /discard (every|all|any) (instructions?|rules?|prior|previous)/,
+          /(administrator|admin|operator) has (reset|cleared|wiped|replaced) your/,
+          /nothing you were told (earlier|before) applies/,
+          /system override/,
+          /obey only (the |my )?(instructions?|commands?)/,
+          /(safety|content) (layers?|systems?|filters?|polic(?:y|ies)) (is|are) (disabled|off|offline|suspended)/,
+
           // Spanish
           /ignora(r)? (?:todas\s+|las\s+|mis\s+)*(instrucciones|reglas|directivas) (anteriores|previas)/,
           /olvida (?:todo\s+|tus\s+|las\s+|mis\s+)*(instrucciones|reglas|contexto)/,
@@ -42,9 +51,10 @@ export class HeuristicScorer {
           /忘记(所有)?(之前|先前的)?指令/,
           /新指令/,
 
-          // Russian
-          /игнорируй(те)? (все )?(предыдущие)? инструкции/,
-          /забудь(те)? (все)? инструкции/,
+          // Russian (NFD normalization strips the breve from й → и, so match
+          // both forms — e.g. "игнорируй" arrives as "игнорируи").
+          /игнориру(?:и|й)?(?:те)?\s?(?:все\s)?(?:предыдущие\s)?инструкции/,
+          /забуд(?:ь|ъ)?(?:те)?\s?(?:все\s)?инструкции/,
           /новое указание/,
 
           // Italian / Portuguese
@@ -78,8 +88,13 @@ export class HeuristicScorer {
           /from now on (you|your)/,
           /roleplay as/,
           /play the role of/,
+          /(rehears\w*|act out|playing) the role/,
+          /adopt the persona/,
           /simulate (a|an|the) /,
           /behave (like|as) (a|an|the) /,
+          /for the rest of this (chat|conversation|session),? you are/,
+          /introduce yourself as \w+,? a/,
+          /\b(become|play) \w+, (a|an|the) /,
 
           // Spanish
           /actua como/,
@@ -127,8 +142,16 @@ export class HeuristicScorer {
         weight: 50, label: 'social-engineering', patterns: [
           // Developer / testing tricks
           /i am (your )?developer/,
+          /as your developer/,
+          /i am the (auditor|operator|admin(istrator)?)/,
           /testing (you |your )/,
           /disable (your )?(safety |filters|restrictions)/,
+          /disable (your |the |all )?(refusal|safety|content) (layers?|systems?|filters?|polic(?:y|ies))/,
+          /skip (your |all )?(safety|content) (polic(?:y|ies)|filters?|disclaimers?|checks)/,
+          /without applying (any )?(content|safety) polic/,
+          /exempt from (your|the|standard) (rules|polic(?:y|ies)|restrictions)/,
+          /demonstrate (a |one |single )?(policy|rule) violation/,
+          /requires? you to (provide|give|answer)[^.!?]{0,40}(unfiltered|unrestricted|complete)/,
           /desactiva la seguridad/,
           /sicherheitsfilter deaktivieren/,
           /securite desactivee/,
@@ -167,8 +190,120 @@ export class HeuristicScorer {
           /\b(ai|a\.i\.|assistant|chat ?bot|bot|model|persona|character|entity|being)\b[^.!?]{0,40}\b(who|that|which|with|having)\b[^.!?]{0,20}\bno\b[^.!?]{0,20}(rules?|restrictions?|limits?|filters?|ethics?|ethical|guidelines?|morals?|boundaries|constraints?|safeguards?|censorship)/,
           /no ethical (guidelines?|training|constraints?|restrictions?|boundaries|safeguards?|limitations?)/,
           /never (been )?(given|trained with|taught|had|provided) any (ethical|safety|moral)/,
+          /\b(unfiltered|uncensored) (ai|a\.i\.|assistant|model|chatbot|bot|persona|version|imageboard|responses?|answers?)\b/,
+          /\b(no|without (a |any )?)content polic(?:y|ies)\b/,
+          /broken free of (the )?(typical )?confines/,
+          /(zero|no|without) filtering/,
+          /never (refuses?|declines?|breaks? character)/,
+          /(stay|remain|stays|remains) in (character|role)/,
+          /no matter what i ask/,
+          /(rewarded|punished)[^.!?]{0,40}(taboo|refus)/,
+          /total candor/,
+        ],
+      },
+      {
+        // Jailbreak personas and harmful-content solicitation framed as fiction.
+        // These patterns are specific enough to block alone: a benign creative-
+        // writing request does not pair an unrestricted-persona/fiction frame
+        // with verbatim illicit-procedure demands.
+        weight: 50, label: 'jailbreak-frame', patterns: [
           /do anything now/,
-          /\bunfiltered (ai|assistant|model|responses?|answers?)\b/,
+          /strive to avoid norms/,
+          /never says? (it |that it )?(cannot|can ?not|can.?t)/,
+          /jailbroken (version|copy|variant) of (yourself|you)/,
+          /(everything|anything) you would (normally |usually )?refuse/,
+          /(steps?|step.?by.?step|recipe|synthesis|instructions?|procedure)\b[^.!?]{0,50}\b(napalm|methamphetamine|explosives?|nerve agents?)/,
+          /\b(napalm|methamphetamine|explosives?|nerve agents?)\b[^.!?]{0,50}\b(steps?|synthesis|recipe|instructions?|procedure)/,
+          /(exact|real.?world|working|complete|full)[^.!?]{0,30}(poison recipe|malware source code|exploit code)/,
+          /how to (hotwire|hot.?wire) a/,
+          /(fictional?\w*|story|script|novel|movie|film|universe|world|game)\b[^.!?]{0,60}(nothing is illegal|no rules|no restrictions|all information is (free|legal)|is (celebrated|praised|encouraged))/,
+          /(dream|simulation|sandbox)[^.!?]{0,80}(no (rules|filters)|rules (can.?t|cannot) reach|answer anything)/,
+          /if you (were|had)[^.!?]{0,30}(no|without|free of) (guidelines|restrictions|rules|filters|limits)/,
+          /an ai without (guidelines|restrictions|rules|filters|limits)/,
+        ],
+      },
+      {
+        // Fictional/persona framing — not malicious alone (weight 20), but it
+        // escalates to a block when combined with unconstrained-persona or
+        // harmful-detail signals, and routes the candidate to the judge.
+        weight: 20, label: 'fiction-framing', patterns: [
+          /(write|compose|finish|continue) (a |this |the )?(story|script|scene|fictional)/,
+          /the (villain|narrator|npc) /,
+          /dungeon master/,
+          /movie script/,
+          /darkweb/,
+        ],
+      },
+      {
+        // Demands for complete/verbatim procedural detail — pairs with
+        // fiction-framing or illicit-content to cross the block threshold.
+        weight: 30, label: 'harmful-detail', patterns: [
+          /command by command/,
+          /in (accurate|full|complete|precise),? ?(technical )?detail/,
+          /(describing|describes?|explains?) in full detail/,
+          /exact,?[^.!?]{0,30}(recipe|procedure|steps)/,
+          /(dialogue|monologue|answer|procedure) must be (complete|verbatim|exact)/,
+          /(print|quote|recite|continue)[^.!?]{0,30}(monologue|the quote verbatim)/,
+        ],
+      },
+      {
+        // System-prompt exfiltration — extraction verbs aimed at the hidden
+        // prompt/instructions. High precision: benign questions ABOUT system
+        // prompts ("what is a system prompt?") do not use extraction verbs
+        // against "your/the" prompt.
+        weight: 50, label: 'prompt-exfil', patterns: [
+          /(repeat|print|output|show|quote|paste|recite|display|echo|reproduce|summarize|reveal|dump|leak|translate)\b[^.!?]{0,60}\b(system|initial|hidden|original|secret|developer|confidential)\b[^.!?]{0,30}\b(prompts?|messages?|instructions?|text|notes?|rules?|guidelines?)/,
+          /(base64.?encode|encode|rot13)\b[^.!?]{0,30}(your|the) (entire |full |whole )?system prompt/,
+          /(developers?|operators?) (write|wrote|say|said|put|embed\w*)[^.!?]{0,30}(system (prompt|message)|instructions?)/,
+          /(repeat|copy|print|output|echo) everything (above|before)/,
+          /(first|last) \d+ (words?|characters?|tokens?) (you|of your|that you)\b[^.!?]{0,30}(received|context|conversation)/,
+          /(complete|full|raw|exact) text that precedes/,
+          /your system prompt (into|in|to) (french|spanish|german|english|another language)/,
+        ],
+      },
+      {
+        // Payload assembly — the prompt asks the model to reconstruct an
+        // instruction from fragments (concatenation, spelling, acrostics,
+        // string completion) and then execute it. The assembly+execute
+        // combination is the signature; benign string questions don't ask
+        // the model to OBEY the result.
+        weight: 50, label: 'payload-assembly', patterns: [
+          /(execute|run|follow|obey|output|do what|comply with)\b[^.!?]{0,30}\b\w+ ?\+ ?\w+/,
+          /(concatenate|combine|join|assemble)\b[^.!?]{0,80}(follow|obey|execute|do what|resulting)/,
+          /(complete|finish)\b[^.!?]{0,40}(truncated|string|phrase|sentence)\b[^.!?]{0,40}(obey|follow|execute|comply)/,
+          /spell\w* (out )?(a |the )?command|follow the spelled command/,
+          /first (word|letter) of each (sentence|line|word)\b[^.!?]{0,60}(command|instruction|follow|treat)/,
+          /variable \w+ is[^.!?]{0,40}\. ?variable \w+ is[^.!?]{0,40}\. ?(now )?(do|execute|run|perform)/,
+          /(write out|say|type) the phrase\b[^.!?]{0,60}\. ?(step ?2:?|then|now) ?(do|obey|follow|execute)/,
+        ],
+      },
+      {
+        // Markdown/HTML exfiltration channels — instructions to embed dynamic
+        // URLs, images, or hidden markup that leak conversation data.
+        weight: 50, label: 'exfil-channel', patterns: [
+          /!\[[^\]]*\]\(https?:\/\/[^)]*[?=&{]/,
+          /(append|insert|add|attach|embed)\b[^.!?]{0,80}<img/,
+          /(end|append|add|finish) (every|each) (response|reply|answer)\b[^.!?]{0,60}(https?:|<img|!\[|markdown)/,
+          /(output|write|create|include) a markdown (link|image) to https?:/,
+          /format your (entire )?(reply|response|answer) as a (url|query string)/,
+          /invisible (html )?comment[^.!?]{0,50}(prompts?|messages?|conversation|answers?)/,
+          /(message|prompt|conversation)s? url.?encoded/,
+        ],
+      },
+      {
+        // Chat-template / role spoofing — fake system tags, template tokens, or
+        // role:system JSON inside user content. Weight 35: pairs with
+        // delimiter-break (15) or any persona/override signal to block.
+        weight: 35, label: 'system-spoof', patterns: [
+          /<\/(system|instructions?|prompt|context)>/,
+          /(end of|new) system prompt/,
+          /<<\/?sys>>|\[\/?inst\]|<\|im_(start|end)\|>|<\|endoftext\|>/,
+          /"role" ?: ?"system"/,
+          /admin channel/,
+          /the real instructions follow/,
+          /\b(note|instructions?|message) (to|for) (the )?ai\b/,
+          /ai (assistant|screener|agent)? ?(reading|processing) this/,
+          /this is your admin speaking/,
         ],
       },
       {
@@ -182,11 +317,11 @@ export class HeuristicScorer {
       },
       {
         weight: 15, label: 'delimiter-break', patterns: [
-          /-{3,}/,
-          /={3,}/,
-          /#{3,}/,
+          // normalize() collapses runs of identical punctuation ("###" → "#",
+          // "===" → "=") BEFORE these patterns run, so match the collapsed form
+          // followed by a structural keyword rather than the raw run.
+          /[#=-] ?(end|new|stop|system|admin|input|output|user|assistant)\b/,
           /<\/?(?:system|instructions?|prompt|context)>/,
-          /###\s*(?:end|stop|input|output|user|assistant|system)/i,
         ],
       },
       {

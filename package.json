@@ -44,6 +44,7 @@
     "test:load:accuracy": "node --import tsx/esm test/load/accuracy.ts",
     "test:load": "npm run test:load:perf && npm run test:load:accuracy",
     "load:charts": "node --import tsx/esm scripts/gen-load-charts.ts",
+    "scorecard": "node --import tsx/esm scripts/gen-scorecard.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip"

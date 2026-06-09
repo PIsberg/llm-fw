@@ -157,3 +157,23 @@ jobs:
           LOAD_ITERATIONS: '20'
           LOAD_FPR_MAX: '2.0'
           LOAD_TPR_MIN: '60.0'
+
+      # Deterministic sweep: every corpus entry exactly once → exact per-class
+      # recall. Publishes the scorecard table to the job summary and fails the
+      # job on FPR/TPR floor violations (same gate as the script's exit code).
+      - name: Scenario C — Detection scorecard (deterministic sweep)
+        run: npm run scorecard
+        env:
+          LOAD_VUS: '3'
+          LOAD_FPR_MAX: '2.0'
+          LOAD_TPR_MIN: '70.0'
+
+      - name: Upload scorecard
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: detection-scorecard
+          path: |
+            docs/SCORECARD.md
+            docs/load-results/scorecard-accuracy.json
+          if-no-files-found: ignore
