@@ -412,6 +412,84 @@ If you want to do it by hand (or your IDE wasn't detected because it had no exis
 
 ---
 
+## Using llm-fw with popular tools
+
+The firewall is transparent — no SDK swaps, no wrapper imports. Each recipe below assumes `llm-fw start` is running and `llm-fw setup` has been run once.
+
+### Claude Code (CLI)
+
+Claude Code is a Node.js app, so it needs the CA bundle and either the proxy variable or the sinkhole:
+
+```bash
+# macOS / Linux — then launch from the same shell
+export HTTPS_PROXY=http://127.0.0.1:8080
+export NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"
+claude
+
+# PowerShell
+$env:HTTPS_PROXY="http://127.0.0.1:8080"
+$env:NODE_EXTRA_CA_CERTS="$env:USERPROFILE\.llm-fw\ca.crt"
+claude
+```
+
+Every prompt, tool result, and MCP tool definition Claude Code sends to `api.anthropic.com` now passes through the detection pipeline; blocked requests surface in the dashboard with the `[tool-result]` / `[tool-def]` provenance tags.
+
+### Cursor / VS Code / Antigravity
+
+Electron IDEs bypass the OS hosts file, so use their proxy setting instead of the sinkhole — `llm-fw setup` writes it automatically when it finds a `settings.json` (see [IDE Integration](#ide-integration-antigravity-ide--vs-code)). For Cursor specifically: **Settings → search "proxy" → `http.proxy` → `http://127.0.0.1:8080`**, set `http.proxyStrictSSL: false`, then restart Cursor.
+
+### Python — OpenAI SDK, Anthropic SDK, LangChain, LlamaIndex
+
+Python's `httpx`/`requests` honor `HTTPS_PROXY` but use `certifi`'s CA bundle, so point them at the llm-fw CA:
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:8080
+export SSL_CERT_FILE="$HOME/.llm-fw/ca.crt"      # httpx (OpenAI/Anthropic SDKs)
+export REQUESTS_CA_BUNDLE="$HOME/.llm-fw/ca.crt" # requests (some LangChain loaders)
+python app.py
+```
+
+No code changes: `ChatOpenAI(...)`, `ChatAnthropic(...)`, `openai.OpenAI()` all inherit the environment. Self-hosted OpenAI-compatible endpoints (vLLM, LM Studio, …) are covered too once their host is added to `targets`.
+
+### Node.js apps — Anthropic/OpenAI SDKs, LangChain.js, fetch/undici
+
+Node's `fetch`/`undici` ignores `HTTPS_PROXY` by default — that's exactly what sinkhole mode is for (`llm-fw setup` with admin/root enables it). The only variable Node apps always need is:
+
+```bash
+export NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"
+```
+
+### curl / Go / anything proxy-aware
+
+```bash
+curl -x http://127.0.0.1:8080 --cacert ~/.llm-fw/ca.crt https://api.openai.com/v1/chat/completions ...
+```
+
+---
+
+## How llm-fw compares
+
+llm-fw operates at the **network layer**: it protects tools you didn't write and can't modify (CLIs, IDEs, closed-source binaries), not just code you control. Library-based guards complement it inside your own applications.
+
+| | **llm-fw** | **LLM Guard** (Protect AI) | **Prompt Guard** (Meta) | **NeMo Guardrails** (NVIDIA) | **Rebuff** |
+|---|---|---|---|---|---|
+| Deployment | Local TLS-inspecting proxy / sinkhole | Python library | Classifier model (self-hosted) | Python toolkit | SDK + server (SaaS or self-host) |
+| Code changes required | **None** — env vars only | Wrap every call | Wire into your pipeline | Define rails in your app | Wrap every call |
+| Covers third-party tools (CLIs, IDEs) | **Yes** — anything that speaks HTTPS | No | No | No | No |
+| Providers covered | 15+ out of the box (OpenAI, Anthropic, Gemini, Mistral, …) | Whatever your code calls | Model-agnostic | Whatever your code calls | OpenAI-centric |
+| Prompt-injection detection | Heuristics + embeddings + optional local LLM judge | ML scanner (DeBERTa) + heuristics | 86M classifier | LLM self-checking rails | Heuristics + LLM + vector DB + canary tokens |
+| Indirect injection (tool results, RAG docs, tool poisoning) | **Yes** — dedicated scanning per surface | Partial (input scanners) | Input classification only | Via custom rails | Canary-token based |
+| Secrets/PII egress (DLP) | Built-in (redact/block) | Built-in (Anonymize) | No | Via actions | No |
+| Cost / DoS controls | Built-in (rate, budget, loop detection) | No | No | No | No |
+| Non-text content visibility | Decodes text-bearing docs/PDFs; audits or blocks opaque media | No | No | No | No |
+| Runs fully offline | **Yes** (no cloud calls) | Yes | Yes | Depends on rails | Self-host option |
+| Live dashboard | Built-in (events, playground, traffic) | No | No | No | Dashboard (hosted) |
+| Language | TypeScript / Node 22 | Python | — | Python | Python / JS |
+
+**When to choose what:** if you're writing a Python service and want in-process scanning, LLM Guard or NeMo Guardrails fit naturally. If you want one chokepoint that screens *every* AI tool on a machine — including the ones you can't instrument — that's llm-fw. The [Detection Scorecard](#detection-scorecard) above shows measured per-class recall.
+
+---
+
 ## Example: Firewall in Action
 
 ### Test 1: Blocked by Embedding Stage
