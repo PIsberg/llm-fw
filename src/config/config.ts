@@ -87,6 +87,15 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     mode: 'audit',
   },
+  // Non-text content blocks (issue #60). Text-bearing payloads (text/* docs,
+  // JSON, data-URL files, PDFs with uncompressed text) are decoded and scanned
+  // like prompts. Opaque media (raster images, audio) can't be inspected
+  // locally: audit (default) surfaces a warn event so it's no longer
+  // invisible; block refuses requests carrying uninspectable content.
+  nonText: {
+    enabled: true,
+    mode: 'audit',
+  },
   mcp: {
     enabled: true,
     // Tools blocked outright by name. Note: a name on this list is rejected by
@@ -249,6 +258,12 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_RESPONSE_SCAN_MODE'] && config.responseScan && (env['LLM_FW_RESPONSE_SCAN_MODE'] === 'block' || env['LLM_FW_RESPONSE_SCAN_MODE'] === 'audit')) {
     config.responseScan.mode = env['LLM_FW_RESPONSE_SCAN_MODE'];
+  }
+  if (env['LLM_FW_NONTEXT_ENABLED'] && config.nonText) {
+    config.nonText.enabled = env['LLM_FW_NONTEXT_ENABLED'] === 'true';
+  }
+  if (env['LLM_FW_NONTEXT_MODE'] && config.nonText && (env['LLM_FW_NONTEXT_MODE'] === 'audit' || env['LLM_FW_NONTEXT_MODE'] === 'block')) {
+    config.nonText.mode = env['LLM_FW_NONTEXT_MODE'];
   }
 
   return config;

@@ -96,6 +96,28 @@ export interface AsciiSmugglingConfig {
   enabled: boolean;
 }
 
+export interface NonTextConfig {
+  // Handle non-text content blocks (images, PDFs, documents, audio) in
+  // requests (issue #60). Text-bearing payloads (text/* documents, JSON,
+  // data-URL files, PDFs with uncompressed text) are decoded and scanned by
+  // the normal pipeline regardless of mode. For OPAQUE blocks (raster images,
+  // audio) that cannot be inspected locally: 'audit' emits a warn event so
+  // the unscanned content is visible on the dashboard; 'block' returns 403 —
+  // opt-in for deployments that cannot tolerate uninspectable input.
+  enabled: boolean;
+  mode: 'audit' | 'block';
+}
+
+// A non-text content block found in a request payload. `text` is present when
+// the payload could be decoded into scannable text (then the pipeline treats
+// it like any prompt); blocks without `text` are opaque to local inspection.
+export interface MediaBlock {
+  kind: 'image' | 'document' | 'audio' | 'video' | 'file';
+  mimeType?: string;
+  sizeBytes?: number;
+  text?: string;
+}
+
 export interface TaintConfig {
   enabled: boolean;
   // 'audit' warns and forwards (visibility); 'block' returns 403 on a tainted
@@ -128,6 +150,7 @@ export interface Config {
   taint?: TaintConfig;
   asciiSmuggling?: AsciiSmugglingConfig;
   responseScan?: ResponseScanConfig;
+  nonText?: NonTextConfig;
   targets: string[];
 }
 
@@ -149,7 +172,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'none';
+  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -179,7 +202,9 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text';
+  // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
+  mediaSummary?: string;
   urlBlockReason?: string;
   // Exfil URL found in the model's response by the response-side scanner.
   exfilUrl?: string;
@@ -216,6 +241,9 @@ export interface PayloadParser {
   extractTools(body: string): unknown[];
   extractToolResults(body: string): { toolUseId: string; result: string }[];
   extractToolUses(body: string): { toolName: string; args: unknown }[];
+  // Non-text content blocks (images, documents, audio). Optional — parsers
+  // without media support simply leave non-text content unreported.
+  extractMediaBlocks?(body: string): MediaBlock[];
 }
 
 export interface TrafficMetric {
