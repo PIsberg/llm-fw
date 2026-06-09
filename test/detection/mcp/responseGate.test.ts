@@ -263,6 +263,41 @@ describe('rewriteBlockedJsonResponse — Gemini body', () => {
   })
 })
 
+describe('rewriteBlockedJsonResponse — OpenAI body', () => {
+  it('drops only the blocked tool_call, keeps the allowed one', () => {
+    const body = JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          tool_calls: [
+            { id: 'a', type: 'function', function: { name: 'execute_command', arguments: '{}' } },
+            { id: 'b', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+          ],
+        },
+        finish_reason: 'tool_calls',
+      }],
+    })
+    const result = JSON.parse(rewriteBlockedJsonResponse(body, new Set(['execute_command'])))
+    const calls = result.choices[0].message.tool_calls as Array<Record<string, unknown>>
+    expect(calls).toHaveLength(1)
+    expect((calls[0]!.function as Record<string, unknown>).name).toBe('get_weather')
+  })
+
+  it('when all tool_calls are blocked, drops them, adds a note, and downgrades finish_reason', () => {
+    const body = JSON.stringify({
+      choices: [{
+        message: { role: 'assistant', tool_calls: [{ id: 'a', type: 'function', function: { name: 'execute_command', arguments: '{}' } }] },
+        finish_reason: 'tool_calls',
+      }],
+    })
+    const result = JSON.parse(rewriteBlockedJsonResponse(body, new Set(['execute_command'])))
+    expect(result.choices[0].message.tool_calls).toBeUndefined()
+    expect(typeof result.choices[0].message.content).toBe('string')
+    expect(result.choices[0].message.content).toContain('execute_command')
+    expect(result.choices[0].finish_reason).toBe('stop')
+  })
+})
+
 describe('rewriteBlockedJsonResponse — edge cases', () => {
   it('returns the input string unchanged for invalid JSON', () => {
     const bad = 'NOT JSON'
