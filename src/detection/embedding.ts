@@ -131,6 +131,15 @@ export class EmbeddingChecker {
     // survive because the embedding re-normalizes semantically rather than
     // inheriting the diacritic-stripped form.
     const norm = normalizeSemantic(input)
+    // Empty / whitespace-only input carries no semantic content, but E5 still
+    // produces an embedding for the bare "query: " prefix that happens to sit
+    // ~0.83 from some anchors — enough to trip a spurious warn. (This is how an
+    // all-invisible-character payload, once its hidden chars are stripped to
+    // nothing, would warn with ASCII-smuggling detection turned off.) Short-
+    // circuit to zero similarity so trivial input never flags.
+    if (norm.length < 2) {
+      return { similarity: 0, nearest: '', chunkCount: 0 }
+    }
     const chunks = this.chunk(norm)
     let maxSim = 0
     let nearestIdx = 0
