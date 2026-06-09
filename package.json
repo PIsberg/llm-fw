@@ -6,7 +6,33 @@
   "bin": {
     "llm-fw": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "data"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PIsberg/llm-fw.git"
+  },
+  "homepage": "https://github.com/PIsberg/llm-fw#readme",
+  "bugs": {
+    "url": "https://github.com/PIsberg/llm-fw/issues"
+  },
+  "keywords": [
+    "llm",
+    "prompt-injection",
+    "firewall",
+    "security",
+    "proxy",
+    "ai-security",
+    "dlp",
+    "mcp"
+  ],
   "scripts": {
+    "prepublishOnly": "npm run build",
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
     "test": "vitest",
