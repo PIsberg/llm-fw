@@ -2,6 +2,7 @@
   "name": "llm-fw",
   "version": "0.1.0",
   "description": "Local LLM prompt injection firewall",
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "bin": {
     "llm-fw": "./dist/cli/index.js"

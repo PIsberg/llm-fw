@@ -1,6 +1,6 @@
 # llm-fw
 
-[![License: PolyForm Commercial](https://img.shields.io/badge/License-PolyForm%20Commercial-blue)](https://polyformproject.org/licenses/commercial/1.0.0/)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
 [![CI](https://github.com/PIsberg/llm-fw/actions/workflows/ci.yml/badge.svg)](https://github.com/PIsberg/llm-fw/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/PIsberg/llm-fw/actions/workflows/codeql.yml/badge.svg)](https://github.com/PIsberg/llm-fw/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/PIsberg/llm-fw/badge)](https://securityscorecards.dev/viewer/?uri=github.com/PIsberg/llm-fw)
@@ -1048,3 +1048,13 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 - [PLAN-rag.md](docs/plans/PLAN-rag.md) — implementation plan for RAG Context-Poisoning Detection
 - [SPEC-mcp.md](docs/specs/SPEC-mcp.md) — specification for MCP Monitoring & Firewall
 - [PLAN-mcp.md](docs/plans/PLAN-mcp.md) — implementation plan for MCP Monitoring & Firewall
+- [CHANGELOG.md](CHANGELOG.md) — release history
+
+---
+
+## License
+
+Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE.md)** — free for any
+noncommercial purpose (personal, research, education, charity, government, and other
+noncommercial organizations). **Commercial use is not granted** by this license; for a
+commercial license, contact the licensor (Peter Isberg).
