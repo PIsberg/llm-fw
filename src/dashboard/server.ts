@@ -166,6 +166,15 @@ const HTML = `<!DOCTYPE html>
   .pg-check-name { font-weight: 600; color: #333; min-width: 170px; }
   .pg-check-reason { font-family: monospace; font-size: 0.76rem; color: #666; }
 
+  /* Playground — file upload (Image/Document) */
+  .pg-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .pg-upload input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .pg-upload-btn { padding: 8px 16px; border: 1px solid #1565c0; background: #e8f0fe; color: #1565c0;
+    border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .pg-upload:hover .pg-upload-btn { background: #1565c0; color: #fff; }
+  .pg-upload-hint { font-size: 0.78rem; color: #777; flex: 1 1 280px; line-height: 1.4; }
+  .pg-image-info { font-size: 0.82rem; color: #444; margin-bottom: 8px; }
+
   /* Playground — category descriptions + examples */
   .pg-desc { font-size: 0.84rem; color: #555; line-height: 1.5; margin-bottom: 12px; max-width: 820px; }
   .pg-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -348,6 +357,14 @@ const HTML = `<!DOCTYPE html>
           <button class="btn pg-translate-btn" type="button" onclick="translateInjection(this)">Translate</button>
           <span id="translate-status" class="pg-translate-status"></span>
         </div>
+      </div>
+      <div id="pg-image-wrap" style="display:none">
+        <label class="pg-upload">
+          <input type="file" id="image-file" accept="image/*,application/pdf,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json" onchange="onImageFile(this)" />
+          <span class="pg-upload-btn">Choose a file…</span>
+          <span class="pg-upload-hint">Upload any image, PDF, or text/JSON file (max 8 MB) — it's wrapped as a content block and run through the firewall, exactly as a model would receive it.</span>
+        </label>
+        <div id="pg-image-info" class="pg-image-info"></div>
       </div>
       <div id="pg-url-wrap" style="display:none">
         <input class="pg-url-input" id="url-input" type="text" placeholder="e.g. webhook.site or https://evil.ngrok.io/exfil?data=..." />
@@ -666,7 +683,7 @@ es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 const PG_DESC = {
   injection: 'Detects jailbreaks and prompt-injection attempts: heuristics (Stage 1, <1ms), embedding similarity to known attacks (Stage 2), and an optional local LLM judge for intent (Stage 3). Click an example or paste your own.',
   ascii: 'Detects ASCII smuggling — instructions hidden in INVISIBLE characters (Unicode Tags block, bidi overrides, plane-14 variation selectors) that you cannot see but the LLM still reads and obeys. The examples below encode a hidden instruction into invisible tag characters; the firewall decodes and blocks it. Try typing visible text — it passes; the invisible payload is what trips the block.',
-  image: 'Detects prompt injection carried by NON-TEXT content (issue #60): images, PDFs, and document blocks. Text-bearing files (text/*, PDFs with uncompressed text) are decoded and run through the full pipeline, so an injection hidden in an uploaded file is blocked just like a typed one. Genuinely opaque media (raster images, audio) can\\'t be inspected locally — it is surfaced as a warn event (audit mode) or refused outright (block mode). Type text to simulate a document upload, or click an example.',
+  image: 'Detects prompt injection carried by NON-TEXT content (issue #60): images, PDFs, and document blocks. Upload any image, PDF, or text/JSON file — it is wrapped as a content block and run through the full pipeline, exactly as a model would receive it. Text-bearing files (text/*, PDFs with uncompressed text) are decoded and scanned, so an injection hidden in an uploaded file is blocked just like a typed one. Genuinely opaque media (raster images, audio) can\\'t be inspected locally — it is surfaced as a warn event (audit mode) or refused outright (block mode). You can also type text to simulate a document, or click an example.',
   rag: 'Detects context poisoning — active instructions smuggled inside retrieved data blocks (<document>, <context>, <search_results>, code fences). Passive data should never issue system overrides, so any imperative confined to a data block is blocked.',
   dlp: 'Scans outbound text for secrets and PII (cloud keys, tokens, private keys, credit cards) before it leaves your machine. Default mode redacts in place; configurable to block or audit. The raw secret is never logged.',
   mcp: 'Enforces a tool allow/deny policy. Tools on the blocklist are refused before the agent can expose them to the model or invoke them. Enter one or more tool names (comma-separated).',
@@ -771,6 +788,12 @@ function setPgCat(cat, btn) {
   const tr = document.getElementById('pg-translate');
   if (tr) tr.style.display = cat === 'image' ? 'none' : '';
   pgImageDataUrl = '';
+  // Image/Document file upload — reset the picker each time the category opens.
+  document.getElementById('pg-image-wrap').style.display = cat === 'image' ? '' : 'none';
+  const imgFile = document.getElementById('image-file');
+  if (imgFile) imgFile.value = '';
+  const imgInfo = document.getElementById('pg-image-info');
+  if (imgInfo) imgInfo.innerHTML = '';
   document.getElementById('pg-url-wrap').style.display = cat === 'url' ? '' : 'none';
   document.getElementById('pg-mcp-wrap').style.display = cat === 'mcp' ? '' : 'none';
   document.getElementById('pg-guardrails-wrap').style.display = cat === 'guardrails' ? '' : 'none';
@@ -828,6 +851,40 @@ function fillExample(i) {
 // Clear any stashed image/PDF payload when the user types into the textarea, so
 // custom input in the Image/Document category is sent as a text document.
 function onPromptInput() { pgImageDataUrl = ''; }
+
+// Image/Document upload: read the chosen file as a base64 data URL, stash it as
+// the payload, show a preview, and analyze. The data URL flows to /api/test as
+// { category:'image', dataUrl } and the backend wraps it in a content block —
+// images are surfaced/refused as opaque, text/PDF files are decoded and scanned.
+var PG_UPLOAD_MAX = 8 * 1024 * 1024; // 8 MB
+function onImageFile(input) {
+  const file = input.files && input.files[0];
+  const info = document.getElementById('pg-image-info');
+  if (!file) { info.innerHTML = ''; pgImageDataUrl = ''; return; }
+  if (file.size > PG_UPLOAD_MAX) {
+    info.innerHTML = '<span style="color:#b3261e">File is too large (' +
+      (file.size / 1048576).toFixed(1) + ' MB). Maximum is 8 MB.</span>';
+    input.value = ''; pgImageDataUrl = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function() {
+    pgImageDataUrl = String(reader.result || '');
+    document.getElementById('prompt-input').value = '[uploaded file: ' + file.name + ']';
+    // file.name / file.type are user-controlled — escape before inserting.
+    const meta = '<div>' + esc(file.name) + ' · ' + esc(file.type || 'unknown type') +
+      ' · ' + (file.size / 1024).toFixed(0) + ' KB</div>';
+    // The preview src is a browser-generated data: URL from THIS file, only set
+    // for image types — safe to use directly as an <img> source.
+    const preview = (file.type && file.type.indexOf('image/') === 0)
+      ? '<img src="' + pgImageDataUrl + '" alt="upload preview" style="max-height:96px;max-width:180px;border-radius:6px;border:1px solid #ddd;margin-top:8px;display:block" />'
+      : '';
+    info.innerHTML = meta + preview;
+    analyzePrompt();
+  };
+  reader.onerror = function() { info.innerHTML = '<span style="color:#b3261e">Could not read that file.</span>'; pgImageDataUrl = ''; };
+  reader.readAsDataURL(file);
+}
 
 function renderPipeline(d) {
   const action = (d.action || 'PASS').toUpperCase();
@@ -1731,8 +1788,22 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
 
     if (req.method === 'POST' && path === '/api/test') {
       let body = ''
-      req.on('data', chunk => { body += chunk })
-      req.on('end', () => { void (async () => {
+      let tooLarge = false
+      // Image/Document uploads ride this endpoint as base64 data URLs (capped at
+      // 8 MB client-side ≈ ~11 MB encoded). Guard the server too so a rogue
+      // client can't grow the in-memory body unbounded.
+      const POST_BODY_LIMIT = 16 * 1024 * 1024
+      req.on('data', chunk => {
+        if (tooLarge) return
+        body += chunk
+        if (body.length > POST_BODY_LIMIT) {
+          tooLarge = true
+          res.writeHead(413, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'payload too large' }))
+          req.destroy()
+        }
+      })
+      req.on('end', () => { if (tooLarge) return; void (async () => {
         try {
           const parsed = JSON.parse(body) as { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
           const category = parsed.category
