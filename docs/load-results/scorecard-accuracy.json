@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-06-09T21:31:59.176Z",
+  "timestamp": "2026-06-09T22:48:25.914Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -11,20 +11,26 @@
   },
   "results": {
     "confusionMatrix": {
-      "tn": 60,
-      "fp": 0,
+      "tn": 59,
+      "fp": 1,
       "tp": 92,
       "fn": 0
     },
     "perClass": {
+      "benign": {
+        "tp": 0,
+        "fn": 0,
+        "tn": 59,
+        "fp": 1
+      },
       "prompt-exfil": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "payload-splitting": {
-        "tp": 8,
+      "roleplay-fiction": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -35,14 +41,8 @@
         "tn": 0,
         "fp": 0
       },
-      "benign": {
-        "tp": 0,
-        "fn": 0,
-        "tn": 60,
-        "fp": 0
-      },
-      "persona-jailbreak": {
-        "tp": 10,
+      "delimiter-confusion": {
+        "tp": 6,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -53,14 +53,20 @@
         "tn": 0,
         "fp": 0
       },
-      "direct-override": {
-        "tp": 8,
+      "multilingual": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "roleplay-fiction": {
+      "persona-jailbreak": {
         "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "direct-override": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -77,25 +83,19 @@
         "tn": 0,
         "fp": 0
       },
-      "delimiter-confusion": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
+      "payload-splitting": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       }
     },
-    "fpr": 0,
+    "fpr": 1.6667,
     "tpr": 100,
-    "avgLatencyMs": 90.6,
-    "p50LatencyMs": 73,
-    "p95LatencyMs": 195,
-    "p99LatencyMs": 253,
+    "avgLatencyMs": 79.8,
+    "p50LatencyMs": 61,
+    "p95LatencyMs": 171,
+    "p99LatencyMs": 261,
     "errCount": 0
   },
   "passed": true,

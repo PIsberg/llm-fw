@@ -17,6 +17,6 @@ Cheap stages only — **heuristic + embedding, judge off**; enabling the local O
 | roleplay-fiction | 10/10 | 100% |
 | social-engineering | 8/8 | 100% |
 | **Overall (TPR)** | **92/92** | **100.0%** (gate ≥ 70%) |
-| **False positives (FPR)** | **0/60** | **0.0%** (gate ≤ 2%) |
+| **False positives (FPR)** | **1/60** | **1.7%** (gate ≤ 2%) |
 
-Latency through the full pipeline: p50 73 ms · p95 195 ms. Generated 2026-06-09 by `npm run scorecard` (gate: PASSED).
+Latency through the full pipeline: p50 61 ms · p95 171 ms. Generated 2026-06-09 by `npm run scorecard` (gate: PASSED).
