@@ -72,4 +72,48 @@ describe('SandboxDetector', () => {
     expect(result.sandboxed).toBe(true) // 0.5 (UA) + 0.3 (IP) = 0.8
     expect(result.signals).toContain('ip-docker-bridge')
   })
+
+  it('detects a container user-agent (client stays unknown)', () => {
+    const result = detector.detect('docker/20.10', undefined)
+    expect(result.client).toBe('unknown')
+    expect(result.confidence).toBeCloseTo(0.3)
+    expect(result.signals).toContain('ua-container')
+  })
+
+  it('adds low confidence for a 192.168 private IP', () => {
+    const result = detector.detect(undefined, '192.168.1.5')
+    expect(result.confidence).toBeCloseTo(0.1)
+    expect(result.signals).toContain('ip-private-192')
+    expect(result.sandboxed).toBe(false)
+  })
+
+  it('detects the Kubernetes service-host env signal', () => {
+    process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1'
+    const result = detector.detect(undefined, undefined)
+    expect(result.signals).toContain('env-k8s')
+    expect(result.confidence).toBeCloseTo(0.5)
+  })
+
+  it('detects a container cgroup (kubepods)', () => {
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === '/proc/1/cgroup')
+    vi.mocked(fs.readFileSync).mockReturnValue('11:devices:/kubepods/besteffort/pod123' as unknown as Buffer)
+    const result = detector.detect(undefined, undefined)
+    expect(result.signals).toContain('env-cgroup')
+    expect(result.confidence).toBeCloseTo(0.4)
+  })
+
+  it('a non-container cgroup adds no signal', () => {
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === '/proc/1/cgroup')
+    vi.mocked(fs.readFileSync).mockReturnValue('0::/init.scope' as unknown as Buffer)
+    const result = detector.detect(undefined, undefined)
+    expect(result.signals).not.toContain('env-cgroup')
+  })
+
+  it('returns no signals for a clean public IP and no UA', () => {
+    const result = detector.detect(undefined, '8.8.8.8')
+    expect(result.client).toBe('unknown')
+    expect(result.confidence).toBe(0)
+    expect(result.sandboxed).toBe(false)
+    expect(result.signals).toEqual([])
+  })
 })

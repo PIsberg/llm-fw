@@ -216,6 +216,31 @@ describe('CohereParser', () => {
     const body = JSON.stringify({ messages: [{ role: 'user', content: 'v2 hello' }] })
     expect(c.extractPrompts(body)).toContain('v2 hello')
   })
+
+  it('extractTools normalizes v1 flat and v2 function tool shapes', () => {
+    const body = JSON.stringify({
+      tools: [
+        { name: 'get_weather', description: 'flat v1 tool' },
+        { type: 'function', function: { name: 'lookup', description: 'wrapped v2 tool' } },
+      ],
+    })
+    const tools = c.extractTools(body) as { name: string; description: string }[]
+    expect(tools).toHaveLength(2)
+    expect(tools[0]!.name).toBe('get_weather')
+    expect(tools[1]!.name).toBe('lookup')
+    expect(tools[1]!.description).toBe('wrapped v2 tool')
+  })
+
+  it('extractTools returns [] for no tools or invalid JSON', () => {
+    expect(c.extractTools(JSON.stringify({ message: 'hi' }))).toEqual([])
+    expect(c.extractTools('not json{')).toEqual([])
+  })
+
+  it('extractToolResults and extractToolUses are no-ops for Cohere', () => {
+    const body = JSON.stringify({ message: 'hi', tools: [{ name: 'x' }] })
+    expect(c.extractToolResults(body)).toEqual([])
+    expect(c.extractToolUses(body)).toEqual([])
+  })
 })
 
 describe('getParser', () => {
@@ -263,6 +288,14 @@ describe('extractPartialPrompts', () => {
     const partial = '{"system":"Be extremely restrict'
     const result = extractPartialPrompts(partial)
     expect(result).toContain('Be extremely restrict')
+  })
+
+  it('falls back to the structural parser for a complete body the stream regex misses (Gemini parts)', () => {
+    // Gemini puts user text in contents[].parts[].text, which the streaming
+    // content/message regex does not match — only the structural parser finds it.
+    const body = '{"contents":[{"role":"user","parts":[{"text":"gemini-only-prompt"}]}]}'
+    const result = extractPartialPrompts(body)
+    expect(result).toContain('gemini-only-prompt')
   })
 })
 
