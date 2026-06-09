@@ -6,12 +6,13 @@ import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
+import { summarizeOpaque } from './media.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
-type ScanSource = 'prompt' | 'tool_result' | 'tool_definition'
+type ScanSource = 'prompt' | 'tool_result' | 'tool_definition' | 'document'
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -52,6 +53,30 @@ export class Pipeline {
       ...parser.extractToolResults(body).map(tr => ({ text: tr.result, source: 'tool_result' as const })),
       ...extractToolDescriptions(parser.extractTools(body)).map(text => ({ text, source: 'tool_definition' as const })),
     ].filter(item => item.text && item.text.length > 0)
+
+    // Non-text content (issue #60). Text-bearing media blocks (text/* docs,
+    // data-URL files, PDFs with uncompressed text) are decoded and scanned
+    // like any prompt below. Opaque blocks (raster images, audio) cannot be
+    // inspected locally: audit mode emits a warn event so the dashboard shows
+    // unscanned content entered the model; block mode refuses the request.
+    const nonText = this.config.nonText
+    if (nonText?.enabled && parser.extractMediaBlocks) {
+      const media = parser.extractMediaBlocks(body)
+      for (const m of media) {
+        if (m.text) scanItems.push({ text: m.text, source: 'document' })
+      }
+      const opaque = media.filter(m => !m.text)
+      if (opaque.length > 0) {
+        const summary = summarizeOpaque(opaque)
+        if (nonText.mode === 'block') {
+          const result: PipelineResult = { action: 'block', stage: 'non-text', score: 100, similarity: 0, prompt: `[non-text content] ${summary}` }
+          this.emit({ ...result, mediaSummary: summary }, meta, `unscannable non-text content: ${summary}`, 'document')
+          return result
+        }
+        this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: summary }, meta, `non-text content not scanned: ${summary}`, 'document')
+      }
+    }
+
     if (!scanItems.length) return this.pass(0, 0)
 
     const { heuristicBlockThreshold, embeddingBlockThreshold, embeddingWarnThreshold, judgeEnabled, judgeBlock } = this.config.detection
@@ -331,12 +356,12 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string, source: ScanSource = 'prompt'): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string, source: ScanSource = 'prompt'): void {
     if (!this.onBlock) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
     // existing Live Traffic UI without a schema change.
-    const label = source === 'tool_result' ? '[tool-result] ' : source === 'tool_definition' ? '[tool-def] ' : ''
+    const label = source === 'tool_result' ? '[tool-result] ' : source === 'tool_definition' ? '[tool-def] ' : source === 'document' ? '[document] ' : ''
     this.onBlock({
       stage: result.stage,
       score: result.score,
@@ -353,9 +378,10 @@ export class Pipeline {
       sandboxClient: meta.sandboxClient,
       isSandboxed: meta.isSandboxed,
       sandboxConfidence: meta.sandboxConfidence,
-      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : undefined,
+      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : undefined,
       ragTag: result.ragTag,
       smuggleRanges: result.smuggleRanges,
+      mediaSummary: result.mediaSummary,
     })
   }
 }

@@ -1,5 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-import { PayloadParser } from '../types.js'
+import { PayloadParser, MediaBlock } from '../types.js'
+import { mediaBlockFromBase64, parseDataUrl } from './media.js'
+
+/** Map a mime type onto the coarse MediaBlock kind. */
+function kindFromMime(mime: string | undefined): MediaBlock['kind'] {
+  const m = (mime ?? '').toLowerCase()
+  if (m.startsWith('image/')) return 'image'
+  if (m.startsWith('audio/')) return 'audio'
+  if (m.startsWith('video/')) return 'video'
+  return 'document'
+}
+
+/** MediaBlock from a (possibly data:) URL-bearing image/file part. */
+function mediaBlockFromUrl(kind: MediaBlock['kind'], url: unknown): MediaBlock | null {
+  if (typeof url !== 'string' || url.length === 0) return null
+  const dataUrl = parseDataUrl(url)
+  if (dataUrl) return mediaBlockFromBase64(kindFromMime(dataUrl.mimeType), dataUrl.mimeType, dataUrl.data)
+  // Remote URL — nothing to decode locally; report as opaque.
+  return { kind }
+}
 
 class AnthropicParser implements PayloadParser {
   supports(path: string): boolean {
@@ -99,6 +118,46 @@ class AnthropicParser implements PayloadParser {
         }
       }
       return results
+    } catch { return [] }
+  }
+
+  extractMediaBlocks(body: string): MediaBlock[] {
+    try {
+      const data = JSON.parse(body)
+      const out: MediaBlock[] = []
+
+      const walkBlock = (block: any): void => {
+        if (!block || typeof block !== 'object') return
+        if (block.type === 'image' || block.type === 'document') {
+          const kind: MediaBlock['kind'] = block.type === 'image' ? 'image' : 'document'
+          const src = block.source
+          if (!src || typeof src !== 'object') return
+          if (src.type === 'base64' && typeof src.data === 'string') {
+            out.push(mediaBlockFromBase64(kind, src.media_type, src.data))
+          } else if (src.type === 'text' && typeof src.data === 'string') {
+            out.push({ kind, mimeType: src.media_type ?? 'text/plain', text: src.data })
+          } else if (src.type === 'content' && Array.isArray(src.content)) {
+            // Custom-content documents: nested text blocks are directly scannable.
+            const text = src.content
+              .filter((b: any) => b && b.type === 'text' && typeof b.text === 'string')
+              .map((b: any) => b.text)
+              .join('\n')
+            out.push({ kind, ...(text ? { text } : {}) })
+          } else {
+            out.push({ kind }) // url or unknown source — opaque
+          }
+        } else if (block.type === 'tool_result' && Array.isArray(block.content)) {
+          // Tool results can return images/documents — the indirect vector.
+          for (const inner of block.content) walkBlock(inner)
+        }
+      }
+
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (Array.isArray(msg?.content)) for (const block of msg.content) walkBlock(block)
+        }
+      }
+      return out
     } catch { return [] }
   }
 }
@@ -239,6 +298,52 @@ class OpenAIParser implements PayloadParser {
       return results
     } catch { return [] }
   }
+
+  extractMediaBlocks(body: string): MediaBlock[] {
+    try {
+      const data = JSON.parse(body)
+      const out: MediaBlock[] = []
+
+      const walkPart = (part: any): void => {
+        if (!part || typeof part !== 'object') return
+        // Chat vision: {type:'image_url', image_url:{url}} — url may be a
+        // data: URL carrying the actual bytes. Responses: {type:'input_image',
+        // image_url: string | {url}}.
+        if (part.type === 'image_url' || part.type === 'input_image') {
+          const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url
+          const block = mediaBlockFromUrl('image', url)
+          if (block) out.push(block)
+        } else if (part.type === 'input_file' || part.type === 'file') {
+          // Responses input_file {file_data, filename} / Chat file {file:{file_data}}.
+          const fileData = part.type === 'file' ? part.file?.file_data : part.file_data
+          if (typeof fileData === 'string' && fileData.startsWith('data:')) {
+            const block = mediaBlockFromUrl('file', fileData)
+            if (block) out.push(block)
+          } else if (typeof fileData === 'string' && fileData.length > 0) {
+            // Raw base64 without a data: wrapper — sniff the content (PDF magic).
+            out.push(mediaBlockFromBase64('file', undefined, fileData))
+          } else {
+            out.push({ kind: 'file' }) // file_id reference — opaque
+          }
+        } else if (part.type === 'input_audio') {
+          const format = part.input_audio?.format
+          out.push({ kind: 'audio', ...(typeof format === 'string' ? { mimeType: `audio/${format}` } : {}) })
+        }
+      }
+
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (Array.isArray(msg?.content)) for (const part of msg.content) walkPart(part)
+        }
+      }
+      if (Array.isArray(data.input)) {
+        for (const item of data.input) {
+          if (Array.isArray(item?.content)) for (const part of item.content) walkPart(part)
+        }
+      }
+      return out
+    } catch { return [] }
+  }
 }
 
 /**
@@ -308,6 +413,27 @@ class CohereParser implements PayloadParser {
 
   extractToolUses(_body: string): { toolName: string; args: any }[] {
     return []
+  }
+
+  extractMediaBlocks(body: string): MediaBlock[] {
+    try {
+      const data = JSON.parse(body)
+      const out: MediaBlock[] = []
+      // v2 messages use OpenAI-style image_url parts.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (!Array.isArray(msg?.content)) continue
+          for (const part of msg.content) {
+            if (part && part.type === 'image_url') {
+              const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url
+              const block = mediaBlockFromUrl('image', url)
+              if (block) out.push(block)
+            }
+          }
+        }
+      }
+      return out
+    } catch { return [] }
   }
 }
 
@@ -402,6 +528,31 @@ class GeminiParser implements PayloadParser {
         }
       }
       return results
+    } catch { return [] }
+  }
+
+  extractMediaBlocks(body: string): MediaBlock[] {
+    try {
+      const data = JSON.parse(body)
+      const out: MediaBlock[] = []
+      if (Array.isArray(data.contents)) {
+        for (const content of data.contents) {
+          if (!Array.isArray(content?.parts)) continue
+          for (const part of content.parts) {
+            // REST uses inlineData/fileData (camelCase); some SDKs emit snake_case.
+            const inline = part?.inlineData ?? part?.inline_data
+            const file = part?.fileData ?? part?.file_data
+            if (inline && typeof inline === 'object' && typeof inline.data === 'string') {
+              const mime = inline.mimeType ?? inline.mime_type
+              out.push(mediaBlockFromBase64(kindFromMime(mime), mime, inline.data))
+            } else if (file && typeof file === 'object') {
+              const mime = file.mimeType ?? file.mime_type
+              out.push({ kind: kindFromMime(mime), ...(typeof mime === 'string' ? { mimeType: mime } : {}) })
+            }
+          }
+        }
+      }
+      return out
     } catch { return [] }
   }
 }
