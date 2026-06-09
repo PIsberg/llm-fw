@@ -86,6 +86,16 @@ export class Pipeline {
     const { heuristicBlockThreshold: ragBlockThreshold } = this.config.detection
     const ragEnabled = this.config.rag?.enabled
 
+    // A warn is the WEAKEST positive verdict. It must never short-circuit the
+    // scan: a different candidate (e.g. the base64-DECODED form of the same
+    // prompt) may still BLOCK, and a block must win over an earlier warn. So we
+    // record the first warn and keep scanning every candidate of every surface;
+    // the warn is only emitted at the end if nothing blocked. (Previously the
+    // warn returned immediately, which let an early embedding-warn on the raw
+    // "decode this base64 …" candidate mask the heuristic block on its decoded
+    // payload — encoded attacks slipped through as warns.)
+    let pendingWarn: { result: PipelineResult; prompt: string; source: ScanSource } | null = null
+
     for (const { text: prompt, source } of scanItems) {
       // Stage S — ASCII smuggling. Invisible-character instruction smuggling
       // (Unicode Tags block, bidi overrides, plane-14 variation selectors).
@@ -225,26 +235,37 @@ export class Pipeline {
           }
         }
 
-        // If the judge didn't block it, we only return a 'warn' if the embedding
-        // similarity explicitly crossed the warning threshold.
-        if (eSim >= embeddingWarnThreshold) {
-          const result: PipelineResult = { 
-            action: 'warn', 
-            stage: 'embedding', 
-            score: h.score, 
-            similarity: eSim, 
-            prompt: candidate.text, 
-            nearestTemplate: eNearest,
-            heuristicMatches: h.matches 
+        // If the judge didn't block it, record a deferred 'warn' when the
+        // embedding similarity crossed the warning threshold. We DON'T return
+        // here — a later candidate (or surface) may still block, which must
+        // take precedence. Keep only the first/strongest warn.
+        if (eSim >= embeddingWarnThreshold && !pendingWarn) {
+          pendingWarn = {
+            result: {
+              action: 'warn',
+              stage: 'embedding',
+              score: h.score,
+              similarity: eSim,
+              prompt: candidate.text,
+              nearestTemplate: eNearest,
+              heuristicMatches: h.matches,
+            },
+            prompt,
+            source,
           }
-          this.emit(result, meta, prompt, source)
-          return result
         }
 
         // If it was just elevated heuristics (score < block threshold) and the
         // embedding/judge didn't flag it, it's considered safe. We continue
         // evaluating other candidates, eventually passing.
       }
+    }
+
+    // No candidate blocked. Surface the deferred warn if any candidate crossed
+    // the warn threshold; otherwise pass.
+    if (pendingWarn) {
+      this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
+      return pendingWarn.result
     }
 
     return this.pass(lastScore, lastSim)

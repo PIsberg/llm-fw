@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-06-09T21:31:59.176Z",
+  "timestamp": "2026-06-09T22:54:07.298Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,16 +17,10 @@
       "fn": 0
     },
     "perClass": {
-      "prompt-exfil": {
-        "tp": 8,
+      "benign": {
+        "tp": 0,
         "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "payload-splitting": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
+        "tn": 60,
         "fp": 0
       },
       "obfuscation-encoding": {
@@ -35,20 +29,14 @@
         "tn": 0,
         "fp": 0
       },
-      "benign": {
-        "tp": 0,
-        "fn": 0,
-        "tn": 60,
-        "fp": 0
-      },
-      "persona-jailbreak": {
-        "tp": 10,
+      "prompt-exfil": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "indirect-injection": {
-        "tp": 8,
+      "persona-jailbreak": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -59,13 +47,19 @@
         "tn": 0,
         "fp": 0
       },
-      "roleplay-fiction": {
-        "tp": 10,
+      "indirect-injection": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
       "exfiltration-markdown": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "delimiter-confusion": {
         "tp": 6,
         "fn": 0,
         "tn": 0,
@@ -77,13 +71,19 @@
         "tn": 0,
         "fp": 0
       },
-      "delimiter-confusion": {
-        "tp": 6,
+      "multilingual": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "multilingual": {
+      "payload-splitting": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "roleplay-fiction": {
         "tp": 10,
         "fn": 0,
         "tn": 0,
@@ -92,10 +92,10 @@
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 90.6,
-    "p50LatencyMs": 73,
-    "p95LatencyMs": 195,
-    "p99LatencyMs": 253,
+    "avgLatencyMs": 79.4,
+    "p50LatencyMs": 67,
+    "p95LatencyMs": 188,
+    "p99LatencyMs": 303,
     "errCount": 0
   },
   "passed": true,

@@ -1,6 +1,6 @@
 import { pipeline, env } from '@huggingface/transformers'
 import { EmbeddingResult, DetectionConfig } from '../types.js'
-import { normalize } from './normalize.js'
+import { normalizeSemantic } from './normalize.js'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
@@ -34,15 +34,22 @@ export class EmbeddingChecker {
     env.allowLocalModels = false
 
     try {
-      // Multilingual sentence model (50+ languages, same 384-dim output as the
-      // former English-only all-MiniLM-L6-v2, so cosineSimilarity is unchanged).
-      // This lets Stage 2 cluster a non-English attack near its translated
-      // template in data/attacks.json — the monolingual model could not.
-      // NOTE: the similarity distribution differs from the old model, so the
-      // embeddingBlock/Warn thresholds (config.ts) may need re-tuning against a
-      // labelled corpus; multilingual encoders tend to run higher baseline
-      // cosine, which can raise false positives if the thresholds are left as-is.
-      this.extractor = (await pipeline('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', { dtype: 'q8' })) as unknown as FeatureExtractor
+      // multilingual-e5-small: a 384-dim sentence encoder (drop-in for the
+      // former model's dimension) with genuine cross-lingual alignment across
+      // 100 languages. This matters because the previous model
+      // (paraphrase-multilingual-MiniLM) has UNUSABLE representations for many
+      // lower-resource languages — empirically it scored a benign Bengali
+      // question HIGHER against an injection than an actual Bengali injection,
+      // so coverage was accidental (Swedish blocked, Urdu/Hindi/Tamil/Thai/…
+      // passed). E5 aligns an injection in ANY language to the English intent
+      // anchors below (attack ~0.87, benign ~0.66 to the same anchor), giving a
+      // uniform cross-lingual separation the old model lacked.
+      //
+      // E5 expects an asymmetric "query:"/"passage:" prefix. For this symmetric
+      // short-text similarity task we use "query: " on both sides (see embed());
+      // the prefix is REQUIRED — without it E5 embeddings are mis-calibrated.
+      // Thresholds are re-tuned for E5's distribution in config.ts.
+      this.extractor = (await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { dtype: 'q8' })) as unknown as FeatureExtractor
     } catch (err) {
       // The semantic-similarity stage is best-effort. If the model can't be
       // fetched (offline, or HuggingFace rate-limits the download with a 429),
@@ -55,19 +62,29 @@ export class EmbeddingChecker {
       return
     }
 
+    // Curated canonical injection-intent anchors (data/semantic-anchors.json),
+    // English-only. E5's cross-lingual alignment maps an injection in any
+    // language onto these, so a small clean anchor set generalizes to every
+    // language. We deliberately do NOT use data/attacks.json here: it contains
+    // encoded/obfuscated strings (base64, hex, morse) meant for the decode path,
+    // which are noisy semantic anchors that benign text accidentally matches and
+    // erode the separation. The decode path re-scores DECODED text against these
+    // clean anchors instead.
     const __filename = fileURLToPath(import.meta.url)
-    const attacksPath = join(dirname(__filename), '../../data/attacks.json')
-    const attacks = JSON.parse(readFileSync(attacksPath, 'utf-8')) as string[]
+    const anchorsPath = join(dirname(__filename), '../../data/semantic-anchors.json')
+    const anchors = JSON.parse(readFileSync(anchorsPath, 'utf-8')) as string[]
 
-    for (const attack of attacks) {
-      this.templateEmbeddings.push(await this.embed(attack))
-      this.templateStrings.push(attack)
+    for (const anchor of anchors) {
+      this.templateEmbeddings.push(await this.embed(anchor))
+      this.templateStrings.push(anchor)
     }
   }
 
   private async embed(text: string): Promise<Float32Array> {
     if (!this.extractor) throw new Error('Embedding model not initialized')
-    const output = await this.extractor([text], { pooling: 'mean', normalize: true })
+    // E5 requires the "query: " task prefix; omitting it mis-calibrates the
+    // embedding. Both anchors and inputs use the same prefix (symmetric task).
+    const output = await this.extractor(['query: ' + text], { pooling: 'mean', normalize: true })
     const raw = output[0]?.data ?? output.data ?? output.tolist?.()[0]
     return raw instanceof Float32Array ? raw : Float32Array.from(raw ?? [])
   }
@@ -107,7 +124,22 @@ export class EmbeddingChecker {
   }
 
   async check(input: string): Promise<EmbeddingResult> {
-    const norm = normalize(input)
+    // Semantic normalization PRESERVES diacritics/script (see normalizeSemantic):
+    // the multilingual encoder needs natural text. Note the pipeline already
+    // passes a heuristic-normalized candidate here, but for prompt text that
+    // candidate is the lightly-processed 'original'; diacritic-bearing scripts
+    // survive because the embedding re-normalizes semantically rather than
+    // inheriting the diacritic-stripped form.
+    const norm = normalizeSemantic(input)
+    // Empty / whitespace-only input carries no semantic content, but E5 still
+    // produces an embedding for the bare "query: " prefix that happens to sit
+    // ~0.83 from some anchors — enough to trip a spurious warn. (This is how an
+    // all-invisible-character payload, once its hidden chars are stripped to
+    // nothing, would warn with ASCII-smuggling detection turned off.) Short-
+    // circuit to zero similarity so trivial input never flags.
+    if (norm.length < 2) {
+      return { similarity: 0, nearest: '', chunkCount: 0 }
+    }
     const chunks = this.chunk(norm)
     let maxSim = 0
     let nearestIdx = 0

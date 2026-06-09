@@ -77,9 +77,10 @@ describe('Pipeline', () => {
     expect(result.stage).toBe('embedding')
   })
 
-  it('score 25 + similarity 0.75 -> action=warn, stage=embedding', async () => {
+  it('score 25 + similarity 0.82 -> action=warn, stage=embedding', async () => {
     mockScore.mockReturnValue({ score: 25, matches: [] })
-    mockCheck.mockResolvedValue({ similarity: 0.75, nearest: 'template', chunkCount: 1 })
+    // 0.82 sits in the warn band [0.80, 0.86) for the E5-tuned thresholds.
+    mockCheck.mockResolvedValue({ similarity: 0.82, nearest: 'template', chunkCount: 1 })
     const pipeline = new Pipeline(makeConfig(), undefined)
     const result = await pipeline.run('/v1/messages', USER_BODY, META)
     expect(result.action).toBe('warn')
@@ -104,7 +105,7 @@ describe('Pipeline', () => {
 
   it('calls onBlock when action is warn', async () => {
     mockScore.mockReturnValue({ score: 25, matches: [] })
-    mockCheck.mockResolvedValue({ similarity: 0.75, nearest: 'template', chunkCount: 1 })
+    mockCheck.mockResolvedValue({ similarity: 0.82, nearest: 'template', chunkCount: 1 })
     const onBlock = vi.fn()
     const pipeline = new Pipeline(makeConfig(), onBlock)
     await pipeline.run('/v1/messages', USER_BODY, META)
@@ -140,7 +141,7 @@ describe('Pipeline', () => {
 
   it('warn + judgeEnabled=true + judgeBlock=false -> fires async judge classify', async () => {
     mockScore.mockReturnValue({ score: 25, matches: [] })
-    mockCheck.mockResolvedValue({ similarity: 0.75, nearest: 'template', chunkCount: 1 })
+    mockCheck.mockResolvedValue({ similarity: 0.82, nearest: 'template', chunkCount: 1 })
     mockClassify.mockResolvedValue({ verdict: 'MALICIOUS', latencyMs: 5 })
     const onBlock = vi.fn()
     const pipeline = new Pipeline(makeConfig({ judgeEnabled: true, judgeBlock: false }), onBlock)

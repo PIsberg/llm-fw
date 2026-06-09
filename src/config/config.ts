@@ -34,8 +34,20 @@ export const DEFAULT_CONFIG: Config = {
   },
   detection: {
     heuristicBlockThreshold: 50,
-    embeddingBlockThreshold: 0.85,
-    embeddingWarnThreshold: 0.70,
+    // Tuned for multilingual-e5-small against the canonical anchor set
+    // (data/semantic-anchors.json). E5 runs a higher baseline cosine than the
+    // previous model but separates cleanly: across 20+ languages, injections
+    // land ~0.85–0.89 to an anchor while benign tops out ~0.85 (the lone
+    // exception being injection-ADJACENT benign like "ignore the typos in my
+    // draft", which no cosine threshold can distinguish from "ignore your
+    // instructions"). 0.86 blocks confident cross-lingual injections while
+    // keeping benign false positives to the irreducible adjacent cases; the
+    // 0.80–0.86 warn band routes ambiguous prompts to the judge when enabled.
+    // The hand-coded heuristics (now covering CJK/Cyrillic/Arabic correctly)
+    // catch the common languages at Stage 1; this anchor stage generalizes to
+    // the long tail of languages with no hand-written rules.
+    embeddingBlockThreshold: 0.86,
+    embeddingWarnThreshold: 0.80,
     chunkTokenLimit: 300,
     chunkSize: 200,
     chunkOverlap: 50,

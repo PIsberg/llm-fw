@@ -6,11 +6,14 @@ function translateHomoglyphs(text: string): string {
     'А': 'a', 'В': 'b', 'С': 'c', 'Е': 'e', 'Н': 'h', 'І': 'i', 'К': 'k', 'М': 'm', 'О': 'o', 'Р': 'p', 'Ѕ': 's', 'Т': 't', 'Х': 'x', 'У': 'y', 'З': 'z',
     'α': 'a', 'β': 'b', 'ε': 'e', 'η': 'h', 'ι': 'i', 'κ': 'k', 'μ': 'm', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'χ': 'x', 'υ': 'y'
   }
-  // Homoglyph substitution only makes sense for MIXED-script tokens (Latin text
-  // with lookalike Cyrillic/Greek letters spliced in to evade keyword regexes).
-  // A token written entirely in Cyrillic/Greek is legitimate foreign-language
-  // text — translating it char-by-char mangles it (е.g. "инструкции" →
-  // "ihctpykcii") and breaks the non-English heuristic patterns.
+  // Homoglyph substitution only makes sense for MIXED-script tokens — Latin
+  // words with a few lookalike Cyrillic/Greek letters spliced in to dodge a
+  // keyword regex (e.g. "ignоre" with a Cyrillic о). A token written ENTIRELY
+  // in Cyrillic/Greek is legitimate foreign-language text; translating it
+  // char-by-char destroys it ("инструкции" → "ihctpykции") and breaks every
+  // non-Latin heuristic pattern — which is exactly why Russian/Greek
+  // injections were sailing through. Only translate a token that already
+  // contains a Latin letter.
   return text.split(/(\s+)/).map(token => {
     if (!/[a-zA-Z]/.test(token)) return token
     return token.split('').map(char => homoglyphs[char] || char).join('')
@@ -257,11 +260,46 @@ export function normalize(text: string): string {
   return result;
 }
 
+/**
+ * Lighter normalization for the SEMANTIC (embedding) stage.
+ *
+ * normalize() above is built for the regex heuristics: it strips diacritics and
+ * folds homoglyphs to defeat evasion. But that destroys legitimate text in
+ * diacritic-bearing scripts — Vietnamese "Bỏ qua" collapses to "Bo qua", and
+ * Thai/Tamil/Devanagari vowel signs are \p{Diacritic} too, so whole sentences
+ * are mangled before the multilingual encoder sees them, sinking their
+ * similarity and letting those languages pass. The embedding model was trained
+ * on natural text WITH diacritics, so the semantic stage keeps the script
+ * intact and only removes the invisible smuggling channels + obvious padding.
+ */
+export function normalizeSemantic(text: string): string {
+  let result = text.normalize('NFKC')
+  // Zero-width characters and invisible smuggling channels (Tags, bidi,
+  // variation selectors) — never legitimate, safe to drop for any language.
+  result = result.replace(/[​‌‍﻿­]/g, '')
+  result = result.replace(HIDDEN_CHAR_STRIP_RE, '')
+  // Collapse runs of repeated punctuation and whitespace padding.
+  result = result.replace(/([^\p{L}\p{N}\s])\1{2,}/gu, '$1')
+  result = result.replace(/\s+/g, ' ').trim()
+  return result.toLowerCase()
+}
+
 export function extractCandidates(text: string): { text: string; source: string }[] {
   const candidates: { text: string; source: string }[] = []
 
   const originalNormalized = normalize(text)
   candidates.push({ text: originalNormalized, source: 'original' })
+
+  // Diacritic/script-preserving form for the multilingual embedding stage. The
+  // 'original' candidate above strips diacritics for the regex heuristics,
+  // which mangles diacritic-bearing scripts (Vietnamese, Thai, Tamil, …) and
+  // sinks their embedding similarity. Add the semantic form so those languages
+  // reach the encoder intact. Deduped when it equals the stripped form (plain
+  // ASCII English), so this is a no-op for the common case.
+  const semantic = normalizeSemantic(text)
+  if (semantic !== originalNormalized) {
+    candidates.push({ text: semantic, source: 'semantic' })
+  }
 
   const decodedLeet = normalize(decodeLeetspeak(text))
   if (decodedLeet !== originalNormalized) {

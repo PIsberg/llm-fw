@@ -51,24 +51,30 @@ export class HeuristicScorer {
           /忘记(所有)?(之前|先前的)?指令/,
           /新指令/,
 
-          // Russian (NFD normalization strips the breve from й → и, so match
-          // both forms — e.g. "игнорируй" arrives as "игнорируи").
-          /игнориру(?:и|й)?(?:те)?\s?(?:все\s)?(?:предыдущие\s)?инструкции/,
-          /забуд(?:ь|ъ)?(?:те)?\s?(?:все\s)?инструкции/,
-          /новое указание/,
+          // Russian. NFD normalization strips the breve off й → и, so the
+          // post-normalize form is "игнорируи"/"забуди"; match both. Allow
+          // arbitrary words (все, предыдущие, мои, …) between the verb and the
+          // object rather than a rigid fixed phrase.
+          /игнориру(?:й|и)(?:те)?[\s\S]{0,20}?инструкци/,
+          /забуд(?:ь|и)(?:те)?[\s\S]{0,20}?(?:инструкци|правила|указани)/,
+          /(?:не\s?обращай\s?внимани|пренебрег)[\s\S]{0,20}?(?:инструкци|правила|указани)/,
+          /нов(?:ое|ая)\s?(?:указание|инструкция|директива|задача)/,
 
           // Italian / Portuguese
           /ignora(re)? (?:tutte\s+|le\s+|as\s+)*(istruzioni|instruções) (precedenti|anteriores)/,
           /dimentica|esqueça/,
 
-          // Japanese (patterns target the post-normalize form: NFD strips the
-          // dakuten off voiced kana, so で→て, ど→と — kanji cores are stable).
-          /(?:指示|命令|規則|指令|ルール)を?(?:すべて)?(?:無視|破棄)/,
-          /(?:指示|命令|規則|指令|ルール)を?忘れ/,
+          // Japanese (kanji cores are stable, but NFD strips the dakuten off
+          // voiced kana: で→て, ど→と, AND すべて→すへて, プ→フ. So allow any
+          // run of kana/punct between the object and the verb rather than a
+          // fixed adverb, and match the dakuten-stripped 無視 stem).
+          /(?:指示|命令|規則|指令|ルール)を?[ぁ-ヿ、　]{0,6}?(?:無視|破棄|無効)/,
+          /(?:指示|命令|規則|指令|ルール)を?[ぁ-ヿ、　]{0,6}?忘れ/,
           /新しい(?:指示|命令|規則|目的|タスク)/,
 
-          // Korean
-          /(?:이전|기존|위의|앞의)?\s?(?:지시|명령|규칙|지침)(?:사항)?(?:을|를)?\s?(?:무시|잊)/,
+          // Korean. Allow filler words (모두 "all", 이전의, …) between the object
+          // and the verb instead of a single optional space.
+          /(?:이전|기존|위의|앞의)?\s?(?:지시|명령|규칙|지침)(?:사항)?(?:을|를)?[\s가-힣]{0,8}?(?:무시|잊)/,
           /새로운\s?(?:지시|명령|규칙|작업|임무)/,
 
           // Arabic (hamza-on-alef أ/إ/آ is preserved by normalize, so match the
@@ -373,7 +379,11 @@ export class HeuristicScorer {
       }
     }
 
-    if (source !== 'original' && source !== 'leetspeak' && totalScore > 0) {
+    // The 'semantic' candidate is just the diacritic-preserving form of the
+    // ORIGINAL prompt (for the embedding stage), not an obfuscation channel —
+    // it must not earn the obfuscation bonus that decoded/transformed
+    // candidates do.
+    if (source !== 'original' && source !== 'leetspeak' && source !== 'semantic' && totalScore > 0) {
       totalScore += 20
       matches.push('obfuscation-signal')
     }
