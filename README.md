@@ -38,6 +38,7 @@ Test **every detector** from one place — pick a category and paste your own in
 
 - **Prompt Injection** — jailbreaks, encoded/obfuscated payloads, multilingual overrides (Stages 1–3)
 - **ASCII Smuggling** — instructions hidden in invisible Unicode characters (Tags block, bidi overrides, variation selectors); the example encodes a hidden override you cannot see but the LLM would read
+- **Image / Document** — prompt injection carried by non-text content; text-bearing files (text/*, PDFs) are decoded and scanned, opaque images are surfaced (audit) or refused (block)
 - **RAG Poisoning** — instructions smuggled inside `<document>`/`<context>`/code-fence data blocks
 - **Data Loss (DLP)** — API keys, tokens, private keys, credit cards, with a redacted-payload preview
 - **MCP Tools** — check tool names against the allow/deny policy
