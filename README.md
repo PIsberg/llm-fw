@@ -18,6 +18,53 @@ No changes to your code. No cloud dependencies. Boots in under 2 seconds.
 
 ---
 
+## Table of Contents
+
+**Getting started**
+- [Dashboard Screenshots](#dashboard-screenshots)
+- [How it works](#how-it-works)
+- [Supported AI services](#supported-ai-services)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Sinkhole mode — for Node.js tools and native binaries](#sinkhole-mode--for-nodejs-tools-and-native-binaries)
+- [Standalone server mode — one firewall for many clients](#standalone-server-mode--one-firewall-for-many-clients)
+- [Running in development (from source)](#running-in-development-from-source)
+- [Uninstall](#uninstall)
+- [IDE Integration (Antigravity IDE & VS Code)](#ide-integration-antigravity-ide--vs-code)
+- [Using llm-fw with popular tools](#using-llm-fw-with-popular-tools)
+- [How llm-fw compares](#how-llm-fw-compares)
+
+**Detection**
+- [Example: Firewall in Action](#example-firewall-in-action)
+- [Detection Scorecard](#detection-scorecard)
+- [What Injections Get Caught?](#what-injections-get-caught)
+- [Stage 1: Heuristic Scoring & Evasion Normalization](#stage-1-heuristic-scoring--evasion-normalization)
+- [Stage 2: Embedding Similarity](#stage-2-embedding-similarity)
+- [Stage 3: Judge LLM (Ollama)](#stage-3-judge-llm-ollama)
+
+**Other defenses**
+- [Data Loss Prevention (DLP)](#data-loss-prevention-dlp)
+- [Cost Control & DoS Protection](#cost-control--dos-protection)
+- [RAG Context-Poisoning Detection](#rag-context-poisoning-detection)
+- [ASCII Smuggling Detection](#ascii-smuggling-detection)
+- [Response-Side Exfiltration Detection](#response-side-exfiltration-detection)
+- [Settings — toggle defenses live](#settings--toggle-defenses-live)
+- [MCP Monitoring & Tool Firewall](#mcp-monitoring--tool-firewall)
+
+**Reference**
+- [Advanced: Sinkhole mode (covered above)](#advanced-sinkhole-mode-covered-above)
+- [Configuration](#configuration)
+- [CLI reference](#cli-reference)
+- [Diagnostics (llm-fw doctor)](#diagnostics-llm-fw-doctor)
+- [Dashboard](#dashboard)
+- [Supported platforms](#supported-platforms)
+- [Publishing (maintainers)](#publishing-maintainers)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
+
 ## Dashboard Screenshots
 
 ### Events tab — live blocked request feed
@@ -186,7 +233,7 @@ llm-fw stop
 
 ---
 
-## Sinkhole mode — for Node.js tools and native binaries {#sinkhole-mode}
+## Sinkhole mode — for Node.js tools and native binaries
 
 Sinkhole mode is enabled automatically by `llm-fw setup` when it runs with admin/root — you usually don't need to do anything extra. This section explains what it does and how to enable it if your first `setup` ran unprivileged.
 
@@ -245,7 +292,7 @@ llm-fw stop
 
 ---
 
-## Standalone server mode — one firewall for many clients {#standalone-mode}
+## Standalone server mode — one firewall for many clients
 
 Run llm-fw on a dedicated host (a VM, a Raspberry Pi, a shared dev box) and have **multiple client machines** route their LLM traffic through it. Every client is then inspected by a single, centrally-managed firewall.
 
@@ -1049,7 +1096,7 @@ Detected events appear in the dashboard under the **MCP / Tool Use** badge with 
 
 ## Advanced: Sinkhole mode (covered above)
 
-See the [Sinkhole mode](#sinkhole-mode) section in Quick Start for full instructions.
+See the [Sinkhole mode](#sinkhole-mode--for-nodejs-tools-and-native-binaries) section in Quick Start for full instructions.
 
 ---
 
