@@ -41,9 +41,11 @@ test.describe('Prompt Testing — ASCII smuggling', () => {
 test.describe('Settings tab', () => {
   test('renders grouped toggles reflecting current config', async ({ page }) => {
     await openSettings(page)
-    await expect(page.locator('.settings-group')).toHaveCount(5)
+    await expect(page.locator('.settings-group')).toHaveCount(6)
     await expect(page.locator('#set-asciiSmuggling')).toBeChecked()
     await expect(page.locator('#set-dlpMode')).toHaveValue('redact')
+    // Non-text Content group — OCR is opt-in (unchecked) by default.
+    await expect(page.locator('#set-nonTextOcr')).not.toBeChecked()
   })
 
   test('toggling a defense shows a saved indicator and takes effect live', async ({ page }) => {
