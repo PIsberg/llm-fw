@@ -5,5 +5,6 @@
     "scripts/**/*.{js,mjs,ts}",
     "test/**/*.{js,mjs,ts}"
   ],
-  "project": ["src/**/*.ts"]
+  "project": ["src/**/*.ts"],
+  "ignoreExportsUsedInFile": { "interface": true, "type": true }
 }
