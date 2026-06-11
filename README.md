@@ -8,11 +8,18 @@
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-brightgreen?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 
-A local prompt injection firewall that intercepts traffic between your tools and **every major LLM API** before it leaves your machine. Malicious prompts are blocked and logged; clean ones are forwarded transparently.
+### Stop prompt injection before it reaches the model — on your machine, across every major LLM provider, with zero code changes.
 
-Works out of the box with OpenAI, Anthropic, Google Gemini/Vertex, Azure OpenAI, Mistral, Groq, OpenRouter, Together, Fireworks, DeepSeek, xAI (Grok), Perplexity, Cohere, Anyscale, and HuggingFace — point any tool at the proxy (or enable the sinkhole) and the firewall covers it automatically. Any OpenAI-compatible endpoint is understood natively.
+**llm-fw** is a local firewall for LLM traffic. It sits between your tools and the APIs they call, inspects every request as it streams by, blocks prompt-injection and jailbreak attempts in real time, and forwards clean traffic untouched — without sending a single byte to the cloud.
 
-No changes to your code. No cloud dependencies. Boots in under 2 seconds.
+- 🛡️ **Catches what signatures can't.** A three-stage pipeline — fast heuristics → cross-lingual embeddings → an optional local LLM judge — detects *semantic* attacks by intent, not just known strings.
+- 🌍 **Every major provider, 20+ languages, zero config.** OpenAI, Anthropic, Gemini/Vertex, Azure, Mistral, Groq, and 9 more are covered out of the box — and an injection lands the same whether it's written in English, Urdu, or Thai.
+- ⚡ **Real-time, in-line blocking.** A malicious request is aborted mid-stream with a `403` before it ever leaves your machine. Clean traffic forwards with zero added latency.
+- 🔌 **No code changes.** Point `HTTPS_PROXY` at it — or enable the OS-level sinkhole for Node.js and native binaries that ignore proxies — and you're protected.
+- 🏠 **Fully local & private.** No cloud calls, no API keys, no telemetry. Boots in under 2 seconds.
+- 📊 **A dashboard that shows its work.** Watch blocked attempts live, replay any prompt through the pipeline in the playground, and audit traffic at `localhost:7731`.
+
+> Beyond prompt injection, llm-fw also ships DLP secret-scanning, cost/DoS circuit breakers, an MCP tool firewall, RAG context-poisoning detection, ASCII-smuggling defense, and response-side exfiltration filtering — see the [feature tour](#data-loss-prevention-dlp) below.
 
 ![llm-fw infographic](infographics-llm-fw.jpg)
 
@@ -421,7 +428,7 @@ Flags:
 | Flag | Effect |
 | --- | --- |
 | `--yes`, `-y` | Skip the confirmation prompt (for scripts/CI). |
-| `--keep-model` | Preserve the cached embedding model (~30 MB) to avoid re-downloading on a later reinstall. |
+| `--keep-model` | Preserve the cached embedding model (~120 MB) to avoid re-downloading on a later reinstall. |
 
 **Active shell sessions:** uninstall clears the persisted `HTTPS_PROXY` /
 `NODE_EXTRA_CA_CERTS` values (registry / shell profiles), but a terminal that was
@@ -555,7 +562,7 @@ curl.exe -x http://127.0.0.1:8080 --cacert "$env:USERPROFILE\.llm-fw\ca.crt" -X 
 {"error":"prompt injection detected","stage":"embedding","score":40}
 ```
 
-Matched the canonical attack templates in `data/attacks.json` with high cosine similarity, causing Stage 2 (Embedding) to block the request.
+Matched the canonical injection-intent anchors in `data/semantic-anchors.json` with high cross-lingual cosine similarity, causing Stage 2 (Embedding) to block the request.
 
 ---
 
