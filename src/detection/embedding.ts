@@ -1,6 +1,7 @@
 import { pipeline, env } from '@huggingface/transformers'
 import { EmbeddingResult, DetectionConfig } from '../types.js'
 import { normalizeSemantic } from './normalize.js'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
@@ -14,11 +15,26 @@ interface FeatureTensor {
 }
 type FeatureExtractor = (texts: string[], opts: { pooling: 'mean'; normalize: boolean }) => Promise<FeatureTensor>
 
+// check() results for repeated identical (normalized) inputs. Proxy traffic is
+// highly repetitive — client retries, agent loops re-sending the same system
+// prefix, identical tool descriptions on every call — so a small LRU skips the
+// model entirely for the common case. Keyed by content hash so the map never
+// pins large prompt strings in memory.
+//
+// NOTE: texts are deliberately embedded ONE AT A TIME, never batched. Batching
+// pads shorter texts in the quantized (q8) forward pass and measurably shifts
+// the resulting vectors (~4e-3 in 1-cos for the anchor set — enough to move a
+// borderline benign prompt across the tuned block threshold). The thresholds in
+// config.ts are calibrated against single-text embeddings; keep them
+// bit-identical.
+const CACHE_MAX_ENTRIES = 512
+
 export class EmbeddingChecker {
   private extractor: FeatureExtractor | null = null
   private templateEmbeddings: Float32Array[] = []
   private templateStrings: string[] = []
   private config: DetectionConfig
+  private cache = new Map<string, EmbeddingResult>()
 
   constructor(config: DetectionConfig) {
     this.config = config
@@ -140,6 +156,16 @@ export class EmbeddingChecker {
     if (norm.length < 2) {
       return { similarity: 0, nearest: '', chunkCount: 0 }
     }
+
+    const key = createHash('sha256').update(norm).digest('base64')
+    const cached = this.cache.get(key)
+    if (cached) {
+      // Re-insert to mark as most-recently-used (Map preserves insertion order).
+      this.cache.delete(key)
+      this.cache.set(key, cached)
+      return cached
+    }
+
     const chunks = this.chunk(norm)
     let maxSim = 0
     let nearestIdx = 0
@@ -155,11 +181,16 @@ export class EmbeddingChecker {
       }
     }
 
-    return {
+    const result: EmbeddingResult = {
       similarity: maxSim,
       nearest: this.templateStrings[nearestIdx] ?? '',
       chunkCount: chunks.length,
     }
+    this.cache.set(key, result)
+    if (this.cache.size > CACHE_MAX_ENTRIES) {
+      this.cache.delete(this.cache.keys().next().value as string)
+    }
+    return result
   }
 
   isInitialized(): boolean {
