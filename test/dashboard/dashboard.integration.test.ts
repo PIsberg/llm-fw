@@ -352,6 +352,10 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     // Reflects DEFAULT_CONFIG.
     expect(s.asciiSmuggling).toBe(true)
     expect(s.dlpMode).toBe('redact')
+    // Non-text content group — OCR is opt-in (off) by default.
+    expect(s.nonText).toBe(true)
+    expect(s.nonTextMode).toBe('audit')
+    expect(s.nonTextOcr).toBe(false)
   })
 
   // Validation rejections never reach the persist path (applied list is empty),
@@ -369,6 +373,16 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
 
   it('POST /api/settings rejects an invalid enum value with 400', async () => {
     const res = await req(server, 'POST', '/api/settings', '{"dlpMode":"nuke"}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects an invalid nonTextMode with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"nonTextMode":"shred"}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects a wrong-typed nonTextOcr with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"nonTextOcr":"on"}')
     expect(res.status).toBe(400)
   })
 
