@@ -183,13 +183,6 @@ export interface PipelineResult {
   smuggleRanges?: string[];
 }
 
-export interface SandboxResult {
-  client: string;
-  sandboxed: boolean;
-  confidence: number;
-  signals: string[];
-}
-
 export interface BlockEvent {
   id: string;
   timestamp: string;

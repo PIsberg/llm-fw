@@ -45,7 +45,7 @@ function decompressBody(buf: Buffer, encoding: string): Buffer {
  * already started receiving the response) to make the console line actionable
  * instead of an anonymous "upstream timeout".
  */
-export class UpstreamTimeoutError extends Error {
+class UpstreamTimeoutError extends Error {
   constructor(
     public readonly host: string,
     public readonly port: number,

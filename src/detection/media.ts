@@ -21,7 +21,7 @@ import { MediaBlock } from '../types.js'
 const TEXT_MIME_RE = /^(text\/|application\/(json|xml|csv|x-yaml|yaml|javascript|markdown|x-markdown))/i
 
 /** Default cap on decoded bytes per block — bounds memory on hostile payloads. */
-export const MAX_DECODED_BYTES_DEFAULT = 2_097_152 // 2 MiB
+const MAX_DECODED_BYTES_DEFAULT = 2_097_152 // 2 MiB
 
 /**
  * Extract printable-character runs from arbitrary bytes. Used for PDFs (and
