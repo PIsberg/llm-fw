@@ -106,6 +106,13 @@ export interface NonTextConfig {
   // opt-in for deployments that cannot tolerate uninspectable input.
   enabled: boolean;
   mode: 'audit' | 'block';
+  // Opt-in OCR (issue #60). When true, opaque RASTER IMAGES are run through a
+  // local WASM OCR engine (tesseract.js — no Python, no network at runtime once
+  // the language data is cached) and any recovered text is scanned by the
+  // normal pipeline. This catches injection text rendered as pixels (e.g. a
+  // pasted screenshot) that would otherwise be uninspectable. Off by default:
+  // it adds ~0.2–2s per image and a lazy ~12 MB model/lang download.
+  ocr?: boolean;
 }
 
 // A non-text content block found in a request payload. `text` is present when
@@ -116,6 +123,10 @@ export interface MediaBlock {
   mimeType?: string;
   sizeBytes?: number;
   text?: string;
+  // Raw base64 payload, retained ONLY for opaque raster images so the optional
+  // OCR stage can read the pixels. Never serialized into events (callers that
+  // emit blocks map fields explicitly). Absent for text-bearing / remote blocks.
+  data?: string;
 }
 
 export interface TaintConfig {

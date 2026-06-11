@@ -107,6 +107,7 @@ export const DEFAULT_CONFIG: Config = {
   nonText: {
     enabled: true,
     mode: 'audit',
+    ocr: false,
   },
   mcp: {
     enabled: true,
@@ -276,6 +277,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (env['LLM_FW_NONTEXT_MODE'] && config.nonText && (env['LLM_FW_NONTEXT_MODE'] === 'audit' || env['LLM_FW_NONTEXT_MODE'] === 'block')) {
     config.nonText.mode = env['LLM_FW_NONTEXT_MODE'];
+  }
+  if (env['LLM_FW_NONTEXT_OCR'] && config.nonText) {
+    config.nonText.ocr = env['LLM_FW_NONTEXT_OCR'] === 'true';
   }
 
   return config;

@@ -9,6 +9,7 @@ import { EventBus } from './eventBus.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { getParser } from '../detection/parsers.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
+import { ocrImage, isOcrCandidate } from '../detection/ocr.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
@@ -1861,6 +1862,17 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             // mode (where opaque media passes through without a 403).
             const parser = getParser('/v1/messages')
             const blocks = parser?.extractMediaBlocks ? parser.extractMediaBlocks(imageBody) : []
+            // Mirror the pipeline's opt-in OCR so the card shows the recovered
+            // text (and counts the image as scanned), not just "opaque".
+            const ocrOn = config.nonText?.ocr ?? false
+            if (ocrOn) {
+              for (const b of blocks) {
+                if (!b.text && b.data && isOcrCandidate(b.mimeType)) {
+                  const text = await ocrImage(b.data, b.mimeType)
+                  if (text) b.text = text
+                }
+              }
+            }
             const opaque = blocks.filter(b => !b.text)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({
@@ -1869,6 +1881,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               judgeEnabled: config.detection.judgeEnabled,
               nonTextEnabled: config.nonText?.enabled ?? false,
               nonTextMode: config.nonText?.mode ?? 'audit',
+              nonTextOcr: ocrOn,
               media: {
                 blocks: blocks.map(b => ({
                   kind: b.kind,

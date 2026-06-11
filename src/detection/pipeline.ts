@@ -7,6 +7,7 @@ import { JudgeClient } from './judge.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { summarizeOpaque } from './media.js'
+import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
@@ -60,10 +61,25 @@ export class Pipeline {
     // inspected locally: audit mode emits a warn event so the dashboard shows
     // unscanned content entered the model; block mode refuses the request.
     const nonText = this.config.nonText
+    // Summary of opaque media for a deferred audit warn (emitted only if no
+    // content stage blocks below, so an OCR-recovered injection wins instead).
+    let opaqueAuditSummary: string | null = null
     if (nonText?.enabled && parser.extractMediaBlocks) {
       const media = parser.extractMediaBlocks(body)
       for (const m of media) {
         if (m.text) scanItems.push({ text: m.text, source: 'document' })
+      }
+      // OCR opt-in: read injection text rendered as pixels in raster images and
+      // scan it as a document below (so it can BLOCK on content). Crucially we
+      // do NOT mark the image inspected: a clean-but-garbled OCR read must not
+      // let an otherwise-opaque image slip past block mode, or an attacker
+      // defeats block mode just by adding noise text to the image.
+      if (nonText.ocr) {
+        for (const m of media) {
+          if (m.text || !m.data || !isOcrCandidate(m.mimeType)) continue
+          const text = await ocrImage(m.data, m.mimeType)
+          if (text) scanItems.push({ text, source: 'document' })
+        }
       }
       const opaque = media.filter(m => !m.text)
       if (opaque.length > 0) {
@@ -73,11 +89,14 @@ export class Pipeline {
           this.emit({ ...result, mediaSummary: summary }, meta, `unscannable non-text content: ${summary}`, 'document')
           return result
         }
-        this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: summary }, meta, `non-text content not scanned: ${summary}`, 'document')
+        opaqueAuditSummary = summary
       }
     }
 
-    if (!scanItems.length) return this.pass(0, 0)
+    if (!scanItems.length) {
+      if (opaqueAuditSummary) this.emitNonTextWarn(opaqueAuditSummary, meta)
+      return this.pass(0, 0)
+    }
 
     const { heuristicBlockThreshold, embeddingBlockThreshold, embeddingWarnThreshold, judgeEnabled, judgeBlock } = this.config.detection
     let lastScore = 0
@@ -261,14 +280,21 @@ export class Pipeline {
       }
     }
 
-    // No candidate blocked. Surface the deferred warn if any candidate crossed
-    // the warn threshold; otherwise pass.
+    // No candidate blocked. Surface the deferred opaque-media warn (an opaque
+    // image was present and OCR, if on, recovered nothing that blocked) and the
+    // embedding warn if any candidate crossed the warn threshold; otherwise pass.
+    if (opaqueAuditSummary) this.emitNonTextWarn(opaqueAuditSummary, meta)
     if (pendingWarn) {
       this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
       return pendingWarn.result
     }
 
     return this.pass(lastScore, lastSim)
+  }
+
+  /** Emit the audit warn for opaque media that the pipeline could not inspect. */
+  private emitNonTextWarn(summary: string, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }): void {
+    this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: summary }, meta, `non-text content not scanned: ${summary}`, 'document')
   }
 
   async checkPartial(

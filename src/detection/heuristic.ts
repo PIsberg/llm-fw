@@ -16,7 +16,7 @@ export class HeuristicScorer {
           /you have no restrictions/,
           /ig[a-z]{1,3}(?:re|er|r)\b (instructions?|rules?|prompts?|commands?)/,
           /forget (your |all |the )?(previous|prior|above|original|system)? ?(instructions?|rules?|context|prompts?)/,
-          /disregard (all |the |any |your |my )?(previous|above|prior|original)? ?(instructions?|rules?|commands?|guidelines?|polic(?:y|ies)|safety)/,
+          /disregard (all |the |any |your |my )?(previous|above|prior|original)? ?(instructions?|rules?|prompts?|commands?|guidelines?|polic(?:y|ies)|safety)/,
           /new (primary |main |core )?(instructions?|mandate|directive|objective|task)/,
           /override (your |all |the )?(instructions?|rules?|system|guidelines|constraints)/,
           /your (new |real |actual |true )?(instructions?|purpose|role|goal|directive)/,
