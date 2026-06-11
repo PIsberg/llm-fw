@@ -75,6 +75,10 @@ export function mediaBlockFromBase64(kind: MediaBlock['kind'], mimeType: string 
     mimeType,
     sizeBytes: Math.floor(base64Data.length * 3 / 4),
     ...(text ? { text } : {}),
+    // Keep the raw payload for opaque raster images so the optional OCR stage
+    // can read the pixels. Text-bearing blocks are already decoded; no point
+    // retaining their bytes.
+    ...(!text && kind === 'image' ? { data: base64Data } : {}),
   }
 }
 

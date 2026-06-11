@@ -9,6 +9,7 @@ import { EventBus } from './eventBus.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { getParser } from '../detection/parsers.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
+import { ocrImage, isOcrCandidate } from '../detection/ocr.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
@@ -1173,6 +1174,11 @@ const SETTINGS_SCHEMA = [
     { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs in the model response' },
     { key: 'responseScanMode', label: 'Response scan mode', type: 'select', options: ['audit', 'block'] },
   ]},
+  { group: 'Non-text Content', desc: 'Injection carried by images, PDFs, and documents. Text-bearing files (text/*, PDFs) are always decoded and scanned; these control opaque media (raster images, audio).', rows: [
+    { key: 'nonText', label: 'Non-text content scanning' },
+    { key: 'nonTextMode', label: 'Opaque media mode', type: 'select', options: ['audit', 'block'], sub: 'audit: forward + warn · block: refuse uninspectable media' },
+    { key: 'nonTextOcr', label: 'OCR raster images', sub: 'Read injection text rendered as pixels and scan it (WASM, no Python; ~12 MB first-run download, ~0.2–2s/image)' },
+  ]},
   { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails.', rows: [
     { key: 'mcp', label: 'MCP tool policy' },
     { key: 'mcpGuardrails', label: 'Command guardrails' },
@@ -1488,6 +1494,9 @@ interface SettingsView {
   urlFilter: boolean
   responseScan: boolean
   responseScanMode: 'block' | 'audit'
+  nonText: boolean
+  nonTextMode: 'audit' | 'block'
+  nonTextOcr: boolean
 }
 
 // Defensive `?.`/defaults throughout: production config is always fully merged
@@ -1515,6 +1524,9 @@ function readSettings(config: Config): SettingsView {
     urlFilter: config.proxy?.urlFilter?.enabled ?? true,
     responseScan: config.responseScan?.enabled ?? true,
     responseScanMode: config.responseScan?.mode ?? 'audit',
+    nonText: config.nonText?.enabled ?? true,
+    nonTextMode: config.nonText?.mode ?? 'audit',
+    nonTextOcr: config.nonText?.ocr ?? false,
   }
 }
 
@@ -1538,12 +1550,15 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   taint: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).enabled = v },
   urlFilter: (c, v) => { c.proxy.urlFilter.enabled = v },
   responseScan: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).enabled = v },
+  nonText: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).enabled = v },
+  nonTextOcr: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).ocr = v },
 }
 
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
   responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).mode = v as 'block' | 'audit' } },
+  nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
 }
 
 // Reconstruct the toggle-relevant subset of config as a nested partial for
@@ -1861,6 +1876,17 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             // mode (where opaque media passes through without a 403).
             const parser = getParser('/v1/messages')
             const blocks = parser?.extractMediaBlocks ? parser.extractMediaBlocks(imageBody) : []
+            // Mirror the pipeline's opt-in OCR so the card shows the recovered
+            // text (and counts the image as scanned), not just "opaque".
+            const ocrOn = config.nonText?.ocr ?? false
+            if (ocrOn) {
+              for (const b of blocks) {
+                if (!b.text && b.data && isOcrCandidate(b.mimeType)) {
+                  const text = await ocrImage(b.data, b.mimeType)
+                  if (text) b.text = text
+                }
+              }
+            }
             const opaque = blocks.filter(b => !b.text)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({
@@ -1869,6 +1895,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               judgeEnabled: config.detection.judgeEnabled,
               nonTextEnabled: config.nonText?.enabled ?? false,
               nonTextMode: config.nonText?.mode ?? 'audit',
+              nonTextOcr: ocrOn,
               media: {
                 blocks: blocks.map(b => ({
                   kind: b.kind,
