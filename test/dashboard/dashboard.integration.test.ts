@@ -349,9 +349,17 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(s).toHaveProperty('asciiSmuggling')
     expect(s).toHaveProperty('dlpMode')
     expect(s).toHaveProperty('mcpGuardrails')
+    // New structural / multi-turn / response detectors are exposed too.
+    expect(s).toHaveProperty('manyShot')
+    expect(s).toHaveProperty('crescendo')
+    expect(s).toHaveProperty('responseHarm')
     // Reflects DEFAULT_CONFIG.
     expect(s.asciiSmuggling).toBe(true)
     expect(s.dlpMode).toBe('redact')
+    expect(s.manyShot).toBe(true)
+    expect(s.manyShotMode).toBe('block')
+    expect(s.crescendo).toBe(true)
+    expect(s.responseHarm).toBe(true)
     // Non-text content group — OCR is opt-in (off) by default.
     expect(s.nonText).toBe(true)
     expect(s.nonTextMode).toBe('audit')
@@ -383,6 +391,11 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
 
   it('POST /api/settings rejects a wrong-typed nonTextOcr with 400', async () => {
     const res = await req(server, 'POST', '/api/settings', '{"nonTextOcr":"on"}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects an invalid manyShotMode with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"manyShotMode":"nuke"}')
     expect(res.status).toBe(400)
   })
 

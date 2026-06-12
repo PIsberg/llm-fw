@@ -1161,40 +1161,45 @@ loadLanguages();
 
 // ── Settings (live defense toggles) ─────────────────────────────────────────
 const SETTINGS_SCHEMA = [
-  { group: 'Prompt Injection', desc: 'The heuristic and embedding stages always run. These control the invisible-character defense and the optional local-LLM judge.', rows: [
-    { key: 'asciiSmuggling', label: 'ASCII smuggling (invisible chars)', sub: 'Block Unicode-tag / bidi-override / variation-selector payloads' },
-    { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'Requires Ollama (run: llm-fw setup-judge)' },
-    { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block on a MALICIOUS verdict' },
-    { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Route every prompt to the judge — best novel/multilingual coverage' },
+  { group: 'Prompt Injection', desc: 'The heuristic and embedding stages always run (covering direct overrides, persona/DAN jailbreaks, refusal-suppression, prefix-injection, encoding, multilingual). These control the structural, multi-turn, and invisible-character defenses plus the optional local-LLM judge.', rows: [
+    { key: 'asciiSmuggling', label: 'ASCII smuggling (invisible chars)', sub: 'Block payloads hidden in Unicode-tag / bidi-override / variation-selector characters that render invisibly but the model still reads' },
+    { key: 'manyShot', label: 'Many-shot jailbreak', sub: 'Flag a prompt stuffed with fabricated dialogue turns whose faux answers comply with harmful asks (in-context conditioning)' },
+    { key: 'manyShotMode', label: 'Many-shot mode', type: 'select', options: ['block', 'audit'], sub: 'block: refuse harmful many-shot · audit: warn only' },
+    { key: 'crescendo', label: 'Multi-turn crescendo', sub: 'Flag a conversation that escalates over several turns toward harmful content, ending on a boundary-pushing directive' },
+    { key: 'crescendoMode', label: 'Crescendo mode', type: 'select', options: ['block', 'audit'], sub: 'block: refuse the escalating request · audit: warn only' },
+    { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'A local Ollama model reasons about intent for prompts the cheap stages miss. Requires Ollama (run: llm-fw setup-judge)' },
+    { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block the request on a MALICIOUS verdict, instead of only logging a warning' },
+    { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Route every prompt to the judge unless it is clearly harmless — best coverage of novel/multilingual jailbreaks, at the cost of more local-LLM calls' },
   ]},
-  { group: 'Data & Context', desc: 'Retrieved-content poisoning and outbound secret leakage.', rows: [
-    { key: 'rag', label: 'RAG context-poisoning' },
-    { key: 'dlp', label: 'Data Loss Prevention (DLP)' },
-    { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'] },
-    { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs in the model response' },
-    { key: 'responseScanMode', label: 'Response scan mode', type: 'select', options: ['audit', 'block'] },
+  { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
+    { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },
+    { key: 'dlp', label: 'Data Loss Prevention (DLP)', sub: 'Detect secrets leaving in requests: cloud keys, tokens, private keys, payment cards, PII' },
+    { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'], sub: 'block: refuse · redact: mask the secret and forward · audit: warn only' },
+    { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs the model emits (e.g. a zero-click markdown image to an attacker host)' },
+    { key: 'responseScanMode', label: 'Response scan mode', type: 'select', options: ['audit', 'block'], sub: 'audit: warn only · block: neutralize the exfil URL in the response' },
+    { key: 'responseHarm', label: 'Harmful-compliance scan (response)', sub: 'Defense-in-depth: flag a response that produced harmful how-to content (a jailbreak the input stages missed). Audit-only — never blocks' },
   ]},
   { group: 'Non-text Content', desc: 'Injection carried by images, PDFs, and documents. Text-bearing files (text/*, PDFs) are always decoded and scanned; these control opaque media (raster images, audio).', rows: [
-    { key: 'nonText', label: 'Non-text content scanning' },
+    { key: 'nonText', label: 'Non-text content scanning', sub: 'Inspect/track image, PDF, document, and audio attachments rather than letting them pass uninspected' },
     { key: 'nonTextMode', label: 'Opaque media mode', type: 'select', options: ['audit', 'block'], sub: 'audit: forward + warn · block: refuse uninspectable media' },
     { key: 'nonTextOcr', label: 'OCR raster images', sub: 'Read injection text rendered as pixels and scan it (WASM, no Python; ~12 MB first-run download, ~0.2–2s/image)' },
   ]},
-  { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails.', rows: [
-    { key: 'mcp', label: 'MCP tool policy' },
-    { key: 'mcpGuardrails', label: 'Command guardrails' },
-    { key: 'mcpCatA', label: 'Guardrail Cat A — filesystem' },
-    { key: 'mcpCatB', label: 'Guardrail Cat B — network' },
-    { key: 'mcpCatC', label: 'Guardrail Cat C — process' },
-    { key: 'mcpCatD', label: 'Guardrail Cat D — dev / infra' },
+  { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails for agentic / MCP traffic.', rows: [
+    { key: 'mcp', label: 'MCP tool policy', sub: 'Allow/deny tool calls by name and inspect tool definitions for poisoning' },
+    { key: 'mcpGuardrails', label: 'Command guardrails', sub: 'Scan shell-command tool arguments (bash, powershell, …) against the category rules below' },
+    { key: 'mcpCatA', label: 'Guardrail Cat A — filesystem', sub: 'Destructive or sensitive file operations (rm -rf, reading ~/.ssh, …)' },
+    { key: 'mcpCatB', label: 'Guardrail Cat B — network', sub: 'Outbound fetch / reverse shells / piping remote scripts to a shell' },
+    { key: 'mcpCatC', label: 'Guardrail Cat C — process', sub: 'Process control and privilege escalation (kill, sudo, scheduled tasks)' },
+    { key: 'mcpCatD', label: 'Guardrail Cat D — dev / infra', sub: 'Credential, package, and infrastructure tampering (git push, npm publish, cloud CLIs)' },
   ]},
   { group: 'Network & Exfiltration', desc: 'Outbound destination screening and cross-turn data-flow taint.', rows: [
-    { key: 'urlFilter', label: 'URL / exfiltration filter' },
-    { key: 'taint', label: 'Cross-turn taint tracking' },
-    { key: 'taintMode', label: 'Taint mode', type: 'select', options: ['audit', 'block'] },
+    { key: 'urlFilter', label: 'URL / exfiltration filter', sub: 'Screen outbound destinations: known exfil sinks, DGA/high-entropy hosts, data-carrying query strings' },
+    { key: 'taint', label: 'Cross-turn taint tracking', sub: 'Track untrusted tokens (from tool results) that are later reused as an outbound destination' },
+    { key: 'taintMode', label: 'Taint mode', type: 'select', options: ['audit', 'block'], sub: 'audit: warn only · block: refuse the tainted destination' },
   ]},
   { group: 'Cost & Abuse (DoS)', desc: 'Behavioral circuit breakers against denial-of-wallet.', rows: [
-    { key: 'dos', label: 'Rate limit / token budget' },
-    { key: 'dosLoopDetection', label: 'Agent loop detection' },
+    { key: 'dos', label: 'Rate limit / token budget', sub: 'Per-minute request cap and a rolling per-session token budget (numeric limits set in config / env)' },
+    { key: 'dosLoopDetection', label: 'Agent loop detection', sub: 'Detect an agent firing the same request over and over and break the loop' },
   ]},
 ];
 
@@ -1475,6 +1480,10 @@ drawChart();
 // takes effect on the proxy's next request — no restart.
 interface SettingsView {
   asciiSmuggling: boolean
+  manyShot: boolean
+  manyShotMode: 'audit' | 'block'
+  crescendo: boolean
+  crescendoMode: 'audit' | 'block'
   promptInjectionJudge: boolean
   judgeBlock: boolean
   judgeUnlessBenign: boolean
@@ -1494,6 +1503,7 @@ interface SettingsView {
   urlFilter: boolean
   responseScan: boolean
   responseScanMode: 'block' | 'audit'
+  responseHarm: boolean
   nonText: boolean
   nonTextMode: 'audit' | 'block'
   nonTextOcr: boolean
@@ -1505,6 +1515,10 @@ interface SettingsView {
 function readSettings(config: Config): SettingsView {
   return {
     asciiSmuggling: config.asciiSmuggling?.enabled ?? true,
+    manyShot: config.manyShot?.enabled ?? true,
+    manyShotMode: config.manyShot?.mode ?? 'block',
+    crescendo: config.crescendo?.enabled ?? true,
+    crescendoMode: config.crescendo?.mode ?? 'block',
     promptInjectionJudge: config.detection?.judgeEnabled ?? false,
     judgeBlock: config.detection?.judgeBlock ?? false,
     judgeUnlessBenign: config.detection?.judgeUnlessBenign ?? false,
@@ -1524,6 +1538,7 @@ function readSettings(config: Config): SettingsView {
     urlFilter: config.proxy?.urlFilter?.enabled ?? true,
     responseScan: config.responseScan?.enabled ?? true,
     responseScanMode: config.responseScan?.mode ?? 'audit',
+    responseHarm: config.responseScan?.harmfulCompliance ?? true,
     nonText: config.nonText?.enabled ?? true,
     nonTextMode: config.nonText?.mode ?? 'audit',
     nonTextOcr: config.nonText?.ocr ?? false,
@@ -1534,6 +1549,9 @@ function readSettings(config: Config): SettingsView {
 // not present here is rejected, so the endpoint can never mutate arbitrary config.
 const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   asciiSmuggling: (c, v) => { (c.asciiSmuggling ??= { enabled: true }).enabled = v },
+  manyShot: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).enabled = v },
+  crescendo: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).enabled = v },
+  responseHarm: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).harmfulCompliance = v },
   promptInjectionJudge: (c, v) => { c.detection.judgeEnabled = v },
   judgeBlock: (c, v) => { c.detection.judgeBlock = v },
   judgeUnlessBenign: (c, v) => { c.detection.judgeUnlessBenign = v },
@@ -1556,6 +1574,8 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
 
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
+  manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).mode = v as 'audit' | 'block' } },
+  crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).mode = v as 'audit' | 'block' } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
   responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).mode = v as 'block' | 'audit' } },
   nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
@@ -1583,7 +1603,13 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
     taint: { enabled: config.taint?.enabled ?? false, mode: config.taint?.mode ?? 'audit' },
     proxy: { urlFilter: { enabled: config.proxy.urlFilter.enabled } },
     asciiSmuggling: { enabled: config.asciiSmuggling?.enabled ?? true },
-    responseScan: { enabled: config.responseScan?.enabled ?? true, mode: config.responseScan?.mode ?? 'audit' },
+    manyShot: { enabled: config.manyShot?.enabled ?? true, mode: config.manyShot?.mode ?? 'block' },
+    crescendo: { enabled: config.crescendo?.enabled ?? true, mode: config.crescendo?.mode ?? 'block' },
+    responseScan: {
+      enabled: config.responseScan?.enabled ?? true,
+      mode: config.responseScan?.mode ?? 'audit',
+      harmfulCompliance: config.responseScan?.harmfulCompliance ?? true,
+    },
   }
 }
 
