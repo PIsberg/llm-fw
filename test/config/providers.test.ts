@@ -43,6 +43,11 @@ describe('identifyService', () => {
     expect(identifyService('foo.googleapis.com')).toBe('Google')
   })
 
+  it('maps both current and legacy HuggingFace hosts', () => {
+    expect(identifyService('router.huggingface.co')).toBe('HuggingFace')
+    expect(identifyService('api-inference.huggingface.co')).toBe('HuggingFace')
+  })
+
   it('labels infrastructure hosts', () => {
     expect(identifyService('github.com')).toBe('GitHub')
     expect(identifyService('registry.npmjs.org')).toBe('NPM')

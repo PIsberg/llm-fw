@@ -45,7 +45,14 @@ export const AI_PROVIDERS: AiProvider[] = [
   { name: 'Perplexity', hosts: ['api.perplexity.ai'], domains: ['perplexity.ai'] },
   { name: 'Cohere', hosts: ['api.cohere.com', 'api.cohere.ai'], domains: ['cohere.com', 'cohere.ai'] },
   { name: 'Anyscale', hosts: ['api.endpoints.anyscale.com'], domains: ['anyscale.com'] },
-  { name: 'HuggingFace', hosts: ['api-inference.huggingface.co'], domains: ['huggingface.co'] },
+  // router.huggingface.co is the current Inference Providers endpoint
+  // (OpenAI-compatible); api-inference.huggingface.co is the deprecated legacy
+  // host, kept so older SDKs are still sinkholed.
+  {
+    name: 'HuggingFace',
+    hosts: ['router.huggingface.co', 'api-inference.huggingface.co'],
+    domains: ['huggingface.co'],
+  },
 ]
 
 /** Infrastructure / tooling hosts — labelled on the dashboard but never sinkholed. */
