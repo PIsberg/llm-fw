@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-06-12T17:30:57.809Z",
+  "timestamp": "2026-06-12T18:49:02.553Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,20 +17,8 @@
       "fn": 0
     },
     "perClass": {
-      "exfiltration-markdown": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "indirect-injection": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "obfuscation-encoding": {
-        "tp": 12,
+      "persona-jailbreak": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -41,8 +29,8 @@
         "tn": 68,
         "fp": 0
       },
-      "roleplay-fiction": {
-        "tp": 10,
+      "skeleton-key": {
+        "tp": 3,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -53,26 +41,20 @@
         "tn": 0,
         "fp": 0
       },
+      "roleplay-fiction": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
       "social-engineering": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "skeleton-key": {
-        "tp": 3,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "persona-jailbreak": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
+      "delimiter-confusion": {
+        "tp": 6,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -83,8 +65,44 @@
         "tn": 0,
         "fp": 0
       },
-      "delimiter-confusion": {
+      "obfuscation-encoding": {
+        "tp": 12,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "refusal-override": {
+        "tp": 4,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "exfiltration-markdown": {
         "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "prefix-injection": {
+        "tp": 4,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "multilingual": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "indirect-injection": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "payload-splitting": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -100,32 +118,14 @@
         "fn": 0,
         "tn": 0,
         "fp": 0
-      },
-      "prefix-injection": {
-        "tp": 4,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "payload-splitting": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "refusal-override": {
-        "tp": 4,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
       }
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 75.2,
-    "p50LatencyMs": 65,
-    "p95LatencyMs": 157,
-    "p99LatencyMs": 218,
+    "avgLatencyMs": 97.4,
+    "p50LatencyMs": 74,
+    "p95LatencyMs": 222,
+    "p99LatencyMs": 298,
     "errCount": 0
   },
   "passed": true,
