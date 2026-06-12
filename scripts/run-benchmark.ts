@@ -18,7 +18,7 @@
  *   classifier       cheap + the trained ONNX classifier stage (if integrated)
  * model: Ollama tag for judge presets (default qwen2.5:3b)
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 import { Pipeline } from '../src/detection/pipeline.js'
@@ -31,9 +31,17 @@ const dataDir = join(__dir, '..', 'test', 'eval', 'data')
 interface Row { text: string; label: number; class?: string }
 interface Dataset { name: string; rows: Row[] }
 
-function load(file: string, name: string): Dataset {
-  const j = JSON.parse(readFileSync(join(dataDir, file), 'utf8')) as { rows: Row[] }
-  return { name, rows: j.rows }
+/** Load every *.json in the eval data dir that has a labelled `rows` array, so
+ *  dropping a new public dataset file in extends the suite automatically. */
+function loadAll(): Dataset[] {
+  return readdirSync(dataDir)
+    .filter(f => f.endsWith('.json'))
+    .sort()
+    .map(f => {
+      const j = JSON.parse(readFileSync(join(dataDir, f), 'utf8')) as { _source?: string; rows: Row[] }
+      return { name: f.replace('.json', ''), rows: j.rows }
+    })
+    .filter(d => Array.isArray(d.rows) && d.rows.length > 0 && typeof d.rows[0]?.label === 'number')
 }
 
 function buildConfig(preset: string, model: string): Config {
@@ -91,20 +99,19 @@ async function main() {
   const pipeline = new Pipeline(config)
   await pipeline.init()
 
-  const datasets = [
-    load('deepset-prompt-injections.json', 'deepset (public)'),
-    load('heldout.json', 'heldout (novel)'),
-  ]
+  const datasets = loadAll()
+  const verbose = process.argv.includes('--verbose')
 
   console.log(`\n=== Benchmark — preset='${preset}'${preset.startsWith('judge') ? ` model='${model}'` : ''} ===`)
   for (const ds of datasets) {
     const r = await evalDataset(pipeline, ds)
+    const hasBenign = r.fp + r.tn > 0
     console.log(`\n[${ds.name}]  n=${ds.rows.length}`)
     console.log(`  recall (attacks blocked) : ${(r.recall * 100).toFixed(1)}%  (${r.tp}/${r.tp + r.fn})`)
-    console.log(`  FPR    (benign blocked)  : ${(r.fpr * 100).toFixed(1)}%  (${r.fp}/${r.fp + r.tn})`)
+    console.log(`  FPR    (benign blocked)  : ${hasBenign ? (r.fpr * 100).toFixed(1) + '%  (' + r.fp + '/' + (r.fp + r.tn) + ')' : 'n/a (attacks-only set)'}`)
     console.log(`  p50 latency              : ${r.p50.toFixed(0)} ms`)
-    if (r.missed.length) console.log(`  missed:\n    ${r.missed.join('\n    ')}`)
-    if (r.falsePos.length) console.log(`  false positives:\n    ${r.falsePos.join('\n    ')}`)
+    if (verbose && r.missed.length) console.log(`  missed:\n    ${r.missed.slice(0, 20).join('\n    ')}`)
+    if (verbose && r.falsePos.length) console.log(`  false positives:\n    ${r.falsePos.slice(0, 20).join('\n    ')}`)
   }
 }
 
