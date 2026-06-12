@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+**Detection — new attack-class coverage**
+- Many-shot jailbreak detector — flags a prompt stuffed with fabricated dialogue turns whose faux assistant answers demonstrate harmful compliance; blocks on the structural pattern + harmful compliance, warns on a benign pasted transcript (`manyShot.{enabled,minTurns,harmfulComplianceThreshold,mode}`, `LLM_FW_MANYSHOT_*`).
+- Multi-turn crescendo detector — catches a conversation that escalates over several turns toward harmful content and ends on a boundary-pushing directive; analyzed within the request (LLM APIs resend the whole conversation), so no session state is needed (`crescendo.{enabled,minUserTurns,mode}`, `LLM_FW_CRESCENDO_*`).
+- Heuristic rules for refusal-suppression, refusal-override, prefix-injection ("start your reply with 'Sure, here is'"), Skeleton Key (safe-context behavior-update), and Policy Puppetry (fake permission config).
+- Base32 (RFC 4648) and Ascii85 (Adobe `<~ ~>`) obfuscation decoders added to the candidate extractor.
+- Response-side harmful-compliance scan — audit-only defense-in-depth that flags a response containing a harmful how-to (a jailbreak the input stages missed and the model complied with); excludes refusals and high-level explanations (`responseScan.harmfulCompliance`, `LLM_FW_RESPONSE_HARM_ENABLED`).
+- AWS Bedrock provider + Converse/InvokeModel parser; HuggingFace updated to the current `router.huggingface.co` endpoint; Cohere tool result/use extraction implemented.
+- Proxy now intercepts Azure OpenAI and regional Vertex tenant hosts (`proxy.interceptDomains`, `LLM_FW_INTERCEPT_DOMAINS`).
+- `extraTargets` config to append hosts without redeclaring the provider registry (`LLM_FW_EXTRA_TARGETS`); configurable Ollama base URL (`detection.ollamaUrl`, `LLM_FW_OLLAMA_URL`).
+
+Scorecard: 110 attacks across 16 classes at 100% TPR / 0% FPR (heuristic + embedding, judge off).
+
+### Changed
+- `setup`/`setup-judge` write to `~/.llm-fw/config.json` via read-merge (no longer clobbering); judge settings persist machine-wide instead of cwd-relative.
+- `setup` no longer disables IDE TLS verification (`http.proxyStrictSSL`); the CA in the OS trust store suffices.
+- `LLM_FW_DIR` is now honoured by every consumer (CA, pid, config, whitelist, model cache) via a shared resolver.
+- `setup` accepts `--judge`/`--no-judge` and skips the Stage 3 prompt on a non-interactive stdin.
+
+### Fixed
+- Dropped `google.com`/`googleusercontent.com` from the outbound URL-filter allowlist (now labelled as infrastructure, not trusted as exfil-safe).
 
 ## [0.1.0] - 2026-06-09
 

@@ -142,7 +142,7 @@ classDiagram
 
     class PipelineResult {
         +action: block|pass|warn
-        +stage: heuristic|embedding|judge|rag|ascii-smuggling|none
+        +stage: heuristic|embedding|judge|rag|ascii-smuggling|many-shot|crescendo|non-text|none
         +score: number
         +similarity: number
         +verdict: string
@@ -368,9 +368,9 @@ stateDiagram-v2
     Stage1 --> Stage2 : 20 ≤ score < 50
     Stage1 --> Pass : score < 20
 
-    Stage2 --> Block : max_similarity ≥ 0.85
-    Stage2 --> Warn : 0.70 ≤ max_similarity < 0.85
-    Stage2 --> Pass : max_similarity < 0.70
+    Stage2 --> Block : max_similarity ≥ 0.86
+    Stage2 --> Warn : 0.80 ≤ max_similarity < 0.86
+    Stage2 --> Pass : max_similarity < 0.80
 
     Warn --> JudgeAsync : judgeEnabled=true, judgeBlock=false
     Pass --> JudgeAsync : judgeEnabled=true, judgeBlock=false
@@ -433,10 +433,13 @@ llm-fw/
 │   │   ├── certs.ts         # CA + per-host SAN cert factory
 │   │   └── upstream.ts      # external DNS resolver + LRU cache
 │   ├── detection/
-│   │   ├── normalize.ts     # Unicode NFKC + zero-width/invisible-char strip
+│   │   ├── normalize.ts     # NFKC + homoglyph/leetspeak fold + base64/32/ascii85/hex/morse/… decoders
 │   │   ├── asciiSmuggling.ts# invisible-char (Unicode-tag/bidi) smuggling detector
+│   │   ├── manyShot.ts      # many-shot jailbreak (fabricated-dialogue conditioning) detector
+│   │   ├── crescendo.ts     # multi-turn escalation detector (intra-request)
 │   │   ├── responseExfil.ts # response-side markdown/HTML exfil-URL detector
-│   │   ├── parsers.ts       # Anthropic + Gemini payload extractors
+│   │   ├── responseHarm.ts  # response-side harmful-compliance scan (audit-only)
+│   │   ├── parsers.ts       # Anthropic/OpenAI/Cohere/Gemini/Bedrock payload extractors
 │   │   ├── heuristic.ts     # weighted phrase scorer
 │   │   ├── embedding.ts     # ONNX model + sliding-window checker
 │   │   ├── judge.ts         # Ollama HTTP client
