@@ -155,6 +155,7 @@ The firewall ships with a built-in registry of every major AI provider (`src/con
 | Perplexity | `api.perplexity.ai` | OpenAI |
 | Cohere | `api.cohere.com`, `api.cohere.ai` | Cohere |
 | Anyscale | `api.endpoints.anyscale.com` | OpenAI |
+| AWS Bedrock | `bedrock-runtime.<region>.amazonaws.com` (major regions built in) | Converse / model-native |
 | HuggingFace | `router.huggingface.co` (and legacy `api-inference.huggingface.co`) | OpenAI |
 
 Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format (self-hosted vLLM, LM Studio, LocalAI, …) is parsed natively — add its host to `targets` in your `.llm-fw.json` and it works the same way. Hosts not in the registry still tunnel through the proxy and are screened by the outbound URL filter; only recognised LLM hosts get full payload inspection.

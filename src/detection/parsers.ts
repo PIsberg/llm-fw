@@ -557,11 +557,178 @@ class GeminiParser implements PayloadParser {
   }
 }
 
+/**
+ * Parser for AWS Bedrock runtime endpoints:
+ *   - Converse API: `/model/<id>/converse` and `/converse-stream` — the unified
+ *     Bedrock format ({messages:[{role,content:[{text}]}], system:[{text}],
+ *     toolConfig:{tools:[{toolSpec}]}}).
+ *   - InvokeModel: `/model/<id>/invoke` and `/invoke-with-response-stream` —
+ *     the body is the model's NATIVE format. Anthropic-native bodies (Claude on
+ *     Bedrock) are delegated to AnthropicParser; Titan (`inputText`) and raw
+ *     `prompt` bodies (Llama, Mistral) are handled inline.
+ *
+ * Converse content blocks are keyed by type ({text}, {image:{…}},
+ * {toolUse:{…}}, {toolResult:{…}}) rather than carrying a `type` field, so the
+ * Converse walks only consume untyped blocks — typed blocks belong to the
+ * delegated Anthropic shape, which keeps the two passes duplicate-free.
+ */
+class BedrockParser implements PayloadParser {
+  private anthropic = new AnthropicParser()
+
+  supports(path: string): boolean {
+    const p = (path.split('?')[0] ?? '')
+    if (!p.startsWith('/model/')) return false
+    return /\/(?:converse|converse-stream|invoke|invoke-with-response-stream)$/.test(p)
+  }
+
+  extractPrompts(body: string): string[] {
+    const results = this.anthropic.extractPrompts(body)
+    try {
+      const data = JSON.parse(body)
+
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
+          for (const block of msg.content) {
+            if (block && block.type === undefined && typeof block.text === 'string') {
+              results.push(block.text)
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(data.system)) {
+        for (const block of data.system) {
+          if (block && block.type === undefined && typeof block.text === 'string') {
+            results.push(block.text)
+          }
+        }
+      }
+
+      // InvokeModel native bodies: Titan uses `inputText`; Llama / Mistral
+      // take a raw `prompt` string.
+      if (typeof data.inputText === 'string') results.push(data.inputText)
+      if (typeof data.prompt === 'string') results.push(data.prompt)
+
+      return results.filter(s => s.length > 0)
+    } catch {
+      return results
+    }
+  }
+
+  extractTools(body: string): any[] {
+    try {
+      const data = JSON.parse(body)
+      const out: any[] = []
+      // Converse: toolConfig.tools[].toolSpec — flatten so the MCP scanner
+      // sees a top-level `name`, like every other provider.
+      const tools = data.toolConfig?.tools
+      if (Array.isArray(tools)) {
+        for (const t of tools) {
+          const spec = t?.toolSpec
+          if (spec && typeof spec === 'object') out.push({ name: spec.name, ...spec })
+        }
+      }
+      // InvokeModel Anthropic-native: flat tools[].
+      if (Array.isArray(data.tools)) out.push(...data.tools)
+      return out
+    } catch { return [] }
+  }
+
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    const results = this.anthropic.extractToolResults(body)
+    try {
+      const data = JSON.parse(body)
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
+          for (const block of msg.content) {
+            const tr = block?.toolResult
+            if (tr && typeof tr === 'object') {
+              results.push({
+                toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
+                result: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content ?? tr),
+              })
+            }
+          }
+        }
+      }
+      return results
+    } catch {
+      return results
+    }
+  }
+
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    const results = this.anthropic.extractToolUses(body)
+    try {
+      const data = JSON.parse(body)
+      const blocks: any[] = []
+      // Converse response: output.message.content[]; request echo of prior
+      // assistant turns: messages[].content[].
+      if (Array.isArray(data.output?.message?.content)) blocks.push(...data.output.message.content)
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) blocks.push(...msg.content)
+        }
+      }
+      for (const block of blocks) {
+        const tu = block?.toolUse
+        if (tu && typeof tu.name === 'string') {
+          results.push({ toolName: tu.name, args: tu.input })
+        }
+      }
+      return results
+    } catch {
+      return results
+    }
+  }
+
+  extractMediaBlocks(body: string): MediaBlock[] {
+    const out = this.anthropic.extractMediaBlocks(body)
+    try {
+      const data = JSON.parse(body)
+
+      const walkBlock = (block: any): void => {
+        if (!block || typeof block !== 'object') return
+        for (const key of ['image', 'document', 'video'] as const) {
+          const b = block[key]
+          if (!b || typeof b !== 'object') continue
+          const kind: MediaBlock['kind'] = key === 'document' ? 'document' : key
+          const mime = typeof b.format === 'string'
+            ? `${key === 'image' ? 'image' : key === 'video' ? 'video' : 'application'}/${b.format}`
+            : undefined
+          if (typeof b.source?.bytes === 'string') {
+            out.push(mediaBlockFromBase64(kind, mime, b.source.bytes))
+          } else if (typeof b.source?.text === 'string') {
+            out.push({ kind, text: b.source.text, ...(mime ? { mimeType: mime } : {}) })
+          } else {
+            out.push({ kind, ...(mime ? { mimeType: mime } : {}) }) // s3Location etc. — opaque
+          }
+        }
+        // Tool results can return media — the indirect vector.
+        const trContent = block.toolResult?.content
+        if (Array.isArray(trContent)) for (const inner of trContent) walkBlock(inner)
+      }
+
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (Array.isArray(msg?.content)) for (const block of msg.content) walkBlock(block)
+        }
+      }
+      return out
+    } catch {
+      return out
+    }
+  }
+}
+
 export const parsers: PayloadParser[] = [
   new AnthropicParser(),
   new OpenAIParser(),
   new CohereParser(),
   new GeminiParser(),
+  new BedrockParser(),
 ]
 
 export function getParser(path: string): PayloadParser | null {
@@ -629,4 +796,4 @@ export function extractPartialPrompts(body: string): string[] {
   return results.filter(s => s.length > 0)
 }
 
-export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser }
+export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, BedrockParser }

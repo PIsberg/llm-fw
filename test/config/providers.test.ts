@@ -43,6 +43,14 @@ describe('identifyService', () => {
     expect(identifyService('foo.googleapis.com')).toBe('Google')
   })
 
+  it('labels any Bedrock region via the mid-name wildcard domain', () => {
+    expect(identifyService('bedrock-runtime.us-east-1.amazonaws.com')).toBe('AWS Bedrock')
+    expect(identifyService('bedrock-runtime.ca-central-1.amazonaws.com')).toBe('AWS Bedrock')
+    // The wildcard matches exactly one label — anything else stays Custom.
+    expect(identifyService('bedrock-runtime.a.b.amazonaws.com')).toBe('Custom')
+    expect(identifyService('s3.us-east-1.amazonaws.com')).toBe('Custom')
+  })
+
   it('maps both current and legacy HuggingFace hosts', () => {
     expect(identifyService('router.huggingface.co')).toBe('HuggingFace')
     expect(identifyService('api-inference.huggingface.co')).toBe('HuggingFace')
