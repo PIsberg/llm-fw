@@ -231,11 +231,14 @@ export class ProxyServer {
     const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
 
     // Tenant/regional hosts (Azure OpenAI resources, regional Vertex
-    // endpoints) can't be enumerated in `targets`, so their registry suffixes
-    // are matched here in addition to the configured targets.
+    // endpoints) can't be enumerated in `targets`, so their domain suffixes
+    // are matched here in addition to the configured targets. Configurable via
+    // proxy.interceptDomains; the registry list is the fallback when the field
+    // is absent (hand-built configs), so out-of-box behaviour never regresses.
+    const interceptDomains = this.config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
     const isTarget =
       this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t)) ||
-      AI_PROVIDER_INTERCEPT_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d))
+      interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))
 
     if (!isTarget) {
       // Cross-turn taint (host level). The destination hostname is visible at

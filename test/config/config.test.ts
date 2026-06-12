@@ -41,7 +41,7 @@ describe('loadConfig env overrides', () => {
     'LLM_FW_PROXY_PORT', 'LLM_FW_PROXY_MODE', 'LLM_FW_HTTPS_PORT',
     'LLM_FW_JUDGE_ENABLED', 'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DLP_MODE',
     'LLM_FW_DASHBOARD_PORT', 'LLM_FW_PROXY_BIND', 'LLM_FW_DASHBOARD_BIND',
-    'LLM_FW_EXTRA_TARGETS',
+    'LLM_FW_EXTRA_TARGETS', 'LLM_FW_INTERCEPT_DOMAINS',
   ]
   afterEach(() => { for (const k of ENV_KEYS) delete process.env[k] })
 
@@ -82,6 +82,13 @@ describe('loadConfig env overrides', () => {
     const cfg = await loadConfig()
     expect(cfg.proxy.bindHost).toBe('127.0.0.1')
     expect(cfg.dashboard.bindHost).toBe('127.0.0.1')
+  })
+
+  it('defaults proxy.interceptDomains to the registry suffixes, replaced by env', async () => {
+    expect(DEFAULT_CONFIG.proxy.interceptDomains).toContain('openai.azure.com')
+    process.env.LLM_FW_INTERCEPT_DOMAINS = 'llm.corp.internal'
+    const cfg = await loadConfig()
+    expect(cfg.proxy.interceptDomains).toEqual(['llm.corp.internal'])
   })
 
   it('appends LLM_FW_EXTRA_TARGETS to the existing targets without replacing them', async () => {

@@ -1,6 +1,6 @@
 import { Config } from '../types.js';
 import { cosmiconfig } from 'cosmiconfig';
-import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS } from './providers.js';
+import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS, AI_PROVIDER_INTERCEPT_DOMAINS } from './providers.js';
 
 export const DEFAULT_CONFIG: Config = {
   proxy: {
@@ -17,6 +17,9 @@ export const DEFAULT_CONFIG: Config = {
     upstreamTimeoutMs: 120000,
     maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
     dnsServers: ['1.1.1.1', '8.8.8.8'],
+    // Tenant/regional API domain suffixes the proxy TLS-intercepts in
+    // addition to `targets`. Sourced from the provider registry.
+    interceptDomains: AI_PROVIDER_INTERCEPT_DOMAINS,
     urlFilter: {
       enabled: true,
       entropyThreshold: 4.8,
@@ -246,4 +249,5 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
+  LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
 };

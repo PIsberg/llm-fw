@@ -17,6 +17,13 @@ export interface ProxyConfig {
   maxBodyBytes: number;
   dnsServers: string[];
   urlFilter: UrlFilterConfig;
+  // Domain suffixes whose subdomains are always TLS-intercepted in proxy mode
+  // — tenant/regional API hosts that can't be enumerated as concrete targets
+  // (e.g. <resource>.openai.azure.com). Defaults to the provider registry's
+  // list; set [] to disable, or extend it for private endpoints. Proxy mode
+  // only — suffixes are never written to the hosts-file sinkhole. Also
+  // settable via LLM_FW_INTERCEPT_DOMAINS (comma-separated, replaces).
+  interceptDomains?: string[];
 }
 
 export interface DetectionConfig {
