@@ -19,8 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proxy now intercepts Azure OpenAI and regional Vertex tenant hosts (`proxy.interceptDomains`, `LLM_FW_INTERCEPT_DOMAINS`).
 - `extraTargets` config to append hosts without redeclaring the provider registry (`LLM_FW_EXTRA_TARGETS`); configurable Ollama base URL (`detection.ollamaUrl`, `LLM_FW_OLLAMA_URL`).
 
+**Generalization layer & benchmarking**
+- Trained ONNX prompt-injection classifier stage (`protectai/deberta-v3-base-prompt-injection-v2`, Apache-2.0) — a learned generalization layer that runs locally (no Ollama) and roughly doubles cheap-stage recall on an independent held-out benchmark with near-zero added false positives. Opt-in (~700 MB, lazy-loaded). Config `detection.classifier.{enabled,blockThreshold}`, `LLM_FW_CLASSIFIER_{ENABLED,THRESHOLD}`, and a Settings-tab toggle + threshold.
+- Independent benchmark harness (`scripts/run-benchmark.ts`) + two held-out datasets (deepset public test split; self-authored novel phrasings) and a documented honest scorecard (`docs/BENCHMARK.md`). Finding: the generative Ollama judge blocks 27-86% of benign traffic when used as a general backstop, so `judgeUnlessBenign` is now documented as not recommended; the trained classifier is the precise alternative.
+
 **Dashboard**
-- Settings tab now exposes the new detectors (many-shot, crescendo, response-harm) and an **Advanced — Tuning** group with validated number/text inputs for the heuristic/embedding thresholds, DoS rate/token limits, and judge model; every row carries an inline explanation. All settings apply live (JudgeClient and QuotaManager read their values from the live config) and persist to `~/.llm-fw/config.json`.
+- Settings tab now exposes the new detectors (many-shot, crescendo, response-harm), the trained classifier (toggle + threshold), and an **Advanced — Tuning** group with validated number/text inputs for the heuristic/embedding/classifier thresholds, DoS rate/token limits, and judge model; every row carries an inline explanation. All settings apply live (JudgeClient and QuotaManager read their values from the live config) and persist to `~/.llm-fw/config.json`.
 
 Scorecard: 110 attacks across 16 classes at 100% TPR / 0% FPR (heuristic + embedding, judge off).
 

@@ -1172,7 +1172,7 @@ const SETTINGS_SCHEMA = [
     { key: 'crescendoMode', label: 'Crescendo mode', type: 'select', options: ['block', 'audit'], sub: 'block: refuse the escalating request · audit: warn only' },
     { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'A local Ollama model reasons about intent for prompts the cheap stages miss. Requires Ollama (run: llm-fw setup-judge)' },
     { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block the request on a MALICIOUS verdict, instead of only logging a warning' },
-    { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Route every prompt to the judge unless it is clearly harmless — best coverage of novel/multilingual jailbreaks, at the cost of more local-LLM calls' },
+    { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Routes nearly every prompt to the judge. NOT recommended with a small local judge — measured 27-86% false positives on held-out data. Use the trained classifier above for novel-attack coverage instead' },
   ]},
   { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
     { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },

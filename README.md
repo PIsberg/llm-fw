@@ -130,7 +130,8 @@ llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_
 Detection pipeline:
 1. **Heuristic scoring** — weighted phrase matching (< 1ms) over a multi-candidate normalization pass that defeats spacing/case/homoglyph/leetspeak evasion and decodes base64, base32, ascii85, hex, binary, morse, Caesar, ROT13, URL-encoding, reversed and pig-latin payloads back to plaintext. Covers direct override, persona/DAN jailbreaks, system-prompt exfiltration, payload-splitting, refusal-suppression/override, and affirmative prefix-injection.
 2. **Embedding similarity** — cross-lingual cosine similarity against canonical injection-intent anchors using a local multilingual ONNX model (`multilingual-e5-small`, < 20ms warm). Because the encoder aligns 100 languages, an injection in *any* language — Urdu, Bengali, Vietnamese, Thai, … — lands near the English anchors and is caught even with no hand-written rule for that language.
-3. **Judge LLM** — local Ollama model, async by default (opt-in)
+3. **Trained classifier** (opt-in) — a local ONNX prompt-injection classifier (`protectai/deberta-v3-base-prompt-injection-v2`) that generalizes to novel phrasings the rules miss. On an independent held-out benchmark it roughly **doubles** cheap-stage recall with near-zero added false positives — the recommended upgrade for novel-attack coverage. Runs locally (~150–270 ms CPU, no Ollama).
+4. **Judge LLM** — local Ollama model, async by default (opt-in). Useful as a suspicious-only escalation; see [docs/BENCHMARK.md](docs/BENCHMARK.md) for why `judgeUnlessBenign` is *not* recommended (a small generative judge over-blocks benign traffic).
 
 Alongside the three core stages, dedicated detectors cover structural and multi-turn attacks that per-prompt scoring can't see:
 
@@ -140,7 +141,7 @@ Alongside the three core stages, dedicated detectors cover structural and multi-
 - **RAG context-poisoning** — instructions smuggled inside retrieved `<document>`/`<search_results>`/code-fence blocks.
 - **Indirect injection & tool poisoning** — every attacker-influenceable surface is scanned, not just the user prompt: tool/function results (the agentic vector) and tool `description` fields.
 
-All of these run on prompts, tool results, tool definitions, and decoded non-text/OCR content alike. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical detail.
+All of these run on prompts, tool results, tool definitions, and decoded non-text/OCR content alike. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical detail, and [docs/BENCHMARK.md](docs/BENCHMARK.md) for honest held-out generalization numbers (how it does on attacks it was *not* tuned on — not just the self-tuned scorecard).
 
 ---
 
