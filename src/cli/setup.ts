@@ -66,13 +66,20 @@ function configureIdeProxies(proxyUrl: string): void {
         }
       }
 
+      const prevProxy = config['http.proxy'];
       let changed = false;
-      if (config['http.proxy'] !== proxyUrl) {
+      if (prevProxy !== proxyUrl) {
         config['http.proxy'] = proxyUrl;
         changed = true;
       }
-      if (config['http.proxyStrictSSL'] !== false) {
-        config['http.proxyStrictSSL'] = false;
+      // TLS verification stays ON: setup installs the CA into the OS trust
+      // store and VS Code verifies against system certificates by default.
+      // Earlier llm-fw versions set http.proxyStrictSSL=false — undo that
+      // weakening when the previous proxy was ours (loopback), but leave a
+      // user's own strictSSL setting alone.
+      if (config['http.proxyStrictSSL'] === false &&
+          typeof prevProxy === 'string' && /(?:127\.0\.0\.1|localhost|::1):\d+/.test(prevProxy)) {
+        delete config['http.proxyStrictSSL'];
         changed = true;
       }
 
