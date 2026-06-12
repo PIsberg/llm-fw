@@ -232,7 +232,9 @@ function removePortRedirect(httpsPort: number): void {
   }
 }
 
-/** Strip judge settings setup-judge wrote into the project's .llm-fw.json. */
+/** Strip judge settings older setup-judge versions wrote into the project's
+ *  .llm-fw.json (current versions persist to ~/.llm-fw/config.json, which is
+ *  removed wholesale by removeLlmfwFiles). */
 function cleanProjectConfig(): void {
   const configPath = join(process.cwd(), '.llm-fw.json');
   if (!fs.existsSync(configPath)) return;

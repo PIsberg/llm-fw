@@ -757,7 +757,7 @@ The script will:
 4. Pull the model if it is not already installed
 5. Ask whether to enable sync blocking mode
 6. Run a smoke-test classification against a known injection prompt
-7. Write `judgeEnabled`, `judgeModel`, and `judgeBlock` to `.llm-fw.json`
+7. Write `judgeEnabled`, `judgeModel`, and `judgeBlock` to `~/.llm-fw/config.json` (machine-wide — the judge works from any directory)
 
 ### 2. Manual setup (alternative)
 

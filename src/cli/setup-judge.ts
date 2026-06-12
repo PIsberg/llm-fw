@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import fs from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { JudgeClient } from '../detection/judge.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 
@@ -130,7 +131,15 @@ export async function run(): Promise<void> {
 
   // ── Step 7: Write config ───────────────────────────────────────────────────
   step(7, 'Writing config...')
-  const configPath = join(process.cwd(), '.llm-fw.json')
+  // The judge is machine-level (the Ollama model is shared), so its settings
+  // are persisted to ~/.llm-fw/config.json — the same file `setup` writes —
+  // and apply no matter which directory the firewall is started from.
+  // (Previously this wrote ./.llm-fw.json, so the judge silently stayed off
+  // unless `llm-fw start` ran from that exact project directory; uninstall
+  // still cleans those legacy project files.)
+  const llmfwDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
+  fs.mkdirSync(llmfwDir, { recursive: true })
+  const configPath = join(llmfwDir, 'config.json')
   let existing: Record<string, unknown> = {}
   if (fs.existsSync(configPath)) {
     try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown> } catch {}
@@ -146,7 +155,7 @@ export async function run(): Promise<void> {
     },
   }
   fs.writeFileSync(configPath, JSON.stringify(updated, null, 2) + '\n', 'utf8')
-  ok(`Wrote ${configPath}`)
+  ok(`Wrote ${configPath} (applies machine-wide)`)
 
   // ── Summary ────────────────────────────────────────────────────────────────
   console.log('\n─── Setup complete ─────────────────────────────────────')
