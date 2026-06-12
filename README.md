@@ -1221,7 +1221,7 @@ Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 
 - **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview. Expand any event to see the full payload and **Mark as false positive** (persisted to `~/.llm-fw/whitelist.json`).
 - **Playground tab** — test any detector (prompt injection, ASCII smuggling, RAG poisoning, DLP, MCP tools, URL/exfil, DoS) from one place, with one-click examples of what gets caught, and no real API client needed. Text categories include a **Translate** control to re-express the input in any Google-Translate-supported language and re-run the pipeline.
-- **Settings tab** — enable/disable each defense (attack type) live; changes apply on the next proxy request and persist to `~/.llm-fw/config.json` with no restart.
+- **Settings tab** — every defense is toggleable live, with an inline explanation of what it does and what each mode means, grouped by category (Prompt Injection incl. many-shot/crescendo, Data & Context, Non-text, MCP, Network, DoS). An **Advanced — Tuning** group exposes the numeric knobs (heuristic/embedding thresholds, DoS rate/token limits) and the judge model as validated number/text inputs. All changes apply on the next proxy request and persist to `~/.llm-fw/config.json` — no restart.
 
 ---
 

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proxy now intercepts Azure OpenAI and regional Vertex tenant hosts (`proxy.interceptDomains`, `LLM_FW_INTERCEPT_DOMAINS`).
 - `extraTargets` config to append hosts without redeclaring the provider registry (`LLM_FW_EXTRA_TARGETS`); configurable Ollama base URL (`detection.ollamaUrl`, `LLM_FW_OLLAMA_URL`).
 
+**Dashboard**
+- Settings tab now exposes the new detectors (many-shot, crescendo, response-harm) and an **Advanced — Tuning** group with validated number/text inputs for the heuristic/embedding thresholds, DoS rate/token limits, and judge model; every row carries an inline explanation. All settings apply live (JudgeClient and QuotaManager read their values from the live config) and persist to `~/.llm-fw/config.json`.
+
 Scorecard: 110 attacks across 16 classes at 100% TPR / 0% FPR (heuristic + embedding, judge off).
 
 ### Changed
