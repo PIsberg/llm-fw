@@ -132,6 +132,7 @@ export const DEFAULT_CONFIG: Config = {
   // sinkhole redirects them. Sourced from the provider registry (providers.ts)
   // so the firewall covers all supported services out of the box.
   targets: AI_PROVIDER_HOSTS,
+  extraTargets: [],
 };
 
 export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
@@ -191,7 +192,19 @@ export async function loadConfig(): Promise<Config> {
     if (value) apply(config, value);
   }
 
+  // extraTargets is the additive path: appended (deduplicated) to targets so a
+  // self-hosted endpoint can be covered without redeclaring the built-in
+  // registry. Applied last so it sees env-supplied entries too.
+  if (config.extraTargets?.length) {
+    config.targets = [...new Set([...config.targets, ...config.extraTargets])];
+  }
+
   return config;
+}
+
+/** Parse a comma-separated env value into a trimmed, non-empty string list. */
+function splitList(value: string): string[] {
+  return value.split(',').map(s => s.trim()).filter(Boolean);
 }
 
 /**
@@ -232,4 +245,5 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_NONTEXT_ENABLED: (c, v) => { if (c.nonText) c.nonText.enabled = v === 'true'; },
   LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
+  LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
 };

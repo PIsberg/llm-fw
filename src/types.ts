@@ -163,6 +163,12 @@ export interface Config {
   responseScan?: ResponseScanConfig;
   nonText?: NonTextConfig;
   targets: string[];
+  // Extra hostnames appended to `targets` after all config layers are merged.
+  // File-config arrays REPLACE the defaults wholesale, so overriding `targets`
+  // to add one self-hosted endpoint would drop the entire built-in provider
+  // registry — this is the additive path. Also settable via
+  // LLM_FW_EXTRA_TARGETS (comma-separated).
+  extraTargets?: string[];
 }
 
 export interface HeuristicResult {

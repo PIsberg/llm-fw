@@ -158,7 +158,7 @@ The firewall ships with a built-in registry of every major AI provider (`src/con
 | AWS Bedrock | `bedrock-runtime.<region>.amazonaws.com` (major regions built in) | Converse / model-native |
 | HuggingFace | `router.huggingface.co` (and legacy `api-inference.huggingface.co`) | OpenAI |
 
-Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format (self-hosted vLLM, LM Studio, LocalAI, …) is parsed natively — add its host to `targets` in your `.llm-fw.json` and it works the same way. Hosts not in the registry still tunnel through the proxy and are screened by the outbound URL filter; only recognised LLM hosts get full payload inspection.
+Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format (self-hosted vLLM, LM Studio, LocalAI, …) is parsed natively — add its host to `extraTargets` in your `.llm-fw.json` (or `LLM_FW_EXTRA_TARGETS=host1,host2`) and it works the same way; `extraTargets` appends to the built-in registry, while overriding `targets` replaces it. Hosts not in the registry still tunnel through the proxy and are screened by the outbound URL filter; only recognised LLM hosts get full payload inspection.
 
 > **Tenant/regional hosts:** hostnames that embed a tenant or region (`<resource>.openai.azure.com`, `<region>-aiplatform.googleapis.com`, `bedrock-runtime.<region>.amazonaws.com`) cannot be enumerated in a hosts file, so **sinkhole mode does not cover them** — they are intercepted in **proxy mode** (Azure OpenAI and regional Vertex via built-in suffix matching; the major Bedrock regions are enumerated as concrete hosts, other regions can be added to `targets`). Tools reaching these services must honour `HTTPS_PROXY`.
 
