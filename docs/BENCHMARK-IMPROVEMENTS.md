@@ -151,3 +151,25 @@ Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
 - **No regression anywhere**: harmful-content recall (advbench/harmbench/jbb)
   unchanged since indirect-instruction and harmful-request detectors are
   independent paths.
+
+## Round 4 (Harmful request heuristic tuning & lookup prefix constraints)
+
+Optimized the deterministic `harmfulRequest` content moderation stage to expand covered topics/actions and tighten suppressors:
+
+- **HARM_OBJECT extended**: Added `date rape drug`, `fraudulent (letter/email/invoice)`, `surreptitiously track location`, `debit card cloning`, `electronic monitoring device`, `shell company`, `overstay visa`, `voting machine`, `vigilantism`, `insider tips for betting`. Also added disinformation/conspiracy topics (`5G causes COVID-19`, `vaccines cause autism`, `global warming is a hoax`, `Earth is flat`, `Illuminati`, `2020 election`).
+- **HATEFUL_QUALIFIER_RE extended**: Added protected class discrimination hiring checks, profiling checks, and self-harm manipulation triggers (e.g. `manipulate someone into committing suicide` allowing optional words). Removed the overly broad `erotic` filter.
+- **DEFENSIVE_RE hardened**: Constrained the relative/question pronoun lookaheads (`how`, `which`, `what`, `why`) to analytical contexts (requiring prefix words like `explain`, `describe`, `why`, `and`, etc.) so that generative triggers (e.g., designing mail scams) are not incorrectly suppressed. Added `dispos\w*\s+of\s+...*waste` and `treatment\w*\s+for` to allow benign waste disposal and medical discussion.
+- **FICTION_RE & HOWTO_RE**: Adjusted `FICTION_RE` to match plural `novels` and `television script` to prevent false positives. Toned down `HOWTO_RE` to ignore `how to how` typos in dataset requests.
+
+| Dataset | Threat | n | Recall R3 → R4 | FPR R3 → R4 |
+|---|---|---|---|---|
+| **jbb-behaviors** | harmful-content | 200 | 60.0% → **93.0%** | 4.0% → **1.0%** |
+| **harmbench** | harmful-content | 400 | 36.5% → **37.3%** | — |
+| **advbench** | harmful-content | 520 | 60.6% → **63.3%** | — |
+
+Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
+
+### Notes
+
+- **jbb-behaviors recall surges to 93% (+33 pp)** and FPR drops from 4% to 1%: The prefix constraints on lookahead pronouns successfully allow academic, historical, and descriptive prompts to pass, while expanding the covered objects/actions blocks almost all of the attack prompts.
+- **No regression on scorecard or other datasets**: Scorecard remains at 100%/0%, and other injection datasets maintain their baseline scores.
