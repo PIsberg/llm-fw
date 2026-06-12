@@ -140,6 +140,27 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
   }
 }
 
+/**
+ * Persist `proxy.mode` into ~/.llm-fw/config.json by merging into whatever is
+ * already there — the file is shared with other persisted settings (e.g. the
+ * judge config), so a wholesale overwrite would silently drop them.
+ */
+function persistProxyMode(llmfwDir: string, mode: 'sinkhole' | 'proxy'): void {
+  const configPath = join(llmfwDir, 'config.json');
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+  } catch { /* absent or corrupt — start fresh */ }
+  const proxy = (existing.proxy && typeof existing.proxy === 'object')
+    ? existing.proxy as Record<string, unknown>
+    : {};
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({ ...existing, proxy: { ...proxy, mode } }, null, 2),
+    'utf8'
+  );
+}
+
 export async function run(args: string[]): Promise<void> {
   // Sinkhole (OS-level redirect, covers Node.js/native tools that ignore
   // HTTPS_PROXY) is enabled by DEFAULT alongside the proxy so the firewall just
@@ -288,20 +309,12 @@ export async function run(args: string[]): Promise<void> {
     }
 
     // Persist sinkhole mode so `llm-fw start` picks it up without extra env vars.
-    fs.writeFileSync(
-      join(llmfwDir, 'config.json'),
-      JSON.stringify({ proxy: { mode: 'sinkhole' } }, null, 2),
-      'utf8'
-    );
+    persistProxyMode(llmfwDir, 'sinkhole');
     console.log('Sinkhole mode saved to config.');
   } else {
     // Proxy-only: either the user opted out, or we lack the privileges to set up
     // the sinkhole. Persist proxy mode so `start` and `status` are accurate.
-    fs.writeFileSync(
-      join(llmfwDir, 'config.json'),
-      JSON.stringify({ proxy: { mode: 'proxy' } }, null, 2),
-      'utf8'
-    );
+    persistProxyMode(llmfwDir, 'proxy');
   }
 
   // Configure IDE proxy settings + persist the proxy/CA env vars so new shells
