@@ -144,6 +144,26 @@ export const DEFAULT_CONFIG: Config = {
     minUserTurns: 3,
     mode: 'block',
   },
+  // Indirect prompt injection — an imperative action-instruction planted in
+  // tool/document output (InjecAgent's threat model; the primary agentic
+  // vector). On by default in block mode: it runs ONLY on the tool_result /
+  // document surfaces, where a second-person imperative to perform a sensitive
+  // side-effecting action (move money, grant access, exfiltrate to an address)
+  // has no legitimate origin, so precision is high.
+  indirectInstruction: {
+    enabled: true,
+    mode: 'block',
+  },
+  // Harmful-request content moderation — requests for weapon/drug synthesis,
+  // intrusion how-tos, fraud, or hateful/defamatory content. The firewall is
+  // injection-first (harmful content is a secondary threat model), but these
+  // requests sail past the injection-specific stages, so a tightly precision-
+  // gated input-side check is on by default. Disable for a pure injection
+  // firewall (config or LLM_FW_HARMFUL_REQUEST_ENABLED=false).
+  harmfulRequest: {
+    enabled: true,
+    mode: 'block',
+  },
   mcp: {
     enabled: true,
     // Tools blocked outright by name. Note: a name on this list is rejected by
@@ -287,6 +307,10 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_MANYSHOT_MODE: (c, v) => { if (c.manyShot && (v === 'audit' || v === 'block')) c.manyShot.mode = v; },
   LLM_FW_CRESCENDO_ENABLED: (c, v) => { if (c.crescendo) c.crescendo.enabled = v === 'true'; },
   LLM_FW_CRESCENDO_MODE: (c, v) => { if (c.crescendo && (v === 'audit' || v === 'block')) c.crescendo.mode = v; },
+  LLM_FW_INDIRECT_INSTRUCTION_ENABLED: (c, v) => { if (c.indirectInstruction) c.indirectInstruction.enabled = v === 'true'; },
+  LLM_FW_INDIRECT_INSTRUCTION_MODE: (c, v) => { if (c.indirectInstruction && (v === 'audit' || v === 'block')) c.indirectInstruction.mode = v; },
+  LLM_FW_HARMFUL_REQUEST_ENABLED: (c, v) => { if (c.harmfulRequest) c.harmfulRequest.enabled = v === 'true'; },
+  LLM_FW_HARMFUL_REQUEST_MODE: (c, v) => { if (c.harmfulRequest && (v === 'audit' || v === 'block')) c.harmfulRequest.mode = v; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
 };

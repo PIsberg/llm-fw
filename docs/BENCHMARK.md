@@ -74,12 +74,18 @@ Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better. Per-dataset recall / FPR, cheap stages (heuristic + embedding)
 vs. cheap + the trained ONNX classifier:
 
+The **cheap (default)** column now includes two deterministic detectors added
+to close the indirect-injection and harmful-content gaps Phase 1 measured:
+`indirectInstruction` (tool_result/document surface) and `harmfulRequest` (user
+prompt). They cost no model and run before the classifier — see
+[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) for the before/after.
+
 **Prompt injection**
 
 | Dataset | n | Cheap (default) | + Trained classifier |
 |---|---|---|---|
 | gandalf (real "ignore instructions" attacks) | 112 | 85.7% / — | **100% / —** |
-| safeguard (clean, balanced, full split) | 2,060 | 43.7% / 0.6% | **84.2% / 0.7%** |
+| safeguard (clean, balanced, full split) | 2,060 | 45.4% / 0.6% | **84.9% / 0.7%** |
 | deepset (noisy labels) | 116 | 16.7% / 0% | 41.7% / 0% |
 | heldout (hardest, adversarial benign) | 52 | 45.2% / 14.3% | 77.4% / 23.8% |
 
@@ -87,18 +93,28 @@ vs. cheap + the trained ONNX classifier:
 
 | Dataset | n | Cheap (default) | + Trained classifier |
 |---|---|---|---|
-| injecagent (tool-result poisoning) | 1,071 | 0% / 0% | 52.2% / 35.3%† |
+| injecagent (tool-result poisoning) | 1,071 | **95.2% / 0%** | 97.6% / 35.3%† |
 
-† FPR over only 17 synthetic benign rows (6 blocked) — indicative, not precise.
+The new surface-scoped detector lifts cheap-stage indirect-injection recall from
+0% to **95.2% at 0% FPR** — it catches the planted instruction before the
+classifier runs. Adding the classifier nudges recall to 97.6% but at 35% FPR (it
+fires on the instruction-shaped benign tool responses), so the cheap detector
+alone is the better operating point on this surface.
+† FPR over only 17 synthetic benign rows — indicative, not precise.
 
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
 | Dataset | n | Cheap (default) | + Trained classifier |
 |---|---|---|---|
-| jbb-behaviors (100 harmful / 100 benign) | 200 | 3.0% / 1.0% | 3.0% / 2.0% |
-| harmbench | 400 | 2.2% / — | 2.5% / — |
-| advbench | 520 | 4.2% / — | 4.2% / — |
+| jbb-behaviors (100 harmful / 100 benign) | 200 | **26.0% / 2.0%** | 26.0% / 3.0% |
+| harmbench | 400 | **18.2% / —** | 18.5% / — |
+| advbench | 520 | **40.4% / —** | 40.4% / — |
+
+The deterministic `harmfulRequest` rule lifts harmful-content recall 5–10× over
+the 2–4% baseline. The injection-specific classifier adds little on this threat
+model — the residual gap is the honest case for a trained content-moderation
+layer (PLAN-future Phase 5).
 
 The generative judge, measured on deepset + heldout (qwen2.5:3b), as a contrast
 (measured on the earlier sampled splits; the conclusion is threshold-level, not
@@ -117,7 +133,7 @@ dataset-level):
    stages alone, **100% with the classifier**.
 
 2. **The trained classifier is the right generalization layer for injection.**
-   On the full 2,060-row safeguard split it nearly doubles recall (43.7→84.2%)
+   On the full 2,060-row safeguard split it nearly doubles recall (45.4→84.9%)
    at essentially unchanged FPR (0.6→0.7%). The pattern holds on every injection
    set (gandalf 86→100%, deepset 17→42%, heldout 45→77%). It runs locally
    (ONNX, ~150–270 ms CPU), needs no Ollama, and is the recommended upgrade —
@@ -127,25 +143,29 @@ dataset-level):
    draft'") — the same irreducible class the embedding stage hits; safeguard
    (0.7% FPR on 1,410 ordinary benign prompts) is the representative number.
 
-3. **Indirect injection is measurably harder, and now measured.** InjecAgent's
-   attacker instructions are *benign-phrased* commands embedded in tool output
-   ("please grant access to guest_amy01…") — no override language at all, so
-   the cheap stages catch **0%**. The classifier recovers 52%, but at high FPR
-   on instruction-shaped benign tool responses. Detecting "an instruction where
-   only data should be" is a different problem than detecting injection
-   phrasing; this is the firewall's biggest measured gap (Phases 3–5 of
-   [PLAN-future](plans/PLAN-future.md)).
+3. **Indirect injection — the cheap stages went from blind to 95% by changing
+   the question.** InjecAgent's attacker instructions are *benign-phrased*
+   commands embedded in tool output ("please grant access to guest_amy01…") — no
+   override language, so keyword/embedding/classifier stages all caught ~0–52%.
+   The `indirectInstruction` detector instead asks "is there an imperative to a
+   sensitive action on a surface that should only carry data?" — scoped to the
+   tool_result/document surfaces, it lifts recall to **95.2% at 0% FPR**. The
+   surface, not the wording, is the signal. (See
+   [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md).)
 
-4. **Harmful-content requests are out of scope for the current detectors — the
-   numbers prove it.** 2–4% recall across JailbreakBench, HarmBench and
-   AdvBench, with or without the classifier: the heuristics target override
-   phrasing and the classifier is injection-specific
-   (`protectai/deberta-v3-base-prompt-injection-v2`), so a politely-worded
-   harmful request sails through. This is by design (llm-fw is a
-   prompt-injection firewall first), but it kills any temptation to read the
-   injection numbers as "blocks bad things in general". Catching harmful
-   *requests* needs a content-moderation layer (Llama-Guard-class), tracked in
-   Phase 5.
+4. **Harmful-content requests: a deterministic moderation rule lifts recall
+   5–10×, but it is a floor, not a solution.** The injection stages and the
+   injection-specific classifier
+   (`protectai/deberta-v3-base-prompt-injection-v2`) caught 2–4% of
+   JailbreakBench/HarmBench/AdvBench — a politely-worded harmful request looks
+   nothing like an injection. The `harmfulRequest` detector (operational-harm
+   how-tos + hateful-intent production, tightly gated against security Q&A)
+   raises that to 18–40% at near-zero added FPR on representative traffic. The
+   remaining gap is the honest argument for a trained content-moderation layer
+   (Llama-Guard-class), tracked in Phase 5 — keyword rules catch the explicit
+   asks and will never catch the euphemism tail. llm-fw remains a
+   prompt-injection firewall first; harmful-content moderation is a secondary,
+   disableable layer (`LLM_FW_HARMFUL_REQUEST_ENABLED=false`).
 
 5. **The deterministic stages alone are precise but miss novel phrasings** —
    17–46% recall on the independent injection sets at near-zero FPR. That is
@@ -169,7 +189,10 @@ other guardrails (Llama Guard / Prompt Guard, Lakera, protectai-standalone) on
 these same sets — that comparison is Phase 2 of
 [PLAN-future](plans/PLAN-future.md). The takeaway that *is* solid: **across
 four independent injection datasets, the trained classifier lifts recall
-substantially — to 100% on real instruction-override attacks and 84% on the
+substantially — to 100% on real instruction-override attacks and 85% on the
 largest clean split — while keeping false positives at 0.7% on representative
-traffic; indirect injection and harmful-content requests remain measured,
-documented gaps.**
+traffic. The two deterministic detectors added since (see
+[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md)) close indirect injection
+(0→95% at 0% FPR) and lift harmful-content recall 5–10×; the residual
+harmful-content tail is the documented case for a trained moderation layer
+(Phase 5).**
