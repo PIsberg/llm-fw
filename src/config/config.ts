@@ -1,6 +1,7 @@
 import { Config } from '../types.js';
 import { cosmiconfig } from 'cosmiconfig';
 import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS, AI_PROVIDER_INTERCEPT_DOMAINS } from './providers.js';
+import { getLlmFwDir } from './paths.js';
 
 export const DEFAULT_CONFIG: Config = {
   proxy: {
@@ -181,8 +182,7 @@ export async function loadConfig(): Promise<Config> {
   try {
     const { readFileSync } = await import('node:fs');
     const path = await import('node:path');
-    const { homedir } = await import('node:os');
-    const p = path.join(homedir(), '.llm-fw', 'config.json');
+    const p = path.join(getLlmFwDir(), 'config.json');
     userConfig = JSON.parse(readFileSync(p, 'utf8')) as Partial<Config>;
   } catch { /* not present */ }
 

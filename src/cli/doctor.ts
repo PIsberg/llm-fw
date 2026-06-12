@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import { join } from 'node:path'
-import { homedir, platform } from 'node:os'
+import { platform } from 'node:os'
+import { getLlmFwDir } from '../config/paths.js'
 import { execFileSync } from 'node:child_process'
 import { loadConfig } from '../config/config.js'
 
@@ -429,9 +430,9 @@ function detectPortRedirect(os: OS, httpsPort: number): boolean | null {
 async function probe(): Promise<DoctorProbe> {
   const config = await loadConfig()
   const os = platform() as OS
-  const llmfwDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
+  const llmfwDir = getLlmFwDir()
   const caCertPath = join(llmfwDir, 'ca.crt')
-  const pidFile = join(homedir(), '.llm-fw', 'llm-fw.pid')
+  const pidFile = join(llmfwDir, 'llm-fw.pid')
 
   // Process liveness via the pid file (mirrors `status`/`stop`).
   let running = false

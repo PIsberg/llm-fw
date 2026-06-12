@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import fs from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { getLlmFwDir } from '../config/paths.js'
 import { JudgeClient } from '../detection/judge.js'
 import { loadConfig } from '../config/config.js'
 
@@ -142,7 +142,7 @@ export async function run(): Promise<void> {
   // (Previously this wrote ./.llm-fw.json, so the judge silently stayed off
   // unless `llm-fw start` ran from that exact project directory; uninstall
   // still cleans those legacy project files.)
-  const llmfwDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
+  const llmfwDir = getLlmFwDir()
   fs.mkdirSync(llmfwDir, { recursive: true })
   const configPath = join(llmfwDir, 'config.json')
   let existing: Record<string, unknown> = {}

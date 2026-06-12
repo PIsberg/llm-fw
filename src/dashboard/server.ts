@@ -1,7 +1,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { homedir } from 'node:os'
+import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config } from '../types.js'
 import { deepMerge } from '../config/config.js'
@@ -1617,7 +1617,7 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
 // Persist the current toggle state to ~/.llm-fw/config.json, deep-merging so
 // unrelated keys are preserved.
 function persistSettings(config: Config): void {
-  const dir = join(homedir(), '.llm-fw')
+  const dir = getLlmFwDir()
   const file = join(dir, 'config.json')
   let existing: Record<string, unknown> = {}
   try { existing = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown> } catch { /* none */ }
@@ -2124,7 +2124,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     // Serve the CA certificate so standalone clients can download and trust it.
     // Offered both as an inline view and a forced download (?download).
     if (req.method === 'GET' && (path === '/ca.crt' || path === '/ca.pem')) {
-      const caPath = join(homedir(), '.llm-fw', 'ca.crt')
+      const caPath = join(getLlmFwDir(), 'ca.crt')
       if (fs.existsSync(caPath)) {
         const caData = fs.readFileSync(caPath)
         const disposition = url.searchParams.has('download')
@@ -2145,7 +2145,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
 
     // Serve the CRL so Windows Schannel can verify revocation status of MITM certs.
     if (req.method === 'GET' && path === '/crl') {
-      const crlPath = join(homedir(), '.llm-fw', 'ca.crl')
+      const crlPath = join(getLlmFwDir(), 'ca.crl')
       if (fs.existsSync(crlPath)) {
         const crlData = fs.readFileSync(crlPath)
         res.writeHead(200, { 'Content-Type': 'application/pkix-crl', 'Content-Length': String(crlData.length) })

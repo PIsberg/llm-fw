@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import { join } from 'node:path';
-import { homedir, platform } from 'node:os';
+import { platform } from 'node:os';
 import { loadConfig } from '../config/config.js';
+import { getLlmFwDir } from '../config/paths.js';
 
 export async function run(): Promise<void> {
-  const pidFile = join(homedir(), '.llm-fw', 'llm-fw.pid');
+  const pidFile = join(getLlmFwDir(), 'llm-fw.pid');
 
   if (!fs.existsSync(pidFile)) {
     console.log('llm-fw: stopped');

@@ -2,6 +2,7 @@ import { CertFactory } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
 import { stripSinkholeBlock } from './hosts.js';
+import { getLlmFwDir } from '../config/paths.js';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
@@ -180,7 +181,7 @@ export async function run(args: string[]): Promise<void> {
   const elevated = isElevated();
   const sinkhole = !proxyOnly && elevated;
   const sinkholeWanted = !proxyOnly;
-  const llmfwDir = join(homedir(), '.llm-fw');
+  const llmfwDir = getLlmFwDir();
   const caCertPath = join(llmfwDir, 'ca.crt');
 
   console.log('Setting up llm-fw...');

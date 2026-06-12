@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { isElevated, getIdeSettingsPaths } from './setup.js';
 import { loadConfig } from '../config/config.js';
+import { getLlmFwDir } from '../config/paths.js';
 
 /**
  * `llm-fw uninstall` — reverse every change `setup` (and `setup-judge`) made,
@@ -323,7 +324,7 @@ export async function run(args: string[]): Promise<void> {
   const keepModel = args.includes('--keep-model');
 
   const config = await loadConfig();
-  const llmfwDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw');
+  const llmfwDir = getLlmFwDir();
   const elevated = isElevated();
 
   console.log('llm-fw uninstall — this reverses every change made by setup:');
