@@ -369,6 +369,9 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(s.embeddingBlockThreshold).toBeCloseTo(0.86)
     expect(s.dosMaxRpm).toBe(60)
     expect(typeof s.judgeModel).toBe('string')
+    // Trained classifier stage (opt-in, off by default).
+    expect(s.classifier).toBe(false)
+    expect(s.classifierThreshold).toBeCloseTo(0.9)
   })
 
   it('POST /api/settings rejects an out-of-range numeric value with 400', async () => {

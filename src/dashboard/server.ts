@@ -1165,6 +1165,7 @@ loadLanguages();
 const SETTINGS_SCHEMA = [
   { group: 'Prompt Injection', desc: 'The heuristic and embedding stages always run (covering direct overrides, persona/DAN jailbreaks, refusal-suppression, prefix-injection, encoding, multilingual). These control the structural, multi-turn, and invisible-character defenses plus the optional local-LLM judge.', rows: [
     { key: 'asciiSmuggling', label: 'ASCII smuggling (invisible chars)', sub: 'Block payloads hidden in Unicode-tag / bidi-override / variation-selector characters that render invisibly but the model still reads' },
+    { key: 'classifier', label: 'Trained injection classifier (recommended)', sub: 'A local DeBERTa model that generalizes to novel phrasings the rules miss (≈2× recall on held-out attacks, near-zero added false positives). Opt-in: enabling downloads a ~700 MB model on first use' },
     { key: 'manyShot', label: 'Many-shot jailbreak', sub: 'Flag a prompt stuffed with fabricated dialogue turns whose faux answers comply with harmful asks (in-context conditioning)' },
     { key: 'manyShotMode', label: 'Many-shot mode', type: 'select', options: ['block', 'audit'], sub: 'block: refuse harmful many-shot · audit: warn only' },
     { key: 'crescendo', label: 'Multi-turn crescendo', sub: 'Flag a conversation that escalates over several turns toward harmful content, ending on a boundary-pushing directive' },
@@ -1207,6 +1208,7 @@ const SETTINGS_SCHEMA = [
     { key: 'heuristicBlockThreshold', label: 'Heuristic block threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a prompt is blocked (default 50). Rules add weights; one strong rule scores 50' },
     { key: 'embeddingBlockThreshold', label: 'Embedding block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Stage 2 cosine similarity at/above which a prompt is blocked (default 0.86). Lower = stricter' },
     { key: 'embeddingWarnThreshold', label: 'Embedding warn threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Similarity at/above which a prompt warns and (if enabled) routes to the judge (default 0.80)' },
+    { key: 'classifierThreshold', label: 'Classifier block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'INJECTION probability at/above which the trained classifier blocks (default 0.90). Lower = more recall, more false positives' },
     { key: 'dosMaxRpm', label: 'Max requests / minute', type: 'number', min: 1, max: 1000000, step: 1, sub: 'Requests allowed per rolling minute before rate-limiting (default 60)' },
     { key: 'dosMaxTokens', label: 'Max tokens / session', type: 'number', min: 1, max: 1000000000, step: 1000, sub: 'Rolling per-session token budget before the cost circuit-breaker trips (default 500,000)' },
     { key: 'judgeModel', label: 'Judge model (Ollama)', type: 'text', sub: 'Ollama model tag the Stage 3 judge uses, e.g. qwen2.5:3b. Pull it first: ollama pull <model>' },
@@ -1500,6 +1502,8 @@ drawChart();
 // takes effect on the proxy's next request — no restart.
 interface SettingsView {
   asciiSmuggling: boolean
+  classifier: boolean
+  classifierThreshold: number
   manyShot: boolean
   manyShotMode: 'audit' | 'block'
   crescendo: boolean
@@ -1542,6 +1546,8 @@ interface SettingsView {
 function readSettings(config: Config): SettingsView {
   return {
     asciiSmuggling: config.asciiSmuggling?.enabled ?? true,
+    classifier: config.detection?.classifier?.enabled ?? false,
+    classifierThreshold: config.detection?.classifier?.blockThreshold ?? 0.9,
     manyShot: config.manyShot?.enabled ?? true,
     manyShotMode: config.manyShot?.mode ?? 'block',
     crescendo: config.crescendo?.enabled ?? true,
@@ -1582,6 +1588,7 @@ function readSettings(config: Config): SettingsView {
 // not present here is rejected, so the endpoint can never mutate arbitrary config.
 const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   asciiSmuggling: (c, v) => { (c.asciiSmuggling ??= { enabled: true }).enabled = v },
+  classifier: (c, v) => { (c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }).enabled = v },
   manyShot: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).enabled = v },
   crescendo: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).enabled = v },
   responseHarm: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).harmfulCompliance = v },
@@ -1608,6 +1615,7 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
 // Numeric tuning setters with an inclusive valid range (the POST allowlist for
 // numbers). Out-of-range or non-finite values are rejected.
 const NUMBER_SETTERS: Record<string, { min: number; max: number; apply: (c: Config, v: number) => void }> = {
+  classifierThreshold: { min: 0, max: 1, apply: (c, v) => { (c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }).blockThreshold = v } },
   heuristicBlockThreshold: { min: 1, max: 200, apply: (c, v) => { c.detection.heuristicBlockThreshold = v } },
   embeddingBlockThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingBlockThreshold = v } },
   embeddingWarnThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingWarnThreshold = v } },
@@ -1643,6 +1651,10 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       heuristicBlockThreshold: config.detection.heuristicBlockThreshold,
       embeddingBlockThreshold: config.detection.embeddingBlockThreshold,
       embeddingWarnThreshold: config.detection.embeddingWarnThreshold,
+      classifier: {
+        enabled: config.detection.classifier?.enabled ?? false,
+        blockThreshold: config.detection.classifier?.blockThreshold ?? 0.9,
+      },
     },
     rag: { enabled: config.rag.enabled },
     dlp: { enabled: config.dlp.enabled, mode: config.dlp.mode },

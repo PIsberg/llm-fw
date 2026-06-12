@@ -65,6 +65,15 @@ export const DEFAULT_CONFIG: Config = {
     judgeModel: 'qwen2.5:3b',
     judgeBlock: false,
     ollamaUrl: 'http://localhost:11434',
+    // Trained ONNX injection classifier — a learned generalization layer that
+    // closes the novel-phrasing gap the regex/embedding stages leave open,
+    // without the generative judge's false-positive blow-up. Opt-in (~700 MB
+    // model). Enable via config or LLM_FW_CLASSIFIER_ENABLED, then it downloads
+    // on next start. 0.9 keeps it high-precision; lower it for more recall.
+    classifier: {
+      enabled: false,
+      blockThreshold: 0.9,
+    },
     judgeUnlessBenign: false,
   },
   dashboard: {
@@ -249,6 +258,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_JUDGE_UNLESS_BENIGN: (c, v) => { c.detection.judgeUnlessBenign = v === 'true'; },
   LLM_FW_JUDGE_MODEL: (c, v) => { c.detection.judgeModel = v; },
   LLM_FW_OLLAMA_URL: (c, v) => { c.detection.ollamaUrl = v; },
+  LLM_FW_CLASSIFIER_ENABLED: (c, v) => { if (c.detection.classifier) c.detection.classifier.enabled = v === 'true'; },
+  LLM_FW_CLASSIFIER_THRESHOLD: (c, v) => { if (c.detection.classifier) c.detection.classifier.blockThreshold = parseFloat(v); },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = parseFloat(v); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = parseFloat(v); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },

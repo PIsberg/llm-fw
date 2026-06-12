@@ -36,6 +36,10 @@ export interface DetectionConfig {
   judgeEnabled: boolean;
   judgeModel: string;
   judgeBlock: boolean;
+  // Trained ONNX prompt-injection classifier — a learned generalization layer
+  // (protectai/deberta-v3-base-prompt-injection-v2). Opt-in: the weights are
+  // ~700 MB, so it is disabled by default and downloaded on first use.
+  classifier?: ClassifierConfig;
   // Base URL of the Ollama server hosting the judge model. Defaults to the
   // local daemon; point it at a LAN GPU box or container via config or
   // LLM_FW_OLLAMA_URL.
@@ -45,6 +49,12 @@ export interface DetectionConfig {
   // stages route instead of veto: every prompt is judged unless confidently
   // benign — the only policy that generalizes to novel jailbreak phrasings.
   judgeUnlessBenign?: boolean;
+}
+
+export interface ClassifierConfig {
+  enabled: boolean;
+  /** INJECTION probability at/above which a prompt is blocked (0–1). */
+  blockThreshold: number;
 }
 
 export interface DashboardConfig {
@@ -231,7 +241,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'none';
+  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -254,7 +264,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;

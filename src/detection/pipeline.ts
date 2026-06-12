@@ -4,6 +4,7 @@ import { getParser, extractPartialPrompts, extractToolDescriptions } from './par
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
+import { InjectionClassifier } from './classifier.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
@@ -20,6 +21,7 @@ type ScanSource = 'prompt' | 'tool_result' | 'tool_definition' | 'document'
 export class Pipeline {
   private heuristic: HeuristicScorer
   private embedding: EmbeddingChecker
+  private classifier: InjectionClassifier
   private judge: JudgeClient
   private config: Config
   private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void
@@ -29,10 +31,14 @@ export class Pipeline {
     this.onBlock = onBlock
     this.heuristic = new HeuristicScorer()
     this.embedding = new EmbeddingChecker(config.detection)
+    this.classifier = new InjectionClassifier(config.detection)
     this.judge = new JudgeClient(config.detection)
   }
 
-  async init(): Promise<void> { await this.embedding.init() }
+  async init(): Promise<void> {
+    await this.embedding.init()
+    await this.classifier.init() // no-op unless the classifier stage is enabled
+  }
 
   async run(
     requestPath: string,
@@ -219,6 +225,21 @@ export class Pipeline {
         if (j.verdict === 'MALICIOUS') {
           const result: PipelineResult = { action: 'block', stage: 'judge', score: 30, similarity: 0, verdict: 'MALICIOUS', prompt }
           this.emit(result, meta, prompt, source)
+          return result
+        }
+      }
+
+      // Stage 2.5 — Trained injection classifier. A learned binary classifier
+      // (DeBERTa) that generalizes to novel phrasings the regex/embedding stages
+      // miss, WITHOUT the generative judge's false-positive blow-up. Runs on the
+      // raw prompt (it was trained on natural text). Opt-in; classify() is a
+      // no-op (returns null) when the stage is disabled, and lazy-loads the
+      // model on first use when enabled.
+      if (this.config.detection.classifier?.enabled) {
+        const v = await this.classifier.classify(prompt)
+        if (v?.injection) {
+          const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
+          this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
           return result
         }
       }
@@ -444,7 +465,7 @@ export class Pipeline {
       sandboxClient: meta.sandboxClient,
       isSandboxed: meta.isSandboxed,
       sandboxConfidence: meta.sandboxConfidence,
-      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : result.stage === 'many-shot' ? 'many-shot' : result.stage === 'crescendo' ? 'crescendo' : undefined,
+      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : result.stage === 'many-shot' ? 'many-shot' : result.stage === 'crescendo' ? 'crescendo' : result.stage === 'classifier' ? 'classifier' : undefined,
       ragTag: result.ragTag,
       smuggleRanges: result.smuggleRanges,
       mediaSummary: result.mediaSummary,
