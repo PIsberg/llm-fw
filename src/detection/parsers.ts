@@ -447,8 +447,8 @@ class CohereParser implements PayloadParser {
       const pushFlat = (calls: unknown) => {
         if (!Array.isArray(calls)) return
         for (const call of calls) {
-          if (call && typeof (call as any).name === 'string') {
-            results.push({ toolName: (call as any).name, args: (call as any).parameters })
+          if (call && typeof (call).name === 'string') {
+            results.push({ toolName: (call).name, args: (call).parameters })
           } else {
             pushWrapped(call) // v2 shape can appear in the same slots
           }
