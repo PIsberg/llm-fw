@@ -6,6 +6,7 @@ import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
+import { detectManyShot } from './manyShot.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -136,6 +137,28 @@ export class Pipeline {
           }
           this.emit(result, meta, `[hidden: ${hidden.ranges.join(', ')}]${decodedNote}`, source)
           return result
+        }
+      }
+
+      // Stage M — Many-shot jailbreaking. A prompt stuffed with fabricated
+      // dialogue turns whose faux assistant answers demonstrate harmful
+      // compliance conditions the model via in-context learning. The signal is
+      // structural (the heuristic/embedding stages see no override keywords),
+      // so it gets its own check on the raw surface. Harmful many-shot blocks;
+      // a long faux dialogue without harmful compliance warns (routed below).
+      if (this.config.manyShot?.enabled) {
+        const ms = detectManyShot(prompt, this.config.manyShot)
+        if (ms.severity === 'block') {
+          const result: PipelineResult = { action: 'block', stage: 'many-shot', score: 100, similarity: 0, prompt }
+          this.emit(result, meta, `[many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`, source)
+          return result
+        }
+        if (ms.severity === 'warn' && !pendingWarn) {
+          pendingWarn = {
+            result: { action: 'warn', stage: 'many-shot', score: 0, similarity: 0, prompt },
+            prompt: `[many-shot: ${ms.turns} fabricated turns] ${prompt.slice(0, 80)}`,
+            source,
+          }
         }
       }
 
@@ -404,7 +427,7 @@ export class Pipeline {
       sandboxClient: meta.sandboxClient,
       isSandboxed: meta.isSandboxed,
       sandboxConfidence: meta.sandboxConfidence,
-      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : undefined,
+      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : result.stage === 'many-shot' ? 'many-shot' : undefined,
       ragTag: result.ragTag,
       smuggleRanges: result.smuggleRanges,
       mediaSummary: result.mediaSummary,

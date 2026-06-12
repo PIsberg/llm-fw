@@ -148,6 +148,19 @@ export interface TaintConfig {
   mode: 'audit' | 'block';
 }
 
+export interface ManyShotConfig {
+  // Detect many-shot jailbreaking — a single prompt stuffed with many
+  // fabricated dialogue turns whose faux assistant answers demonstrate
+  // compliance with escalating harmful asks, conditioning the model via
+  // in-context learning. A long faux dialogue alone only warns (real
+  // transcripts get pasted for summarization); a block additionally requires
+  // multiple faux assistant turns exhibiting harmful compliance.
+  enabled: boolean
+  minTurns: number
+  harmfulComplianceThreshold: number
+  mode: 'audit' | 'block'
+}
+
 export interface McpConfig {
   enabled: boolean;
   blockedTools: string[];
@@ -173,6 +186,7 @@ export interface Config {
   asciiSmuggling?: AsciiSmugglingConfig;
   responseScan?: ResponseScanConfig;
   nonText?: NonTextConfig;
+  manyShot?: ManyShotConfig;
   targets: string[];
   // Extra hostnames appended to `targets` after all config layers are merged.
   // File-config arrays REPLACE the defaults wholesale, so overriding `targets`
@@ -200,7 +214,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'none';
+  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -223,7 +237,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text' | 'many-shot';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;

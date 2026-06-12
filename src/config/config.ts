@@ -114,6 +114,17 @@ export const DEFAULT_CONFIG: Config = {
     mode: 'audit',
     ocr: false,
   },
+  // Many-shot jailbreaking (issue: structural in-context conditioning). A long
+  // run of fabricated dialogue turns alone warns; a block requires ≥2 faux
+  // assistant turns demonstrating harmful compliance, which benign pasted
+  // transcripts don't have. minTurns 8 ≈ 4 Q/A pairs — abnormal for inline
+  // content but low enough to catch scaled-down proofs of concept.
+  manyShot: {
+    enabled: true,
+    minTurns: 8,
+    harmfulComplianceThreshold: 2,
+    mode: 'block',
+  },
   mcp: {
     enabled: true,
     // Tools blocked outright by name. Note: a name on this list is rejected by
@@ -250,6 +261,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_NONTEXT_ENABLED: (c, v) => { if (c.nonText) c.nonText.enabled = v === 'true'; },
   LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
+  LLM_FW_MANYSHOT_ENABLED: (c, v) => { if (c.manyShot) c.manyShot.enabled = v === 'true'; },
+  LLM_FW_MANYSHOT_MODE: (c, v) => { if (c.manyShot && (v === 'audit' || v === 'block')) c.manyShot.mode = v; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
 };
