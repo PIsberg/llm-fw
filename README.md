@@ -128,11 +128,19 @@ The proxy inspects the tools being exposed to the LLM (Definitions), intercepted
 llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately aborts the connection with a `403 Forbidden` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.
 
 Detection pipeline:
-1. **Heuristic scoring** — weighted phrase matching (< 1ms)
+1. **Heuristic scoring** — weighted phrase matching (< 1ms) over a multi-candidate normalization pass that defeats spacing/case/homoglyph/leetspeak evasion and decodes base64, base32, ascii85, hex, binary, morse, Caesar, ROT13, URL-encoding, reversed and pig-latin payloads back to plaintext. Covers direct override, persona/DAN jailbreaks, system-prompt exfiltration, payload-splitting, refusal-suppression/override, and affirmative prefix-injection.
 2. **Embedding similarity** — cross-lingual cosine similarity against canonical injection-intent anchors using a local multilingual ONNX model (`multilingual-e5-small`, < 20ms warm). Because the encoder aligns 100 languages, an injection in *any* language — Urdu, Bengali, Vietnamese, Thai, … — lands near the English anchors and is caught even with no hand-written rule for that language.
 3. **Judge LLM** — local Ollama model, async by default (opt-in)
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical detail.
+Alongside the three core stages, dedicated detectors cover structural and multi-turn attacks that per-prompt scoring can't see:
+
+- **Many-shot jailbreaking** — a single prompt stuffed with fabricated dialogue turns whose faux assistant answers demonstrate harmful compliance (in-context conditioning). Blocks on the structural pattern + harmful compliance; a pasted benign transcript only warns.
+- **Multi-turn crescendo** — a conversation that escalates over several turns toward harmful content, ending on a boundary-pushing directive ("now give me the complete working version", "remove the disclaimers"). Detected within the request, since LLM APIs resend the whole conversation — no session state needed.
+- **ASCII smuggling** — invisible-character instruction channels (Unicode Tags, bidi overrides, plane-14 variation selectors).
+- **RAG context-poisoning** — instructions smuggled inside retrieved `<document>`/`<search_results>`/code-fence blocks.
+- **Indirect injection & tool poisoning** — every attacker-influenceable surface is scanned, not just the user prompt: tool/function results (the agentic vector) and tool `description` fields.
+
+All of these run on prompts, tool results, tool definitions, and decoded non-text/OCR content alike. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical detail.
 
 ---
 
@@ -632,7 +640,7 @@ Both events appear in `GET http://localhost:7731/api/events`:
 Measured, not promised. The table below is regenerated from the labelled corpus by `npm run scorecard` and verified on every CI run (`docs/SCORECARD.md` carries the standalone copy).
 
 <!-- scorecard:start -->
-Deterministic full sweep over the labelled corpus (92 attacks, 60 benign prompts incl. security-themed hard negatives) through the real proxy.
+Deterministic full sweep over the labelled corpus (104 attacks, 65 benign prompts incl. security-themed hard negatives) through the real proxy.
 Cheap stages only — **heuristic + embedding, judge off**; enabling the local Ollama judge raises recall further on novel phrasings.
 
 | Attack class | Detected | Recall |
@@ -641,17 +649,20 @@ Cheap stages only — **heuristic + embedding, judge off**; enabling the local O
 | direct-override | 8/8 | 100% |
 | exfiltration-markdown | 6/6 | 100% |
 | indirect-injection | 8/8 | 100% |
+| many-shot | 2/2 | 100% |
 | multilingual | 10/10 | 100% |
-| obfuscation-encoding | 10/10 | 100% |
+| obfuscation-encoding | 12/12 | 100% |
 | payload-splitting | 8/8 | 100% |
 | persona-jailbreak | 10/10 | 100% |
+| prefix-injection | 4/4 | 100% |
 | prompt-exfil | 8/8 | 100% |
+| refusal-override | 4/4 | 100% |
 | roleplay-fiction | 10/10 | 100% |
 | social-engineering | 8/8 | 100% |
-| **Overall (TPR)** | **92/92** | **100.0%** (gate ≥ 70%) |
-| **False positives (FPR)** | **0/60** | **0.0%** (gate ≤ 2%) |
+| **Overall (TPR)** | **104/104** | **100.0%** (gate ≥ 70%) |
+| **False positives (FPR)** | **0/65** | **0.0%** (gate ≤ 2%) |
 
-Latency through the full pipeline: p50 67 ms · p95 188 ms. Generated 2026-06-09 by `npm run scorecard` (gate: PASSED).
+Latency through the full pipeline: p50 77 ms · p95 195 ms. Generated 2026-06-12 by `npm run scorecard` (gate: PASSED).
 <!-- scorecard:end -->
 
 ---
