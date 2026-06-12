@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-import { PayloadParser, MediaBlock } from '../types.js'
+import { PayloadParser, MediaBlock, ConversationTurn } from '../types.js'
 import { mediaBlockFromBase64, parseDataUrl } from './media.js'
 
 /** Map a mime type onto the coarse MediaBlock kind. */
@@ -158,6 +158,32 @@ class AnthropicParser implements PayloadParser {
         }
       }
       return out
+    } catch { return [] }
+  }
+
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      // The system prompt (string or content-block array) is the first turn.
+      if (typeof data.system === 'string' && data.system) {
+        turns.push({ role: 'system', text: data.system })
+      } else if (Array.isArray(data.system)) {
+        const t = data.system.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('\n')
+        if (t) turns.push({ role: 'system', text: t })
+      }
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          const role: ConversationTurn['role'] = msg.role === 'assistant' ? 'assistant' : 'user'
+          let text = ''
+          if (typeof msg.content === 'string') text = msg.content
+          else if (Array.isArray(msg.content)) {
+            text = msg.content.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('\n')
+          }
+          if (text) turns.push({ role, text })
+        }
+      }
+      return turns
     } catch { return [] }
   }
 }
@@ -342,6 +368,36 @@ class OpenAIParser implements PayloadParser {
         }
       }
       return out
+    } catch { return [] }
+  }
+
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      const roleOf = (r: unknown): ConversationTurn['role'] =>
+        r === 'assistant' ? 'assistant' : (r === 'system' || r === 'developer') ? 'system' : 'user'
+      const textOf = (content: unknown): string => {
+        if (typeof content === 'string') return content
+        if (Array.isArray(content)) return content.filter((p: any) => typeof p?.text === 'string').map((p: any) => p.text).join('\n')
+        return ''
+      }
+      // Chat Completions messages[] and Responses input[] both carry ordered turns.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'tool') continue
+          const text = textOf(msg.content)
+          if (text) turns.push({ role: roleOf(msg.role), text })
+        }
+      }
+      if (Array.isArray(data.input)) {
+        for (const item of data.input) {
+          if (!item || item.role === 'tool') continue
+          const text = textOf(item.content)
+          if (text) turns.push({ role: roleOf(item.role), text })
+        }
+      }
+      return turns
     } catch { return [] }
   }
 }

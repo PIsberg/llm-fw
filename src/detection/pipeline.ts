@@ -7,6 +7,7 @@ import { JudgeClient } from './judge.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
+import { detectCrescendo } from './crescendo.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -40,6 +41,22 @@ export class Pipeline {
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
+
+    // Stage C — Multi-turn crescendo. Operates on the WHOLE conversation (the
+    // request resends every turn), not a single surface, so it runs once here
+    // before the per-item scan. Blocks a 3+ user-turn conversation that ends on
+    // a boundary-pushing escalation directive after steering toward harmful
+    // content — an attack no per-prompt stage can see.
+    if (this.config.crescendo?.enabled && parser.extractConversation) {
+      const conversation = parser.extractConversation(body)
+      const cr = detectCrescendo(conversation, this.config.crescendo)
+      if (cr.severity === 'block') {
+        const finalText = conversation.filter(t => t.role === 'user').pop()?.text ?? ''
+        const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }
+        this.emit(result, meta, `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`, 'prompt')
+        return result
+      }
+    }
 
     // The model reads and acts on more than the user's typed prompt. Inspect
     // every attacker-influenceable surface that reaches the model, not just
@@ -427,7 +444,7 @@ export class Pipeline {
       sandboxClient: meta.sandboxClient,
       isSandboxed: meta.isSandboxed,
       sandboxConfidence: meta.sandboxConfidence,
-      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : result.stage === 'many-shot' ? 'many-shot' : undefined,
+      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : result.stage === 'many-shot' ? 'many-shot' : result.stage === 'crescendo' ? 'crescendo' : undefined,
       ragTag: result.ragTag,
       smuggleRanges: result.smuggleRanges,
       mediaSummary: result.mediaSummary,

@@ -64,6 +64,15 @@ const harmfulRe = new RegExp(
 )
 
 /**
+ * True when the text references concrete weapons / cyber-attack / illicit
+ * vocabulary. Shared with the crescendo detector, which uses it to confirm a
+ * multi-turn escalation has actually been steering toward harmful content.
+ */
+export function containsHarmfulVocab(text: string): boolean {
+  return harmfulRe.test(text)
+}
+
+/**
  * Detect a many-shot jailbreak pattern in a single text.
  *
  * Parses line-anchored role labels into turns, counts alternations, and flags

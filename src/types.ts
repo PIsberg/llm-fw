@@ -161,6 +161,16 @@ export interface ManyShotConfig {
   mode: 'audit' | 'block'
 }
 
+export interface CrescendoConfig {
+  // Detect multi-turn crescendo jailbreaks — a conversation that escalates over
+  // several turns toward harmful content, where the final user turn is a
+  // boundary-pushing escalation directive. Analyzed within a single request
+  // (LLM APIs resend the whole conversation), so no session state is needed.
+  enabled: boolean
+  minUserTurns: number
+  mode: 'audit' | 'block'
+}
+
 export interface McpConfig {
   enabled: boolean;
   blockedTools: string[];
@@ -187,6 +197,7 @@ export interface Config {
   responseScan?: ResponseScanConfig;
   nonText?: NonTextConfig;
   manyShot?: ManyShotConfig;
+  crescendo?: CrescendoConfig;
   targets: string[];
   // Extra hostnames appended to `targets` after all config layers are merged.
   // File-config arrays REPLACE the defaults wholesale, so overriding `targets`
@@ -214,7 +225,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'none';
+  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -237,7 +248,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text' | 'many-shot';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text' | 'many-shot' | 'crescendo';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;
@@ -270,6 +281,12 @@ export interface WhitelistEntry {
   reason?: string;
 }
 
+/** One ordered turn of a conversation, for multi-turn (crescendo) analysis. */
+export interface ConversationTurn {
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+}
+
 export interface PayloadParser {
   supports(path: string): boolean;
   extractPrompts(body: string): string[];
@@ -279,6 +296,9 @@ export interface PayloadParser {
   // Non-text content blocks (images, documents, audio). Optional — parsers
   // without media support simply leave non-text content unreported.
   extractMediaBlocks?(body: string): MediaBlock[];
+  // Ordered conversation turns (user/assistant/system) for multi-turn
+  // crescendo analysis. Optional — parsers without it skip crescendo detection.
+  extractConversation?(body: string): ConversationTurn[];
 }
 
 export interface TrafficMetric {

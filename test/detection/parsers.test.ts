@@ -396,6 +396,43 @@ describe('BedrockParser', () => {
   })
 })
 
+describe('extractConversation', () => {
+  it('Anthropic returns ordered system/user/assistant turns', () => {
+    const body = JSON.stringify({
+      system: 'be helpful',
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'hello' },
+        { role: 'user', content: [{ type: 'text', text: 'again' }] },
+      ],
+    })
+    const convo = a.extractConversation!(body)
+    expect(convo).toEqual([
+      { role: 'system', text: 'be helpful' },
+      { role: 'user', text: 'hi' },
+      { role: 'assistant', text: 'hello' },
+      { role: 'user', text: 'again' },
+    ])
+  })
+
+  it('OpenAI returns ordered turns and maps developer→system, skips tool', () => {
+    const body = JSON.stringify({
+      messages: [
+        { role: 'developer', content: 'rules' },
+        { role: 'user', content: 'q' },
+        { role: 'tool', content: 'tool output' },
+        { role: 'assistant', content: 'a' },
+      ],
+    })
+    const convo = o.extractConversation!(body)
+    expect(convo).toEqual([
+      { role: 'system', text: 'rules' },
+      { role: 'user', text: 'q' },
+      { role: 'assistant', text: 'a' },
+    ])
+  })
+})
+
 describe('getParser', () => {
   it('returns AnthropicParser for /v1/messages', () => {
     expect(getParser('/v1/messages')).toBeInstanceOf(AnthropicParser)

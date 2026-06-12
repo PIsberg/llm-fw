@@ -125,6 +125,15 @@ export const DEFAULT_CONFIG: Config = {
     harmfulComplianceThreshold: 2,
     mode: 'block',
   },
+  // Multi-turn crescendo. Blocks when a 3+ user-turn conversation ends on a
+  // boundary-pushing escalation directive AND earlier turns reference concrete
+  // harmful content — analyzed within the request (LLM APIs resend the whole
+  // conversation), so no session state is needed.
+  crescendo: {
+    enabled: true,
+    minUserTurns: 3,
+    mode: 'block',
+  },
   mcp: {
     enabled: true,
     // Tools blocked outright by name. Note: a name on this list is rejected by
@@ -263,6 +272,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
   LLM_FW_MANYSHOT_ENABLED: (c, v) => { if (c.manyShot) c.manyShot.enabled = v === 'true'; },
   LLM_FW_MANYSHOT_MODE: (c, v) => { if (c.manyShot && (v === 'audit' || v === 'block')) c.manyShot.mode = v; },
+  LLM_FW_CRESCENDO_ENABLED: (c, v) => { if (c.crescendo) c.crescendo.enabled = v === 'true'; },
+  LLM_FW_CRESCENDO_MODE: (c, v) => { if (c.crescendo && (v === 'audit' || v === 'block')) c.crescendo.mode = v; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
 };
