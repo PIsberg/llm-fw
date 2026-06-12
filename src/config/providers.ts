@@ -25,10 +25,22 @@ export interface AiProvider {
   hosts: string[]
   /** Domain suffixes for proxy-mode matching + traffic labels. Defaults to `hosts`. */
   domains?: string[]
+  /**
+   * Domain suffixes whose subdomains are tenant/regional API hosts that cannot
+   * be enumerated (e.g. `<resource>.openai.azure.com`). The proxy TLS-intercepts
+   * any subdomain of these. Proxy mode only — a hosts-file sinkhole entry must
+   * be a concrete name, so the sinkhole cannot cover them.
+   */
+  interceptDomains?: string[]
 }
 
 export const AI_PROVIDERS: AiProvider[] = [
-  { name: 'OpenAI', hosts: ['api.openai.com'], domains: ['openai.com', 'openai.azure.com'] },
+  {
+    name: 'OpenAI',
+    hosts: ['api.openai.com'],
+    domains: ['openai.com', 'openai.azure.com'],
+    interceptDomains: ['openai.azure.com'],
+  },
   { name: 'Anthropic', hosts: ['api.anthropic.com'], domains: ['anthropic.com'] },
   {
     name: 'Google',
@@ -38,6 +50,8 @@ export const AI_PROVIDERS: AiProvider[] = [
     // filter allowlist, which would otherwise trust every Google property
     // (Docs, Drive, Sites, …) as an exfiltration-safe destination.
     domains: ['googleapis.com'],
+    // Regional Vertex endpoints (us-central1-aiplatform.googleapis.com, …).
+    interceptDomains: ['aiplatform.googleapis.com'],
   },
   { name: 'Mistral', hosts: ['api.mistral.ai'], domains: ['mistral.ai'] },
   { name: 'Groq', hosts: ['api.groq.com'], domains: ['groq.com'] },
@@ -89,6 +103,16 @@ const INFRA_SERVICES: { name: string; domains: string[] }[] = [
 
 /** Concrete API hostnames — the default `targets` (sinkhole + proxy inspection). */
 export const AI_PROVIDER_HOSTS: string[] = [...new Set(AI_PROVIDERS.flatMap(p => p.hosts))]
+
+/**
+ * Tenant/regional API domain suffixes the proxy always TLS-intercepts in
+ * addition to `targets` (Azure OpenAI resources, regional Vertex endpoints).
+ * Not part of `targets` so they never leak into the hosts-file sinkhole,
+ * where a suffix entry would be meaningless.
+ */
+export const AI_PROVIDER_INTERCEPT_DOMAINS: string[] = [
+  ...new Set(AI_PROVIDERS.flatMap(p => p.interceptDomains ?? [])),
+]
 
 /**
  * Domain suffixes for the outbound URL filter allowlist. Concrete hosts are

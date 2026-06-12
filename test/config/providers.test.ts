@@ -4,6 +4,7 @@ import {
   AI_PROVIDERS,
   AI_PROVIDER_HOSTS,
   AI_PROVIDER_DOMAINS,
+  AI_PROVIDER_INTERCEPT_DOMAINS,
 } from '../../src/config/providers.js'
 
 describe('provider registry invariants', () => {
@@ -27,6 +28,14 @@ describe('provider registry invariants', () => {
   it('derives hosts from the registry exactly', () => {
     const expected = new Set(AI_PROVIDERS.flatMap(p => p.hosts))
     expect(new Set(AI_PROVIDER_HOSTS)).toEqual(expected)
+  })
+
+  it('exposes tenant/regional intercept suffixes for proxy-mode matching', () => {
+    expect(AI_PROVIDER_INTERCEPT_DOMAINS).toContain('openai.azure.com')
+    expect(AI_PROVIDER_INTERCEPT_DOMAINS).toContain('aiplatform.googleapis.com')
+    // Tenant suffixes with no concrete equivalent must stay out of the
+    // sinkhole host list — a hosts-file entry for them would be meaningless.
+    expect(AI_PROVIDER_HOSTS).not.toContain('openai.azure.com')
   })
 })
 

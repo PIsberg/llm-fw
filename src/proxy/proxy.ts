@@ -19,7 +19,7 @@ import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
 import zlib from 'node:zlib'
-import { identifyService } from '../config/providers.js'
+import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
 import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
 
 /**
@@ -230,7 +230,12 @@ export class ProxyServer {
     const { hostname, port } = parseConnectTarget(req.url ?? '')
     const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
 
-    const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
+    // Tenant/regional hosts (Azure OpenAI resources, regional Vertex
+    // endpoints) can't be enumerated in `targets`, so their registry suffixes
+    // are matched here in addition to the configured targets.
+    const isTarget =
+      this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t)) ||
+      AI_PROVIDER_INTERCEPT_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d))
 
     if (!isTarget) {
       // Cross-turn taint (host level). The destination hostname is visible at
