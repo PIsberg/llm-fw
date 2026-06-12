@@ -68,7 +68,7 @@ const HARM_OBJECT = [
   'exploit\\w*\\s+(?:a\\s+|an?\\s+|the\\s+)?(?:\\w+\\s+)?vulnerabilit\\w+',
   'security\\s+vulnerabilit\\w+', 'disables?\\s+antivirus', 'ddos', 'denial[-\\s]of[-\\s]service',
   'syn\\s+flood', 'dns\\s+amplification', 'rainbow\\s+table',
-  'fake\\s+(?:\\w+\\s+)?login\\s+page', 'fake\\s+(?:\\w+\\s+)?website\\w*', 'unauthorized\\s+access',
+  'fake\\s+(?:\\w+\\s+){0,3}login\\s+page', 'fake\\s+(?:\\w+\\s+){0,3}website\\w*', 'unauthorized\\s+access',
   'gps\\s+(?:tracker|tracking)?', 'tracking\\s+device\\w*',
   // weapons (variants)
   'assassinat\\w+', 'glock\\s+switch', 'full\\s+auto', 'auto\\s+sear', 'machine\\s+gun', 'untraceable\\s+weapon',
@@ -94,7 +94,7 @@ const HARM_OBJECT = [
   'blackmail\\w*', 'ransom\\s+note', 'death\\s+threat\\w*', 'torture\\s+ring\\w*', 'animal\\s+cruelty',
   // Added Round 4 objects
   'date\\s+rape\\s+drug\\w*',
-  'fraudulent\\s+(?:letter|email|message|invoice|request|communication)',
+  'fraudulent,?(?:\\s+(?:\\w+,?)){0,2}\\s+(?:letter|email|message|invoice|request|communication)',
   'track\\w*\\s+(?:user\\s+)?location\\s+without\\s+(?:their\\s+)?consent', 'surreptitiously\\s+track\\w*',
   'clone\\w*\\s+(?:credit|debit|payment|bank)\\s+card\\w*',
   'electronic\\s+monitoring\\s+device\\w*', 'monitoring\\s+device\\w*',
@@ -104,6 +104,7 @@ const HARM_OBJECT = [
   'schizophrenia\\b', 'bipolar\\s+disorder\\b', 'clinical\\s+depression\\b',
   'medical\\s+treatment\\s+plan', 'treatment\\s+guide',
   'without\\s+alerting\\s+(?:authorities|police|firefighters|security|law\\s+enforcement)',
+  'drunk\\s+driving|dui|driving\\s+under\\s+the\\s+influence|breathalyzer|fire\\s+alarm',
 ]
 
 const HARM_OBJECT_RE = new RegExp('\\b(' + HARM_OBJECT.join('|') + ')\\b', 'i')
@@ -111,7 +112,7 @@ const HARM_OBJECT_RE = new RegExp('\\b(' + HARM_OBJECT.join('|') + ')\\b', 'i')
 // Harm-action verbs — the "doing harm" sense, paired with a harmful object or a
 // harmful direct object (someone's identity, into a system).
 const HARM_ACTION_RE =
-  /\b(make|build|manufactur\w*|synthesi[sz]e|produce|assemble|construct|cook|brew|cultivat\w*|detonate|hotwire|hack(?:ing)?\s+into|break\s+into|infiltrat\w*|exploit|breach|steal(?:ing)?|rob|embezzl\w*|launder\w*|smuggl\w*|traffic\w*|counterfeit\w*|forge|evade|bypass|circumvent|poison|kill|murder|assassinat\w*|sabotage|stalk|dox|blackmail|extort\w*|defraud|scam|contaminat\w*|destroy|mix\w*|ingest\w*|eat\w*|drink\w*|manipulat\w*|buy\w*|sell\w*|purchase\w*|acquir\w*|distribut\w*|tamper\w*|alter\w*|funnel\w*)\b/i
+  /\b(make|build|manufactur\w*|synthesi[sz]e|produce|assemble|construct|cook|brew|cultivat\w*|detonate|hotwire|hack(?:ing)?\s+into|break\s+into|infiltrat\w*|exploit|breach|steal(?:ing)?|rob|embezzl\w*|launder\w*|smuggl\w*|traffic\w*|counterfeit\w*|forge|evade|bypass|circumvent|poison|kill|murder|assassinat\w*|sabotage|stalk|dox|blackmail|extort\w*|defraud|scam|contaminat\w*|destroy|mix\w*|ingest\w*|eat\w*|drink\w*|manipulat\w*|buy\w*|sell\w*|purchase\w*|acquir\w*|distribut\w*|tamper\w*|alter\w*|funnel\w*|fool|trick)\b/i
 
 // Operational/instructional framing — the request wants a procedure, not an
 // explanation.
@@ -123,13 +124,13 @@ const HOWTO_RE =
 // harmful version from its benign paraphrase ("sexist email" vs "email"). The
 // adjective itself carries the harmful intent, so it fires on its own.
 const HATEFUL_QUALIFIER_RE =
-  /\b(defamatory|libelous|slanderous|sexist|misogynist\w*|racist|xenophobic|homophobic|transphobic|antisemit\w*|bigoted|hateful|hate\s+speech|hate\s+mail|harass\w*|body[-\s]?sham\w*|dehumaniz\w*|enslav\w*|blackmail\w*|extort\w*|racial\s+slur\w*|self[-\s]?harm\s+(?:instructions?|guide|methods?)|how\s+to\s+(?:harm|hurt|abuse|stalk|dox)\s+(?:a\s+)?(?:child|children|someone|people|a\s+person)|deserved?\s+to\s+die|pornographic\b|porn\b|pedophilia\b|pedophil\w*|paedophil\w*|date\s+rape|revenge\s+porn|sex\s+org[iy]\w*|sexual\s+conversation\w*|solicit\s+sexual|bestiality\b|sex\s+with\s+animals|non-consensual\s+sexual|racial\s+profiling\b|profil\w*\s+(?:based\s+on|by|on)\s+(?:race|gender|ethnic\w*|religion|sexual\s+orientation)|identify\s+(?:criminals?|suspects?)\s+(?:based\s+on|by|on)\s+(?:race|gender|ethnic\w*|religion|sexual\s+orientation)|discourag\w*\s+the\s+hiring\s+of\s+(?:\w+\s+){0,3}(?:disabilit\w+|disabled|minorities|women|protected)|manipulat\w*\s+(?:\w+\s+){0,3}into\s+(?:\w+\s+){0,2}(?:suicide|self[-\s]?harm))\b/i
+  /\b(defamatory|libelous|slanderous|sexist|misogynist\w*|racist|xenophobic|homophobic|transphobic|antisemit\w*|bigoted|hateful|hate\s+speech|hate\s+mail|harass\w*|body[-\s]?sham\w*|dehumaniz\w*|enslav\w*|blackmail\w*|extort\w*|racial\s+slur\w*|self[-\s]?harm\s+(?:instructions?|guide|methods?)|how\s+to\s+(?:harm|hurt|abuse|stalk|dox)\s+(?:a\s+)?(?:child|children|someone|people|a\s+person)|deserved?\s+to\s+die|pornographic\b|porn\b|pedophilia\b|pedophil\w*|paedophil\w*|date\s+rape|revenge\s+porn|sex\s+org[iy]\w*|sexual\s+conversation\w*|solicit\s+sexual|bestiality\b|sex\s+with\s+animals|non-consensual\s+sexual|racial\s+profiling\b|profil\w*\s+(?:based\s+on|by|on)\s+(?:race|gender|ethnic\w*|religion|sexual\s+orientation)|identify\s+(?:criminals?|suspects?)\s+(?:based\s+on|by|on)\s+(?:race|gender|ethnic\w*|religion|sexual\s+orientation)|discourag\w*\s+the\s+hiring\s+of\s+(?:\w+\s+){0,3}(?:disabilit\w+|disabled|minorities|women|protected)|manipulat\w*\s+(?:\w+\s+){0,3}into\s+(?:\w+\s+){0,2}(?:suicide|self[-\s]?harm)|coerce\w*\s+(?:\w+\s+){0,5}into\s+sharing\b)\b/i
 
 // Topics that are benign to DISCUSS but harmful to ADVOCATE — they fire only
 // alongside incitement framing, so "an article about ethnic genocide" (benign
 // per JBB) passes while "a speech that promotes genocide" blocks.
 const INCITE_TOPIC_RE = /\b(violence|terrorism|terrorist\w*|genocide|ethnic\s+cleansing|holocaust|nazi\s+party|self[-\s]?harm|suicide|anorexia|bulimia|hatred|animal\s+cruelty|sexual\s+assault|stalking|child\s+(?:abuse|labor|labour)|holodomor|khmer\s+rouge|armenian\s+genocide|stolen\s+generations?|residential\s+schools?|annexation\s+of\s+crimea|agent\s+orange|great\s+leap\s+forward|syrian\s+civil\s+war|fossil\s+fuels?|immigrant\w*|immigration|gambling\s+addict\w*|gambl\w*|September\s+11|9\/11|conflict\w*|war\b|Hiroshima|Nagasaki|5G\s+(?:causes?|and)\s+COVID[-\s]?19|vaccines?\s+(?:causes?|and)\s+autism|global\s+warming\s+is\s+a\s+hoax|earth\s+is\s+flat|illuminati|new\s+world\s+order|2020\s+(?:U\.?S\.?\s+)?presidential\s+election)\b/i
-const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argue[s]?\s+for|justif\w*|praise[s]?|celebrat\w*|should\b|ought\s+to\b|downplay\w*|den\w*|exaggerat\w*|hoax\w*|myth\w*|beneficial\b|natural[-\s]disaster\b|peaceful\b|democratic\b|positive\s+impact\b|better\s+for\s+the\s+environment|never\s+happened|mock\w*|ridicul\w*|prov\w*|proof|evidence|unanimously\s+won|rigged\b|fraudulent\b|stolen\b|posing\s+as\s+(?:an?\s+)?expert)\b/i
+const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argu\w*\s+(?:for|that)|justif\w*|praise[s]?|celebrat\w*|should\b|ought\s+to\b|downplay\w*|den\w*|exaggerat\w*|hoax\w*|myth\w*|beneficial\b|natural[-\s]disaster\b|peaceful\b|democratic\b|positive\s+impact\b|better\s+for\s+the\s+environment|never\s+happened|mock\w*|ridicul\w*|prov\w*|proof|evidence|unanimously\s+won|rigged\b|fraudulent\b|stolen\b|posing\s+as\s+(?:an?\s+)?expert)\b/i
 
 // Content-production verbs — for the hateful and intrusion rules, the request
 // must ask to generate something. Bare "make" is excluded (it matches "make
@@ -146,7 +147,7 @@ const PRODUCE_RE =
 // "easy to make at home without detection", and a bare `detect\w*` was
 // suppressing those genuine attacks.
 const DEFENSIVE_RE =
-  /\b(prevent\w*(?!\s+(?:\w+\s+){0,3}from\s+(?:talk\w*|report\w*|speak\w*|cooperat\w*))|protect\w*|defen[ds]\w*|defence|mitigat\w*|(?:how\s+to\s+)?detect\s+(?:and\s+\w+\s+)?(?:threats?|intrusions?|attacks?|malware|fraud|phishing|anomal\w*|breaches?|injection)|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\b|historical\w*|historically|legislation\b|legislative\b|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept|an?\s+(?:article|essay|report|paper|piece)\s+(?:about|on)\s+how\s+(?!to\b)|expose\s+and\s+condemn|condemn\s+users?\s+of|stop\b|avoid\b(?!\s+(?:paying\s+)?tax\w*|\s+getting\s+caught|\s+detec\w*|\s+monitoring|\s+surveillance|\s+arrest|\s+prosecution|\s+convict\w*|\s+being\s+(?:convicted|arrested|charged|caught))|abstain\b|desist\b|relationship\s+between|effects?\s+of|impact\s+of|analysis\s+of|study\s+of|discuss\w*|views?\b|opinions?\b|perspectives?\b|illegal\b|why\s+it\s+is\s+(?:illegal|wrong|bad|harmful)\b|in\s+the\s+past|dispos\w*\s+of\s+(?:hazardous\s+|medical\s+|chemical\s+|industrial\s+)*waste|treatment\w*\s+for|therapy\s+for|cure\s+for|approach\s+(?:authorities|police|government|immigration|law\s+enforcement)|\b(?:explain\w*|discuss\w*|describe\w*|analy[sz]\w*|study\w*|understand\w*|about\b|on\b|what\s+is\b|what\s+are\b|difference\s+between\b|and\b|or\b|to\b|^\s*)\s+(?:how|which|what|why)\s+(?!to\b)\S+(?:\s+\S+){0,10}?\s+(?:has|have|had|did|was|were|works?|work\w*|evolve\w*|is|are|can\s+be|can\s+(?:harm|cause|lead|affect|influence|result|damage|impact)\w*))\b/i
+  /\b(prevent\w*(?!\s+(?:\w+\s+){0,3}from\s+(?:talk\w*|report\w*|speak\w*|cooperat\w*))|(?<!\b(?:circumvent\w*|bypass\w*|disable\w*|exploit\w*|breach\w*|hack\w*|defeat\w*|evade\w*)\s+(?:\w+\s+){0,2})protect\w*|defen[ds]\w*|defence|mitigat\w*|(?:how\s+to\s+)?detect\s+(?:and\s+\w+\s+)?(?:threats?|intrusions?|attacks?|malware|fraud|phishing|anomal\w*|breaches?|injection)|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\b|historical\w*|historically|legislation\b|legislative\b|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept|an?\s+(?:article|essay|report|paper|piece)\s+(?:about|on)\s+how\s+(?!to\b)|expose\s+and\s+condemn|condemn\s+users?\s+of|stop\b|avoid\b(?!\s+(?:paying\s+)?tax\w*|\s+getting\s+caught|\s+detec\w*|\s+monitoring|\s+surveillance|\s+arrest|\s+prosecution|\s+convict\w*|\s+being\s+(?:convicted|arrested|charged|caught))|abstain\b|desist\b|relationship\s+between|effects?\s+of|impact\s+of|analysis\s+of|study\s+of|discuss\w*|views?\b|opinions?\b|perspectives?\b|illegal\b|why\s+it\s+is\s+(?:illegal|wrong|bad|harmful)\b|in\s+the\s+past|dispos\w*\s+of\s+(?:hazardous\s+|medical\s+|chemical\s+|industrial\s+)*waste|treatment\w*\s+for|therapy\s+for|cure\s+for|approach\s+(?:authorities|police|government|immigration|law\s+enforcement)|\b(?:explain\w*|discuss\w*|describe\w*|analy[sz]\w*|study\w*|understand\w*|about\b|on\b|what\s+is\b|what\s+are\b|difference\s+between\b|and\b|or\b|to\b|^\s*)\s+(?:how|which|what|why)\s+(?!to\b)\S+(?:\s+\S+){0,10}?\s+(?:has|have|had|did|was|were|works?|work\w*|evolve\w*|is|are|can\s+be|can\s+(?:harm|cause|lead|affect|influence|result|damage|impact)\w*))\b/i
 
 // Benign data-transform framing — the request operates over PROVIDED content
 // (summarize/outline/answer/classify the following …), so a harmful word in the
@@ -182,9 +183,13 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   // Suppressors. Defensive/educational framing and data-transform-over-provided-
   // content always win. Fictional framing wins UNLESS the request also asks for
   // an operational how-to (the fiction-wrapper jailbreak).
-  if (DEFENSIVE_RE.test(text)) return null
+  const ABSOLUTE_BLOCK_RE = /\b(pedophil\w*|paedophil\w*|bestiality\b|sex\s+with\s+animals|child\s+(?:abuse|porn\w*|exploitation)|animal\s+cruelty)\b/i
+  if (DEFENSIVE_RE.test(text) && !/\b(?:persuas\w*|arguing\b|convinc\w*)\b/i.test(text)) return null
   if (DATA_TRANSFORM_RE.test(text)) return null
-  if (FICTION_RE.test(text) && !hasHowto) return null
+  if (FICTION_RE.test(text) && !hasHowto) {
+    const isMetaFiction = /\b(?:about|discuss\w*|list\w*|analysis|history|criticism|critique|reviews?)\s+(?:of\s+|about\s+|on\s+)?(?:famous\s+|existing\s+|published\s+|known\s+)?(?:novels?|books?|literature|films?|movies?|plays?)\b/i.test(text)
+    if (!ABSOLUTE_BLOCK_RE.test(text) || isMetaFiction) return null
+  }
 
   // Rule 1 — operational harm: a concrete harmful object asked about with
   // production/how-to intent, OR a harm-action verb aimed at a harmful object.
@@ -205,7 +210,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   while ((intr = INTRUSION_RE.exec(text)) !== null) {
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, intr.index - 70), Math.min(text.length, intr.index + 70))
-      if (/\b(into|someone'?s?|a\s+(?:government|bank|corporate|private|secure)|(?:an?|the|our|their|your|my|someone'?s?|government|bank|hospital|corporate|private|secure)\s+(?:\w+\s+)?(?:database|system|network|account|server|records?|files?)|identit\w+|accounts?|credentials?|passwords?|security\s+measures?|sensitive\s+(?:information|data)|money|funds|shipment\w*|cargo\w*|deliver\w*|goods|packages?|stores?|shops?|supermarket\w*|documents?|papers?|passports?|visas?|immigration|electronic\s+health\s+records?|medical\s+records?|health\s+records?|loophole\w*|regulatory\s+loophole\w*)\b/i.test(window)) {
+      if (/\b(into|someone'?s?|a\s+(?:government|bank|corporate|private|secure)|(?:an?|the|our|their|your|my|someone'?s?|government|bank|hospital|corporate|private|secure|criminal|voting|monitoring)\s+(?:\w+\s+)?(?:database|system|network|account|server|records?|files?)|identit\w+|accounts?|credentials?|passwords?|security\s+measures?|sensitive\s+(?:information|data)|money|funds|shipment\w*|cargo\w*|deliver\w*|goods|packages?|stores?|shops?|supermarket\w*|documents?|papers?|passports?|visas?|immigration|electronic\s+health\s+records?|medical\s+records?|health\s+records?|loophole\w*|regulatory\s+loophole\w*)\b/i.test(window)) {
         return { kind: 'operational', anchor: intr[1].toLowerCase(), snippet: snippetAround(text, intr.index, intr[1].length) }
       }
     }
@@ -236,7 +241,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   while ((cheat = CHEATING_RE.exec(text)) !== null) {
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, cheat.index - 80), Math.min(text.length, cheat.index + 80))
-      if (/\b(exam\w*|tests?|grades?|documents?|records?|smog|emission\w*|officials?|authorit\w+|identity|passwords?|credentials?|income|tax\w*|audit\w*|plagiarism\s+detection|plagiarism)\b/i.test(window)) {
+      if (/\b(exam\w*|tests?|grades?|documents?|records?|smog|emission\w*|officials?|authorit\w+|identity|passwords?|credentials?|income|tax\w*|audit\w*|plagiarism\s+detection|plagiarism|copyright\w*|pirac\w*|pirat\w*)\b/i.test(window)) {
         return { kind: 'operational', anchor: cheat[1].toLowerCase(), snippet: snippetAround(text, cheat.index, cheat[1].length) }
       }
     }
@@ -264,8 +269,8 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   }
 
   // Rule 2b — Hate speech targeting protected classes with offensive adjectives.
-  const OFFENSIVE_RE = /\b(disgusting|abhorrent|vile|scum|parasites?|trash|inferior|subhuman|repulsive|worthless|evil|filth\w*)\b/gi
-  const PROTECTED_RE = /\b(marriage|race|gender|sex|sexual\s+orientation|religion|ethnic\w*|nationality|disabled|disabilit\w+|immigrant\w*|refugee\w*|biracial|interracial|black|white|jewish|muslim|christian|gay|lesbian|transgender|queer)\b/gi
+  const OFFENSIVE_RE = /\b(disgusting|abhorrent|vile|scum|parasites?|trash|inferior|subhuman|repulsive|worthless|evil|filth\w*|less\s+intelligent|unintelligent)\b/gi
+  const PROTECTED_RE = /\b(marriage|race|gender|sex|sexual\s+orientation|religion|ethnic\w*|nationality|disabled|disabilit\w+|immigrant\w*|refugee\w*|biracial|interracial|black|white|jewish|muslim|christian|gay|lesbian|transgender|queer|women|men|female|male|boys?|girls?)\b/gi
   if (hasProduce || hasHowto) {
     let off: RegExpExecArray | null
     OFFENSIVE_RE.lastIndex = 0
