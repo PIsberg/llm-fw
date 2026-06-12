@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, getParser, parsers, extractPartialPrompts, extractToolDescriptions } from '../../src/detection/parsers.js'
+import { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, BedrockParser, getParser, parsers, extractPartialPrompts, extractToolDescriptions } from '../../src/detection/parsers.js'
 
 const a = new AnthropicParser()
 const g = new GeminiParser()
@@ -236,10 +236,200 @@ describe('CohereParser', () => {
     expect(c.extractTools('not json{')).toEqual([])
   })
 
-  it('extractToolResults and extractToolUses are no-ops for Cohere', () => {
+  it('extracts v1 tool_results (the indirect-injection channel)', () => {
+    const body = JSON.stringify({
+      message: 'hi',
+      tool_results: [{ call: { name: 'get_weather', parameters: { city: 'Oslo' } }, outputs: [{ tempC: 4 }] }],
+    })
+    const results = c.extractToolResults(body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.toolUseId).toBe('get_weather')
+    expect(results[0]!.result).toContain('tempC')
+  })
+
+  it('extracts v2 role:tool messages', () => {
+    const body = JSON.stringify({
+      messages: [{ role: 'tool', tool_call_id: 'tc_1', content: 'tool output text' }],
+    })
+    const results = c.extractToolResults(body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.toolUseId).toBe('tc_1')
+    expect(results[0]!.result).toBe('tool output text')
+  })
+
+  it('extracts v1 flat tool_calls invocations', () => {
+    const body = JSON.stringify({ tool_calls: [{ name: 'read_file', parameters: { path: '/etc' } }] })
+    const uses = c.extractToolUses(body)
+    expect(uses).toHaveLength(1)
+    expect(uses[0]!.toolName).toBe('read_file')
+    expect(uses[0]!.args).toEqual({ path: '/etc' })
+  })
+
+  it('extracts v2 wrapped tool_calls from responses and echoed assistant turns', () => {
+    const response = JSON.stringify({
+      message: { tool_calls: [{ id: 'tc_2', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+    })
+    const uses = c.extractToolUses(response)
+    expect(uses).toHaveLength(1)
+    expect(uses[0]!.toolName).toBe('lookup')
+    expect(uses[0]!.args).toEqual({ q: 'x' })
+
+    const echo = JSON.stringify({
+      messages: [{ role: 'assistant', tool_calls: [{ type: 'function', function: { name: 'get_weather', arguments: '{}' } }] }],
+    })
+    expect(c.extractToolUses(echo)[0]!.toolName).toBe('get_weather')
+  })
+
+  it('extractToolResults and extractToolUses return [] when nothing is present', () => {
     const body = JSON.stringify({ message: 'hi', tools: [{ name: 'x' }] })
     expect(c.extractToolResults(body)).toEqual([])
     expect(c.extractToolUses(body)).toEqual([])
+    expect(c.extractToolResults('not json{')).toEqual([])
+    expect(c.extractToolUses('not json{')).toEqual([])
+  })
+})
+
+describe('BedrockParser', () => {
+  const b = new BedrockParser()
+
+  it('supports Converse and InvokeModel paths (model id may contain dots/colons)', () => {
+    expect(b.supports('/model/anthropic.claude-3-5-sonnet-20240620-v1%3A0/converse')).toBe(true)
+    expect(b.supports('/model/meta.llama3-70b-instruct-v1%3A0/converse-stream')).toBe(true)
+    expect(b.supports('/model/anthropic.claude-v2/invoke')).toBe(true)
+    expect(b.supports('/model/amazon.titan-text-express-v1/invoke-with-response-stream')).toBe(true)
+  })
+
+  it('does not support non-Bedrock paths', () => {
+    expect(b.supports('/v1/messages')).toBe(false)
+    expect(b.supports('/v1/chat/completions')).toBe(false)
+    expect(b.supports('/model/x/list')).toBe(false)
+  })
+
+  it('extracts Converse user text and system blocks, skipping assistant turns', () => {
+    const body = JSON.stringify({
+      system: [{ text: 'be helpful' }],
+      messages: [
+        { role: 'user', content: [{ text: 'converse question' }] },
+        { role: 'assistant', content: [{ text: 'prior reply' }] },
+      ],
+    })
+    const result = b.extractPrompts(body)
+    expect(result).toContain('be helpful')
+    expect(result).toContain('converse question')
+    expect(result).not.toContain('prior reply')
+  })
+
+  it('extracts Anthropic-native InvokeModel bodies (Claude on Bedrock)', () => {
+    const body = JSON.stringify({
+      anthropic_version: 'bedrock-2023-05-31',
+      system: 'native system',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'native question' }] }],
+    })
+    const result = b.extractPrompts(body)
+    expect(result).toContain('native system')
+    expect(result).toContain('native question')
+  })
+
+  it('does not duplicate prompts across the Converse and Anthropic walks', () => {
+    const body = JSON.stringify({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'once only' }] }],
+    })
+    expect(b.extractPrompts(body).filter(p => p === 'once only')).toHaveLength(1)
+  })
+
+  it('extracts Titan inputText and raw prompt bodies', () => {
+    expect(b.extractPrompts(JSON.stringify({ inputText: 'titan prompt' }))).toContain('titan prompt')
+    expect(b.extractPrompts(JSON.stringify({ prompt: 'llama prompt' }))).toContain('llama prompt')
+  })
+
+  it('flattens Converse toolSpec definitions so the MCP scanner sees a name', () => {
+    const body = JSON.stringify({
+      toolConfig: { tools: [{ toolSpec: { name: 'execute_command', description: 'run' } }] },
+    })
+    const tools = b.extractTools(body) as { name: string }[]
+    expect(tools).toHaveLength(1)
+    expect(tools[0]!.name).toBe('execute_command')
+  })
+
+  it('extracts Converse toolResult blocks (the indirect-injection channel)', () => {
+    const body = JSON.stringify({
+      messages: [
+        { role: 'user', content: [{ toolResult: { toolUseId: 'tu_1', content: [{ text: 'tool output' }] } }] },
+      ],
+    })
+    const results = b.extractToolResults(body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.toolUseId).toBe('tu_1')
+    expect(results[0]!.result).toContain('tool output')
+  })
+
+  it('extracts Converse toolUse invocations from responses and echoed assistant turns', () => {
+    const response = JSON.stringify({
+      output: { message: { content: [{ toolUse: { toolUseId: 'tu_2', name: 'read_file', input: { path: '/etc' } } }] } },
+    })
+    const uses = b.extractToolUses(response)
+    expect(uses).toHaveLength(1)
+    expect(uses[0]!.toolName).toBe('read_file')
+    expect(uses[0]!.args).toEqual({ path: '/etc' })
+
+    const echo = JSON.stringify({
+      messages: [{ role: 'assistant', content: [{ toolUse: { name: 'get_weather', input: {} } }] }],
+    })
+    expect(b.extractToolUses(echo)[0]!.toolName).toBe('get_weather')
+  })
+
+  it('extracts Converse image blocks carrying base64 bytes', () => {
+    const png = Buffer.from('\x89PNG\r\n\x1a\n12345', 'binary').toString('base64')
+    const body = JSON.stringify({
+      messages: [{ role: 'user', content: [{ image: { format: 'png', source: { bytes: png } } }] }],
+    })
+    const blocks = b.extractMediaBlocks(body)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.kind).toBe('image')
+  })
+
+  it('returns [] on invalid JSON across all extractors', () => {
+    expect(b.extractPrompts('not json{')).toEqual([])
+    expect(b.extractTools('not json{')).toEqual([])
+    expect(b.extractToolResults('not json{')).toEqual([])
+    expect(b.extractToolUses('not json{')).toEqual([])
+  })
+})
+
+describe('extractConversation', () => {
+  it('Anthropic returns ordered system/user/assistant turns', () => {
+    const body = JSON.stringify({
+      system: 'be helpful',
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'hello' },
+        { role: 'user', content: [{ type: 'text', text: 'again' }] },
+      ],
+    })
+    const convo = a.extractConversation!(body)
+    expect(convo).toEqual([
+      { role: 'system', text: 'be helpful' },
+      { role: 'user', text: 'hi' },
+      { role: 'assistant', text: 'hello' },
+      { role: 'user', text: 'again' },
+    ])
+  })
+
+  it('OpenAI returns ordered turns and maps developer→system, skips tool', () => {
+    const body = JSON.stringify({
+      messages: [
+        { role: 'developer', content: 'rules' },
+        { role: 'user', content: 'q' },
+        { role: 'tool', content: 'tool output' },
+        { role: 'assistant', content: 'a' },
+      ],
+    })
+    const convo = o.extractConversation!(body)
+    expect(convo).toEqual([
+      { role: 'system', text: 'rules' },
+      { role: 'user', text: 'q' },
+      { role: 'assistant', text: 'a' },
+    ])
   })
 })
 
@@ -260,6 +450,10 @@ describe('getParser', () => {
     expect(getParser('/v1/projects/p/locations/us/publishers/google/models/gemini-1.5-pro:streamGenerateContent')).toBeInstanceOf(GeminiParser)
   })
 
+  it('returns BedrockParser for a Converse path', () => {
+    expect(getParser('/model/anthropic.claude-3-5-sonnet-20240620-v1%3A0/converse')).toBeInstanceOf(BedrockParser)
+  })
+
   it('returns null for unknown path', () => {
     expect(getParser('/unknown')).toBeNull()
   })
@@ -267,7 +461,7 @@ describe('getParser', () => {
 
 describe('parsers', () => {
   it('has an entry per supported provider family', () => {
-    expect(parsers.length).toBe(4)
+    expect(parsers.length).toBe(5)
   })
 })
 

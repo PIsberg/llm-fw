@@ -2,8 +2,8 @@ import { BlockEvent, DashboardConfig, TrafficMetric, WhitelistEntry } from '../t
 import { randomUUID } from 'node:crypto'
 import { ServerResponse } from 'node:http'
 import fs from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { getLlmFwDir } from '../config/paths.js'
 
 export class EventBus {
   private ring: BlockEvent[] = []
@@ -13,7 +13,10 @@ export class EventBus {
   private trafficSubscribers: ServerResponse[] = []
   private static readonly TRAFFIC_MAX = 500
   // Persisted store of events an operator marked as false positives.
-  private static readonly WHITELIST_PATH = join(homedir(), '.llm-fw', 'whitelist.json')
+  // Resolved per access so LLM_FW_DIR set after module load is honoured.
+  private static get WHITELIST_PATH(): string {
+    return join(getLlmFwDir(), 'whitelist.json')
+  }
 
   constructor(config: DashboardConfig) { this.maxSize = config.maxEvents }
 
@@ -95,7 +98,7 @@ export class EventBus {
     }
     entries.push(entry)
 
-    fs.mkdirSync(join(homedir(), '.llm-fw'), { recursive: true })
+    fs.mkdirSync(getLlmFwDir(), { recursive: true })
     fs.writeFileSync(EventBus.WHITELIST_PATH, JSON.stringify(entries, null, 2))
     return entry
   }

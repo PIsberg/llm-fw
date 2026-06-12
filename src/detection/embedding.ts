@@ -2,7 +2,7 @@ import { pipeline, env } from '@huggingface/transformers'
 import { EmbeddingResult, DetectionConfig } from '../types.js'
 import { normalizeSemantic } from './normalize.js'
 import { createHash } from 'node:crypto'
-import { homedir } from 'node:os'
+import { getLlmFwDir } from '../config/paths.js'
 import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -45,8 +45,7 @@ export class EmbeddingChecker {
     // caches in LLM_FW_MODEL_DIR when set — this lets CI cache it independently
     // of the per-instance LLM_FW_DIR (which the tests point at a throwaway temp
     // dir). Falls back to <LLM_FW_DIR or ~/.llm-fw>/models.
-    const baseDir = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw')
-    env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(baseDir, 'models')
+    env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
     env.allowLocalModels = false
 
     try {

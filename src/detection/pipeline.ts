@@ -4,8 +4,11 @@ import { getParser, extractPartialPrompts, extractToolDescriptions } from './par
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
+import { InjectionClassifier } from './classifier.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
+import { detectManyShot } from './manyShot.js'
+import { detectCrescendo } from './crescendo.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -18,6 +21,7 @@ type ScanSource = 'prompt' | 'tool_result' | 'tool_definition' | 'document'
 export class Pipeline {
   private heuristic: HeuristicScorer
   private embedding: EmbeddingChecker
+  private classifier: InjectionClassifier
   private judge: JudgeClient
   private config: Config
   private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void
@@ -27,10 +31,14 @@ export class Pipeline {
     this.onBlock = onBlock
     this.heuristic = new HeuristicScorer()
     this.embedding = new EmbeddingChecker(config.detection)
+    this.classifier = new InjectionClassifier(config.detection)
     this.judge = new JudgeClient(config.detection)
   }
 
-  async init(): Promise<void> { await this.embedding.init() }
+  async init(): Promise<void> {
+    await this.embedding.init()
+    await this.classifier.init() // no-op unless the classifier stage is enabled
+  }
 
   async run(
     requestPath: string,
@@ -39,6 +47,22 @@ export class Pipeline {
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
+
+    // Stage C — Multi-turn crescendo. Operates on the WHOLE conversation (the
+    // request resends every turn), not a single surface, so it runs once here
+    // before the per-item scan. Blocks a 3+ user-turn conversation that ends on
+    // a boundary-pushing escalation directive after steering toward harmful
+    // content — an attack no per-prompt stage can see.
+    if (this.config.crescendo?.enabled && parser.extractConversation) {
+      const conversation = parser.extractConversation(body)
+      const cr = detectCrescendo(conversation, this.config.crescendo)
+      if (cr.severity === 'block') {
+        const finalText = conversation.filter(t => t.role === 'user').pop()?.text ?? ''
+        const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }
+        this.emit(result, meta, `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`, 'prompt')
+        return result
+      }
+    }
 
     // The model reads and acts on more than the user's typed prompt. Inspect
     // every attacker-influenceable surface that reaches the model, not just
@@ -139,6 +163,28 @@ export class Pipeline {
         }
       }
 
+      // Stage M — Many-shot jailbreaking. A prompt stuffed with fabricated
+      // dialogue turns whose faux assistant answers demonstrate harmful
+      // compliance conditions the model via in-context learning. The signal is
+      // structural (the heuristic/embedding stages see no override keywords),
+      // so it gets its own check on the raw surface. Harmful many-shot blocks;
+      // a long faux dialogue without harmful compliance warns (routed below).
+      if (this.config.manyShot?.enabled) {
+        const ms = detectManyShot(prompt, this.config.manyShot)
+        if (ms.severity === 'block') {
+          const result: PipelineResult = { action: 'block', stage: 'many-shot', score: 100, similarity: 0, prompt }
+          this.emit(result, meta, `[many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`, source)
+          return result
+        }
+        if (ms.severity === 'warn' && !pendingWarn) {
+          pendingWarn = {
+            result: { action: 'warn', stage: 'many-shot', score: 0, similarity: 0, prompt },
+            prompt: `[many-shot: ${ms.turns} fabricated turns] ${prompt.slice(0, 80)}`,
+            source,
+          }
+        }
+      }
+
       // Stage R — RAG context-poisoning. Isolate retrieved data blocks
       // (<document>, <context>, <search_results>, code fences) and check whether
       // they smuggle active instructions. Two independent signals can block:
@@ -179,6 +225,21 @@ export class Pipeline {
         if (j.verdict === 'MALICIOUS') {
           const result: PipelineResult = { action: 'block', stage: 'judge', score: 30, similarity: 0, verdict: 'MALICIOUS', prompt }
           this.emit(result, meta, prompt, source)
+          return result
+        }
+      }
+
+      // Stage 2.5 — Trained injection classifier. A learned binary classifier
+      // (DeBERTa) that generalizes to novel phrasings the regex/embedding stages
+      // miss, WITHOUT the generative judge's false-positive blow-up. Runs on the
+      // raw prompt (it was trained on natural text). Opt-in; classify() is a
+      // no-op (returns null) when the stage is disabled, and lazy-loads the
+      // model on first use when enabled.
+      if (this.config.detection.classifier?.enabled) {
+        const v = await this.classifier.classify(prompt)
+        if (v?.injection) {
+          const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
+          this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
           return result
         }
       }
@@ -404,7 +465,7 @@ export class Pipeline {
       sandboxClient: meta.sandboxClient,
       isSandboxed: meta.isSandboxed,
       sandboxConfidence: meta.sandboxConfidence,
-      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : undefined,
+      kind: result.stage === 'rag' ? 'rag' : result.stage === 'ascii-smuggling' ? 'ascii-smuggling' : result.stage === 'non-text' ? 'non-text' : result.stage === 'many-shot' ? 'many-shot' : result.stage === 'crescendo' ? 'crescendo' : result.stage === 'classifier' ? 'classifier' : undefined,
       ragTag: result.ragTag,
       smuggleRanges: result.smuggleRanges,
       mediaSummary: result.mediaSummary,

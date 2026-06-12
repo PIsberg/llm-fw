@@ -1,11 +1,12 @@
 import forge from 'node-forge';
-import { homedir, platform } from 'node:os';
+import { platform } from 'node:os';
+import { getLlmFwDir } from '../config/paths.js';
 import { join } from 'node:path';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
-const LLMFW_DIR = process.env.LLM_FW_DIR || join(homedir(), '.llm-fw');
+const LLMFW_DIR = getLlmFwDir();
 const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
 const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
 const CRL_PATH = join(LLMFW_DIR, 'ca.crl');

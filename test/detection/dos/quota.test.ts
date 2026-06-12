@@ -12,6 +12,25 @@ function makeConfig(overrides: Partial<DosConfig> = {}): DosConfig {
   }
 }
 
+describe('QuotaManager — live config', () => {
+  it('reads limits from the live config object (dashboard tuning takes effect immediately)', () => {
+    const cfg = makeConfig({ maxRequestsPerMinute: 2, maxTokensPerSession: 100 })
+    const q = new QuotaManager(cfg)
+    const t = 1_000_000
+    expect(q.checkRpm(t).allowed).toBe(true)
+    expect(q.checkRpm(t + 1).allowed).toBe(true)
+    expect(q.checkRpm(t + 2).allowed).toBe(false) // limit 2 reached
+    // Raise the limit on the shared config — no reconstruction.
+    cfg.maxRequestsPerMinute = 5
+    expect(q.checkRpm(t + 3).allowed).toBe(true)
+
+    q.addTokens(150, t)
+    expect(q.sessionExceeded(t)).toBe(true)
+    cfg.maxTokensPerSession = 1000
+    expect(q.sessionExceeded(t)).toBe(false)
+  })
+})
+
 describe('QuotaManager — sliding-window RPM limiter', () => {
   it('allows requests under the limit', () => {
     const q = new QuotaManager(makeConfig({ maxRequestsPerMinute: 3 }))

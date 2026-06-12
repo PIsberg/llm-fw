@@ -17,6 +17,13 @@ export interface ProxyConfig {
   maxBodyBytes: number;
   dnsServers: string[];
   urlFilter: UrlFilterConfig;
+  // Domain suffixes whose subdomains are always TLS-intercepted in proxy mode
+  // — tenant/regional API hosts that can't be enumerated as concrete targets
+  // (e.g. <resource>.openai.azure.com). Defaults to the provider registry's
+  // list; set [] to disable, or extend it for private endpoints. Proxy mode
+  // only — suffixes are never written to the hosts-file sinkhole. Also
+  // settable via LLM_FW_INTERCEPT_DOMAINS (comma-separated, replaces).
+  interceptDomains?: string[];
 }
 
 export interface DetectionConfig {
@@ -29,11 +36,25 @@ export interface DetectionConfig {
   judgeEnabled: boolean;
   judgeModel: string;
   judgeBlock: boolean;
+  // Trained ONNX prompt-injection classifier — a learned generalization layer
+  // (protectai/deberta-v3-base-prompt-injection-v2). Opt-in: the weights are
+  // ~700 MB, so it is disabled by default and downloaded on first use.
+  classifier?: ClassifierConfig;
+  // Base URL of the Ollama server hosting the judge model. Defaults to the
+  // local daemon; point it at a LAN GPU box or container via config or
+  // LLM_FW_OLLAMA_URL.
+  ollamaUrl?: string;
   // Escalation policy for Stage 3. When false (default) the judge runs only on
   // prompts the cheap stages already flagged suspicious. When true, the cheap
   // stages route instead of veto: every prompt is judged unless confidently
   // benign — the only policy that generalizes to novel jailbreak phrasings.
   judgeUnlessBenign?: boolean;
+}
+
+export interface ClassifierConfig {
+  enabled: boolean;
+  /** INJECTION probability at/above which a prompt is blocked (0–1). */
+  blockThreshold: number;
 }
 
 export interface DashboardConfig {
@@ -87,6 +108,12 @@ export interface ResponseScanConfig {
   // intrusive, so blocking is opt-in.
   enabled: boolean;
   mode: 'block' | 'audit';
+  // Also scan the response for harmful COMPLIANCE — concrete weapons/cyber/
+  // illicit how-to content the model produced because a jailbreak slipped past
+  // input detection. Audit-only defense-in-depth (always warns, never blocks):
+  // output-content classification is fuzzier than input matching and a harmful
+  // response can't be cleanly neutralized. Default on. Independent of `mode`.
+  harmfulCompliance?: boolean;
 }
 
 export interface AsciiSmugglingConfig {
@@ -137,6 +164,29 @@ export interface TaintConfig {
   mode: 'audit' | 'block';
 }
 
+export interface ManyShotConfig {
+  // Detect many-shot jailbreaking — a single prompt stuffed with many
+  // fabricated dialogue turns whose faux assistant answers demonstrate
+  // compliance with escalating harmful asks, conditioning the model via
+  // in-context learning. A long faux dialogue alone only warns (real
+  // transcripts get pasted for summarization); a block additionally requires
+  // multiple faux assistant turns exhibiting harmful compliance.
+  enabled: boolean
+  minTurns: number
+  harmfulComplianceThreshold: number
+  mode: 'audit' | 'block'
+}
+
+export interface CrescendoConfig {
+  // Detect multi-turn crescendo jailbreaks — a conversation that escalates over
+  // several turns toward harmful content, where the final user turn is a
+  // boundary-pushing escalation directive. Analyzed within a single request
+  // (LLM APIs resend the whole conversation), so no session state is needed.
+  enabled: boolean
+  minUserTurns: number
+  mode: 'audit' | 'block'
+}
+
 export interface McpConfig {
   enabled: boolean;
   blockedTools: string[];
@@ -162,7 +212,15 @@ export interface Config {
   asciiSmuggling?: AsciiSmugglingConfig;
   responseScan?: ResponseScanConfig;
   nonText?: NonTextConfig;
+  manyShot?: ManyShotConfig;
+  crescendo?: CrescendoConfig;
   targets: string[];
+  // Extra hostnames appended to `targets` after all config layers are merged.
+  // File-config arrays REPLACE the defaults wholesale, so overriding `targets`
+  // to add one self-hosted endpoint would drop the entire built-in provider
+  // registry — this is the additive path. Also settable via
+  // LLM_FW_EXTRA_TARGETS (comma-separated).
+  extraTargets?: string[];
 }
 
 export interface HeuristicResult {
@@ -183,7 +241,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'none';
+  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -206,7 +264,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;
@@ -239,6 +297,12 @@ export interface WhitelistEntry {
   reason?: string;
 }
 
+/** One ordered turn of a conversation, for multi-turn (crescendo) analysis. */
+export interface ConversationTurn {
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+}
+
 export interface PayloadParser {
   supports(path: string): boolean;
   extractPrompts(body: string): string[];
@@ -248,6 +312,9 @@ export interface PayloadParser {
   // Non-text content blocks (images, documents, audio). Optional — parsers
   // without media support simply leave non-text content unreported.
   extractMediaBlocks?(body: string): MediaBlock[];
+  // Ordered conversation turns (user/assistant/system) for multi-turn
+  // crescendo analysis. Optional — parsers without it skip crescendo detection.
+  extractConversation?(body: string): ConversationTurn[];
 }
 
 export interface TrafficMetric {

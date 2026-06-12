@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getLlmFwDir } from '../config/paths.js';
 
 export async function run(): Promise<void> {
-  const pidFile = join(homedir(), '.llm-fw', 'llm-fw.pid');
+  const pidFile = join(getLlmFwDir(), 'llm-fw.pid');
 
   if (!fs.existsSync(pidFile)) {
     console.log('llm-fw is not running.');

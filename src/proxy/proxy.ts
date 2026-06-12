@@ -19,8 +19,9 @@ import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
 import zlib from 'node:zlib'
-import { identifyService } from '../config/providers.js'
+import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
 import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
+import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -230,7 +231,15 @@ export class ProxyServer {
     const { hostname, port } = parseConnectTarget(req.url ?? '')
     const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
 
-    const isTarget = this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
+    // Tenant/regional hosts (Azure OpenAI resources, regional Vertex
+    // endpoints) can't be enumerated in `targets`, so their domain suffixes
+    // are matched here in addition to the configured targets. Configurable via
+    // proxy.interceptDomains; the registry list is the fallback when the field
+    // is absent (hand-built configs), so out-of-box behaviour never regresses.
+    const interceptDomains = this.config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
+    const isTarget =
+      this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t)) ||
+      interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))
 
     if (!isTarget) {
       // Cross-turn taint (host level). The destination hostname is visible at
@@ -828,6 +837,30 @@ export class ProxyServer {
     return block ? neutralizeExfil(text, findings) : null
   }
 
+  /**
+   * Audit-only defense-in-depth: flag a response that produced harmful HOW-TO
+   * content (a jailbreak the input stages missed and the model complied with).
+   * Never blocks — emits a warn event so the operator sees the miss. Cheap
+   * co-occurrence scan over the already-decoded text.
+   */
+  private runResponseHarmScan(text: string, req: http.IncomingMessage, hostname: string): void {
+    if (!this.config.responseScan?.enabled || this.config.responseScan.harmfulCompliance === false) return
+    const finding = detectHarmfulCompliance(text)
+    if (!finding) return
+    this.eventBus.emit({
+      stage: 'none',
+      score: 0,
+      similarity: 0,
+      target: hostname,
+      method: req.method ?? 'GET',
+      path: req.url ?? '/',
+      payload_preview: `Possible harmful compliance in response (${finding.term}): ${finding.snippet.slice(0, 120)}`,
+      payload_full: finding.snippet,
+      action: 'warned',
+      kind: 'response-harm',
+    })
+  }
+
   // One-line, context-rich console output for failed requests. Expected
   // operational conditions (upstream idle timeouts) log as a concise warning;
   // genuinely unexpected errors keep their stack so they stay debuggable.
@@ -1037,6 +1070,8 @@ export class ProxyServer {
           // Response-exfil scan on the buffered body → can neutralize when mode=block.
           const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
           if (neutralized !== null) finalBody = neutralized
+          // Defense-in-depth: audit-only harmful-compliance scan on the response.
+          this.runResponseHarmScan(finalBody, req, hostname)
 
           res.writeHead(status, inspectedHeaders())
           res.end(Buffer.from(finalBody, 'utf8'))
@@ -1046,6 +1081,7 @@ export class ProxyServer {
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
             // Already streamed → audit only (cannot retract sent bytes).
             this.runResponseExfilScan(sseText, req, hostname, false)
+            this.runResponseHarmScan(sseText, req, hostname)
           }
           res.end()
         }

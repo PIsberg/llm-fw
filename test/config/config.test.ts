@@ -41,6 +41,7 @@ describe('loadConfig env overrides', () => {
     'LLM_FW_PROXY_PORT', 'LLM_FW_PROXY_MODE', 'LLM_FW_HTTPS_PORT',
     'LLM_FW_JUDGE_ENABLED', 'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DLP_MODE',
     'LLM_FW_DASHBOARD_PORT', 'LLM_FW_PROXY_BIND', 'LLM_FW_DASHBOARD_BIND',
+    'LLM_FW_EXTRA_TARGETS', 'LLM_FW_INTERCEPT_DOMAINS',
   ]
   afterEach(() => { for (const k of ENV_KEYS) delete process.env[k] })
 
@@ -81,6 +82,26 @@ describe('loadConfig env overrides', () => {
     const cfg = await loadConfig()
     expect(cfg.proxy.bindHost).toBe('127.0.0.1')
     expect(cfg.dashboard.bindHost).toBe('127.0.0.1')
+  })
+
+  it('defaults proxy.interceptDomains to the registry suffixes, replaced by env', async () => {
+    expect(DEFAULT_CONFIG.proxy.interceptDomains).toContain('openai.azure.com')
+    process.env.LLM_FW_INTERCEPT_DOMAINS = 'llm.corp.internal'
+    const cfg = await loadConfig()
+    expect(cfg.proxy.interceptDomains).toEqual(['llm.corp.internal'])
+  })
+
+  it('appends LLM_FW_EXTRA_TARGETS to the existing targets without replacing them', async () => {
+    // Compare against a baseline load (the machine may have file configs that
+    // already override targets) — extras must append, never replace.
+    const base = await loadConfig()
+    process.env.LLM_FW_EXTRA_TARGETS = ' my-vllm.internal , llm.lab.local ,'
+    const cfg = await loadConfig()
+    expect(cfg.targets).toContain('my-vllm.internal')
+    expect(cfg.targets).toContain('llm.lab.local')
+    for (const host of base.targets) expect(cfg.targets).toContain(host)
+    // Appending is deduplicated.
+    expect(new Set(cfg.targets).size).toBe(cfg.targets.length)
   })
 
   it('applies bind-host env overrides (standalone exposure)', async () => {

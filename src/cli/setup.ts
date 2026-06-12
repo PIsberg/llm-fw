@@ -1,6 +1,8 @@
 import { CertFactory } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
+import { stripSinkholeBlock } from './hosts.js';
+import { getLlmFwDir } from '../config/paths.js';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
@@ -66,13 +68,20 @@ function configureIdeProxies(proxyUrl: string): void {
         }
       }
 
+      const prevProxy = config['http.proxy'];
       let changed = false;
-      if (config['http.proxy'] !== proxyUrl) {
+      if (prevProxy !== proxyUrl) {
         config['http.proxy'] = proxyUrl;
         changed = true;
       }
-      if (config['http.proxyStrictSSL'] !== false) {
-        config['http.proxyStrictSSL'] = false;
+      // TLS verification stays ON: setup installs the CA into the OS trust
+      // store and VS Code verifies against system certificates by default.
+      // Earlier llm-fw versions set http.proxyStrictSSL=false — undo that
+      // weakening when the previous proxy was ours (loopback), but leave a
+      // user's own strictSSL setting alone.
+      if (config['http.proxyStrictSSL'] === false &&
+          typeof prevProxy === 'string' && /(?:127\.0\.0\.1|localhost|::1):\d+/.test(prevProxy)) {
+        delete config['http.proxyStrictSSL'];
         changed = true;
       }
 
@@ -140,6 +149,27 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
   }
 }
 
+/**
+ * Persist `proxy.mode` into ~/.llm-fw/config.json by merging into whatever is
+ * already there — the file is shared with other persisted settings (e.g. the
+ * judge config), so a wholesale overwrite would silently drop them.
+ */
+function persistProxyMode(llmfwDir: string, mode: 'sinkhole' | 'proxy'): void {
+  const configPath = join(llmfwDir, 'config.json');
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+  } catch { /* absent or corrupt — start fresh */ }
+  const proxy = (existing.proxy && typeof existing.proxy === 'object')
+    ? existing.proxy as Record<string, unknown>
+    : {};
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({ ...existing, proxy: { ...proxy, mode } }, null, 2),
+    'utf8'
+  );
+}
+
 export async function run(args: string[]): Promise<void> {
   // Sinkhole (OS-level redirect, covers Node.js/native tools that ignore
   // HTTPS_PROXY) is enabled by DEFAULT alongside the proxy so the firewall just
@@ -151,7 +181,7 @@ export async function run(args: string[]): Promise<void> {
   const elevated = isElevated();
   const sinkhole = !proxyOnly && elevated;
   const sinkholeWanted = !proxyOnly;
-  const llmfwDir = join(homedir(), '.llm-fw');
+  const llmfwDir = getLlmFwDir();
   const caCertPath = join(llmfwDir, 'ca.crt');
 
   console.log('Setting up llm-fw...');
@@ -197,33 +227,12 @@ export async function run(args: string[]): Promise<void> {
     const hostsPath = platform() === 'win32'
       ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
       : '/etc/hosts';
-    const config = await loadConfig();
     try {
       const original = fs.readFileSync(hostsPath, 'utf8');
-      const lines = original.split(/\r?\n/);
-      const cleanLines = [];
-      let inBlock = false;
-      const targetHosts = new Set(config.targets);
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed === '# llm-fw sinkhole') {
-          inBlock = true;
-          continue;
-        }
-        if (inBlock) {
-          if (trimmed === '' || (!trimmed.startsWith('127.0.0.1') && !trimmed.startsWith('::1') && !trimmed.startsWith('#'))) {
-            inBlock = false; // heuristic for end of block
-          } else {
-            continue;
-          }
-        }
-        const parts = trimmed.split(/\s+/);
-        if (parts.length >= 2 && targetHosts.has(parts[1])) continue;
-        cleanLines.push(line);
-      }
-      
-      const cleanHosts = cleanLines.join('\n');
+      // Strip any previous llm-fw block (and stray loopback target lines) so
+      // re-running setup never stacks duplicate entries — same helper
+      // uninstall uses for the full cleanup.
+      const cleanHosts = stripSinkholeBlock(original, config.targets);
       if (original !== cleanHosts) {
         fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
       } else if (!fs.existsSync(hostsPath + '.llm-fw.bak')) {
@@ -288,20 +297,12 @@ export async function run(args: string[]): Promise<void> {
     }
 
     // Persist sinkhole mode so `llm-fw start` picks it up without extra env vars.
-    fs.writeFileSync(
-      join(llmfwDir, 'config.json'),
-      JSON.stringify({ proxy: { mode: 'sinkhole' } }, null, 2),
-      'utf8'
-    );
+    persistProxyMode(llmfwDir, 'sinkhole');
     console.log('Sinkhole mode saved to config.');
   } else {
     // Proxy-only: either the user opted out, or we lack the privileges to set up
     // the sinkhole. Persist proxy mode so `start` and `status` are accurate.
-    fs.writeFileSync(
-      join(llmfwDir, 'config.json'),
-      JSON.stringify({ proxy: { mode: 'proxy' } }, null, 2),
-      'utf8'
-    );
+    persistProxyMode(llmfwDir, 'proxy');
   }
 
   // Configure IDE proxy settings + persist the proxy/CA env vars so new shells
@@ -362,11 +363,18 @@ export async function run(args: string[]): Promise<void> {
   console.log('  similarity check cannot reason about. Stage 3 adds a local LLM judge');
   console.log('  (via Ollama) that evaluates the intent of each prompt — closing those gaps.');
 
-  const rl = createInterface({ input, output });
-  const answer = await rl.question('\n  Set up Stage 3 now? [y/N]: ');
-  rl.close();
+  // --judge runs the judge setup without asking, --no-judge skips it, and a
+  // non-interactive stdin (CI, piped install scripts) skips the prompt instead
+  // of hanging the whole setup on a question nobody can answer.
+  let setupJudge = args.includes('--judge');
+  if (!setupJudge && !args.includes('--no-judge') && input.isTTY) {
+    const rl = createInterface({ input, output });
+    const answer = await rl.question('\n  Set up Stage 3 now? [y/N]: ');
+    rl.close();
+    setupJudge = answer.trim().toLowerCase() === 'y';
+  }
 
-  if (answer.trim().toLowerCase() === 'y') {
+  if (setupJudge) {
     const { run: runSetupJudge } = await import('./setup-judge.js');
     await runSetupJudge();
   } else {

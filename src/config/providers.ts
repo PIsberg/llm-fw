@@ -25,15 +25,33 @@ export interface AiProvider {
   hosts: string[]
   /** Domain suffixes for proxy-mode matching + traffic labels. Defaults to `hosts`. */
   domains?: string[]
+  /**
+   * Domain suffixes whose subdomains are tenant/regional API hosts that cannot
+   * be enumerated (e.g. `<resource>.openai.azure.com`). The proxy TLS-intercepts
+   * any subdomain of these. Proxy mode only — a hosts-file sinkhole entry must
+   * be a concrete name, so the sinkhole cannot cover them.
+   */
+  interceptDomains?: string[]
 }
 
 export const AI_PROVIDERS: AiProvider[] = [
-  { name: 'OpenAI', hosts: ['api.openai.com'], domains: ['openai.com', 'openai.azure.com'] },
+  {
+    name: 'OpenAI',
+    hosts: ['api.openai.com'],
+    domains: ['openai.com', 'openai.azure.com'],
+    interceptDomains: ['openai.azure.com'],
+  },
   { name: 'Anthropic', hosts: ['api.anthropic.com'], domains: ['anthropic.com'] },
   {
     name: 'Google',
     hosts: ['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'],
-    domains: ['googleapis.com', 'google.com', 'googleusercontent.com'],
+    // Only the API domain. google.com / googleusercontent.com are labelled via
+    // INFRA_SERVICES below — keeping them out of here keeps them off the URL
+    // filter allowlist, which would otherwise trust every Google property
+    // (Docs, Drive, Sites, …) as an exfiltration-safe destination.
+    domains: ['googleapis.com'],
+    // Regional Vertex endpoints (us-central1-aiplatform.googleapis.com, …).
+    interceptDomains: ['aiplatform.googleapis.com'],
   },
   { name: 'Mistral', hosts: ['api.mistral.ai'], domains: ['mistral.ai'] },
   { name: 'Groq', hosts: ['api.groq.com'], domains: ['groq.com'] },
@@ -45,11 +63,38 @@ export const AI_PROVIDERS: AiProvider[] = [
   { name: 'Perplexity', hosts: ['api.perplexity.ai'], domains: ['perplexity.ai'] },
   { name: 'Cohere', hosts: ['api.cohere.com', 'api.cohere.ai'], domains: ['cohere.com', 'cohere.ai'] },
   { name: 'Anyscale', hosts: ['api.endpoints.anyscale.com'], domains: ['anyscale.com'] },
-  { name: 'HuggingFace', hosts: ['api-inference.huggingface.co'], domains: ['huggingface.co'] },
+  {
+    name: 'AWS Bedrock',
+    // The region sits mid-hostname, so a suffix can't cover it: the major
+    // regions are enumerated as concrete hosts (sinkhole + proxy intercept)
+    // and the wildcard domain labels every other region on the dashboard.
+    hosts: [
+      'bedrock-runtime.us-east-1.amazonaws.com',
+      'bedrock-runtime.us-east-2.amazonaws.com',
+      'bedrock-runtime.us-west-2.amazonaws.com',
+      'bedrock-runtime.eu-west-1.amazonaws.com',
+      'bedrock-runtime.eu-west-2.amazonaws.com',
+      'bedrock-runtime.eu-central-1.amazonaws.com',
+      'bedrock-runtime.ap-southeast-1.amazonaws.com',
+      'bedrock-runtime.ap-southeast-2.amazonaws.com',
+      'bedrock-runtime.ap-northeast-1.amazonaws.com',
+      'bedrock-runtime.ap-south-1.amazonaws.com',
+    ],
+    domains: ['bedrock-runtime.*.amazonaws.com'],
+  },
+  // router.huggingface.co is the current Inference Providers endpoint
+  // (OpenAI-compatible); api-inference.huggingface.co is the deprecated legacy
+  // host, kept so older SDKs are still sinkholed.
+  {
+    name: 'HuggingFace',
+    hosts: ['router.huggingface.co', 'api-inference.huggingface.co'],
+    domains: ['huggingface.co'],
+  },
 ]
 
 /** Infrastructure / tooling hosts — labelled on the dashboard but never sinkholed. */
 const INFRA_SERVICES: { name: string; domains: string[] }[] = [
+  { name: 'Google', domains: ['google.com', 'googleusercontent.com'] },
   { name: 'NPM', domains: ['npmjs.org', 'npmjs.com'] },
   { name: 'GitHub', domains: ['github.com'] },
   { name: 'Microsoft', domains: ['microsoft.com', 'exp-tas.com'] },
@@ -59,12 +104,38 @@ const INFRA_SERVICES: { name: string; domains: string[] }[] = [
 /** Concrete API hostnames — the default `targets` (sinkhole + proxy inspection). */
 export const AI_PROVIDER_HOSTS: string[] = [...new Set(AI_PROVIDERS.flatMap(p => p.hosts))]
 
-/** Domain suffixes for the outbound URL filter allowlist. */
+/**
+ * Tenant/regional API domain suffixes the proxy always TLS-intercepts in
+ * addition to `targets` (Azure OpenAI resources, regional Vertex endpoints).
+ * Not part of `targets` so they never leak into the hosts-file sinkhole,
+ * where a suffix entry would be meaningless.
+ */
+export const AI_PROVIDER_INTERCEPT_DOMAINS: string[] = [
+  ...new Set(AI_PROVIDERS.flatMap(p => p.interceptDomains ?? [])),
+]
+
+/**
+ * Domain suffixes for the outbound URL filter allowlist. Concrete hosts are
+ * included alongside the suffixes: for providers like Bedrock the only
+ * domain entry is a mid-name wildcard, which the URL filter's plain
+ * suffix-set matching cannot evaluate — the concrete hosts cover it there.
+ */
 export const AI_PROVIDER_DOMAINS: string[] = [
-  ...new Set(AI_PROVIDERS.flatMap(p => p.domains ?? p.hosts)),
+  ...new Set(AI_PROVIDERS.flatMap(p => [...(p.domains ?? []), ...p.hosts])),
 ]
 
 function matchesDomain(hostname: string, domain: string): boolean {
+  const star = domain.indexOf('*')
+  if (star !== -1) {
+    // Single-wildcard pattern (e.g. 'bedrock-runtime.*.amazonaws.com') for
+    // hostnames whose variable segment sits mid-name, where suffix matching
+    // can't help. The wildcard matches exactly one non-empty label.
+    const prefix = domain.slice(0, star)
+    const suffix = domain.slice(star + 1)
+    if (!hostname.startsWith(prefix) || !hostname.endsWith(suffix)) return false
+    const middle = hostname.slice(prefix.length, hostname.length - suffix.length)
+    return middle.length > 0 && !middle.includes('.')
+  }
   return hostname === domain || hostname.endsWith('.' + domain)
 }
 

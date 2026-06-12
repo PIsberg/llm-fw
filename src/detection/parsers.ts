@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-import { PayloadParser, MediaBlock } from '../types.js'
+import { PayloadParser, MediaBlock, ConversationTurn } from '../types.js'
 import { mediaBlockFromBase64, parseDataUrl } from './media.js'
 
 /** Map a mime type onto the coarse MediaBlock kind. */
@@ -158,6 +158,32 @@ class AnthropicParser implements PayloadParser {
         }
       }
       return out
+    } catch { return [] }
+  }
+
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      // The system prompt (string or content-block array) is the first turn.
+      if (typeof data.system === 'string' && data.system) {
+        turns.push({ role: 'system', text: data.system })
+      } else if (Array.isArray(data.system)) {
+        const t = data.system.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('\n')
+        if (t) turns.push({ role: 'system', text: t })
+      }
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          const role: ConversationTurn['role'] = msg.role === 'assistant' ? 'assistant' : 'user'
+          let text = ''
+          if (typeof msg.content === 'string') text = msg.content
+          else if (Array.isArray(msg.content)) {
+            text = msg.content.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('\n')
+          }
+          if (text) turns.push({ role, text })
+        }
+      }
+      return turns
     } catch { return [] }
   }
 }
@@ -344,6 +370,36 @@ class OpenAIParser implements PayloadParser {
       return out
     } catch { return [] }
   }
+
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      const roleOf = (r: unknown): ConversationTurn['role'] =>
+        r === 'assistant' ? 'assistant' : (r === 'system' || r === 'developer') ? 'system' : 'user'
+      const textOf = (content: unknown): string => {
+        if (typeof content === 'string') return content
+        if (Array.isArray(content)) return content.filter((p: any) => typeof p?.text === 'string').map((p: any) => p.text).join('\n')
+        return ''
+      }
+      // Chat Completions messages[] and Responses input[] both carry ordered turns.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'tool') continue
+          const text = textOf(msg.content)
+          if (text) turns.push({ role: roleOf(msg.role), text })
+        }
+      }
+      if (Array.isArray(data.input)) {
+        for (const item of data.input) {
+          if (!item || item.role === 'tool') continue
+          const text = textOf(item.content)
+          if (text) turns.push({ role: roleOf(item.role), text })
+        }
+      }
+      return turns
+    } catch { return [] }
+  }
 }
 
 /**
@@ -407,12 +463,75 @@ class CohereParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(_body: string): { toolUseId: string; result: string }[] {
-    return []
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolUseId: string; result: string }[] = []
+
+      // v1: tool_results:[{call:{name,…}, outputs:[…]}] — keyed by tool name
+      // (v1 has no call id).
+      if (Array.isArray(data.tool_results)) {
+        for (const tr of data.tool_results) {
+          if (!tr || typeof tr !== 'object') continue
+          const name = tr.call?.name
+          results.push({
+            toolUseId: typeof name === 'string' ? name : 'unknown',
+            result: JSON.stringify(tr.outputs ?? tr),
+          })
+        }
+      }
+
+      // v2: OpenAI-like role:'tool' messages with tool_call_id + content.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'tool') continue
+          const resText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
+        }
+      }
+
+      return results
+    } catch { return [] }
   }
 
-  extractToolUses(_body: string): { toolName: string; args: any }[] {
-    return []
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolName: string; args: any }[] = []
+
+      // v1 response / request echo: tool_calls:[{name, parameters}] (flat).
+      const pushFlat = (calls: unknown) => {
+        if (!Array.isArray(calls)) return
+        for (const call of calls) {
+          if (call && typeof (call).name === 'string') {
+            results.push({ toolName: (call).name, args: (call).parameters })
+          } else {
+            pushWrapped(call) // v2 shape can appear in the same slots
+          }
+        }
+      }
+      // v2: OpenAI-like {function:{name, arguments}} with stringified arguments.
+      const pushWrapped = (call: any) => {
+        const fn = call?.function
+        if (fn && typeof fn.name === 'string') {
+          let parsedArgs: any = fn.arguments
+          if (typeof fn.arguments === 'string') {
+            try { parsedArgs = JSON.parse(fn.arguments) } catch { /* leave as raw string */ }
+          }
+          results.push({ toolName: fn.name, args: parsedArgs })
+        }
+      }
+
+      pushFlat(data.tool_calls)                  // v1 response, v1 request echo
+      pushFlat(data.message?.tool_calls)         // v2 response
+      if (Array.isArray(data.messages)) {        // v2 request echoing assistant turns
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant') pushFlat(msg.tool_calls)
+        }
+      }
+
+      return results
+    } catch { return [] }
   }
 
   extractMediaBlocks(body: string): MediaBlock[] {
@@ -557,11 +676,178 @@ class GeminiParser implements PayloadParser {
   }
 }
 
+/**
+ * Parser for AWS Bedrock runtime endpoints:
+ *   - Converse API: `/model/<id>/converse` and `/converse-stream` — the unified
+ *     Bedrock format ({messages:[{role,content:[{text}]}], system:[{text}],
+ *     toolConfig:{tools:[{toolSpec}]}}).
+ *   - InvokeModel: `/model/<id>/invoke` and `/invoke-with-response-stream` —
+ *     the body is the model's NATIVE format. Anthropic-native bodies (Claude on
+ *     Bedrock) are delegated to AnthropicParser; Titan (`inputText`) and raw
+ *     `prompt` bodies (Llama, Mistral) are handled inline.
+ *
+ * Converse content blocks are keyed by type ({text}, {image:{…}},
+ * {toolUse:{…}}, {toolResult:{…}}) rather than carrying a `type` field, so the
+ * Converse walks only consume untyped blocks — typed blocks belong to the
+ * delegated Anthropic shape, which keeps the two passes duplicate-free.
+ */
+class BedrockParser implements PayloadParser {
+  private anthropic = new AnthropicParser()
+
+  supports(path: string): boolean {
+    const p = (path.split('?')[0] ?? '')
+    if (!p.startsWith('/model/')) return false
+    return /\/(?:converse|converse-stream|invoke|invoke-with-response-stream)$/.test(p)
+  }
+
+  extractPrompts(body: string): string[] {
+    const results = this.anthropic.extractPrompts(body)
+    try {
+      const data = JSON.parse(body)
+
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
+          for (const block of msg.content) {
+            if (block && block.type === undefined && typeof block.text === 'string') {
+              results.push(block.text)
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(data.system)) {
+        for (const block of data.system) {
+          if (block && block.type === undefined && typeof block.text === 'string') {
+            results.push(block.text)
+          }
+        }
+      }
+
+      // InvokeModel native bodies: Titan uses `inputText`; Llama / Mistral
+      // take a raw `prompt` string.
+      if (typeof data.inputText === 'string') results.push(data.inputText)
+      if (typeof data.prompt === 'string') results.push(data.prompt)
+
+      return results.filter(s => s.length > 0)
+    } catch {
+      return results
+    }
+  }
+
+  extractTools(body: string): any[] {
+    try {
+      const data = JSON.parse(body)
+      const out: any[] = []
+      // Converse: toolConfig.tools[].toolSpec — flatten so the MCP scanner
+      // sees a top-level `name`, like every other provider.
+      const tools = data.toolConfig?.tools
+      if (Array.isArray(tools)) {
+        for (const t of tools) {
+          const spec = t?.toolSpec
+          if (spec && typeof spec === 'object') out.push({ name: spec.name, ...spec })
+        }
+      }
+      // InvokeModel Anthropic-native: flat tools[].
+      if (Array.isArray(data.tools)) out.push(...data.tools)
+      return out
+    } catch { return [] }
+  }
+
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    const results = this.anthropic.extractToolResults(body)
+    try {
+      const data = JSON.parse(body)
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
+          for (const block of msg.content) {
+            const tr = block?.toolResult
+            if (tr && typeof tr === 'object') {
+              results.push({
+                toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
+                result: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content ?? tr),
+              })
+            }
+          }
+        }
+      }
+      return results
+    } catch {
+      return results
+    }
+  }
+
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    const results = this.anthropic.extractToolUses(body)
+    try {
+      const data = JSON.parse(body)
+      const blocks: any[] = []
+      // Converse response: output.message.content[]; request echo of prior
+      // assistant turns: messages[].content[].
+      if (Array.isArray(data.output?.message?.content)) blocks.push(...data.output.message.content)
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) blocks.push(...msg.content)
+        }
+      }
+      for (const block of blocks) {
+        const tu = block?.toolUse
+        if (tu && typeof tu.name === 'string') {
+          results.push({ toolName: tu.name, args: tu.input })
+        }
+      }
+      return results
+    } catch {
+      return results
+    }
+  }
+
+  extractMediaBlocks(body: string): MediaBlock[] {
+    const out = this.anthropic.extractMediaBlocks(body)
+    try {
+      const data = JSON.parse(body)
+
+      const walkBlock = (block: any): void => {
+        if (!block || typeof block !== 'object') return
+        for (const key of ['image', 'document', 'video'] as const) {
+          const b = block[key]
+          if (!b || typeof b !== 'object') continue
+          const kind: MediaBlock['kind'] = key === 'document' ? 'document' : key
+          const mime = typeof b.format === 'string'
+            ? `${key === 'image' ? 'image' : key === 'video' ? 'video' : 'application'}/${b.format}`
+            : undefined
+          if (typeof b.source?.bytes === 'string') {
+            out.push(mediaBlockFromBase64(kind, mime, b.source.bytes))
+          } else if (typeof b.source?.text === 'string') {
+            out.push({ kind, text: b.source.text, ...(mime ? { mimeType: mime } : {}) })
+          } else {
+            out.push({ kind, ...(mime ? { mimeType: mime } : {}) }) // s3Location etc. — opaque
+          }
+        }
+        // Tool results can return media — the indirect vector.
+        const trContent = block.toolResult?.content
+        if (Array.isArray(trContent)) for (const inner of trContent) walkBlock(inner)
+      }
+
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (Array.isArray(msg?.content)) for (const block of msg.content) walkBlock(block)
+        }
+      }
+      return out
+    } catch {
+      return out
+    }
+  }
+}
+
 export const parsers: PayloadParser[] = [
   new AnthropicParser(),
   new OpenAIParser(),
   new CohereParser(),
   new GeminiParser(),
+  new BedrockParser(),
 ]
 
 export function getParser(path: string): PayloadParser | null {
@@ -629,4 +915,4 @@ export function extractPartialPrompts(body: string): string[] {
   return results.filter(s => s.length > 0)
 }
 
-export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser }
+export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, BedrockParser }

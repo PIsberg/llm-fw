@@ -8,7 +8,8 @@ import { Pipeline } from '../detection/pipeline.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
-import { homedir, platform, networkInterfaces } from 'node:os';
+import { platform, networkInterfaces } from 'node:os';
+import { getLlmFwDir } from '../config/paths.js';
 import { execSync, execFileSync } from 'node:child_process';
 
 /**
@@ -92,7 +93,7 @@ export async function run(args: string[] = []): Promise<void> {
   // force-disabled below.
   if (standalone) applyStandaloneOverrides(config);
 
-  const llmfwDir = join(homedir(), '.llm-fw');
+  const llmfwDir = getLlmFwDir();
   const pidFile = join(llmfwDir, 'llm-fw.pid');
 
   // Stop any already-running instance. Use SIGKILL (not SIGTERM) so the old

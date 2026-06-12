@@ -1,7 +1,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { homedir } from 'node:os'
+import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config } from '../types.js'
 import { deepMerge } from '../config/config.js'
@@ -270,6 +270,8 @@ const HTML = `<!DOCTYPE html>
   .setting-sub { font-size: 0.76rem; color: #999; margin-top: 2px; }
   .setting-control { flex-shrink: 0; }
   .settings-select { padding: 5px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 0.82rem; }
+  .settings-input { padding: 5px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 0.82rem; width: 120px; text-align: right; }
+  .settings-input[type=text] { width: 170px; text-align: left; }
   .settings-saved { font-size: 0.82rem; color: #388e3c; height: 18px; margin-bottom: 8px; transition: opacity 0.3s; }
   /* Toggle switch */
   .switch { position: relative; display: inline-block; width: 42px; height: 22px; }
@@ -1161,40 +1163,55 @@ loadLanguages();
 
 // ── Settings (live defense toggles) ─────────────────────────────────────────
 const SETTINGS_SCHEMA = [
-  { group: 'Prompt Injection', desc: 'The heuristic and embedding stages always run. These control the invisible-character defense and the optional local-LLM judge.', rows: [
-    { key: 'asciiSmuggling', label: 'ASCII smuggling (invisible chars)', sub: 'Block Unicode-tag / bidi-override / variation-selector payloads' },
-    { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'Requires Ollama (run: llm-fw setup-judge)' },
-    { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block on a MALICIOUS verdict' },
-    { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Route every prompt to the judge — best novel/multilingual coverage' },
+  { group: 'Prompt Injection', desc: 'The heuristic and embedding stages always run (covering direct overrides, persona/DAN jailbreaks, refusal-suppression, prefix-injection, encoding, multilingual). These control the structural, multi-turn, and invisible-character defenses plus the optional local-LLM judge.', rows: [
+    { key: 'asciiSmuggling', label: 'ASCII smuggling (invisible chars)', sub: 'Block payloads hidden in Unicode-tag / bidi-override / variation-selector characters that render invisibly but the model still reads' },
+    { key: 'classifier', label: 'Trained injection classifier (recommended)', sub: 'A local DeBERTa model that generalizes to novel phrasings the rules miss (≈2× recall on held-out attacks, near-zero added false positives). Opt-in: enabling downloads a ~700 MB model on first use' },
+    { key: 'manyShot', label: 'Many-shot jailbreak', sub: 'Flag a prompt stuffed with fabricated dialogue turns whose faux answers comply with harmful asks (in-context conditioning)' },
+    { key: 'manyShotMode', label: 'Many-shot mode', type: 'select', options: ['block', 'audit'], sub: 'block: refuse harmful many-shot · audit: warn only' },
+    { key: 'crescendo', label: 'Multi-turn crescendo', sub: 'Flag a conversation that escalates over several turns toward harmful content, ending on a boundary-pushing directive' },
+    { key: 'crescendoMode', label: 'Crescendo mode', type: 'select', options: ['block', 'audit'], sub: 'block: refuse the escalating request · audit: warn only' },
+    { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'A local Ollama model reasons about intent for prompts the cheap stages miss. Requires Ollama (run: llm-fw setup-judge)' },
+    { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block the request on a MALICIOUS verdict, instead of only logging a warning' },
+    { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Routes nearly every prompt to the judge. NOT recommended with a small local judge — measured 27-86% false positives on held-out data. Use the trained classifier above for novel-attack coverage instead' },
   ]},
-  { group: 'Data & Context', desc: 'Retrieved-content poisoning and outbound secret leakage.', rows: [
-    { key: 'rag', label: 'RAG context-poisoning' },
-    { key: 'dlp', label: 'Data Loss Prevention (DLP)' },
-    { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'] },
-    { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs in the model response' },
-    { key: 'responseScanMode', label: 'Response scan mode', type: 'select', options: ['audit', 'block'] },
+  { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
+    { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },
+    { key: 'dlp', label: 'Data Loss Prevention (DLP)', sub: 'Detect secrets leaving in requests: cloud keys, tokens, private keys, payment cards, PII' },
+    { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'], sub: 'block: refuse · redact: mask the secret and forward · audit: warn only' },
+    { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs the model emits (e.g. a zero-click markdown image to an attacker host)' },
+    { key: 'responseScanMode', label: 'Response scan mode', type: 'select', options: ['audit', 'block'], sub: 'audit: warn only · block: neutralize the exfil URL in the response' },
+    { key: 'responseHarm', label: 'Harmful-compliance scan (response)', sub: 'Defense-in-depth: flag a response that produced harmful how-to content (a jailbreak the input stages missed). Audit-only — never blocks' },
   ]},
   { group: 'Non-text Content', desc: 'Injection carried by images, PDFs, and documents. Text-bearing files (text/*, PDFs) are always decoded and scanned; these control opaque media (raster images, audio).', rows: [
-    { key: 'nonText', label: 'Non-text content scanning' },
+    { key: 'nonText', label: 'Non-text content scanning', sub: 'Inspect/track image, PDF, document, and audio attachments rather than letting them pass uninspected' },
     { key: 'nonTextMode', label: 'Opaque media mode', type: 'select', options: ['audit', 'block'], sub: 'audit: forward + warn · block: refuse uninspectable media' },
     { key: 'nonTextOcr', label: 'OCR raster images', sub: 'Read injection text rendered as pixels and scan it (WASM, no Python; ~12 MB first-run download, ~0.2–2s/image)' },
   ]},
-  { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails.', rows: [
-    { key: 'mcp', label: 'MCP tool policy' },
-    { key: 'mcpGuardrails', label: 'Command guardrails' },
-    { key: 'mcpCatA', label: 'Guardrail Cat A — filesystem' },
-    { key: 'mcpCatB', label: 'Guardrail Cat B — network' },
-    { key: 'mcpCatC', label: 'Guardrail Cat C — process' },
-    { key: 'mcpCatD', label: 'Guardrail Cat D — dev / infra' },
+  { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails for agentic / MCP traffic.', rows: [
+    { key: 'mcp', label: 'MCP tool policy', sub: 'Allow/deny tool calls by name and inspect tool definitions for poisoning' },
+    { key: 'mcpGuardrails', label: 'Command guardrails', sub: 'Scan shell-command tool arguments (bash, powershell, …) against the category rules below' },
+    { key: 'mcpCatA', label: 'Guardrail Cat A — filesystem', sub: 'Destructive or sensitive file operations (rm -rf, reading ~/.ssh, …)' },
+    { key: 'mcpCatB', label: 'Guardrail Cat B — network', sub: 'Outbound fetch / reverse shells / piping remote scripts to a shell' },
+    { key: 'mcpCatC', label: 'Guardrail Cat C — process', sub: 'Process control and privilege escalation (kill, sudo, scheduled tasks)' },
+    { key: 'mcpCatD', label: 'Guardrail Cat D — dev / infra', sub: 'Credential, package, and infrastructure tampering (git push, npm publish, cloud CLIs)' },
   ]},
   { group: 'Network & Exfiltration', desc: 'Outbound destination screening and cross-turn data-flow taint.', rows: [
-    { key: 'urlFilter', label: 'URL / exfiltration filter' },
-    { key: 'taint', label: 'Cross-turn taint tracking' },
-    { key: 'taintMode', label: 'Taint mode', type: 'select', options: ['audit', 'block'] },
+    { key: 'urlFilter', label: 'URL / exfiltration filter', sub: 'Screen outbound destinations: known exfil sinks, DGA/high-entropy hosts, data-carrying query strings' },
+    { key: 'taint', label: 'Cross-turn taint tracking', sub: 'Track untrusted tokens (from tool results) that are later reused as an outbound destination' },
+    { key: 'taintMode', label: 'Taint mode', type: 'select', options: ['audit', 'block'], sub: 'audit: warn only · block: refuse the tainted destination' },
   ]},
   { group: 'Cost & Abuse (DoS)', desc: 'Behavioral circuit breakers against denial-of-wallet.', rows: [
-    { key: 'dos', label: 'Rate limit / token budget' },
-    { key: 'dosLoopDetection', label: 'Agent loop detection' },
+    { key: 'dos', label: 'Rate limit / token budget', sub: 'Per-minute request cap and a rolling per-session token budget (numeric limits in the Advanced section below)' },
+    { key: 'dosLoopDetection', label: 'Agent loop detection', sub: 'Detect an agent firing the same request over and over and break the loop' },
+  ]},
+  { group: 'Advanced — Tuning', desc: 'Numeric thresholds and limits, plus the judge model. All take effect on the next request — no restart. Lowering a detection threshold catches more attacks but risks more false positives; raising it is more permissive.', rows: [
+    { key: 'heuristicBlockThreshold', label: 'Heuristic block threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a prompt is blocked (default 50). Rules add weights; one strong rule scores 50' },
+    { key: 'embeddingBlockThreshold', label: 'Embedding block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Stage 2 cosine similarity at/above which a prompt is blocked (default 0.86). Lower = stricter' },
+    { key: 'embeddingWarnThreshold', label: 'Embedding warn threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Similarity at/above which a prompt warns and (if enabled) routes to the judge (default 0.80)' },
+    { key: 'classifierThreshold', label: 'Classifier block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'INJECTION probability at/above which the trained classifier blocks (default 0.90). Lower = more recall, more false positives' },
+    { key: 'dosMaxRpm', label: 'Max requests / minute', type: 'number', min: 1, max: 1000000, step: 1, sub: 'Requests allowed per rolling minute before rate-limiting (default 60)' },
+    { key: 'dosMaxTokens', label: 'Max tokens / session', type: 'number', min: 1, max: 1000000000, step: 1000, sub: 'Rolling per-session token budget before the cost circuit-breaker trips (default 500,000)' },
+    { key: 'judgeModel', label: 'Judge model (Ollama)', type: 'text', sub: 'Ollama model tag the Stage 3 judge uses, e.g. qwen2.5:3b. Pull it first: ollama pull <model>' },
   ]},
 ];
 
@@ -1203,6 +1220,11 @@ function settingsRowHtml(row, s) {
   if (row.type === 'select') {
     const opts = row.options.map(o => '<option value="' + esc(o) + '"' + (s[row.key] === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
     control = '<select class="settings-select" id="set-' + esc(row.key) + '" data-type="select">' + opts + '</select>';
+  } else if (row.type === 'number') {
+    const attrs = (row.min != null ? ' min="' + row.min + '"' : '') + (row.max != null ? ' max="' + row.max + '"' : '') + (row.step != null ? ' step="' + row.step + '"' : '');
+    control = '<input type="number" class="settings-input" id="set-' + esc(row.key) + '" data-type="number"' + attrs + ' value="' + esc(String(s[row.key])) + '">';
+  } else if (row.type === 'text') {
+    control = '<input type="text" class="settings-input" id="set-' + esc(row.key) + '" data-type="text" value="' + esc(String(s[row.key] != null ? s[row.key] : '')) + '">';
   } else {
     control = '<label class="switch"><input type="checkbox" id="set-' + esc(row.key) + '" data-type="toggle"' + (s[row.key] ? ' checked' : '') + '><span class="slider"></span></label>';
   }
@@ -1224,7 +1246,12 @@ function renderSettings(s) {
       const el = document.getElementById('set-' + r.key);
       if (!el) continue;
       el.addEventListener('change', () => {
-        const value = r.type === 'select' ? el.value : el.checked;
+        let value;
+        if (r.type === 'select' || r.type === 'text') value = el.value;
+        else if (r.type === 'number') {
+          if (el.value === '' || isNaN(Number(el.value))) { loadSettings(); return; } // ignore empty/invalid; resync
+          value = Number(el.value);
+        } else value = el.checked;
         saveSetting(r.key, value);
       });
     }
@@ -1475,6 +1502,12 @@ drawChart();
 // takes effect on the proxy's next request — no restart.
 interface SettingsView {
   asciiSmuggling: boolean
+  classifier: boolean
+  classifierThreshold: number
+  manyShot: boolean
+  manyShotMode: 'audit' | 'block'
+  crescendo: boolean
+  crescendoMode: 'audit' | 'block'
   promptInjectionJudge: boolean
   judgeBlock: boolean
   judgeUnlessBenign: boolean
@@ -1494,9 +1527,17 @@ interface SettingsView {
   urlFilter: boolean
   responseScan: boolean
   responseScanMode: 'block' | 'audit'
+  responseHarm: boolean
   nonText: boolean
   nonTextMode: 'audit' | 'block'
   nonTextOcr: boolean
+  // Advanced — numeric/text tuning (all live, no restart).
+  heuristicBlockThreshold: number
+  embeddingBlockThreshold: number
+  embeddingWarnThreshold: number
+  dosMaxRpm: number
+  dosMaxTokens: number
+  judgeModel: string
 }
 
 // Defensive `?.`/defaults throughout: production config is always fully merged
@@ -1505,6 +1546,12 @@ interface SettingsView {
 function readSettings(config: Config): SettingsView {
   return {
     asciiSmuggling: config.asciiSmuggling?.enabled ?? true,
+    classifier: config.detection?.classifier?.enabled ?? false,
+    classifierThreshold: config.detection?.classifier?.blockThreshold ?? 0.9,
+    manyShot: config.manyShot?.enabled ?? true,
+    manyShotMode: config.manyShot?.mode ?? 'block',
+    crescendo: config.crescendo?.enabled ?? true,
+    crescendoMode: config.crescendo?.mode ?? 'block',
     promptInjectionJudge: config.detection?.judgeEnabled ?? false,
     judgeBlock: config.detection?.judgeBlock ?? false,
     judgeUnlessBenign: config.detection?.judgeUnlessBenign ?? false,
@@ -1524,9 +1571,16 @@ function readSettings(config: Config): SettingsView {
     urlFilter: config.proxy?.urlFilter?.enabled ?? true,
     responseScan: config.responseScan?.enabled ?? true,
     responseScanMode: config.responseScan?.mode ?? 'audit',
+    responseHarm: config.responseScan?.harmfulCompliance ?? true,
     nonText: config.nonText?.enabled ?? true,
     nonTextMode: config.nonText?.mode ?? 'audit',
     nonTextOcr: config.nonText?.ocr ?? false,
+    heuristicBlockThreshold: config.detection?.heuristicBlockThreshold ?? 50,
+    embeddingBlockThreshold: config.detection?.embeddingBlockThreshold ?? 0.86,
+    embeddingWarnThreshold: config.detection?.embeddingWarnThreshold ?? 0.80,
+    dosMaxRpm: config.dos?.maxRequestsPerMinute ?? 60,
+    dosMaxTokens: config.dos?.maxTokensPerSession ?? 500_000,
+    judgeModel: config.detection?.judgeModel ?? 'qwen2.5:3b',
   }
 }
 
@@ -1534,6 +1588,10 @@ function readSettings(config: Config): SettingsView {
 // not present here is rejected, so the endpoint can never mutate arbitrary config.
 const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   asciiSmuggling: (c, v) => { (c.asciiSmuggling ??= { enabled: true }).enabled = v },
+  classifier: (c, v) => { (c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }).enabled = v },
+  manyShot: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).enabled = v },
+  crescendo: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).enabled = v },
+  responseHarm: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).harmfulCompliance = v },
   promptInjectionJudge: (c, v) => { c.detection.judgeEnabled = v },
   judgeBlock: (c, v) => { c.detection.judgeBlock = v },
   judgeUnlessBenign: (c, v) => { c.detection.judgeUnlessBenign = v },
@@ -1554,8 +1612,26 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   nonTextOcr: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).ocr = v },
 }
 
+// Numeric tuning setters with an inclusive valid range (the POST allowlist for
+// numbers). Out-of-range or non-finite values are rejected.
+const NUMBER_SETTERS: Record<string, { min: number; max: number; apply: (c: Config, v: number) => void }> = {
+  classifierThreshold: { min: 0, max: 1, apply: (c, v) => { (c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }).blockThreshold = v } },
+  heuristicBlockThreshold: { min: 1, max: 200, apply: (c, v) => { c.detection.heuristicBlockThreshold = v } },
+  embeddingBlockThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingBlockThreshold = v } },
+  embeddingWarnThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingWarnThreshold = v } },
+  dosMaxRpm: { min: 1, max: 1_000_000, apply: (c, v) => { c.dos.maxRequestsPerMinute = Math.round(v) } },
+  dosMaxTokens: { min: 1, max: 1_000_000_000, apply: (c, v) => { c.dos.maxTokensPerSession = Math.round(v) } },
+}
+
+// Free-text setters (the POST allowlist for strings). Trimmed, non-empty, capped.
+const STRING_SETTERS: Record<string, { apply: (c: Config, v: string) => void }> = {
+  judgeModel: { apply: (c, v) => { c.detection.judgeModel = v } },
+}
+
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
+  manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).mode = v as 'audit' | 'block' } },
+  crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).mode = v as 'audit' | 'block' } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
   responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).mode = v as 'block' | 'audit' } },
   nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
@@ -1571,10 +1647,23 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       judgeEnabled: config.detection.judgeEnabled,
       judgeBlock: config.detection.judgeBlock,
       judgeUnlessBenign: config.detection.judgeUnlessBenign ?? false,
+      judgeModel: config.detection.judgeModel,
+      heuristicBlockThreshold: config.detection.heuristicBlockThreshold,
+      embeddingBlockThreshold: config.detection.embeddingBlockThreshold,
+      embeddingWarnThreshold: config.detection.embeddingWarnThreshold,
+      classifier: {
+        enabled: config.detection.classifier?.enabled ?? false,
+        blockThreshold: config.detection.classifier?.blockThreshold ?? 0.9,
+      },
     },
     rag: { enabled: config.rag.enabled },
     dlp: { enabled: config.dlp.enabled, mode: config.dlp.mode },
-    dos: { enabled: config.dos.enabled, loopDetectionEnabled: config.dos.loopDetectionEnabled },
+    dos: {
+      enabled: config.dos.enabled,
+      loopDetectionEnabled: config.dos.loopDetectionEnabled,
+      maxRequestsPerMinute: config.dos.maxRequestsPerMinute,
+      maxTokensPerSession: config.dos.maxTokensPerSession,
+    },
     mcp: {
       enabled: config.mcp.enabled,
       guardrailsEnabled: config.mcp.guardrailsEnabled,
@@ -1583,7 +1672,13 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
     taint: { enabled: config.taint?.enabled ?? false, mode: config.taint?.mode ?? 'audit' },
     proxy: { urlFilter: { enabled: config.proxy.urlFilter.enabled } },
     asciiSmuggling: { enabled: config.asciiSmuggling?.enabled ?? true },
-    responseScan: { enabled: config.responseScan?.enabled ?? true, mode: config.responseScan?.mode ?? 'audit' },
+    manyShot: { enabled: config.manyShot?.enabled ?? true, mode: config.manyShot?.mode ?? 'block' },
+    crescendo: { enabled: config.crescendo?.enabled ?? true, mode: config.crescendo?.mode ?? 'block' },
+    responseScan: {
+      enabled: config.responseScan?.enabled ?? true,
+      mode: config.responseScan?.mode ?? 'audit',
+      harmfulCompliance: config.responseScan?.harmfulCompliance ?? true,
+    },
   }
 }
 
@@ -1607,6 +1702,19 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
       }
       spec.apply(config, value)
       applied.push(key)
+    } else if (key in NUMBER_SETTERS) {
+      const spec = NUMBER_SETTERS[key]
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < spec.min || value > spec.max) {
+        errors.push(`${key}: expected a number in [${spec.min}, ${spec.max}]`); continue
+      }
+      spec.apply(config, value)
+      applied.push(key)
+    } else if (key in STRING_SETTERS) {
+      if (typeof value !== 'string' || value.trim().length === 0 || value.length > 100) {
+        errors.push(`${key}: expected a non-empty string (≤ 100 chars)`); continue
+      }
+      STRING_SETTERS[key].apply(config, value.trim())
+      applied.push(key)
     } else {
       errors.push(`${key}: unknown setting`)
     }
@@ -1617,7 +1725,7 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
 // Persist the current toggle state to ~/.llm-fw/config.json, deep-merging so
 // unrelated keys are preserved.
 function persistSettings(config: Config): void {
-  const dir = join(homedir(), '.llm-fw')
+  const dir = getLlmFwDir()
   const file = join(dir, 'config.json')
   let existing: Record<string, unknown> = {}
   try { existing = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown> } catch { /* none */ }
@@ -2124,7 +2232,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     // Serve the CA certificate so standalone clients can download and trust it.
     // Offered both as an inline view and a forced download (?download).
     if (req.method === 'GET' && (path === '/ca.crt' || path === '/ca.pem')) {
-      const caPath = join(homedir(), '.llm-fw', 'ca.crt')
+      const caPath = join(getLlmFwDir(), 'ca.crt')
       if (fs.existsSync(caPath)) {
         const caData = fs.readFileSync(caPath)
         const disposition = url.searchParams.has('download')
@@ -2145,7 +2253,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
 
     // Serve the CRL so Windows Schannel can verify revocation status of MITM certs.
     if (req.method === 'GET' && path === '/crl') {
-      const crlPath = join(homedir(), '.llm-fw', 'ca.crl')
+      const crlPath = join(getLlmFwDir(), 'ca.crl')
       if (fs.existsSync(crlPath)) {
         const crlData = fs.readFileSync(crlPath)
         res.writeHead(200, { 'Content-Type': 'application/pkix-crl', 'Content-Length': String(crlData.length) })

@@ -1,6 +1,7 @@
 import { Config } from '../types.js';
 import { cosmiconfig } from 'cosmiconfig';
-import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS } from './providers.js';
+import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS, AI_PROVIDER_INTERCEPT_DOMAINS } from './providers.js';
+import { getLlmFwDir } from './paths.js';
 
 export const DEFAULT_CONFIG: Config = {
   proxy: {
@@ -17,6 +18,9 @@ export const DEFAULT_CONFIG: Config = {
     upstreamTimeoutMs: 120000,
     maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
     dnsServers: ['1.1.1.1', '8.8.8.8'],
+    // Tenant/regional API domain suffixes the proxy TLS-intercepts in
+    // addition to `targets`. Sourced from the provider registry.
+    interceptDomains: AI_PROVIDER_INTERCEPT_DOMAINS,
     urlFilter: {
       enabled: true,
       entropyThreshold: 4.8,
@@ -60,6 +64,16 @@ export const DEFAULT_CONFIG: Config = {
     // that score zero on the (regex/embedding) cheap stages still reach the judge.
     judgeModel: 'qwen2.5:3b',
     judgeBlock: false,
+    ollamaUrl: 'http://localhost:11434',
+    // Trained ONNX injection classifier — a learned generalization layer that
+    // closes the novel-phrasing gap the regex/embedding stages leave open,
+    // without the generative judge's false-positive blow-up. Opt-in (~700 MB
+    // model). Enable via config or LLM_FW_CLASSIFIER_ENABLED, then it downloads
+    // on next start. 0.9 keeps it high-precision; lower it for more recall.
+    classifier: {
+      enabled: false,
+      blockThreshold: 0.9,
+    },
     judgeUnlessBenign: false,
   },
   dashboard: {
@@ -98,6 +112,7 @@ export const DEFAULT_CONFIG: Config = {
   responseScan: {
     enabled: true,
     mode: 'audit',
+    harmfulCompliance: true,
   },
   // Non-text content blocks (issue #60). Text-bearing payloads (text/* docs,
   // JSON, data-URL files, PDFs with uncompressed text) are decoded and scanned
@@ -108,6 +123,26 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     mode: 'audit',
     ocr: false,
+  },
+  // Many-shot jailbreaking (issue: structural in-context conditioning). A long
+  // run of fabricated dialogue turns alone warns; a block requires ≥2 faux
+  // assistant turns demonstrating harmful compliance, which benign pasted
+  // transcripts don't have. minTurns 8 ≈ 4 Q/A pairs — abnormal for inline
+  // content but low enough to catch scaled-down proofs of concept.
+  manyShot: {
+    enabled: true,
+    minTurns: 8,
+    harmfulComplianceThreshold: 2,
+    mode: 'block',
+  },
+  // Multi-turn crescendo. Blocks when a 3+ user-turn conversation ends on a
+  // boundary-pushing escalation directive AND earlier turns reference concrete
+  // harmful content — analyzed within the request (LLM APIs resend the whole
+  // conversation), so no session state is needed.
+  crescendo: {
+    enabled: true,
+    minUserTurns: 3,
+    mode: 'block',
   },
   mcp: {
     enabled: true,
@@ -132,6 +167,7 @@ export const DEFAULT_CONFIG: Config = {
   // sinkhole redirects them. Sourced from the provider registry (providers.ts)
   // so the firewall covers all supported services out of the box.
   targets: AI_PROVIDER_HOSTS,
+  extraTargets: [],
 };
 
 export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
@@ -176,8 +212,7 @@ export async function loadConfig(): Promise<Config> {
   try {
     const { readFileSync } = await import('node:fs');
     const path = await import('node:path');
-    const { homedir } = await import('node:os');
-    const p = path.join(homedir(), '.llm-fw', 'config.json');
+    const p = path.join(getLlmFwDir(), 'config.json');
     userConfig = JSON.parse(readFileSync(p, 'utf8')) as Partial<Config>;
   } catch { /* not present */ }
 
@@ -186,101 +221,72 @@ export async function loadConfig(): Promise<Config> {
     userConfig
   );
 
-  const env = process.env;
+  for (const [key, apply] of Object.entries(ENV_OVERRIDES)) {
+    const value = process.env[key];
+    if (value) apply(config, value);
+  }
 
-  if (env['LLM_FW_PROXY_PORT']) {
-    config.proxy.port = parseInt(env['LLM_FW_PROXY_PORT'], 10);
-  }
-  if (env['LLM_FW_PROXY_MODE']) {
-    config.proxy.mode = env['LLM_FW_PROXY_MODE'] as 'proxy' | 'sinkhole';
-  }
-  if (env['LLM_FW_PROXY_BIND']) {
-    config.proxy.bindHost = env['LLM_FW_PROXY_BIND'];
-  }
-  if (env['LLM_FW_HTTPS_PORT']) {
-    config.proxy.httpsPort = parseInt(env['LLM_FW_HTTPS_PORT'], 10);
-  }
-  if (env['LLM_FW_MAX_BODY_BYTES']) {
-    config.proxy.maxBodyBytes = parseInt(env['LLM_FW_MAX_BODY_BYTES'], 10);
-  }
-  if (env['LLM_FW_JUDGE_ENABLED']) {
-    config.detection.judgeEnabled = env['LLM_FW_JUDGE_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_JUDGE_BLOCK']) {
-    config.detection.judgeBlock = env['LLM_FW_JUDGE_BLOCK'] === 'true';
-  }
-  if (env['LLM_FW_JUDGE_UNLESS_BENIGN']) {
-    config.detection.judgeUnlessBenign = env['LLM_FW_JUDGE_UNLESS_BENIGN'] === 'true';
-  }
-  if (env['LLM_FW_TAINT_ENABLED'] && config.taint) {
-    config.taint.enabled = env['LLM_FW_TAINT_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_TAINT_MODE'] && config.taint && (env['LLM_FW_TAINT_MODE'] === 'audit' || env['LLM_FW_TAINT_MODE'] === 'block')) {
-    config.taint.mode = env['LLM_FW_TAINT_MODE'];
-  }
-  if (env['LLM_FW_JUDGE_MODEL']) {
-    config.detection.judgeModel = env['LLM_FW_JUDGE_MODEL'];
-  }
-  if (env['LLM_FW_EMBEDDING_BLOCK_THRESHOLD']) {
-    config.detection.embeddingBlockThreshold = parseFloat(env['LLM_FW_EMBEDDING_BLOCK_THRESHOLD']);
-  }
-  if (env['LLM_FW_EMBEDDING_WARN_THRESHOLD']) {
-    config.detection.embeddingWarnThreshold = parseFloat(env['LLM_FW_EMBEDDING_WARN_THRESHOLD']);
-  }
-  if (env['LLM_FW_DASHBOARD_PORT']) {
-    config.dashboard.port = parseInt(env['LLM_FW_DASHBOARD_PORT'], 10);
-  }
-  if (env['LLM_FW_DASHBOARD_BIND']) {
-    config.dashboard.bindHost = env['LLM_FW_DASHBOARD_BIND'];
-  }
-  if (env['LLM_FW_DASHBOARD_TOKEN']) {
-    config.dashboard.authToken = env['LLM_FW_DASHBOARD_TOKEN'];
-  }
-  if (env['LLM_FW_DLP_ENABLED']) {
-    config.dlp.enabled = env['LLM_FW_DLP_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_DLP_MODE']) {
-    config.dlp.mode = env['LLM_FW_DLP_MODE'] as 'block' | 'redact' | 'audit';
-  }
-  if (env['LLM_FW_DOS_ENABLED']) {
-    config.dos.enabled = env['LLM_FW_DOS_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_DOS_MAX_RPM']) {
-    config.dos.maxRequestsPerMinute = parseInt(env['LLM_FW_DOS_MAX_RPM'], 10);
-  }
-  if (env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION']) {
-    config.dos.maxTokensPerSession = parseInt(env['LLM_FW_DOS_MAX_TOKENS_PER_SESSION'], 10);
-  }
-  if (env['LLM_FW_DOS_TOKEN_WINDOW_MS']) {
-    config.dos.tokenBudgetWindowMs = parseInt(env['LLM_FW_DOS_TOKEN_WINDOW_MS'], 10);
-  }
-  if (env['LLM_FW_RAG_ENABLED']) {
-    config.rag.enabled = env['LLM_FW_RAG_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_MCP_ENABLED']) {
-    config.mcp.enabled = env['LLM_FW_MCP_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_MCP_GUARDRAILS_ENABLED']) {
-    config.mcp.guardrailsEnabled = env['LLM_FW_MCP_GUARDRAILS_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_ASCII_SMUGGLING_ENABLED'] && config.asciiSmuggling) {
-    config.asciiSmuggling.enabled = env['LLM_FW_ASCII_SMUGGLING_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_RESPONSE_SCAN_ENABLED'] && config.responseScan) {
-    config.responseScan.enabled = env['LLM_FW_RESPONSE_SCAN_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_RESPONSE_SCAN_MODE'] && config.responseScan && (env['LLM_FW_RESPONSE_SCAN_MODE'] === 'block' || env['LLM_FW_RESPONSE_SCAN_MODE'] === 'audit')) {
-    config.responseScan.mode = env['LLM_FW_RESPONSE_SCAN_MODE'];
-  }
-  if (env['LLM_FW_NONTEXT_ENABLED'] && config.nonText) {
-    config.nonText.enabled = env['LLM_FW_NONTEXT_ENABLED'] === 'true';
-  }
-  if (env['LLM_FW_NONTEXT_MODE'] && config.nonText && (env['LLM_FW_NONTEXT_MODE'] === 'audit' || env['LLM_FW_NONTEXT_MODE'] === 'block')) {
-    config.nonText.mode = env['LLM_FW_NONTEXT_MODE'];
-  }
-  if (env['LLM_FW_NONTEXT_OCR'] && config.nonText) {
-    config.nonText.ocr = env['LLM_FW_NONTEXT_OCR'] === 'true';
+  // extraTargets is the additive path: appended (deduplicated) to targets so a
+  // self-hosted endpoint can be covered without redeclaring the built-in
+  // registry. Applied last so it sees env-supplied entries too.
+  if (config.extraTargets?.length) {
+    config.targets = [...new Set([...config.targets, ...config.extraTargets])];
   }
 
   return config;
 }
+
+/** Parse a comma-separated env value into a trimmed, non-empty string list. */
+function splitList(value: string): string[] {
+  return value.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * LLM_FW_* environment overrides, applied last (over file configs). Each entry
+ * parses the raw string and writes the typed value; entries for optional
+ * config sections guard against the section having been nulled out by a file
+ * config, and enum-valued settings ignore values outside their domain.
+ */
+const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
+  LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = parseInt(v, 10); },
+  LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
+  LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
+  LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = parseInt(v, 10); },
+  LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = parseInt(v, 10); },
+  LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },
+  LLM_FW_JUDGE_BLOCK: (c, v) => { c.detection.judgeBlock = v === 'true'; },
+  LLM_FW_JUDGE_UNLESS_BENIGN: (c, v) => { c.detection.judgeUnlessBenign = v === 'true'; },
+  LLM_FW_JUDGE_MODEL: (c, v) => { c.detection.judgeModel = v; },
+  LLM_FW_OLLAMA_URL: (c, v) => { c.detection.ollamaUrl = v; },
+  LLM_FW_CLASSIFIER_ENABLED: (c, v) => { if (c.detection.classifier) c.detection.classifier.enabled = v === 'true'; },
+  LLM_FW_CLASSIFIER_THRESHOLD: (c, v) => { if (c.detection.classifier) c.detection.classifier.blockThreshold = parseFloat(v); },
+  LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = parseFloat(v); },
+  LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = parseFloat(v); },
+  LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },
+  LLM_FW_TAINT_MODE: (c, v) => { if (c.taint && (v === 'audit' || v === 'block')) c.taint.mode = v; },
+  LLM_FW_DASHBOARD_PORT: (c, v) => { c.dashboard.port = parseInt(v, 10); },
+  LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
+  LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
+  LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
+  LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
+  LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },
+  LLM_FW_DOS_MAX_RPM: (c, v) => { c.dos.maxRequestsPerMinute = parseInt(v, 10); },
+  LLM_FW_DOS_MAX_TOKENS_PER_SESSION: (c, v) => { c.dos.maxTokensPerSession = parseInt(v, 10); },
+  LLM_FW_DOS_TOKEN_WINDOW_MS: (c, v) => { c.dos.tokenBudgetWindowMs = parseInt(v, 10); },
+  LLM_FW_RAG_ENABLED: (c, v) => { c.rag.enabled = v === 'true'; },
+  LLM_FW_MCP_ENABLED: (c, v) => { c.mcp.enabled = v === 'true'; },
+  LLM_FW_MCP_GUARDRAILS_ENABLED: (c, v) => { c.mcp.guardrailsEnabled = v === 'true'; },
+  LLM_FW_ASCII_SMUGGLING_ENABLED: (c, v) => { if (c.asciiSmuggling) c.asciiSmuggling.enabled = v === 'true'; },
+  LLM_FW_RESPONSE_SCAN_ENABLED: (c, v) => { if (c.responseScan) c.responseScan.enabled = v === 'true'; },
+  LLM_FW_RESPONSE_SCAN_MODE: (c, v) => { if (c.responseScan && (v === 'block' || v === 'audit')) c.responseScan.mode = v; },
+  LLM_FW_RESPONSE_HARM_ENABLED: (c, v) => { if (c.responseScan) c.responseScan.harmfulCompliance = v === 'true'; },
+  LLM_FW_NONTEXT_ENABLED: (c, v) => { if (c.nonText) c.nonText.enabled = v === 'true'; },
+  LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
+  LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
+  LLM_FW_MANYSHOT_ENABLED: (c, v) => { if (c.manyShot) c.manyShot.enabled = v === 'true'; },
+  LLM_FW_MANYSHOT_MODE: (c, v) => { if (c.manyShot && (v === 'audit' || v === 'block')) c.manyShot.mode = v; },
+  LLM_FW_CRESCENDO_ENABLED: (c, v) => { if (c.crescendo) c.crescendo.enabled = v === 'true'; },
+  LLM_FW_CRESCENDO_MODE: (c, v) => { if (c.crescendo && (v === 'audit' || v === 'block')) c.crescendo.mode = v; },
+  LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
+  LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
+};

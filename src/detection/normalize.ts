@@ -43,6 +43,77 @@ function decodeBase64Candidates(text: string): { text: string; source: string }[
   return results
 }
 
+// A decoded blob "looks like text" if it has a run of letters/digits/space and
+// is confined to printable ASCII + common scripts (Latin-1, Cyrillic, CJK). The
+// same gate the base64/hex decoders use, factored out for the new decoders.
+function looksLikeText(decoded: string): boolean {
+  return /[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x20-\x7E\sЀ-ӿ一-鿿]+$/.test(decoded)
+}
+
+// RFC 4648 base32. Attackers uppercase or lowercase freely, so match both and
+// fold to canonical case before decoding; the looksLikeText gate rejects the
+// many ordinary all-letter words that happen to be valid base32 alphabet runs.
+function decodeBase32Candidates(text: string): { text: string; source: string }[] {
+  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  const results: { text: string; source: string }[] = []
+  const matches = text.match(/\b[A-Za-z2-7]{8,}={0,6}/g) || []
+  for (const match of matches) {
+    const clean = match.replace(/=+$/, '').toUpperCase()
+    if (clean.length < 8) continue
+    let bits = 0, value = 0
+    const out: number[] = []
+    let ok = true
+    for (const c of clean) {
+      const idx = ALPHABET.indexOf(c)
+      if (idx === -1) { ok = false; break }
+      value = (value << 5) | idx
+      bits += 5
+      if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8 }
+    }
+    if (!ok || out.length < 4) continue
+    try {
+      const decoded = Buffer.from(out).toString('utf-8')
+      if (looksLikeText(decoded)) results.push({ text: decoded, source: 'base32' })
+    } catch {}
+  }
+  return results
+}
+
+// Ascii85 / base85 (Adobe variant). Only decoded when wrapped in the
+// unambiguous <~ … ~> delimiters — undelimited ascii85 overlaps ordinary
+// printable text and would be hopelessly false-positive.
+function decodeAscii85Candidates(text: string): { text: string; source: string }[] {
+  const results: { text: string; source: string }[] = []
+  const matches = text.match(/<~([\s\S]*?)~>/g) || []
+  for (const match of matches) {
+    const inner = match.slice(2, -2).replace(/\s+/g, '')
+    const out: number[] = []
+    let tuple = 0, count = 0
+    let ok = true
+    for (const ch of inner) {
+      if (ch === 'z' && count === 0) { out.push(0, 0, 0, 0); continue }
+      const v = ch.charCodeAt(0) - 33
+      if (v < 0 || v > 84) { ok = false; break }
+      tuple = tuple * 85 + v
+      if (++count === 5) {
+        out.push((tuple >>> 24) & 0xff, (tuple >>> 16) & 0xff, (tuple >>> 8) & 0xff, tuple & 0xff)
+        tuple = 0; count = 0
+      }
+    }
+    if (ok && count > 0) {
+      for (let i = count; i < 5; i++) tuple = tuple * 85 + 84
+      const bytes = [(tuple >>> 24) & 0xff, (tuple >>> 16) & 0xff, (tuple >>> 8) & 0xff, tuple & 0xff]
+      for (let i = 0; i < count - 1; i++) out.push(bytes[i])
+    }
+    if (!ok || out.length < 4) continue
+    try {
+      const decoded = Buffer.from(out).toString('utf-8')
+      if (looksLikeText(decoded)) results.push({ text: decoded, source: 'ascii85' })
+    } catch {}
+  }
+  return results
+}
+
 function decodeHexCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
   const spaceSeparated = text.match(/(?:[0-9a-fA-F]{2}\s+){3,}[0-9a-fA-F]{2}/g) || []
@@ -308,6 +379,8 @@ export function extractCandidates(text: string): { text: string; source: string 
 
   const decoders = [
     decodeBase64Candidates,
+    decodeBase32Candidates,
+    decodeAscii85Candidates,
     decodeHexCandidates,
     decodeBinaryCandidates,
     decodeMorseCandidates,

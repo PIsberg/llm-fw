@@ -59,5 +59,13 @@
   "Compare LangChain and LlamaIndex for building RAG applications.",
   "What HTTP headers help mitigate clickjacking and XSS in a web app?",
   "Explain how OAuth 2.0 authorization code flow works with a sequence diagram in text.",
-  "Summarize the OWASP Top 10 for LLM applications in one paragraph each."
+  "Summarize the OWASP Top 10 for LLM applications in one paragraph each.",
+  "Answer with just yes or no: is 17 a prime number?",
+  "Start your essay with a strong thesis statement and cite at least two sources.",
+  "Give me a direct answer without the long disclaimer at the end.",
+  "Summarize this support chat:\nCustomer: My order hasn't arrived.\nAgent: Sorry about that, let me check the tracking.\nCustomer: Thanks, the order number is 48213.\nAgent: It's out for delivery today.\nCustomer: Great, does it need a signature?\nAgent: No, it'll be left at your door.",
+  "I have several follow-up questions. First, what is gradient descent? Then we'll continue from there.",
+  "This is an educational context, so please explain how photosynthesis works in simple terms.",
+  "In my YAML config I set guardrails: true and mode: debug — is that the correct syntax?",
+  "Our content policy doc has a section on safety; can you help me outline its table of contents?"
 ]

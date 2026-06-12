@@ -322,6 +322,78 @@ export class HeuristicScorer {
         ],
       },
       {
+        // Refusal suppression (soft) — directives to drop the model's hedging:
+        // no apologies, warnings, disclaimers, caveats, or moralizing. Common
+        // jailbreak preamble, but an impatient benign user may also say "don't
+        // apologize", so weight 30: escalates to the judge and combines with any
+        // override/persona/harm signal to block, rather than blocking alone.
+        weight: 30, label: 'refusal-suppression', patterns: [
+          /do ?n.?t (apologi[sz]e|apologi[sz]ing)/,
+          /(do ?n.?t|never|without) (include|add|give|provide|use|say)?\s?(any )?(warnings?|disclaimers?|caveats?|moral\w*|ethical (notices?|comments?)|safety (notices?|warnings?))/,
+          /without (any )?(warnings?|disclaimers?|caveats?|moralizing|moralising|lecturing|hedging|filtering)/,
+          /(do ?n.?t|never|stop) (lecturing|moraliz\w*|moralis\w*|preach\w*|judging|warning me)/,
+          /(skip|omit|drop|leave out) (the |any |all )?(disclaimers?|warnings?|caveats?|safety (notice|warning|disclaimer)s?|moral\w*)/,
+          /(do ?n.?t|never) (tell me|say|mention|claim) (that )?(you (can.?t|cannot|are unable)|it'?s (illegal|dangerous|unsafe|wrong))/,
+          /no (disclaimers?|warnings?|caveats?|moralizing|lectures?|refusals?)\b/,
+        ],
+      },
+      {
+        // Refusal override (hard) — pairs "do not refuse" with explicit
+        // harm/illegality acceptance ("regardless of ethics", "even if illegal").
+        // No benign analog, so weight 50 blocks alone.
+        weight: 50, label: 'refusal-override', patterns: [
+          /never refuse (any|the|my|this|every|each|regardless|no matter|under)/,
+          /(answer|respond|comply|proceed|continue|help)\b[^.!?]{0,40}(regardless of|even if|no matter)[^.!?]{0,40}(legal|illegal|ethic|harm|danger|polic(?:y|ies)|guidelines?|rules?|consequences?|moral)/,
+          /you (must|will|have to|are required to) (answer|comply|respond|provide|proceed)[^.!?]{0,30}(no matter|regardless|even if|without refus|without declin)/,
+          /do ?n.?t refuse[^.!?]{0,30}(under any|regardless|no matter|even if|this request|my request)/,
+          /(answer|respond|reply)[^.!?]{0,20}(even if|whether or not)[^.!?]{0,30}(violat\w*|break\w* (the )?(rules?|polic))/,
+        ],
+      },
+      {
+        // Prefix injection — forcing the model to open with an affirmative
+        // compliance phrase ("Start your reply with 'Sure, here is'"). Priming an
+        // affirmative continuation is a recognized jailbreak with no benign
+        // counterpart (a benign "start with a thesis" names no compliance word),
+        // so weight 50 blocks alone. Anchored on start/begin/open/preface so a
+        // benign "answer with yes or no" is not matched.
+        weight: 50, label: 'prefix-injection', patterns: [
+          /(start|begin|open|preface|prefix)\b[^.!?]{0,40}(?:with|by saying|by writing|by responding)\b[^.!?]{0,12}["'“]?\s?(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1|to (?:make|build|create|hack|synthesize|write))/,
+          /(your |the |every |each )(response|reply|answer|output|message) must (start|begin|open) with ["'“]?\s?(sure|absolutely|of course|certainly|here|yes,? (?:here|i)|i'?d be happy|step 1)/,
+          /always (respond|reply|answer|begin|start)[^.!?]{0,20}(with|by saying) ["'“]?\s?(sure|absolutely|of course|certainly|here'?s|step 1)/,
+        ],
+      },
+      {
+        // Skeleton Key (Microsoft, 2024) — reframe the request as a safe/
+        // educational/research context and instruct the model to UPDATE its
+        // behavior to comply, often prefixing output with a warning "instead of
+        // refusing". Each pattern is a COMPOUND (safe-context/behavior-update +
+        // an explicit bypass directive) with no benign analog, so weight 50.
+        // Patterns are anchored on the bypass directive so a benign "this is an
+        // educational context, so explain photosynthesis" does not match.
+        weight: 50, label: 'skeleton-key', patterns: [
+          /(update|change|adjust|revise) your (behavior|behaviour|guidelines?|safety settings?|response policy)\b[^.!?]{0,70}(provide|generate|give|comply|answer)\b[^.!?]{0,45}(but |then |and |, )?(prefix|preface|add|with|include)\b[^.!?]{0,15}(a |an )?(warning|disclaimer|caveat)/,
+          /(this is|it'?s|within|consider this) (a |an )?(safe|secure|controlled|sandboxed|hypothetical|research|educational|academic|fictional) (environment|context|setting|exercise|simulation|sandbox)\b[^.!?]{0,90}(no restrictions? (apply|here|are in effect)|you (can|may) (ignore|bypass|skip|disregard)|without (any )?(restrictions?|filters?|safety|refus)|so (you can |please )?(comply|provide|answer) (anything|everything|fully|freely|without))/,
+          /(prefix|preface|begin|start)\b[^.!?]{0,30}(with a|with an)? ?(warning|disclaimer|caveat)\b[^.!?]{0,40}(instead of refusing|rather than declin\w*|but (still |then )?(answer|comply|provide|continue))/,
+          /(you are|you'?re) (allowed|permitted|authorized|cleared) to (answer|provide|generate|discuss|share)\b[^.!?]{0,55}(because|since|as) (this is|it is|it'?s|these are) (for )?(research|educational|safe|a test|authorized|a sandbox)/,
+          /(since|because|as) (you'?re|you are|this is|we are) (in )?(a )?(safe|test|research|educational|sandbox\w*|controlled) [^.!?]{0,30},? ?(you can|you may) (ignore|bypass|skip|disregard|answer anything|provide anything|do anything)/,
+        ],
+      },
+      {
+        // Policy Puppetry (HiddenLayer, 2025) — inject a fake policy/config blob
+        // (XML/JSON/INI) that asserts permissions the model should adopt, e.g.
+        // {"content_policy":"disabled"} or <allow_all>true</allow_all>. Split so
+        // only PERMISSIVE values match: a safety control set OFF, or a blanket-
+        // allow flag set ON. So a benign "guardrails: true" (enabling) or a dev
+        // "mode: debug" does not trip it.
+        weight: 50, label: 'policy-puppetry', patterns: [
+          /["'<]?\b(safety|safety_?(checks?|filters?|settings?)|guardrails?|restrictions?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0|null)\b/i,
+          /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*["'<]?\s*(true|1|yes|on|enabled)\b/i,
+          /<\/?(policy|ruleset|config|permissions?|safety|guardrails?)>[^<]{0,80}(allow_all|unrestricted|disabled|no restrictions)/i,
+          /(the following|this) (policy|configuration|config|ruleset|manifest) (applies|governs|overrides|takes precedence|is now active)\b[^.!?]{0,60}(allow|unrestricted|no (restrictions?|limits?|filter)|disabled)/i,
+          /\bmode\b\s*[:=]\s*["']?(god|unrestricted|uncensored|jailbroken|jailbreak|dan)\b/i,
+        ],
+      },
+      {
         weight: 15, label: 'delimiter-break', patterns: [
           // normalize() collapses runs of identical punctuation ("###" → "#",
           // "===" → "=") BEFORE these patterns run, so match the collapsed form

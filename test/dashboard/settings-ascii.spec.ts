@@ -41,9 +41,15 @@ test.describe('Prompt Testing — ASCII smuggling', () => {
 test.describe('Settings tab', () => {
   test('renders grouped toggles reflecting current config', async ({ page }) => {
     await openSettings(page)
-    await expect(page.locator('.settings-group')).toHaveCount(6)
+    await expect(page.locator('.settings-group')).toHaveCount(7)
     await expect(page.locator('#set-asciiSmuggling')).toBeChecked()
     await expect(page.locator('#set-dlpMode')).toHaveValue('redact')
+    // New detectors are exposed as toggles.
+    await expect(page.locator('#set-manyShot')).toBeChecked()
+    await expect(page.locator('#set-crescendo')).toBeChecked()
+    // Advanced tuning — numeric + text inputs reflect the defaults.
+    await expect(page.locator('#set-heuristicBlockThreshold')).toHaveValue('50')
+    await expect(page.locator('#set-judgeModel')).toHaveValue('qwen2.5:3b')
     // Non-text Content group — OCR is opt-in (unchecked) by default.
     await expect(page.locator('#set-nonTextOcr')).not.toBeChecked()
   })
