@@ -375,11 +375,18 @@ export async function run(args: string[]): Promise<void> {
   console.log('  similarity check cannot reason about. Stage 3 adds a local LLM judge');
   console.log('  (via Ollama) that evaluates the intent of each prompt — closing those gaps.');
 
-  const rl = createInterface({ input, output });
-  const answer = await rl.question('\n  Set up Stage 3 now? [y/N]: ');
-  rl.close();
+  // --judge runs the judge setup without asking, --no-judge skips it, and a
+  // non-interactive stdin (CI, piped install scripts) skips the prompt instead
+  // of hanging the whole setup on a question nobody can answer.
+  let setupJudge = args.includes('--judge');
+  if (!setupJudge && !args.includes('--no-judge') && input.isTTY) {
+    const rl = createInterface({ input, output });
+    const answer = await rl.question('\n  Set up Stage 3 now? [y/N]: ');
+    rl.close();
+    setupJudge = answer.trim().toLowerCase() === 'y';
+  }
 
-  if (answer.trim().toLowerCase() === 'y') {
+  if (setupJudge) {
     const { run: runSetupJudge } = await import('./setup-judge.js');
     await runSetupJudge();
   } else {

@@ -44,8 +44,10 @@ switch (command) {
 
 Commands:
   setup [--proxy-only]  Set up the firewall. Enables BOTH proxy and sinkhole by
-                        default (sinkhole needs admin/root); --proxy-only skips
+    [--judge|--no-judge]  default (sinkhole needs admin/root); --proxy-only skips
                         the sinkhole and covers only HTTPS_PROXY-aware tools.
+                        --judge/--no-judge answers the Stage 3 prompt up front
+                        (it is auto-skipped when stdin is not interactive).
   setup-judge           Install an Ollama model and enable Stage 3 judge
   uninstall [--yes]     Reverse setup: remove the CA from the OS trust store,
     [--keep-model]      restore the hosts file, delete the :443 port redirect,
