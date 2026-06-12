@@ -56,7 +56,7 @@ export class JudgeClient {
   private model: string
 
   constructor(config: DetectionConfig) {
-    this.ollamaBaseUrl = 'http://localhost:11434'
+    this.ollamaBaseUrl = config.ollamaUrl ?? 'http://localhost:11434'
     this.model = config.judgeModel
   }
 

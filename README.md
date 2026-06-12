@@ -782,6 +782,7 @@ Add to your `.llm-fw.json`:
 |--------|---------|--------|
 | `judgeEnabled` | `false` | Activates the judge stage |
 | `judgeBlock` | `false` | `false` = async monitoring only; `true` = blocks the request if verdict is `MALICIOUS` |
+| `ollamaUrl` | `http://localhost:11434` | Base URL of the Ollama server (point at a LAN GPU box or container; also `LLM_FW_OLLAMA_URL`) |
 
 ### 4. When does the judge run?
 

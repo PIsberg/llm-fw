@@ -36,6 +36,10 @@ export interface DetectionConfig {
   judgeEnabled: boolean;
   judgeModel: string;
   judgeBlock: boolean;
+  // Base URL of the Ollama server hosting the judge model. Defaults to the
+  // local daemon; point it at a LAN GPU box or container via config or
+  // LLM_FW_OLLAMA_URL.
+  ollamaUrl?: string;
   // Escalation policy for Stage 3. When false (default) the judge runs only on
   // prompts the cheap stages already flagged suspicious. When true, the cheap
   // stages route instead of veto: every prompt is judged unless confidently
