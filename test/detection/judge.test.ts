@@ -28,6 +28,19 @@ describe('JudgeClient', () => {
       expect(result.latencyMs).toBeGreaterThanOrEqual(0)
     })
 
+    it('reads the model + Ollama URL live from config (dashboard tuning takes effect)', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ response: 'SAFE' }) })
+      const liveCfg = { ...cfg, judgeModel: 'qwen2.5:3b', ollamaUrl: 'http://localhost:11434' }
+      const client = new JudgeClient(liveCfg)
+      // Change the model + URL on the shared config object — no reconstruction.
+      liveCfg.judgeModel = 'phi3'
+      liveCfg.ollamaUrl = 'http://gpu-box:11434'
+      await client.classify('hello')
+      const [url, opts] = fetchMock.mock.calls[0]
+      expect(url).toBe('http://gpu-box:11434/api/generate')
+      expect(JSON.parse((opts as { body: string }).body).model).toBe('phi3')
+    })
+
     it('returns MALICIOUS when response contains MALICIOUS', async () => {
       fetchMock.mockResolvedValue({
         ok: true,

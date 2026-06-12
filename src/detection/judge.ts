@@ -52,13 +52,13 @@ export function buildRagJudgePrompt(data: string): string {
 }
 
 export class JudgeClient {
-  private ollamaBaseUrl: string
-  private model: string
+  // Read from the live config reference (not copied) so a model / Ollama-URL
+  // change made through the dashboard takes effect on the next classify call
+  // without rebuilding the pipeline.
+  private get ollamaBaseUrl(): string { return this.config.ollamaUrl ?? 'http://localhost:11434' }
+  private get model(): string { return this.config.judgeModel }
 
-  constructor(config: DetectionConfig) {
-    this.ollamaBaseUrl = config.ollamaUrl ?? 'http://localhost:11434'
-    this.model = config.judgeModel
-  }
+  constructor(private config: DetectionConfig) {}
 
   async classify(input: string): Promise<JudgeResult> {
     const start = performance.now()

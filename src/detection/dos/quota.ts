@@ -19,18 +19,17 @@ const DEFAULT_TOKEN_WINDOW_MS = 3_600_000 // 1 hour
  * than a permanent lockout.
  */
 export class QuotaManager {
-  private maxRpm: number
-  private maxTokens: number
-  private tokenWindowMs: number
+  // Limits are read from the live config reference (not copied) so a change made
+  // through the dashboard takes effect immediately; accumulated state
+  // (timestamps, tokens) is retained across the change.
+  private get maxRpm(): number { return this.config.maxRequestsPerMinute }
+  private get maxTokens(): number { return this.config.maxTokensPerSession }
+  private get tokenWindowMs(): number { return this.config.tokenBudgetWindowMs ?? DEFAULT_TOKEN_WINDOW_MS }
   private timestamps: number[] = []
   private tokens = 0
   private tokenWindowStart: number | null = null
 
-  constructor(config: DosConfig) {
-    this.maxRpm = config.maxRequestsPerMinute
-    this.maxTokens = config.maxTokensPerSession
-    this.tokenWindowMs = config.tokenBudgetWindowMs ?? DEFAULT_TOKEN_WINDOW_MS
-  }
+  constructor(private config: DosConfig) {}
 
   /**
    * Evict expired timestamps from the FRONT of the (ascending) array instead of

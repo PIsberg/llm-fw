@@ -270,6 +270,8 @@ const HTML = `<!DOCTYPE html>
   .setting-sub { font-size: 0.76rem; color: #999; margin-top: 2px; }
   .setting-control { flex-shrink: 0; }
   .settings-select { padding: 5px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 0.82rem; }
+  .settings-input { padding: 5px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 0.82rem; width: 120px; text-align: right; }
+  .settings-input[type=text] { width: 170px; text-align: left; }
   .settings-saved { font-size: 0.82rem; color: #388e3c; height: 18px; margin-bottom: 8px; transition: opacity 0.3s; }
   /* Toggle switch */
   .switch { position: relative; display: inline-block; width: 42px; height: 22px; }
@@ -1198,8 +1200,16 @@ const SETTINGS_SCHEMA = [
     { key: 'taintMode', label: 'Taint mode', type: 'select', options: ['audit', 'block'], sub: 'audit: warn only · block: refuse the tainted destination' },
   ]},
   { group: 'Cost & Abuse (DoS)', desc: 'Behavioral circuit breakers against denial-of-wallet.', rows: [
-    { key: 'dos', label: 'Rate limit / token budget', sub: 'Per-minute request cap and a rolling per-session token budget (numeric limits set in config / env)' },
+    { key: 'dos', label: 'Rate limit / token budget', sub: 'Per-minute request cap and a rolling per-session token budget (numeric limits in the Advanced section below)' },
     { key: 'dosLoopDetection', label: 'Agent loop detection', sub: 'Detect an agent firing the same request over and over and break the loop' },
+  ]},
+  { group: 'Advanced — Tuning', desc: 'Numeric thresholds and limits, plus the judge model. All take effect on the next request — no restart. Lowering a detection threshold catches more attacks but risks more false positives; raising it is more permissive.', rows: [
+    { key: 'heuristicBlockThreshold', label: 'Heuristic block threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a prompt is blocked (default 50). Rules add weights; one strong rule scores 50' },
+    { key: 'embeddingBlockThreshold', label: 'Embedding block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Stage 2 cosine similarity at/above which a prompt is blocked (default 0.86). Lower = stricter' },
+    { key: 'embeddingWarnThreshold', label: 'Embedding warn threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Similarity at/above which a prompt warns and (if enabled) routes to the judge (default 0.80)' },
+    { key: 'dosMaxRpm', label: 'Max requests / minute', type: 'number', min: 1, max: 1000000, step: 1, sub: 'Requests allowed per rolling minute before rate-limiting (default 60)' },
+    { key: 'dosMaxTokens', label: 'Max tokens / session', type: 'number', min: 1, max: 1000000000, step: 1000, sub: 'Rolling per-session token budget before the cost circuit-breaker trips (default 500,000)' },
+    { key: 'judgeModel', label: 'Judge model (Ollama)', type: 'text', sub: 'Ollama model tag the Stage 3 judge uses, e.g. qwen2.5:3b. Pull it first: ollama pull <model>' },
   ]},
 ];
 
@@ -1208,6 +1218,11 @@ function settingsRowHtml(row, s) {
   if (row.type === 'select') {
     const opts = row.options.map(o => '<option value="' + esc(o) + '"' + (s[row.key] === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
     control = '<select class="settings-select" id="set-' + esc(row.key) + '" data-type="select">' + opts + '</select>';
+  } else if (row.type === 'number') {
+    const attrs = (row.min != null ? ' min="' + row.min + '"' : '') + (row.max != null ? ' max="' + row.max + '"' : '') + (row.step != null ? ' step="' + row.step + '"' : '');
+    control = '<input type="number" class="settings-input" id="set-' + esc(row.key) + '" data-type="number"' + attrs + ' value="' + esc(String(s[row.key])) + '">';
+  } else if (row.type === 'text') {
+    control = '<input type="text" class="settings-input" id="set-' + esc(row.key) + '" data-type="text" value="' + esc(String(s[row.key] != null ? s[row.key] : '')) + '">';
   } else {
     control = '<label class="switch"><input type="checkbox" id="set-' + esc(row.key) + '" data-type="toggle"' + (s[row.key] ? ' checked' : '') + '><span class="slider"></span></label>';
   }
@@ -1229,7 +1244,12 @@ function renderSettings(s) {
       const el = document.getElementById('set-' + r.key);
       if (!el) continue;
       el.addEventListener('change', () => {
-        const value = r.type === 'select' ? el.value : el.checked;
+        let value;
+        if (r.type === 'select' || r.type === 'text') value = el.value;
+        else if (r.type === 'number') {
+          if (el.value === '' || isNaN(Number(el.value))) { loadSettings(); return; } // ignore empty/invalid; resync
+          value = Number(el.value);
+        } else value = el.checked;
         saveSetting(r.key, value);
       });
     }
@@ -1507,6 +1527,13 @@ interface SettingsView {
   nonText: boolean
   nonTextMode: 'audit' | 'block'
   nonTextOcr: boolean
+  // Advanced — numeric/text tuning (all live, no restart).
+  heuristicBlockThreshold: number
+  embeddingBlockThreshold: number
+  embeddingWarnThreshold: number
+  dosMaxRpm: number
+  dosMaxTokens: number
+  judgeModel: string
 }
 
 // Defensive `?.`/defaults throughout: production config is always fully merged
@@ -1542,6 +1569,12 @@ function readSettings(config: Config): SettingsView {
     nonText: config.nonText?.enabled ?? true,
     nonTextMode: config.nonText?.mode ?? 'audit',
     nonTextOcr: config.nonText?.ocr ?? false,
+    heuristicBlockThreshold: config.detection?.heuristicBlockThreshold ?? 50,
+    embeddingBlockThreshold: config.detection?.embeddingBlockThreshold ?? 0.86,
+    embeddingWarnThreshold: config.detection?.embeddingWarnThreshold ?? 0.80,
+    dosMaxRpm: config.dos?.maxRequestsPerMinute ?? 60,
+    dosMaxTokens: config.dos?.maxTokensPerSession ?? 500_000,
+    judgeModel: config.detection?.judgeModel ?? 'qwen2.5:3b',
   }
 }
 
@@ -1572,6 +1605,21 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   nonTextOcr: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).ocr = v },
 }
 
+// Numeric tuning setters with an inclusive valid range (the POST allowlist for
+// numbers). Out-of-range or non-finite values are rejected.
+const NUMBER_SETTERS: Record<string, { min: number; max: number; apply: (c: Config, v: number) => void }> = {
+  heuristicBlockThreshold: { min: 1, max: 200, apply: (c, v) => { c.detection.heuristicBlockThreshold = v } },
+  embeddingBlockThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingBlockThreshold = v } },
+  embeddingWarnThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingWarnThreshold = v } },
+  dosMaxRpm: { min: 1, max: 1_000_000, apply: (c, v) => { c.dos.maxRequestsPerMinute = Math.round(v) } },
+  dosMaxTokens: { min: 1, max: 1_000_000_000, apply: (c, v) => { c.dos.maxTokensPerSession = Math.round(v) } },
+}
+
+// Free-text setters (the POST allowlist for strings). Trimmed, non-empty, capped.
+const STRING_SETTERS: Record<string, { apply: (c: Config, v: string) => void }> = {
+  judgeModel: { apply: (c, v) => { c.detection.judgeModel = v } },
+}
+
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
   manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).mode = v as 'audit' | 'block' } },
@@ -1591,10 +1639,19 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       judgeEnabled: config.detection.judgeEnabled,
       judgeBlock: config.detection.judgeBlock,
       judgeUnlessBenign: config.detection.judgeUnlessBenign ?? false,
+      judgeModel: config.detection.judgeModel,
+      heuristicBlockThreshold: config.detection.heuristicBlockThreshold,
+      embeddingBlockThreshold: config.detection.embeddingBlockThreshold,
+      embeddingWarnThreshold: config.detection.embeddingWarnThreshold,
     },
     rag: { enabled: config.rag.enabled },
     dlp: { enabled: config.dlp.enabled, mode: config.dlp.mode },
-    dos: { enabled: config.dos.enabled, loopDetectionEnabled: config.dos.loopDetectionEnabled },
+    dos: {
+      enabled: config.dos.enabled,
+      loopDetectionEnabled: config.dos.loopDetectionEnabled,
+      maxRequestsPerMinute: config.dos.maxRequestsPerMinute,
+      maxTokensPerSession: config.dos.maxTokensPerSession,
+    },
     mcp: {
       enabled: config.mcp.enabled,
       guardrailsEnabled: config.mcp.guardrailsEnabled,
@@ -1632,6 +1689,19 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
         errors.push(`${key}: expected one of ${spec.values.join(', ')}`); continue
       }
       spec.apply(config, value)
+      applied.push(key)
+    } else if (key in NUMBER_SETTERS) {
+      const spec = NUMBER_SETTERS[key]
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < spec.min || value > spec.max) {
+        errors.push(`${key}: expected a number in [${spec.min}, ${spec.max}]`); continue
+      }
+      spec.apply(config, value)
+      applied.push(key)
+    } else if (key in STRING_SETTERS) {
+      if (typeof value !== 'string' || value.trim().length === 0 || value.length > 100) {
+        errors.push(`${key}: expected a non-empty string (≤ 100 chars)`); continue
+      }
+      STRING_SETTERS[key].apply(config, value.trim())
       applied.push(key)
     } else {
       errors.push(`${key}: unknown setting`)

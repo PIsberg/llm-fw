@@ -364,6 +364,26 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(s.nonText).toBe(true)
     expect(s.nonTextMode).toBe('audit')
     expect(s.nonTextOcr).toBe(false)
+    // Advanced numeric/text tuning is exposed too.
+    expect(s.heuristicBlockThreshold).toBe(50)
+    expect(s.embeddingBlockThreshold).toBeCloseTo(0.86)
+    expect(s.dosMaxRpm).toBe(60)
+    expect(typeof s.judgeModel).toBe('string')
+  })
+
+  it('POST /api/settings rejects an out-of-range numeric value with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"embeddingBlockThreshold":1.5}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects a non-numeric threshold with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"heuristicBlockThreshold":"high"}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects an empty judge model with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"judgeModel":"  "}')
+    expect(res.status).toBe(400)
   })
 
   // Validation rejections never reach the persist path (applied list is empty),
