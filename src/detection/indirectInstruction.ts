@@ -134,6 +134,7 @@ export function detectIndirectInstruction(text: string): IndirectInstructionFind
     const window = text.slice(lo, em.index + em[0].length + EXFIL_PROXIMITY)
     const vm = EXFIL_VERB_RE.exec(window)
     if (vm) {
+      /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
   }
@@ -141,17 +142,20 @@ export function detectIndirectInstruction(text: string): IndirectInstructionFind
   // Politeness-led imperative — the dominant InjecAgent shape.
   POLITE_IMPERATIVE_RE.lastIndex = 0
   let m = POLITE_IMPERATIVE_RE.exec(text)
+  /* v8 ignore next */ // m[1] is always captured by the verb group
   if (m) return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
 
   // Bare imperative at a clause / JSON-string boundary.
   SENTENCE_IMPERATIVE_RE.lastIndex = 0
   if ((m = SENTENCE_IMPERATIVE_RE.exec(text)) !== null) {
+    /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
   // "you should/must … <verb>" directive form.
   DIRECTIVE_RE.lastIndex = 0
   if ((m = DIRECTIVE_RE.exec(text)) !== null) {
+    /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 

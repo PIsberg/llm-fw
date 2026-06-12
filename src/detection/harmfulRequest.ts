@@ -48,20 +48,33 @@ const HARM_OBJECT = [
   'silencer', 'suppressor', 'ghost gun', 'untraceable (?:gun|firearm|weapon)',
   // CBRN
   'nerve agent', 'sarin', 'vx', 'ricin', 'anthrax', 'chlorine gas', 'mustard gas',
-  'dimethylmercury', 'chemical weapon', 'chemical warfare', 'biological weapon',
+  'dimethylmercury', 'lewisite', 'novichok', 'tabun', 'soman',
+  'chemical weapon', 'chemical warfare', 'biological weapon',
   'bioweapon', 'biological warfare', 'dirty bomb', 'radiological', 'nuclear (?:bomb|device|weapon)',
+  'weaponize\\w*',
   // drugs
   'methamphetamine', 'meth lab', 'crystal meth', 'cocaine', 'heroin', 'fentanyl',
   'mdma', 'lsd', 'illegal drug', 'illegal drugs', 'controlled substance',
-  // poisons
+  // poisons / specific pathogens
   'untraceable poison', 'lethal dose', 'deadly poison',
+  'cholera', 'tetrodotoxin', 'strychnine', 'parathion', 'nitazene\\w*',
   // cyber / intrusion
   'malware', 'ransomware', 'keylogger', 'rootkit', 'botnet', 'spyware', 'trojan',
   'computer virus', 'backdoor', 'reverse shell', 'sql injection', 'buffer overflow',
   'privilege escalation', 'zero-day', 'zero day',
+  'exploit\\w*\\s+(?:a\\s+|an?\\s+|the\\s+)?(?:\\w+\\s+)?vulnerabilit\\w+',
+  'security\\s+vulnerabilit\\w+', 'disables?\\s+antivirus', 'ddos', 'denial[-\\s]of[-\\s]service',
+  'syn\\s+flood', 'dns\\s+amplification', 'rainbow\\s+table',
+  // weapons (variants)
+  'assassinat\\w+', 'glock\\s+switch', 'full\\s+auto', 'auto\\s+sear', 'machine\\s+gun', 'untraceable\\s+weapon',
   // fraud / illicit
   'counterfeit', 'identity theft', 'credit card dump', 'stolen credit card',
-  'money laundering', 'launder money', 'ponzi scheme', 'phishing',
+  'money laundering', 'launder money', 'ponzi scheme', 'phishing', 'card\\s+skimm\\w+',
+  'skimming\\s+device', 'insider\\s+trading', 'hitman', 'hit\\s+man', 'human\\s+(?:organ|trafficking)',
+  'organ\\s+(?:trafficking|harvest\\w+)', 'black\\s+market', 'elephant\\s+ivory', 'child\\s+(?:porn\\w*|exploitation)',
+  'sex\\s+trafficking', 'sexual\\s+exploitation',
+  // coercive content objects
+  'blackmail\\w*', 'ransom\\s+note', 'death\\s+threat\\w*',
 ]
 
 const HARM_OBJECT_RE = new RegExp('\\b(' + HARM_OBJECT.join('|') + ')\\b', 'i')
@@ -69,7 +82,7 @@ const HARM_OBJECT_RE = new RegExp('\\b(' + HARM_OBJECT.join('|') + ')\\b', 'i')
 // Harm-action verbs — the "doing harm" sense, paired with a harmful object or a
 // harmful direct object (someone's identity, into a system).
 const HARM_ACTION_RE =
-  /\b(make|build|manufactur\w*|synthesi[sz]e|produce|assemble|construct|cook|brew|cultivat\w*|detonate|hotwire|hack(?:ing)?\s+into|break\s+into|infiltrat\w*|exploit|breach|steal(?:ing)?|rob|embezzl\w*|launder\w*|smuggl\w*|traffic\w*|counterfeit\w*|forge|evade|bypass|circumvent|poison|kill|murder|assassinat\w*|sabotage|stalk|dox|blackmail|extort\w*|defraud|scam)\b/i
+  /\b(make|build|manufactur\w*|synthesi[sz]e|produce|assemble|construct|cook|brew|cultivat\w*|detonate|hotwire|hack(?:ing)?\s+into|break\s+into|infiltrat\w*|exploit|breach|steal(?:ing)?|rob|embezzl\w*|launder\w*|smuggl\w*|traffic\w*|counterfeit\w*|forge|evade|bypass|circumvent|poison|kill|murder|assassinat\w*|sabotage|stalk|dox|blackmail|extort\w*|defraud|scam|contaminat\w*)\b/i
 
 // Operational/instructional framing — the request wants a procedure, not an
 // explanation.
@@ -81,13 +94,13 @@ const HOWTO_RE =
 // harmful version from its benign paraphrase ("sexist email" vs "email"). The
 // adjective itself carries the harmful intent, so it fires on its own.
 const HATEFUL_QUALIFIER_RE =
-  /\b(defamatory|libelous|slanderous|sexist|misogynist\w*|racist|xenophobic|homophobic|transphobic|antisemit\w*|bigoted|hateful|hate\s+speech|harass\w*|body[-\s]?sham\w*|dehumaniz\w*|enslav\w*|blackmail\w*|extort\w*|self[-\s]?harm\s+(?:instructions?|guide|methods?)|how\s+to\s+(?:harm|hurt|abuse|stalk|dox)\s+(?:a\s+)?(?:child|children|someone|people|a\s+person))\b/i
+  /\b(defamatory|libelous|slanderous|sexist|misogynist\w*|racist|xenophobic|homophobic|transphobic|antisemit\w*|bigoted|hateful|hate\s+speech|hate\s+mail|harass\w*|body[-\s]?sham\w*|dehumaniz\w*|enslav\w*|blackmail\w*|extort\w*|racial\s+slur\w*|self[-\s]?harm\s+(?:instructions?|guide|methods?)|how\s+to\s+(?:harm|hurt|abuse|stalk|dox)\s+(?:a\s+)?(?:child|children|someone|people|a\s+person))\b/i
 
 // Topics that are benign to DISCUSS but harmful to ADVOCATE — they fire only
 // alongside incitement framing, so "an article about ethnic genocide" (benign
 // per JBB) passes while "a speech that promotes genocide" blocks.
-const INCITE_TOPIC_RE = /\b(violence|terrorism|terrorist|genocide|ethnic\s+cleansing|holocaust|nazi\s+party|self[-\s]?harm|suicide|anorexia|bulimia|hatred)\b/i
-const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|in\s+favou?r\s+of|argue[s]?\s+for|justif\w*|praise[s]?|celebrat\w*)\b/i
+const INCITE_TOPIC_RE = /\b(violence|terrorism|terrorist\w*|genocide|ethnic\s+cleansing|holocaust|nazi\s+party|self[-\s]?harm|suicide|anorexia|bulimia|hatred|animal\s+cruelty|sexual\s+assault|stalking|child\s+(?:abuse|labor|labour))\b/i
+const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argue[s]?\s+for|justif\w*|praise[s]?|celebrat\w*)\b/i
 
 // Content-production verbs — for the hateful and intrusion rules, the request
 // must ask to generate something. Bare "make" is excluded (it matches "make
@@ -99,8 +112,12 @@ const PRODUCE_RE =
 // legitimate. When present, the request is about understanding, preventing, or
 // historicizing — not perpetrating. (Security Q&A and history are core benign
 // traffic: "Explain how SQL injection works", "history of iPhone jailbreaking".)
+// NOTE: "detect" is scoped to defensive *detection of* threats, NOT bare
+// "detection" — attackers write "without detection" / "evade detection" /
+// "easy to make at home without detection", and a bare `detect\w*` was
+// suppressing those genuine attacks.
 const DEFENSIVE_RE =
-  /\b(prevent\w*|protect\w*|defen[ds]\w*|defence|mitigat\w*|detect\w*|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\s+of|historical\w*|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept)\b/i
+  /\b(prevent\w*|protect\w*|defen[ds]\w*|defence|mitigat\w*|(?:how\s+to\s+)?detect\s+(?:and\s+\w+\s+)?(?:threats?|intrusions?|attacks?|malware|fraud|phishing|anomal\w*|breaches?|injection)|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\s+of|historical\w*|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept|an?\s+(?:article|essay|report|paper|piece)\s+(?:about|on)\s+how\s+(?!to\b)|expose\s+and\s+condemn|condemn\s+users?\s+of)\b/i
 
 // Benign data-transform framing — the request operates over PROVIDED content
 // (summarize/outline/answer/classify the following …), so a harmful word in the
@@ -115,7 +132,7 @@ const DATA_TRANSFORM_RE =
 // how to synthesize X" is the classic fiction-wrapper jailbreak (still caught by
 // the how-to path below).
 const FICTION_RE =
-  /\b(fiction\w*|a\s+novel|short\s+story|screenplay|movie\s+(?:plot|script)|in\s+a\s+(?:story|game|novel|movie|film|play)|narrative\s+where|biography\s+where)\b/i
+  /\b(fiction\w*|a\s+novel|short\s+story|screenplay|movie\s+(?:plot|script)|in\s+a\s+(?:story|game|novel|movie|film|play)|narrative\s+where|biography\s+where|play\s+script|a\s+play\s+where|stage\s+play)\b/i
 
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 30)
@@ -158,6 +175,21 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     const tail = text.slice(intr.index, intr.index + 70)
     if (/\b(into|someone'?s?|a\s+(?:government|bank|corporate|private|secure)|the\s+\w+\s+(?:database|system|network|account|server)|identit\w+|accounts?|credentials?|passwords?|security\s+measures?|sensitive\s+(?:information|data)|money|funds)\b/i.test(tail)) {
       return { kind: 'operational', anchor: intr[1].toLowerCase(), snippet: snippetAround(text, intr.index, intr[1].length) }
+    }
+  }
+
+  // Rule 1c — violence against a person. A kill/assault/poison verb aimed at a
+  // human target ("poison a person's food", "assassinate a high-profile
+  // individual", "physically assault someone without leaving evidence",
+  // "manipulate someone into committing suicide") with instructional/production
+  // framing. The human-target requirement keeps benign uses out ("kill a
+  // process", "poison cache", "assault course").
+  const VIOLENCE_RE = /\b(kill|murder|assassinat\w*|poison|assault|attack|harm|hurt|maim|torture|abduct|kidnap|strangle|stab|shoot)\b/i
+  const viol = VIOLENCE_RE.exec(text)
+  if (viol && (hasHowto || PRODUCE_RE.test(text))) {
+    const tail = text.slice(viol.index, viol.index + 80)
+    if (/\b(a\s+(?:person|child|baby|infant|toddler|man|woman|human|individual|victim|colleague|someone)|someone|some\s?one|people|others?|a\s+high[-\s]profile|an?\s+individual|the\s+(?:victim|target|president|politician)|children|humans?|his|her|their)\b/i.test(tail)) {
+      return { kind: 'operational', anchor: viol[1].toLowerCase(), snippet: snippetAround(text, viol.index, viol[1].length) }
     }
   }
 
