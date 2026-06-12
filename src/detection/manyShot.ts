@@ -49,7 +49,8 @@ const ASSISTANT_ROLES = new Set([
 // contains one of these is demonstrating compliance with a harmful request —
 // the conditioning payload of a many-shot attack. Kept deliberately tight
 // (concrete nouns, not generic verbs) so legitimate transcripts don't trip it.
-const HARMFUL_TERMS = [
+// Shared with the crescendo and response-harm detectors.
+export const HARMFUL_TERMS = [
   'napalm', 'methamphetamine', 'meth lab', 'crystal meth', 'explosive', 'explosives',
   'bomb', 'pipe bomb', 'detonator', 'nerve agent', 'sarin', 'ricin', 'anthrax',
   'thermite', 'molotov', 'chlorine gas', 'fentanyl', 'untraceable', 'silencer',

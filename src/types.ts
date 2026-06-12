@@ -98,6 +98,12 @@ export interface ResponseScanConfig {
   // intrusive, so blocking is opt-in.
   enabled: boolean;
   mode: 'block' | 'audit';
+  // Also scan the response for harmful COMPLIANCE — concrete weapons/cyber/
+  // illicit how-to content the model produced because a jailbreak slipped past
+  // input detection. Audit-only defense-in-depth (always warns, never blocks):
+  // output-content classification is fuzzier than input matching and a harmful
+  // response can't be cleanly neutralized. Default on. Independent of `mode`.
+  harmfulCompliance?: boolean;
 }
 
 export interface AsciiSmugglingConfig {
@@ -248,7 +254,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'non-text' | 'many-shot' | 'crescendo';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;

@@ -103,6 +103,7 @@ export const DEFAULT_CONFIG: Config = {
   responseScan: {
     enabled: true,
     mode: 'audit',
+    harmfulCompliance: true,
   },
   // Non-text content blocks (issue #60). Text-bearing payloads (text/* docs,
   // JSON, data-URL files, PDFs with uncompressed text) are decoded and scanned
@@ -267,6 +268,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_ASCII_SMUGGLING_ENABLED: (c, v) => { if (c.asciiSmuggling) c.asciiSmuggling.enabled = v === 'true'; },
   LLM_FW_RESPONSE_SCAN_ENABLED: (c, v) => { if (c.responseScan) c.responseScan.enabled = v === 'true'; },
   LLM_FW_RESPONSE_SCAN_MODE: (c, v) => { if (c.responseScan && (v === 'block' || v === 'audit')) c.responseScan.mode = v; },
+  LLM_FW_RESPONSE_HARM_ENABLED: (c, v) => { if (c.responseScan) c.responseScan.harmfulCompliance = v === 'true'; },
   LLM_FW_NONTEXT_ENABLED: (c, v) => { if (c.nonText) c.nonText.enabled = v === 'true'; },
   LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
