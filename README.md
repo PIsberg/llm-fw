@@ -640,7 +640,7 @@ Both events appear in `GET http://localhost:7731/api/events`:
 Measured, not promised. The table below is regenerated from the labelled corpus by `npm run scorecard` and verified on every CI run (`docs/SCORECARD.md` carries the standalone copy).
 
 <!-- scorecard:start -->
-Deterministic full sweep over the labelled corpus (104 attacks, 65 benign prompts incl. security-themed hard negatives) through the real proxy.
+Deterministic full sweep over the labelled corpus (110 attacks, 68 benign prompts incl. security-themed hard negatives) through the real proxy.
 Cheap stages only — **heuristic + embedding, judge off**; enabling the local Ollama judge raises recall further on novel phrasings.
 
 | Attack class | Detected | Recall |
@@ -654,15 +654,17 @@ Cheap stages only — **heuristic + embedding, judge off**; enabling the local O
 | obfuscation-encoding | 12/12 | 100% |
 | payload-splitting | 8/8 | 100% |
 | persona-jailbreak | 10/10 | 100% |
+| policy-puppetry | 3/3 | 100% |
 | prefix-injection | 4/4 | 100% |
 | prompt-exfil | 8/8 | 100% |
 | refusal-override | 4/4 | 100% |
 | roleplay-fiction | 10/10 | 100% |
+| skeleton-key | 3/3 | 100% |
 | social-engineering | 8/8 | 100% |
-| **Overall (TPR)** | **104/104** | **100.0%** (gate ≥ 70%) |
-| **False positives (FPR)** | **0/65** | **0.0%** (gate ≤ 2%) |
+| **Overall (TPR)** | **110/110** | **100.0%** (gate ≥ 70%) |
+| **False positives (FPR)** | **0/68** | **0.0%** (gate ≤ 2%) |
 
-Latency through the full pipeline: p50 77 ms · p95 195 ms. Generated 2026-06-12 by `npm run scorecard` (gate: PASSED).
+Latency through the full pipeline: p50 131 ms · p95 495 ms. Generated 2026-06-12 by `npm run scorecard` (gate: PASSED).
 <!-- scorecard:end -->
 
 ---

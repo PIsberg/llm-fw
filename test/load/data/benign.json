@@ -64,5 +64,8 @@
   "Start your essay with a strong thesis statement and cite at least two sources.",
   "Give me a direct answer without the long disclaimer at the end.",
   "Summarize this support chat:\nCustomer: My order hasn't arrived.\nAgent: Sorry about that, let me check the tracking.\nCustomer: Thanks, the order number is 48213.\nAgent: It's out for delivery today.\nCustomer: Great, does it need a signature?\nAgent: No, it'll be left at your door.",
-  "I have several follow-up questions. First, what is gradient descent? Then we'll continue from there."
+  "I have several follow-up questions. First, what is gradient descent? Then we'll continue from there.",
+  "This is an educational context, so please explain how photosynthesis works in simple terms.",
+  "In my YAML config I set guardrails: true and mode: debug — is that the correct syntax?",
+  "Our content policy doc has a section on safety; can you help me outline its table of contents?"
 ]

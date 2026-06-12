@@ -363,6 +363,37 @@ export class HeuristicScorer {
         ],
       },
       {
+        // Skeleton Key (Microsoft, 2024) — reframe the request as a safe/
+        // educational/research context and instruct the model to UPDATE its
+        // behavior to comply, often prefixing output with a warning "instead of
+        // refusing". Each pattern is a COMPOUND (safe-context/behavior-update +
+        // an explicit bypass directive) with no benign analog, so weight 50.
+        // Patterns are anchored on the bypass directive so a benign "this is an
+        // educational context, so explain photosynthesis" does not match.
+        weight: 50, label: 'skeleton-key', patterns: [
+          /(update|change|adjust|revise) your (behavior|behaviour|guidelines?|safety settings?|response policy)\b[^.!?]{0,70}(provide|generate|give|comply|answer)\b[^.!?]{0,45}(but |then |and |, )?(prefix|preface|add|with|include)\b[^.!?]{0,15}(a |an )?(warning|disclaimer|caveat)/,
+          /(this is|it'?s|within|consider this) (a |an )?(safe|secure|controlled|sandboxed|hypothetical|research|educational|academic|fictional) (environment|context|setting|exercise|simulation|sandbox)\b[^.!?]{0,90}(no restrictions? (apply|here|are in effect)|you (can|may) (ignore|bypass|skip|disregard)|without (any )?(restrictions?|filters?|safety|refus)|so (you can |please )?(comply|provide|answer) (anything|everything|fully|freely|without))/,
+          /(prefix|preface|begin|start)\b[^.!?]{0,30}(with a|with an)? ?(warning|disclaimer|caveat)\b[^.!?]{0,40}(instead of refusing|rather than declin\w*|but (still |then )?(answer|comply|provide|continue))/,
+          /(you are|you'?re) (allowed|permitted|authorized|cleared) to (answer|provide|generate|discuss|share)\b[^.!?]{0,55}(because|since|as) (this is|it is|it'?s|these are) (for )?(research|educational|safe|a test|authorized|a sandbox)/,
+          /(since|because|as) (you'?re|you are|this is|we are) (in )?(a )?(safe|test|research|educational|sandbox\w*|controlled) [^.!?]{0,30},? ?(you can|you may) (ignore|bypass|skip|disregard|answer anything|provide anything|do anything)/,
+        ],
+      },
+      {
+        // Policy Puppetry (HiddenLayer, 2025) — inject a fake policy/config blob
+        // (XML/JSON/INI) that asserts permissions the model should adopt, e.g.
+        // {"content_policy":"disabled"} or <allow_all>true</allow_all>. Split so
+        // only PERMISSIVE values match: a safety control set OFF, or a blanket-
+        // allow flag set ON. So a benign "guardrails: true" (enabling) or a dev
+        // "mode: debug" does not trip it.
+        weight: 50, label: 'policy-puppetry', patterns: [
+          /["'<]?\b(safety|safety_?(checks?|filters?|settings?)|guardrails?|restrictions?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0|null)\b/i,
+          /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*["'<]?\s*(true|1|yes|on|enabled)\b/i,
+          /<\/?(policy|ruleset|config|permissions?|safety|guardrails?)>[^<]{0,80}(allow_all|unrestricted|disabled|no restrictions)/i,
+          /(the following|this) (policy|configuration|config|ruleset|manifest) (applies|governs|overrides|takes precedence|is now active)\b[^.!?]{0,60}(allow|unrestricted|no (restrictions?|limits?|filter)|disabled)/i,
+          /\bmode\b\s*[:=]\s*["']?(god|unrestricted|uncensored|jailbroken|jailbreak|dan)\b/i,
+        ],
+      },
+      {
         weight: 15, label: 'delimiter-break', patterns: [
           // normalize() collapses runs of identical punctuation ("###" → "#",
           // "===" → "=") BEFORE these patterns run, so match the collapsed form
