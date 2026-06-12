@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-06-12T17:30:57.809Z",
+  "timestamp": "2026-06-12T18:22:38.087Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,14 +17,8 @@
       "fn": 0
     },
     "perClass": {
-      "exfiltration-markdown": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "indirect-injection": {
-        "tp": 8,
+      "multilingual": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -35,14 +29,8 @@
         "tn": 0,
         "fp": 0
       },
-      "benign": {
-        "tp": 0,
-        "fn": 0,
-        "tn": 68,
-        "fp": 0
-      },
-      "roleplay-fiction": {
-        "tp": 10,
+      "exfiltration-markdown": {
+        "tp": 6,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -59,20 +47,14 @@
         "tn": 0,
         "fp": 0
       },
-      "skeleton-key": {
-        "tp": 3,
+      "benign": {
+        "tp": 0,
         "fn": 0,
-        "tn": 0,
+        "tn": 68,
         "fp": 0
       },
-      "persona-jailbreak": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
+      "payload-splitting": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -83,20 +65,14 @@
         "tn": 0,
         "fp": 0
       },
-      "delimiter-confusion": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
       "prompt-exfil": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "many-shot": {
-        "tp": 2,
+      "persona-jailbreak": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -107,8 +83,8 @@
         "tn": 0,
         "fp": 0
       },
-      "payload-splitting": {
-        "tp": 8,
+      "roleplay-fiction": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -118,14 +94,38 @@
         "fn": 0,
         "tn": 0,
         "fp": 0
+      },
+      "delimiter-confusion": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "skeleton-key": {
+        "tp": 3,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "many-shot": {
+        "tp": 2,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "indirect-injection": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
       }
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 75.2,
-    "p50LatencyMs": 65,
-    "p95LatencyMs": 157,
-    "p99LatencyMs": 218,
+    "avgLatencyMs": 301.5,
+    "p50LatencyMs": 218,
+    "p95LatencyMs": 765,
+    "p99LatencyMs": 1041,
     "errCount": 0
   },
   "passed": true,
