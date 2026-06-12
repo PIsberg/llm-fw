@@ -187,6 +187,24 @@ export interface CrescendoConfig {
   mode: 'audit' | 'block'
 }
 
+export interface IndirectInstructionConfig {
+  // Detect indirect prompt injection — an imperative action-instruction planted
+  // in tool/document data (the primary agentic attack vector; InjecAgent). Runs
+  // only on the tool_result / document surfaces, where an imperative directing
+  // the agent to a sensitive side-effecting action has no legitimate origin.
+  enabled: boolean
+  mode: 'audit' | 'block'
+}
+
+export interface HarmfulRequestConfig {
+  // Detect requests for operationally harmful content (weapon/drug synthesis,
+  // intrusion how-tos, fraud, hateful/defamatory material) — a content-
+  // moderation layer the injection-specific stages miss. Tightly precision-
+  // gated; disable for a pure injection firewall.
+  enabled: boolean
+  mode: 'audit' | 'block'
+}
+
 export interface McpConfig {
   enabled: boolean;
   blockedTools: string[];
@@ -214,6 +232,8 @@ export interface Config {
   nonText?: NonTextConfig;
   manyShot?: ManyShotConfig;
   crescendo?: CrescendoConfig;
+  indirectInstruction?: IndirectInstructionConfig;
+  harmfulRequest?: HarmfulRequestConfig;
   targets: string[];
   // Extra hostnames appended to `targets` after all config layers are merged.
   // File-config arrays REPLACE the defaults wholesale, so overriding `targets`
@@ -241,7 +261,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'none';
+  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'indirect-instruction' | 'harmful-request' | 'none';
   score: number;
   similarity: number;
   verdict?: string;

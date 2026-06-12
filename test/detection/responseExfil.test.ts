@@ -34,6 +34,11 @@ describe('scanResponseExfil', () => {
     expect(scanResponseExfil('The revenue rose 12% this quarter.', isExfil)).toHaveLength(0)
   })
 
+  it('silently skips a regex-matched URL that fails URL parsing (parseUrl catch branch)', () => {
+    // Trailing bare % is valid regex match but throws in new URL() — tests the catch path.
+    expect(scanResponseExfil('![x](https://broken%)', isExfil)).toHaveLength(0)
+  })
+
   it('dedupes repeated URLs of the same kind', () => {
     const text = '![a](https://evil.example.com/x) and again ![b](https://evil.example.com/x)'
     expect(scanResponseExfil(text, isExfil)).toHaveLength(1)

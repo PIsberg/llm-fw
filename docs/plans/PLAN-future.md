@@ -37,6 +37,16 @@ claim needs larger, standard, and *threat-diverse* benchmarks.
 **Done when:** `docs/BENCHMARK.md` reports recall/FPR for ≥3 independent injection
 sets and ≥2 harmful-content sets, with N and source revisions pinned.
 
+**Status (2026-06-12): DONE.** `scripts/fetch-eval-data.ts` reproducibly fetches
+all public sets with pinned revisions; suite is now 4,531 rows across 4 injection
+sets (safeguard expanded to its full 2,060-row split), InjecAgent (1,071 rows on
+the `tool_result` surface), and JBB/HarmBench/AdvBench (reported separately).
+PINT is request-only (part-proprietary) and excluded. Harness has `--json`,
+`--only=`, and per-attack-class breakdowns. Key new numbers: safeguard full split
+43.7→84.2% recall at 0.6→0.7% FPR (classifier); InjecAgent 0% cheap / 52% classifier
+(the biggest measured gap → Phases 3–5); harmful-content 2–4% with or without the
+classifier, confirming it needs a content-moderation layer (Phase 5).
+
 ---
 
 ## Phase 2 — Head-to-head against other guardrails

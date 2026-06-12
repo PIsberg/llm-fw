@@ -7,6 +7,7 @@
 [![npm](https://img.shields.io/npm/v/llm-fw?logo=npm)](https://www.npmjs.com/package/llm-fw)
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-brightgreen?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
+[![Lines of Code](https://www.aschey.tech/tokei/github/PIsberg/llm-fw?languages=TypeScript&category=code)](https://github.com/PIsberg/llm-fw)
 
 ### Stop prompt injection before it reaches the model — on your machine, across every major LLM provider, with zero code changes.
 

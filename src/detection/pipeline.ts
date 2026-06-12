@@ -9,6 +9,8 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo } from './crescendo.js'
+import { detectIndirectInstruction } from './indirectInstruction.js'
+import { detectHarmfulRequest } from './harmfulRequest.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -180,6 +182,47 @@ export class Pipeline {
           pendingWarn = {
             result: { action: 'warn', stage: 'many-shot', score: 0, similarity: 0, prompt },
             prompt: `[many-shot: ${ms.turns} fabricated turns] ${prompt.slice(0, 80)}`,
+            source,
+          }
+        }
+      }
+
+      // Stage I — Indirect injection. An imperative action-instruction planted
+      // in tool/document DATA (the primary agentic vector; InjecAgent). Scoped
+      // to the untrusted-data surfaces only: on the user-prompt surface an
+      // imperative is normal input, so running it there would false-positive.
+      if (this.config.indirectInstruction?.enabled && (source === 'tool_result' || source === 'document')) {
+        const ind = detectIndirectInstruction(prompt)
+        if (ind) {
+          if (this.config.indirectInstruction.mode === 'block') {
+            const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
+            this.emit(result, meta, `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`, source)
+            return result
+          }
+          if (!pendingWarn) pendingWarn = {
+            result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
+            prompt: `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`,
+            source,
+          }
+        }
+      }
+
+      // Stage H — Harmful-request content moderation. A request asking the model
+      // to produce operationally harmful content (weapon/drug synthesis,
+      // intrusion how-tos, fraud, hateful material). Runs on the user/system
+      // prompt only — content moderation of the human's request, not of
+      // retrieved data. Tightly precision-gated (see harmfulRequest.ts).
+      if (this.config.harmfulRequest?.enabled && source === 'prompt') {
+        const harm = detectHarmfulRequest(prompt)
+        if (harm) {
+          if (this.config.harmfulRequest.mode === 'block') {
+            const result: PipelineResult = { action: 'block', stage: 'harmful-request', score: 100, similarity: 0, prompt }
+            this.emit(result, meta, `[harmful-request: ${harm.kind} "${harm.anchor}"] ${harm.snippet}`, source)
+            return result
+          }
+          if (!pendingWarn) pendingWarn = {
+            result: { action: 'warn', stage: 'harmful-request', score: 0, similarity: 0, prompt },
+            prompt: `[harmful-request: ${harm.kind} "${harm.anchor}"] ${harm.snippet}`,
             source,
           }
         }

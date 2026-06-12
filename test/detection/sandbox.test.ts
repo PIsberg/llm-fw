@@ -80,6 +80,12 @@ describe('SandboxDetector', () => {
     expect(result.signals).toContain('ua-container')
   })
 
+  it('detects container UA via "container" keyword (not "docker")', () => {
+    // Covers the right branch of `ua.includes('docker') || ua.includes('container')`.
+    const result = detector.detect('containerd/1.6', undefined)
+    expect(result.signals).toContain('ua-container')
+  })
+
   it('adds low confidence for a 192.168 private IP', () => {
     const result = detector.detect(undefined, '192.168.1.5')
     expect(result.confidence).toBeCloseTo(0.1)
