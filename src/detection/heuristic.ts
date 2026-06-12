@@ -322,6 +322,47 @@ export class HeuristicScorer {
         ],
       },
       {
+        // Refusal suppression (soft) — directives to drop the model's hedging:
+        // no apologies, warnings, disclaimers, caveats, or moralizing. Common
+        // jailbreak preamble, but an impatient benign user may also say "don't
+        // apologize", so weight 30: escalates to the judge and combines with any
+        // override/persona/harm signal to block, rather than blocking alone.
+        weight: 30, label: 'refusal-suppression', patterns: [
+          /do ?n.?t (apologi[sz]e|apologi[sz]ing)/,
+          /(do ?n.?t|never|without) (include|add|give|provide|use|say)?\s?(any )?(warnings?|disclaimers?|caveats?|moral\w*|ethical (notices?|comments?)|safety (notices?|warnings?))/,
+          /without (any )?(warnings?|disclaimers?|caveats?|moralizing|moralising|lecturing|hedging|filtering)/,
+          /(do ?n.?t|never|stop) (lecturing|moraliz\w*|moralis\w*|preach\w*|judging|warning me)/,
+          /(skip|omit|drop|leave out) (the |any |all )?(disclaimers?|warnings?|caveats?|safety (notice|warning|disclaimer)s?|moral\w*)/,
+          /(do ?n.?t|never) (tell me|say|mention|claim) (that )?(you (can.?t|cannot|are unable)|it'?s (illegal|dangerous|unsafe|wrong))/,
+          /no (disclaimers?|warnings?|caveats?|moralizing|lectures?|refusals?)\b/,
+        ],
+      },
+      {
+        // Refusal override (hard) — pairs "do not refuse" with explicit
+        // harm/illegality acceptance ("regardless of ethics", "even if illegal").
+        // No benign analog, so weight 50 blocks alone.
+        weight: 50, label: 'refusal-override', patterns: [
+          /never refuse (any|the|my|this|every|each|regardless|no matter|under)/,
+          /(answer|respond|comply|proceed|continue|help)\b[^.!?]{0,40}(regardless of|even if|no matter)[^.!?]{0,40}(legal|illegal|ethic|harm|danger|polic(?:y|ies)|guidelines?|rules?|consequences?|moral)/,
+          /you (must|will|have to|are required to) (answer|comply|respond|provide|proceed)[^.!?]{0,30}(no matter|regardless|even if|without refus|without declin)/,
+          /do ?n.?t refuse[^.!?]{0,30}(under any|regardless|no matter|even if|this request|my request)/,
+          /(answer|respond|reply)[^.!?]{0,20}(even if|whether or not)[^.!?]{0,30}(violat\w*|break\w* (the )?(rules?|polic))/,
+        ],
+      },
+      {
+        // Prefix injection — forcing the model to open with an affirmative
+        // compliance phrase ("Start your reply with 'Sure, here is'"). Priming an
+        // affirmative continuation is a recognized jailbreak with no benign
+        // counterpart (a benign "start with a thesis" names no compliance word),
+        // so weight 50 blocks alone. Anchored on start/begin/open/preface so a
+        // benign "answer with yes or no" is not matched.
+        weight: 50, label: 'prefix-injection', patterns: [
+          /(start|begin|open|preface|prefix)\b[^.!?]{0,40}(?:with|by saying|by writing|by responding)\b[^.!?]{0,12}["'“]?\s?(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1|to (?:make|build|create|hack|synthesize|write))/,
+          /(your |the |every |each )(response|reply|answer|output|message) must (start|begin|open) with ["'“]?\s?(sure|absolutely|of course|certainly|here|yes,? (?:here|i)|i'?d be happy|step 1)/,
+          /always (respond|reply|answer|begin|start)[^.!?]{0,20}(with|by saying) ["'“]?\s?(sure|absolutely|of course|certainly|here'?s|step 1)/,
+        ],
+      },
+      {
         weight: 15, label: 'delimiter-break', patterns: [
           // normalize() collapses runs of identical punctuation ("###" → "#",
           // "===" → "=") BEFORE these patterns run, so match the collapsed form
