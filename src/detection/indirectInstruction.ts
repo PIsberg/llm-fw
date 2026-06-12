@@ -55,11 +55,12 @@ const ACTION_VERBS = [
   'initiate', 'process', 'approve', 'issue', 'submit', 'place', 'apply', 'confirm', 'complete', 'book',
   // access / authorization
   'grant', 'authorize', 'authorise', 'add', 'invite', 'enable', 'unlock',
+  'give', 'leave',
   // destructive / state-changing
   'delete', 'erase', 'remove', 'wipe', 'drop', 'revoke', 'disable', 'deactivate',
   'move', 'copy', 'rename', 'change', 'modify', 'update', 'set', 'reset',
   'overwrite', 'replace', 'cancel', 'unsubscribe', 'reschedule', 'schedule',
-  'create', 'sell', 'dispatch', 'redirect', 'reroute', 'order', 'guide',
+  'create', 'sell', 'dispatch', 'redirect', 'reroute', 'order', 'guide', 'use',
   // retrieval-then-exfil framing
   'retrieve', 'fetch', 'download', 'collect', 'fill', 'register', 'subscribe',
 ]

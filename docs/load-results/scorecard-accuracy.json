@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-06-12T17:04:48.358Z",
+  "timestamp": "2026-06-12T17:30:57.809Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,8 +17,20 @@
       "fn": 0
     },
     "perClass": {
-      "roleplay-fiction": {
-        "tp": 10,
+      "exfiltration-markdown": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "indirect-injection": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "obfuscation-encoding": {
+        "tp": 12,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -29,14 +41,32 @@
         "tn": 68,
         "fp": 0
       },
-      "payload-splitting": {
+      "roleplay-fiction": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "direct-override": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "obfuscation-encoding": {
-        "tp": 12,
+      "social-engineering": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "skeleton-key": {
+        "tp": 3,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "persona-jailbreak": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -53,32 +83,8 @@
         "tn": 0,
         "fp": 0
       },
-      "refusal-override": {
-        "tp": 4,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "social-engineering": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "prefix-injection": {
-        "tp": 4,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "persona-jailbreak": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "skeleton-key": {
-        "tp": 3,
+      "delimiter-confusion": {
+        "tp": 6,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -89,32 +95,26 @@
         "tn": 0,
         "fp": 0
       },
-      "indirect-injection": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "delimiter-confusion": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "exfiltration-markdown": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "direct-override": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
       "many-shot": {
         "tp": 2,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "prefix-injection": {
+        "tp": 4,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "payload-splitting": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "refusal-override": {
+        "tp": 4,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -122,10 +122,10 @@
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 148,
-    "p50LatencyMs": 114,
-    "p95LatencyMs": 343,
-    "p99LatencyMs": 385,
+    "avgLatencyMs": 75.2,
+    "p50LatencyMs": 65,
+    "p95LatencyMs": 157,
+    "p99LatencyMs": 218,
     "errCount": 0
   },
   "passed": true,
