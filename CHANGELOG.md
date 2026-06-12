@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-12
+
 ### Added
 
 **Detection — new attack-class coverage**
@@ -15,16 +17,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Heuristic rules for refusal-suppression, refusal-override, prefix-injection ("start your reply with 'Sure, here is'"), Skeleton Key (safe-context behavior-update), and Policy Puppetry (fake permission config).
 - Base32 (RFC 4648) and Ascii85 (Adobe `<~ ~>`) obfuscation decoders added to the candidate extractor.
 - Response-side harmful-compliance scan — audit-only defense-in-depth that flags a response containing a harmful how-to (a jailbreak the input stages missed and the model complied with); excludes refusals and high-level explanations (`responseScan.harmfulCompliance`, `LLM_FW_RESPONSE_HARM_ENABLED`).
+- Non-text content scanning — Stage 1–3 pipeline now inspects image and document content blocks; opt-in OCR (Tesseract.js) extracts text from images and runs it through the full detection pipeline; a real image prompt-injection corpus is included for accuracy testing (`detection.nonTextContent.{enabled,ocrEnabled}`, `LLM_FW_NONTEXT_*`).
+- Multilingual injection coverage — attack patterns and embedding corpus extended to cover injections written in non-English languages; detection recall verified across language groups.
 - AWS Bedrock provider + Converse/InvokeModel parser; HuggingFace updated to the current `router.huggingface.co` endpoint; Cohere tool result/use extraction implemented.
 - Proxy now intercepts Azure OpenAI and regional Vertex tenant hosts (`proxy.interceptDomains`, `LLM_FW_INTERCEPT_DOMAINS`).
 - `extraTargets` config to append hosts without redeclaring the provider registry (`LLM_FW_EXTRA_TARGETS`); configurable Ollama base URL (`detection.ollamaUrl`, `LLM_FW_OLLAMA_URL`).
 
 **Generalization layer & benchmarking**
 - Trained ONNX prompt-injection classifier stage (`protectai/deberta-v3-base-prompt-injection-v2`, Apache-2.0) — a learned generalization layer that runs locally (no Ollama) and roughly doubles cheap-stage recall on an independent held-out benchmark with near-zero added false positives. Opt-in (~700 MB, lazy-loaded). Config `detection.classifier.{enabled,blockThreshold}`, `LLM_FW_CLASSIFIER_{ENABLED,THRESHOLD}`, and a Settings-tab toggle + threshold.
-- Independent benchmark harness (`scripts/run-benchmark.ts`) + two held-out datasets (deepset public test split; self-authored novel phrasings) and a documented honest scorecard (`docs/BENCHMARK.md`). Finding: the generative Ollama judge blocks 27-86% of benign traffic when used as a general backstop, so `judgeUnlessBenign` is now documented as not recommended; the trained classifier is the precise alternative.
+- Phase 1 public benchmark suite (`scripts/run-benchmark.ts`) with pinned revisions, two held-out datasets (deepset public test split; self-authored novel phrasings), per-class CI scorecard gate, and a documented honest scorecard (`docs/BENCHMARK.md`). Finding: the generative Ollama judge blocks 27–86% of benign traffic when used as a general backstop, so `judgeUnlessBenign` is now documented as not recommended; the trained classifier is the precise alternative.
 
 **Dashboard**
-- Settings tab now exposes the new detectors (many-shot, crescendo, response-harm), the trained classifier (toggle + threshold), and an **Advanced — Tuning** group with validated number/text inputs for the heuristic/embedding/classifier thresholds, DoS rate/token limits, and judge model; every row carries an inline explanation. All settings apply live (JudgeClient and QuotaManager read their values from the live config) and persist to `~/.llm-fw/config.json`.
+- Image/doc playground category — upload any image or file to probe the non-text injection pipeline directly from the browser.
+- Settings tab now exposes the new detectors (many-shot, crescendo, response-harm, non-text/OCR), the trained classifier (toggle + threshold), and an **Advanced — Tuning** group with validated number/text inputs for the heuristic/embedding/classifier thresholds, DoS rate/token limits, and judge model; every row carries an inline explanation. All settings apply live and persist to `~/.llm-fw/config.json`.
+
+**Performance**
+- LRU result cache for the embedding stage — repeated or near-identical prompts skip the ONNX inference pass entirely.
+
+**CI / security**
+- GitHub Actions hardened via StepSecurity (pinned action SHAs, minimum token permissions).
 
 Scorecard: 110 attacks across 16 classes at 100% TPR / 0% FPR (heuristic + embedding, judge off).
 
@@ -36,6 +47,8 @@ Scorecard: 110 attacks across 16 classes at 100% TPR / 0% FPR (heuristic + embed
 
 ### Fixed
 - Dropped `google.com`/`googleusercontent.com` from the outbound URL-filter allowlist (now labelled as infrastructure, not trusted as exfil-safe).
+- Embedding stage no longer emits a warning on empty/whitespace-only input.
+- Persona-anchor heuristic reworded to eliminate false positives on benign AI-assistant responses.
 
 ## [0.1.0] - 2026-06-09
 
@@ -76,5 +89,6 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/PIsberg/llm-fw/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/PIsberg/llm-fw/releases/tag/v0.1.0
