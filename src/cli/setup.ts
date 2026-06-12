@@ -1,6 +1,7 @@
 import { CertFactory } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
+import { stripSinkholeBlock } from './hosts.js';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
@@ -227,30 +228,10 @@ export async function run(args: string[]): Promise<void> {
       : '/etc/hosts';
     try {
       const original = fs.readFileSync(hostsPath, 'utf8');
-      const lines = original.split(/\r?\n/);
-      const cleanLines = [];
-      let inBlock = false;
-      const targetHosts = new Set(config.targets);
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed === '# llm-fw sinkhole') {
-          inBlock = true;
-          continue;
-        }
-        if (inBlock) {
-          if (trimmed === '' || (!trimmed.startsWith('127.0.0.1') && !trimmed.startsWith('::1') && !trimmed.startsWith('#'))) {
-            inBlock = false; // heuristic for end of block
-          } else {
-            continue;
-          }
-        }
-        const parts = trimmed.split(/\s+/);
-        if (parts.length >= 2 && targetHosts.has(parts[1])) continue;
-        cleanLines.push(line);
-      }
-      
-      const cleanHosts = cleanLines.join('\n');
+      // Strip any previous llm-fw block (and stray loopback target lines) so
+      // re-running setup never stacks duplicate entries — same helper
+      // uninstall uses for the full cleanup.
+      const cleanHosts = stripSinkholeBlock(original, config.targets);
       if (original !== cleanHosts) {
         fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
       } else if (!fs.existsSync(hostsPath + '.llm-fw.bak')) {
