@@ -218,7 +218,6 @@ export async function run(args: string[]): Promise<void> {
     const hostsPath = platform() === 'win32'
       ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
       : '/etc/hosts';
-    const config = await loadConfig();
     try {
       const original = fs.readFileSync(hostsPath, 'utf8');
       const lines = original.split(/\r?\n/);
