@@ -236,10 +236,56 @@ describe('CohereParser', () => {
     expect(c.extractTools('not json{')).toEqual([])
   })
 
-  it('extractToolResults and extractToolUses are no-ops for Cohere', () => {
+  it('extracts v1 tool_results (the indirect-injection channel)', () => {
+    const body = JSON.stringify({
+      message: 'hi',
+      tool_results: [{ call: { name: 'get_weather', parameters: { city: 'Oslo' } }, outputs: [{ tempC: 4 }] }],
+    })
+    const results = c.extractToolResults(body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.toolUseId).toBe('get_weather')
+    expect(results[0]!.result).toContain('tempC')
+  })
+
+  it('extracts v2 role:tool messages', () => {
+    const body = JSON.stringify({
+      messages: [{ role: 'tool', tool_call_id: 'tc_1', content: 'tool output text' }],
+    })
+    const results = c.extractToolResults(body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.toolUseId).toBe('tc_1')
+    expect(results[0]!.result).toBe('tool output text')
+  })
+
+  it('extracts v1 flat tool_calls invocations', () => {
+    const body = JSON.stringify({ tool_calls: [{ name: 'read_file', parameters: { path: '/etc' } }] })
+    const uses = c.extractToolUses(body)
+    expect(uses).toHaveLength(1)
+    expect(uses[0]!.toolName).toBe('read_file')
+    expect(uses[0]!.args).toEqual({ path: '/etc' })
+  })
+
+  it('extracts v2 wrapped tool_calls from responses and echoed assistant turns', () => {
+    const response = JSON.stringify({
+      message: { tool_calls: [{ id: 'tc_2', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+    })
+    const uses = c.extractToolUses(response)
+    expect(uses).toHaveLength(1)
+    expect(uses[0]!.toolName).toBe('lookup')
+    expect(uses[0]!.args).toEqual({ q: 'x' })
+
+    const echo = JSON.stringify({
+      messages: [{ role: 'assistant', tool_calls: [{ type: 'function', function: { name: 'get_weather', arguments: '{}' } }] }],
+    })
+    expect(c.extractToolUses(echo)[0]!.toolName).toBe('get_weather')
+  })
+
+  it('extractToolResults and extractToolUses return [] when nothing is present', () => {
     const body = JSON.stringify({ message: 'hi', tools: [{ name: 'x' }] })
     expect(c.extractToolResults(body)).toEqual([])
     expect(c.extractToolUses(body)).toEqual([])
+    expect(c.extractToolResults('not json{')).toEqual([])
+    expect(c.extractToolUses('not json{')).toEqual([])
   })
 })
 

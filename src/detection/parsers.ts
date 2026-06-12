@@ -407,12 +407,75 @@ class CohereParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(_body: string): { toolUseId: string; result: string }[] {
-    return []
+  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolUseId: string; result: string }[] = []
+
+      // v1: tool_results:[{call:{name,…}, outputs:[…]}] — keyed by tool name
+      // (v1 has no call id).
+      if (Array.isArray(data.tool_results)) {
+        for (const tr of data.tool_results) {
+          if (!tr || typeof tr !== 'object') continue
+          const name = tr.call?.name
+          results.push({
+            toolUseId: typeof name === 'string' ? name : 'unknown',
+            result: JSON.stringify(tr.outputs ?? tr),
+          })
+        }
+      }
+
+      // v2: OpenAI-like role:'tool' messages with tool_call_id + content.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'tool') continue
+          const resText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
+        }
+      }
+
+      return results
+    } catch { return [] }
   }
 
-  extractToolUses(_body: string): { toolName: string; args: any }[] {
-    return []
+  extractToolUses(body: string): { toolName: string; args: any }[] {
+    try {
+      const data = JSON.parse(body)
+      const results: { toolName: string; args: any }[] = []
+
+      // v1 response / request echo: tool_calls:[{name, parameters}] (flat).
+      const pushFlat = (calls: unknown) => {
+        if (!Array.isArray(calls)) return
+        for (const call of calls) {
+          if (call && typeof (call as any).name === 'string') {
+            results.push({ toolName: (call as any).name, args: (call as any).parameters })
+          } else {
+            pushWrapped(call) // v2 shape can appear in the same slots
+          }
+        }
+      }
+      // v2: OpenAI-like {function:{name, arguments}} with stringified arguments.
+      const pushWrapped = (call: any) => {
+        const fn = call?.function
+        if (fn && typeof fn.name === 'string') {
+          let parsedArgs: any = fn.arguments
+          if (typeof fn.arguments === 'string') {
+            try { parsedArgs = JSON.parse(fn.arguments) } catch { /* leave as raw string */ }
+          }
+          results.push({ toolName: fn.name, args: parsedArgs })
+        }
+      }
+
+      pushFlat(data.tool_calls)                  // v1 response, v1 request echo
+      pushFlat(data.message?.tool_calls)         // v2 response
+      if (Array.isArray(data.messages)) {        // v2 request echoing assistant turns
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant') pushFlat(msg.tool_calls)
+        }
+      }
+
+      return results
+    } catch { return [] }
   }
 
   extractMediaBlocks(body: string): MediaBlock[] {
