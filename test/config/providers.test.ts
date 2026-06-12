@@ -62,6 +62,16 @@ describe('identifyService', () => {
     expect(identifyService('login.microsoft.com')).toBe('Microsoft')
   })
 
+  it('labels non-API Google properties without allowlisting them', () => {
+    // Labelled for Live Traffic, but as infra — NOT part of AI_PROVIDER_DOMAINS,
+    // so docs.google.com etc. never reach the URL filter allowlist.
+    expect(identifyService('docs.google.com')).toBe('Google')
+    expect(identifyService('lh3.googleusercontent.com')).toBe('Google')
+    expect(AI_PROVIDER_DOMAINS).not.toContain('google.com')
+    expect(AI_PROVIDER_DOMAINS).not.toContain('googleusercontent.com')
+    expect(AI_PROVIDER_DOMAINS).toContain('googleapis.com')
+  })
+
   it('does not match a lookalike domain (suffix boundary is enforced)', () => {
     // endsWith('.anthropic.com') must not be satisfied by "evil-anthropic.com".
     expect(identifyService('evil-anthropic.com')).toBe('Custom')

@@ -33,7 +33,11 @@ export const AI_PROVIDERS: AiProvider[] = [
   {
     name: 'Google',
     hosts: ['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'],
-    domains: ['googleapis.com', 'google.com', 'googleusercontent.com'],
+    // Only the API domain. google.com / googleusercontent.com are labelled via
+    // INFRA_SERVICES below — keeping them out of here keeps them off the URL
+    // filter allowlist, which would otherwise trust every Google property
+    // (Docs, Drive, Sites, …) as an exfiltration-safe destination.
+    domains: ['googleapis.com'],
   },
   { name: 'Mistral', hosts: ['api.mistral.ai'], domains: ['mistral.ai'] },
   { name: 'Groq', hosts: ['api.groq.com'], domains: ['groq.com'] },
@@ -76,6 +80,7 @@ export const AI_PROVIDERS: AiProvider[] = [
 
 /** Infrastructure / tooling hosts — labelled on the dashboard but never sinkholed. */
 const INFRA_SERVICES: { name: string; domains: string[] }[] = [
+  { name: 'Google', domains: ['google.com', 'googleusercontent.com'] },
   { name: 'NPM', domains: ['npmjs.org', 'npmjs.com'] },
   { name: 'GitHub', domains: ['github.com'] },
   { name: 'Microsoft', domains: ['microsoft.com', 'exp-tas.com'] },
