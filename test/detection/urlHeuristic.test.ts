@@ -33,6 +33,15 @@ describe('normalizeDomainEntry', () => {
     expect(normalizeDomainEntry('.example.com')).toBe('example.com')
     expect(normalizeDomainEntry('  WebHook.Site  ')).toBe('webhook.site')
   })
+  it('drops userinfo and keeps bracketed IPv6 literals', () => {
+    expect(normalizeDomainEntry('user:pass@example.com')).toBe('example.com')
+    expect(normalizeDomainEntry('[2001:db8::1]:8443')).toBe('2001:db8::1')
+    expect(normalizeDomainEntry('[::1]')).toBe('::1')
+  })
+  it('returns empty string for blank/whitespace-only entries', () => {
+    expect(normalizeDomainEntry('   ')).toBe('')
+    expect(normalizeDomainEntry('')).toBe('')
+  })
 })
 
 describe('UrlClassifier — decorated allowlist entries still match', () => {

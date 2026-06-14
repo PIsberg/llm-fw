@@ -459,6 +459,17 @@ describe('extractSystem (trusted-surface separation)', () => {
     expect(sys).toContain('top-level instr')
     expect(sys).not.toContain('hi')
   })
+  it('OpenAI: Responses API `input` array carries system/developer roles', () => {
+    const body = JSON.stringify({ input: [
+      { role: 'system', content: 'input sys' },
+      { role: 'developer', content: 'input dev' },
+      { role: 'user', content: 'u' },
+    ] })
+    const sys = o.extractSystem(body)
+    expect(sys).toContain('input sys')
+    expect(sys).toContain('input dev')
+    expect(sys).not.toContain('u')
+  })
   it('Gemini: systemInstruction parts only', () => {
     const body = JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
@@ -466,13 +477,23 @@ describe('extractSystem (trusted-surface separation)', () => {
     })
     expect(g.extractSystem(body)).toEqual(['be-helpful'])
   })
-  it('Cohere: v1 preamble and v2 system role only', () => {
+  it('Gemini: no systemInstruction -> []', () => {
+    expect(g.extractSystem(JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }))).toEqual([])
+  })
+  it('Cohere: v1 preamble, v2 string content, and v2 array content', () => {
     expect(c.extractSystem(JSON.stringify({ preamble: 'pre', message: 'hi' }))).toEqual(['pre'])
     expect(c.extractSystem(JSON.stringify({ messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'u' }] }))).toEqual(['sys'])
+    expect(c.extractSystem(JSON.stringify({ messages: [{ role: 'system', content: [{ text: 'sys-arr' }] }] }))).toEqual(['sys-arr'])
   })
   it('Bedrock: Converse system blocks and native Anthropic system', () => {
     expect(b.extractSystem(JSON.stringify({ system: [{ text: 'converse sys' }] }))).toContain('converse sys')
     expect(b.extractSystem(JSON.stringify({ system: 'native sys' }))).toContain('native sys')
+  })
+  it('all parsers: malformed JSON -> []', () => {
+    expect(o.extractSystem('not json{')).toEqual([])
+    expect(g.extractSystem('not json{')).toEqual([])
+    expect(c.extractSystem('not json{')).toEqual([])
+    expect(b.extractSystem('not json{')).toEqual([])
   })
 })
 
