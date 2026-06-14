@@ -55,8 +55,20 @@ describe('AnthropicParser', () => {
     expect(result).toContain('You are a helpful assistant.')
   })
 
+  it('extractSystem returns only the system field (string + array forms)', () => {
+    expect(a.extractSystem('{"system":"sys","messages":[{"role":"user","content":"hi"}]}')).toEqual(['sys'])
+    const arr = a.extractSystem(JSON.stringify({
+      system: [{ type: 'text', text: 'sys-a' }, { type: 'text', text: 'sys-b' }],
+      messages: [{ role: 'user', content: 'hi' }],
+    }))
+    expect(arr).toEqual(['sys-a', 'sys-b'])
+    // No user content leaks into the system surface.
+    expect(a.extractSystem('{"messages":[{"role":"user","content":"hi"}]}')).toEqual([])
+  })
+
   it('returns [] for malformed JSON', () => {
     expect(a.extractPrompts('not json{')).toEqual([])
+    expect(a.extractSystem('not json{')).toEqual([])
   })
 })
 
@@ -430,6 +442,37 @@ describe('extractConversation', () => {
       { role: 'user', text: 'q' },
       { role: 'assistant', text: 'a' },
     ])
+  })
+})
+
+describe('extractSystem (trusted-surface separation)', () => {
+  const b = new BedrockParser()
+  it('OpenAI: system/developer roles + Responses instructions, never user', () => {
+    const body = JSON.stringify({ messages: [
+      { role: 'system', content: 'be safe' },
+      { role: 'developer', content: 'dev rules' },
+      { role: 'user', content: 'hi' },
+    ], instructions: 'top-level instr' })
+    const sys = o.extractSystem(body)
+    expect(sys).toContain('be safe')
+    expect(sys).toContain('dev rules')
+    expect(sys).toContain('top-level instr')
+    expect(sys).not.toContain('hi')
+  })
+  it('Gemini: systemInstruction parts only', () => {
+    const body = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+      systemInstruction: { parts: [{ text: 'be-helpful' }] },
+    })
+    expect(g.extractSystem(body)).toEqual(['be-helpful'])
+  })
+  it('Cohere: v1 preamble and v2 system role only', () => {
+    expect(c.extractSystem(JSON.stringify({ preamble: 'pre', message: 'hi' }))).toEqual(['pre'])
+    expect(c.extractSystem(JSON.stringify({ messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'u' }] }))).toEqual(['sys'])
+  })
+  it('Bedrock: Converse system blocks and native Anthropic system', () => {
+    expect(b.extractSystem(JSON.stringify({ system: [{ text: 'converse sys' }] }))).toContain('converse sys')
+    expect(b.extractSystem(JSON.stringify({ system: 'native sys' }))).toContain('native sys')
   })
 })
 

@@ -236,10 +236,16 @@ export class ProxyServer {
     // are matched here in addition to the configured targets. Configurable via
     // proxy.interceptDomains; the registry list is the fallback when the field
     // is absent (hand-built configs), so out-of-box behaviour never regresses.
+    // FAIL-SAFE: when bypass is on, behave as a transparent tunnel for EVERY host
+    // — never MITM, never run taint/url-filter, never block. One env flag
+    // (LLM_FW_BYPASS=true) restores full connectivity if a detection change goes
+    // wrong, so the operator can never be locked out of their LLM APIs.
+    const bypass = this.config.proxy.bypass === true
     const interceptDomains = this.config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
-    const isTarget =
+    const isTarget = !bypass && (
       this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t)) ||
       interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))
+    )
 
     if (!isTarget) {
       // Cross-turn taint (host level). The destination hostname is visible at
@@ -249,7 +255,7 @@ export class ProxyServer {
       // exfil signal that needs no body inspection. (Only the hostname is
       // checkable here; path/query taint is caught in handleRequest for
       // inspected hosts.)
-      if (this.config.taint?.enabled) {
+      if (!bypass && this.config.taint?.enabled) {
         const sessionKey = normalizeIp(clientSocket.remoteAddress) ?? 'unknown'
         const findings = this.taint.checkSink(sessionKey, hostname, Date.now())
         if (findings.length) {
@@ -282,7 +288,7 @@ export class ProxyServer {
       }
 
       // URL filter: check hostname before establishing any tunnel
-      if (this.config.proxy.urlFilter.enabled) {
+      if (!bypass && this.config.proxy.urlFilter.enabled) {
         const urlResult = this.urlClassifier.classify(hostname)
         if (urlResult.action === 'block') {
           const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })

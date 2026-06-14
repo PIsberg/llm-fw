@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { UrlClassifier } from '../../src/detection/urlHeuristic.js'
+import { UrlClassifier, normalizeDomainEntry } from '../../src/detection/urlHeuristic.js'
 import type { UrlFilterConfig } from '../../src/types.js'
 
 const cfg: UrlFilterConfig = {
@@ -20,6 +20,31 @@ describe('UrlClassifier — allowlist', () => {
   it('allowlist wins over known-exfil-domain', () => {
     const special = new UrlClassifier({ ...cfg, allowlistDomains: ['webhook.site'] })
     expect(special.classify('webhook.site').action).toBe('pass')
+  })
+})
+
+describe('normalizeDomainEntry', () => {
+  it('strips scheme, path, port, wildcard, dot and whitespace', () => {
+    expect(normalizeDomainEntry('https://webhook.site')).toBe('webhook.site')
+    expect(normalizeDomainEntry('webhook.site/')).toBe('webhook.site')
+    expect(normalizeDomainEntry('http://example.com/path?x=1')).toBe('example.com')
+    expect(normalizeDomainEntry('example.com:443')).toBe('example.com')
+    expect(normalizeDomainEntry('*.example.com')).toBe('example.com')
+    expect(normalizeDomainEntry('.example.com')).toBe('example.com')
+    expect(normalizeDomainEntry('  WebHook.Site  ')).toBe('webhook.site')
+  })
+})
+
+describe('UrlClassifier — decorated allowlist entries still match', () => {
+  // Regression: operators paste full URLs / ports / wildcards into the allowlist;
+  // these must whitelist the bare host instead of silently leaving it blocked.
+  it('full-URL allowlist entry whitelists a known-exfil host', () => {
+    const u = new UrlClassifier({ enabled: true, entropyThreshold: 4.8, allowlistDomains: ['https://webhook.site/'], blocklistDomains: [] })
+    expect(u.classify('webhook.site').action).toBe('pass')
+  })
+  it('wildcard allowlist entry whitelists subdomains', () => {
+    const u = new UrlClassifier({ enabled: true, entropyThreshold: 4.8, allowlistDomains: ['*.example.com'], blocklistDomains: [] })
+    expect(u.classify('api.example.com').action).toBe('pass')
   })
 })
 
@@ -61,7 +86,21 @@ describe('UrlClassifier — subdomain entropy (DNS tunneling)', () => {
     const highEntropyLabel = 'zQ7mK2pX9vN4wL8tG5bY1jH6rC3sF0aD'
     const r = c.classify(`${highEntropyLabel}.example.com`)
     expect(r.action).toBe('block')
-    expect(r.reason).toMatch('high-entropy-subdomain')
+    expect(r.reason).toMatch('high-entropy-host')
+  })
+  it('blocks a bare high-entropy DGA apex (no subdomain)', () => {
+    // The random string IS the registrable label — previously slipped through
+    // because only subdomains were entropy-screened.
+    const dga = 'zQ7mK2pX9vN4wL8tG5bY1jH6rC3sF0aD'
+    const r = c.classify(`${dga}.com`)
+    expect(r.action).toBe('block')
+    expect(r.reason).toMatch('high-entropy-host')
+  })
+  it('blocks a DGA apex reached via response-exfil path screening', () => {
+    // ![](https://<dga>.net/) markdown-image destinations resolve through the
+    // same classifier the response-exfil scanner uses.
+    const dga = 'x7Kq9Zw2Pm4Lt8Gb5Yj1Hr6Cs3Fa0D'
+    expect(c.classify(`${dga}.net`).action).toBe('block')
   })
   it('passes short subdomain even if high entropy', () => {
     // "xk3f" — 4 chars, below 12 minimum

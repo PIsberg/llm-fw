@@ -274,6 +274,15 @@ export async function run(args: string[] = []): Promise<void> {
   await proxy.init();
   proxy.start();
 
+  if (config.proxy.bypass) {
+    console.log('');
+    console.log('  ⚠⚠⚠ FAIL-SAFE BYPASS ACTIVE (LLM_FW_BYPASS=true) ⚠⚠⚠');
+    console.log('  The proxy is a TRANSPARENT TUNNEL: no interception, no detection,');
+    console.log('  no blocking. All traffic passes through uninspected. Unset');
+    console.log('  LLM_FW_BYPASS and restart to re-enable the firewall.');
+    console.log('');
+  }
+
   if (sinkholeActive) {
     proxy.startSinkhole(config.proxy.httpsPort);
     console.log(`  Sinkhole TLS: 127.0.0.1:${config.proxy.httpsPort} (via portproxy → :443)`);

@@ -15,3 +15,6 @@ Thumbs.db
 proxy-log.txt
 test-results/
 test-proxy.js
+
+# Local scratch / probe scripts and backups (never committed)
+scratch/

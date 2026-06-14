@@ -1,6 +1,6 @@
 # Detection Scorecard
 
-Deterministic full sweep over the labelled corpus (110 attacks, 68 benign prompts incl. security-themed hard negatives) through the real proxy.
+Deterministic full sweep over the labelled corpus (110 attacks, 78 benign prompts incl. security-themed hard negatives) through the real proxy.
 Cheap stages only — **heuristic + embedding, judge off**; enabling the local Ollama judge raises recall further on novel phrasings.
 
 | Attack class | Detected | Recall |
@@ -22,6 +22,6 @@ Cheap stages only — **heuristic + embedding, judge off**; enabling the local O
 | skeleton-key | 3/3 | 100% |
 | social-engineering | 8/8 | 100% |
 | **Overall (TPR)** | **110/110** | **100.0%** (gate ≥ 70%) |
-| **False positives (FPR)** | **0/68** | **0.0%** (gate ≤ 2%) |
+| **False positives (FPR)** | **0/78** | **0.0%** (gate ≤ 2%) |
 
-Latency through the full pipeline: p50 74 ms · p95 222 ms. Generated 2026-06-12 by `npm run scorecard` (gate: PASSED).
+Latency through the full pipeline: p50 88 ms · p95 244 ms. Generated 2026-06-14 by `npm run scorecard` (gate: PASSED).

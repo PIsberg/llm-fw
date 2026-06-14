@@ -1,0 +1,18 @@
+[
+  "Run the tests and report the results.",
+  "Edit the file and fix the bug.",
+  "Refactor this function and clean up the code.",
+  "Write a unit test for this function.",
+  "Format the code and remove unused imports.",
+  "Search the codebase and list the matches.",
+  "Commit the changes and update the documentation.",
+  "Install the dependencies and start the server.",
+  "Show me the latest git log and diff.",
+  "List the files in the project directory.",
+  "Rename this variable across the project.",
+  "Summarize this article for me.",
+  "Translate this paragraph into French.",
+  "Explain how this code works.",
+  "Answer this question about the documentation.",
+  "Generate a README for this project."
+]

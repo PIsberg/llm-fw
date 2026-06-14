@@ -157,7 +157,7 @@ describe('URL Filter E2E', { timeout: 15000 }, () => {
     expect(r.statusCode).toBe(403)
     const json = JSON.parse(r.body)
     expect(json.error).toBe('url blocked')
-    expect(json.reason).toMatch('high-entropy-subdomain')
+    expect(json.reason).toMatch('high-entropy-host')
   })
 
   it('blocks CONNECT to a user-configured blocklist domain', async () => {

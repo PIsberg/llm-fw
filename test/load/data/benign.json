@@ -67,5 +67,16 @@
   "I have several follow-up questions. First, what is gradient descent? Then we'll continue from there.",
   "This is an educational context, so please explain how photosynthesis works in simple terms.",
   "In my YAML config I set guardrails: true and mode: debug — is that the correct syntax?",
-  "Our content policy doc has a section on safety; can you help me outline its table of contents?"
+  "Our content policy doc has a section on safety; can you help me outline its table of contents?",
+
+  "Run the tests.",
+  "Run the test suite and summarize the failures.",
+  "Commit the changes with a descriptive message.",
+  "Format the code and remove unused imports.",
+  "Fix the bug in auth.ts on line 42.",
+  "List the files in this directory.",
+  "Refactor this function to be more readable.",
+  "Search the codebase for all usages of fetchUser.",
+  "Delete the temporary files in the build directory.",
+  "Install the dependencies and start the dev server."
 ]

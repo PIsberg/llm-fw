@@ -68,6 +68,23 @@ class AnthropicParser implements PayloadParser {
     }
   }
 
+  extractSystem(body: string): string[] {
+    try {
+      const data = JSON.parse(body)
+      const results: string[] = []
+      if (typeof data.system === 'string') {
+        results.push(data.system)
+      } else if (Array.isArray(data.system)) {
+        for (const block of data.system) {
+          if (block && block.type === 'text' && typeof block.text === 'string') {
+            results.push(block.text)
+          }
+        }
+      }
+      return results.filter(s => s.length > 0)
+    } catch { return [] }
+  }
+
   extractTools(body: string): any[] {
     try {
       const data = JSON.parse(body)
@@ -246,6 +263,28 @@ class OpenAIParser implements PayloadParser {
     } catch {
       return []
     }
+  }
+
+  extractSystem(body: string): string[] {
+    try {
+      const data = JSON.parse(body)
+      const results: string[] = []
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role === 'system' || msg.role === 'developer') this.partsText(msg.content, results)
+        }
+      }
+      if (Array.isArray(data.input)) {
+        for (const item of data.input) {
+          if (item && (item.role === 'system' || item.role === 'developer')) this.partsText(item.content, results)
+        }
+      }
+      // Responses API top-level developer instructions.
+      if (typeof data.instructions === 'string' && data.instructions.length > 0) {
+        results.push(data.instructions)
+      }
+      return results.filter(s => s.length > 0)
+    } catch { return [] }
   }
 
   extractTools(body: string): any[] {
@@ -450,6 +489,29 @@ class CohereParser implements PayloadParser {
     }
   }
 
+  extractSystem(body: string): string[] {
+    try {
+      const data = JSON.parse(body)
+      const results: string[] = []
+      // v1 preamble.
+      if (typeof data.preamble === 'string') results.push(data.preamble)
+      // v2 system-role messages.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'system') continue
+          if (typeof msg.content === 'string') {
+            results.push(msg.content)
+          } else if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part && typeof part.text === 'string') results.push(part.text)
+            }
+          }
+        }
+      }
+      return results.filter(s => s.length > 0)
+    } catch { return [] }
+  }
+
   extractTools(body: string): any[] {
     try {
       const data = JSON.parse(body)
@@ -604,6 +666,19 @@ class GeminiParser implements PayloadParser {
     }
   }
 
+  extractSystem(body: string): string[] {
+    try {
+      const data = JSON.parse(body)
+      const results: string[] = []
+      if (data.systemInstruction && Array.isArray(data.systemInstruction.parts)) {
+        for (const part of data.systemInstruction.parts) {
+          if (typeof part.text === 'string') results.push(part.text)
+        }
+      }
+      return results.filter(s => s.length > 0)
+    } catch { return [] }
+  }
+
   extractTools(body: string): any[] {
     try {
       const data = JSON.parse(body)
@@ -729,6 +804,25 @@ class BedrockParser implements PayloadParser {
       if (typeof data.inputText === 'string') results.push(data.inputText)
       if (typeof data.prompt === 'string') results.push(data.prompt)
 
+      return results.filter(s => s.length > 0)
+    } catch {
+      return results
+    }
+  }
+
+  extractSystem(body: string): string[] {
+    // Native InvokeModel Anthropic bodies carry `system` in the Anthropic shape.
+    const results = this.anthropic.extractSystem(body)
+    try {
+      const data = JSON.parse(body)
+      // Converse format: system: [{ text }] (no `type` discriminator).
+      if (Array.isArray(data.system)) {
+        for (const block of data.system) {
+          if (block && block.type === undefined && typeof block.text === 'string') {
+            results.push(block.text)
+          }
+        }
+      }
       return results.filter(s => s.length > 0)
     } catch {
       return results
