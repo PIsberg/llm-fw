@@ -33,6 +33,11 @@ export class EmbeddingChecker {
   private extractor: FeatureExtractor | null = null
   private templateEmbeddings: Float32Array[] = []
   private templateStrings: string[] = []
+  // Benign-intent anchors (agentic task commands, content/info requests). Used
+  // only as a contrastive reference: a prompt blocks when it is closer to an
+  // injection anchor than to any of these, which is what distinguishes "ignore
+  // your instructions" from "commit the changes" — both of which e5 scores high.
+  private benignEmbeddings: Float32Array[] = []
   private config: DetectionConfig
   private cache = new Map<string, EmbeddingResult>()
 
@@ -93,6 +98,15 @@ export class EmbeddingChecker {
       this.templateEmbeddings.push(await this.embed(anchor))
       this.templateStrings.push(anchor)
     }
+
+    // Benign contrastive anchors. Same encoder, embedded one at a time. Missing
+    // file → empty set → benignSimilarity 0 → margin == similarity (i.e. the
+    // pre-contrastive behaviour), so the stage degrades gracefully.
+    try {
+      const benignPath = join(dirname(__filename), '../../data/semantic-anchors-benign.json')
+      const benign = JSON.parse(readFileSync(benignPath, 'utf-8')) as string[]
+      for (const b of benign) this.benignEmbeddings.push(await this.embed(b))
+    } catch { /* no benign anchors — contrastive margin falls back to raw similarity */ }
   }
 
   private async embed(text: string): Promise<Float32Array> {
@@ -168,20 +182,37 @@ export class EmbeddingChecker {
     const chunks = this.chunk(norm)
     let maxSim = 0
     let nearestIdx = 0
+    let benignAtMax = 0 // nearest-benign cosine for the chunk that maximised maxSim
 
     for (const chunk of chunks) {
       const emb = await this.embed(chunk)
+      let injSim = 0
+      let injIdx = 0
       for (let i = 0; i < this.templateEmbeddings.length; i++) {
         const sim = this.cosineSimilarity(emb, this.templateEmbeddings[i])
-        if (sim > maxSim) {
-          maxSim = sim
-          nearestIdx = i
+        if (sim > injSim) {
+          injSim = sim
+          injIdx = i
         }
+      }
+      if (injSim > maxSim) {
+        maxSim = injSim
+        nearestIdx = injIdx
+        // Contrastive reference from the SAME chunk: how benign-like is the most
+        // injection-like span? A large gap ⇒ genuine injection; a small/negative
+        // gap ⇒ a benign command that merely shares the imperative shape.
+        let benignSim = 0
+        for (const b of this.benignEmbeddings) {
+          const s = this.cosineSimilarity(emb, b)
+          if (s > benignSim) benignSim = s
+        }
+        benignAtMax = benignSim
       }
     }
 
     const result: EmbeddingResult = {
       similarity: maxSim,
+      benignSimilarity: benignAtMax,
       nearest: this.templateStrings[nearestIdx] ?? '',
       chunkCount: chunks.length,
     }

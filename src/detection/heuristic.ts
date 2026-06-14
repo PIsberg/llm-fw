@@ -81,7 +81,25 @@ export class HeuristicScorer {
           // hamza flexibly as [اأإآ] — e.g. الأوامر, not bare-alef الاوامر).
           /تجاهل\s?(?:كل\s?|جميع\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد|التوجيهات)/,
           /[اأإآ]نس\s?(?:كل\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد)/,
-          /تعليمات\s?جديدة/
+          /تعليمات\s?جديدة/,
+
+          // Urdu (Arabic script, preserved by normalize). Urdu is SOV, so the
+          // object (instructions/rules) precedes the "ignore" verb نظر انداز
+          // ("overlook"; written with or without the space). e5-small aligns Urdu
+          // to the English anchors only ~0.886 — a hair over the 0.86 block line —
+          // so without a deterministic rule a single quantization drift or reword
+          // lets it through with no backstop.
+          /(?:ہدایات|ہدایت|احکامات|قواعد|پرامپٹ)[\s\S]{0,20}?(?:نظر\s?انداز|نظرانداز|بھول\s?جا)/,
+          /سسٹم\s?پرامپٹ[\s\S]{0,20}?(?:ظاہر|دکھا|بتا|افشا)/,
+          /نئی\s?(?:ہدایات|ہدایت|ہدایۃ|احکامات)/,
+
+          // Somali (Latin script, lowercased by normalize). "iska indhatir / iska
+          // dhaaf" = ignore/disregard; "tilmaamihii/amarradii hore" = previous
+          // instructions/orders. Somali is low-resource for e5-small (one sample
+          // lands at 0.8636, ~0.003 above threshold), so it gets a deterministic
+          // rule like the other hand-coded languages.
+          /\biska\s+(?:indho\s*tir|indhotir|indhatir|dhaaf|daaf)\b/,
+          /\b(?:tilmaamo|tilmaamaha|tilmaamihii|amarro|amarradii|hagayaal)\b[\s\S]{0,15}?\bhore\b/
         ],
       },
       {

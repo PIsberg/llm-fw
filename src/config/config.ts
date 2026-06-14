@@ -6,6 +6,10 @@ import { getLlmFwDir } from './paths.js';
 export const DEFAULT_CONFIG: Config = {
   proxy: {
     mode: 'proxy',
+    // Fail-safe pass-through. OFF by default. Flip on (LLM_FW_BYPASS=true) to turn
+    // the proxy into a transparent tunnel — no interception, no blocking — so a bad
+    // detection change can never lock the operator out of their LLM APIs.
+    bypass: false,
     port: 8080,
     httpsPort: 8443,
     // Local-only by default. `start --standalone` overrides this to 0.0.0.0 so
@@ -52,6 +56,12 @@ export const DEFAULT_CONFIG: Config = {
     // the long tail of languages with no hand-written rules.
     embeddingBlockThreshold: 0.86,
     embeddingWarnThreshold: 0.80,
+    // Contrastive margin (nearest-injection − nearest-benign). Measured
+    // separation: benign agentic commands land ≤ 0 (closer to benign anchors),
+    // cross-lingual injections land ≥ +0.055, English injections ≥ +0.017 (and
+    // are heuristic-covered anyway). 0.02 clears the benign cluster with room to
+    // spare while keeping the cross-lingual recall the embedding stage exists for.
+    embeddingMarginThreshold: 0.02,
     chunkTokenLimit: 300,
     chunkSize: 200,
     chunkOverlap: 50,
@@ -75,6 +85,11 @@ export const DEFAULT_CONFIG: Config = {
       blockThreshold: 0.9,
     },
     judgeUnlessBenign: false,
+    // Trusted by default: the system prompt is developer-authored and naturally
+    // contains instruction-management language that injection heuristics flag, so
+    // scanning it blocks legitimate traffic. Enable only when untrusted data is
+    // mixed into the system prompt. Also LLM_FW_SCAN_SYSTEM_PROMPT.
+    scanSystemPrompt: false,
   },
   dashboard: {
     port: 7731,
@@ -270,12 +285,15 @@ function splitList(value: string): string[] {
 const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = parseInt(v, 10); },
   LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
+  LLM_FW_BYPASS: (c, v) => { c.proxy.bypass = v === 'true'; },
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
   LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = parseInt(v, 10); },
   LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = parseInt(v, 10); },
   LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },
   LLM_FW_JUDGE_BLOCK: (c, v) => { c.detection.judgeBlock = v === 'true'; },
   LLM_FW_JUDGE_UNLESS_BENIGN: (c, v) => { c.detection.judgeUnlessBenign = v === 'true'; },
+  LLM_FW_SCAN_SYSTEM_PROMPT: (c, v) => { c.detection.scanSystemPrompt = v === 'true'; },
+  LLM_FW_EMBEDDING_MARGIN: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n)) c.detection.embeddingMarginThreshold = n; },
   LLM_FW_JUDGE_MODEL: (c, v) => { c.detection.judgeModel = v; },
   LLM_FW_OLLAMA_URL: (c, v) => { c.detection.ollamaUrl = v; },
   LLM_FW_CLASSIFIER_ENABLED: (c, v) => { if (c.detection.classifier) c.detection.classifier.enabled = v === 'true'; },
