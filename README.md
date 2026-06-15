@@ -891,16 +891,42 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 
 | Detector key | What it catches |
 |--------------|-----------------|
-| `aws` | AWS access keys (`AKIA…`) |
-| `github` | GitHub tokens (`ghp_`/`gho_`/`ghs_`/`ghr_` + 36 chars) |
-| `slack` | Slack tokens (`xoxb-`/`xoxp-`/`xoxa-`/`xoxr-`/`xoxs-…`) |
-| `stripe` | Stripe live secret keys (`sk_live_…`) |
+| `aws` | Amazon access key IDs (`AKIA…`/`ASIA…` + the other 20-char AWS prefixes), keyword-adjacent secret access keys, STS session tokens (`FwoG…`), and MWS auth tokens (`amzn.mws.…`) |
+| `google` | Google API keys (`AIza…` — Cloud / Gemini / Maps / Firebase) and OAuth access/refresh tokens (`ya29.…`, `1//0…`) |
+| `openai` | OpenAI API keys (`sk-proj-`/`sk-svcacct-`/`sk-admin-…` and legacy `sk-` + 48 chars) |
+| `anthropic` | Anthropic API keys (`sk-ant-…`) |
+| `openrouter` | OpenRouter API keys (`sk-or-v1-…`) |
+| `groq` | Groq API keys (`gsk_…`) |
+| `xai` | xAI / Grok API keys (`xai-…`) |
+| `perplexity` | Perplexity API keys (`pplx-…`) |
+| `huggingface` | Hugging Face access tokens (`hf_…`) |
+| `replicate` | Replicate API tokens (`r8_…`) |
+| `fireworks` | Fireworks AI API keys (`fw_…`) |
+| `nvidia` | NVIDIA API keys (`nvapi-…`) |
+| `anyscale` | Anyscale API keys (`esecret_…`) |
+| `langsmith` | LangSmith / LangChain API keys (`lsv2_pt_…`/`lsv2_sk_…`) |
+| `github` | GitHub tokens (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` + 36 chars) and fine-grained PATs (`github_pat_…`) |
+| `gitlab` | GitLab personal / project access tokens (`glpat-…`) |
+| `npm` / `pypi` / `rubygems` / `dockerhub` | Package-registry tokens (`npm_…`, `pypi-AgEI…`, `rubygems_…`, `dckr_pat_…`) |
+| `vault` / `terraform` | HashiCorp Vault tokens (`hvs.`/`hvb.`) and Terraform Cloud tokens (`….atlasv1.…`) |
+| `databricks` / `atlassian` | Databricks PATs (`dapi…`) and Atlassian/Jira API tokens (`ATATT3…`/`ATCTT3…`) |
+| `slack` | Slack tokens (`xoxb-`/`xoxp-`/`xoxa-`/`xoxr-`/`xoxs-…`) and incoming-webhook URLs (`hooks.slack.com/services/…`) |
+| `discord` / `telegram` | Discord webhook URLs + bot tokens, Telegram bot tokens (`<id>:<secret>`) |
+| `stripe` | Stripe live secret + restricted keys (`sk_live_…`/`rk_live_…`) and webhook signing secrets (`whsec_…`) |
+| `square` / `shopify` | Square access/OAuth tokens (`sq0atp-`/`sq0csp-…`) and Shopify tokens (`shpat_`/`shpss_…`) |
+| `twilio` / `sendgrid` / `mailgun` / `mailchimp` | Comms/email provider keys (`AC…`/`SK…`, `SG.…`, `key-…`, `…-usN`) |
+| `azure` / `digitalocean` | Azure Storage account keys (`AccountKey=…`) and DigitalOcean tokens (`dop_v1_…`) |
+| `newrelic` / `sentry` | New Relic API keys (`NRAK-…`) and Sentry DSNs with embedded secret |
 | `private_keys` | RSA / EC / OpenSSH / DSA / PGP private-key headers |
 | `mongodb` | MongoDB SRV connection URIs with embedded credentials |
+| `connection_uri` | Any `scheme://user:password@host` connection string (Postgres/MySQL/Redis/AMQP/HTTP basic-auth) |
+| `jwt` | JSON Web Tokens (`eyJ….eyJ….…`) |
 | `entropy` | High-entropy generic secrets adjacent to credential keywords (`password=`/`pwd=`/`secret:`/`token=`/`api_key=`/`access_key=`/`auth:`/`credential=`/`key=`, Shannon entropy > 4.0, length > 20) **and** `Authorization: Bearer <token>` headers (the `Bearer` keyword alone is sufficient, no entropy gate) |
 | `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm) |
 
-Each detected secret maps to a redaction marker such as `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_BEARER_TOKEN]`, or `[REDACTED_SECRET]`. Redaction patches each secret **at its exact matched offset** (not a global string replace), so a token that also appears elsewhere as benign data is never redacted by coincidence.
+Each detected secret maps to a provider-specific redaction marker such as `[REDACTED_OPENAI_KEY]`, `[REDACTED_ANTHROPIC_KEY]`, `[REDACTED_GOOGLE_API_KEY]`, `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_BEARER_TOKEN]`, or `[REDACTED_SECRET]`. Redaction patches each secret **at its exact matched offset** (not a global string replace), so a token that also appears elsewhere as benign data is never redacted by coincidence.
+
+> Providers whose keys carry no distinctive prefix (e.g. Mistral, Cohere, Together, DeepSeek, Azure OpenAI) are still caught by the `entropy` detector when they appear next to a credential keyword (`api_key=`, `token:`, `Authorization: Bearer …`).
 
 > The firewall never logs the raw secret value — dashboard events record only the **type** of secret found (e.g. `GITHUB_TOKEN`).
 
@@ -919,7 +945,16 @@ Each detected secret maps to a redaction marker such as `[REDACTED_AWS_KEY]`, `[
   "dlp": {
     "enabled": true,
     "mode": "redact",
-    "detectors": ["aws", "github", "slack", "stripe", "private_keys", "mongodb", "entropy", "pii"]
+    "detectors": [
+      "aws", "google", "azure", "digitalocean",
+      "openai", "anthropic", "openrouter", "groq", "xai", "perplexity",
+      "huggingface", "replicate", "fireworks", "nvidia", "anyscale", "langsmith",
+      "github", "gitlab", "npm", "pypi", "rubygems", "dockerhub", "vault",
+      "terraform", "databricks", "atlassian", "newrelic", "sentry",
+      "stripe", "square", "shopify", "slack", "discord", "telegram",
+      "twilio", "sendgrid", "mailgun", "mailchimp",
+      "private_keys", "mongodb", "connection_uri", "jwt", "entropy", "pii"
+    ]
   }
 }
 ```

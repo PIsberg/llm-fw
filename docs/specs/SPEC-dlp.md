@@ -49,9 +49,13 @@ To minimize latency impact, the DLP engine must run in **< 5ms**.
 
 ### Strategy 1: High-Confidence Regex Matching
 The firewall will include a curated dictionary of high-confidence regular expressions matching standard credential formats.
-*   **Cloud Providers**: AWS (`AKIA...`), GCP Service Account keys, Azure connection strings.
-*   **SaaS Tokens**: GitHub (`ghp_...`), Slack (`xoxb-...`), Stripe (`sk_live_...`).
-*   **Format Signatures**: Private Keys (`-----BEGIN RSA PRIVATE KEY-----`), Database URIs (`mongodb+srv://...`).
+*   **Cloud Providers**: AWS access key IDs (`AKIA…`/`ASIA…`), AWS session/MWS tokens, Google API keys (`AIza…`) and OAuth tokens (`ya29.…`/`1//0…`).
+*   **AI / LLM Providers**: OpenAI (`sk-proj-…`/legacy `sk-…`), Anthropic (`sk-ant-…`), OpenRouter (`sk-or-v1-…`), Groq (`gsk_…`), xAI (`xai-…`), Perplexity (`pplx-…`), Hugging Face (`hf_…`), Replicate (`r8_…`), Fireworks (`fw_…`), NVIDIA (`nvapi-…`), Anyscale (`esecret_…`), LangSmith (`lsv2_…`). Prefix-less provider keys (Mistral, Cohere, Together, DeepSeek, Azure OpenAI) fall through to Strategy 2.
+*   **Source Control & CI/CD**: GitHub (`ghp_…`, fine-grained `github_pat_…`), GitLab (`glpat-…`), npm (`npm_…`), PyPI (`pypi-AgEI…`), RubyGems, Docker Hub (`dckr_pat_…`), HashiCorp Vault (`hvs.`), Terraform Cloud, Databricks (`dapi…`), Atlassian (`ATATT3…`).
+*   **Payment & Commerce**: Stripe (`sk_live_`/`rk_live_`/webhook `whsec_…`), Square (`sq0atp-…`), Shopify (`shpat_…`).
+*   **Comms & Email/SMS**: Slack (`xoxb-…`/webhooks), Discord (webhooks + bot tokens), Telegram, Twilio (`AC…`/`SK…`), SendGrid (`SG.…`), Mailgun, Mailchimp.
+*   **Infra & Ops**: Azure Storage (`AccountKey=…`), DigitalOcean (`dop_v1_…`), New Relic (`NRAK-…`), Sentry DSNs.
+*   **Format Signatures**: Private Keys (`-----BEGIN RSA PRIVATE KEY-----` — also the secret material in a GCP service-account JSON key), JWTs (`eyJ….eyJ….…`), Database / basic-auth connection strings (`mongodb+srv://…`, `scheme://user:password@host`).
 
 ### Strategy 2: High-Entropy String Detection
 Not all secrets have strict prefixes. Passwords and generic tokens appear as high-entropy randomized strings.

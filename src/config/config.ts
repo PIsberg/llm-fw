@@ -99,7 +99,21 @@ export const DEFAULT_CONFIG: Config = {
   dlp: {
     enabled: true,
     mode: 'redact',
-    detectors: ['aws', 'github', 'slack', 'stripe', 'private_keys', 'mongodb', 'entropy', 'pii'],
+    detectors: [
+      // cloud providers
+      'aws', 'google', 'azure', 'digitalocean',
+      // AI / LLM service providers
+      'openai', 'anthropic', 'openrouter', 'groq', 'xai', 'perplexity',
+      'huggingface', 'replicate', 'fireworks', 'nvidia', 'anyscale', 'langsmith',
+      // source control, package registries, CI/CD & infra ops
+      'github', 'gitlab', 'npm', 'pypi', 'rubygems', 'dockerhub', 'vault',
+      'terraform', 'databricks', 'atlassian', 'newrelic', 'sentry',
+      // payment, commerce, communications, email/SMS
+      'stripe', 'square', 'shopify', 'slack', 'discord', 'telegram',
+      'twilio', 'sendgrid', 'mailgun', 'mailchimp',
+      // key formats, connection strings, generics
+      'private_keys', 'mongodb', 'connection_uri', 'jwt', 'entropy', 'pii',
+    ],
   },
   dos: {
     enabled: true,
