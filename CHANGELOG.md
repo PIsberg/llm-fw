@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-15
+
+### Added
+
+**DLP — broad secret coverage**
+- Expanded the DLP secret-redaction dictionary from a handful of formats to broad coverage of credentials that must never leave the org: AI/LLM providers (OpenAI, Anthropic, OpenRouter, Groq, xAI, Perplexity, Hugging Face, Replicate, Fireworks, NVIDIA, Anyscale, LangSmith); cloud (broadened AWS key prefixes + secret/session/MWS tokens, Google API/OAuth tokens, Azure Storage keys, DigitalOcean); source control / CI / infra (GitHub fine-grained PATs, GitLab, npm, PyPI, RubyGems, Docker Hub, Vault, Terraform Cloud, Databricks, Atlassian, New Relic, Sentry); and payment / commerce / comms (Stripe restricted + webhook secrets, Square, and others).
+
+**Fail-safe**
+- Global proxy bypass — `LLM_FW_BYPASS=true` (`proxy.bypass`) turns the proxy into a transparent tunnel (no MITM, no detection, no blocking), restoring connectivity instantly if a detection change locks the operator out. Loud startup banner; covered by `proxy-bypass.e2e.test.ts`.
+
+### Changed
+- System prompt is now a **trusted surface** — parsers gained `extractSystem()` (Anthropic/OpenAI/Cohere/Gemini/Bedrock) and the pipeline excludes the system prompt from injection scanning by default, fixing false-positive blocks on legitimate LLM traffic. Opt back in via `detection.scanSystemPrompt`.
+- Embedding stage uses a contrastive margin against the benign corpus (bare-imperative agentic prompts added) so injections separate cleanly from benign instructions while preserving cross-lingual recall.
+- Detection recall raised to 100% on the JBB-behaviors set (refined lookbehinds, punctuation handling, and suppressors) with a lower false-positive rate across JBB, HarmBench, and AdvBench.
+
+### Fixed
+- DGA/exfil: the entropy check now also screens the registrable (apex) label, not only subdomains, so bare DGA domains (e.g. `kq3v9z7x1p2m4.com`) are caught (`high-entropy-subdomain` → `high-entropy-host`).
+- Whitelist now honored — `normalizeDomainEntry()` strips scheme/path/port/userinfo/leading `*.`|`.` and whitespace, so operator entries like `https://webhook.site`, `webhook.site/`, and `*.example.com` actually match.
+- Urdu/Somali injections, previously blocked only at the embedding stage with a razor-thin margin, now have deterministic heuristics like the other hand-coded languages.
+
+Scorecard: 100% TPR / 0% FPR (heuristic + embedding, judge off).
+
 ## [0.2.0] - 2026-06-12
 
 ### Added
@@ -89,6 +111,7 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/PIsberg/llm-fw/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PIsberg/llm-fw/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/PIsberg/llm-fw/releases/tag/v0.1.0
