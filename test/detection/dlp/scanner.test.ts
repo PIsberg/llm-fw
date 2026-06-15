@@ -3,7 +3,16 @@ import { DlpScanner, markerFor } from '../../../src/detection/dlp/scanner.js'
 import { luhnValid, DLP_RULES } from '../../../src/detection/dlp/patterns.js'
 import { DLPConfig } from '../../../src/types.js'
 
-const ALL_DETECTORS = ['aws', 'github', 'slack', 'stripe', 'private_keys', 'mongodb', 'entropy', 'pii']
+const ALL_DETECTORS = [
+  'aws', 'google', 'azure', 'digitalocean',
+  'openai', 'anthropic', 'openrouter', 'groq', 'xai', 'perplexity',
+  'huggingface', 'replicate', 'fireworks', 'nvidia', 'anyscale', 'langsmith',
+  'github', 'gitlab', 'npm', 'pypi', 'rubygems', 'dockerhub', 'vault',
+  'terraform', 'databricks', 'atlassian', 'newrelic', 'sentry',
+  'stripe', 'square', 'shopify', 'slack', 'discord', 'telegram',
+  'twilio', 'sendgrid', 'mailgun', 'mailchimp',
+  'private_keys', 'mongodb', 'connection_uri', 'jwt', 'entropy', 'pii',
+]
 
 function makeScanner(detectors: string[] = ALL_DETECTORS, mode: DLPConfig['mode'] = 'redact'): DlpScanner {
   return new DlpScanner({ enabled: true, mode, detectors })
@@ -289,6 +298,147 @@ describe('DlpScanner.scan — Bearer tokens & expanded keywords', () => {
     expect(scanner.scan('auth: ' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
     expect(scanner.scan('credential=' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
     expect(scanner.scan('key=' + v).some(x => x.type === 'GENERIC_SECRET')).toBe(true)
+  })
+})
+
+describe('DlpScanner.scan — AI service / cloud provider API keys', () => {
+  const scanner = makeScanner()
+
+  // Synthetic, well-formed sample values (not live secrets).
+  const cases: { type: string; key: string }[] = [
+    { type: 'OPENAI_API_KEY', key: 'sk-' + 'a1B2c3D4'.repeat(6) }, // legacy 48-char
+    { type: 'OPENAI_API_KEY', key: 'sk-proj-' + 'a1B2c3D4e5F6_g7H8-i9J0kL' },
+    { type: 'OPENAI_API_KEY', key: 'sk-svcacct-' + 'A1b2C3d4E5f6G7h8I9j0K1l2' },
+    { type: 'ANTHROPIC_API_KEY', key: 'sk-ant-api03-' + 'a'.repeat(40) },
+    { type: 'OPENROUTER_API_KEY', key: 'sk-or-v1-' + 'a'.repeat(64) },
+    { type: 'GROQ_API_KEY', key: 'gsk_' + 'a'.repeat(52) },
+    { type: 'XAI_API_KEY', key: 'xai-' + 'a'.repeat(80) },
+    { type: 'PERPLEXITY_API_KEY', key: 'pplx-' + 'a'.repeat(48) },
+    { type: 'HUGGINGFACE_TOKEN', key: 'hf_' + 'a'.repeat(34) },
+    { type: 'REPLICATE_API_KEY', key: 'r8_' + 'a'.repeat(37) },
+    { type: 'FIREWORKS_API_KEY', key: 'fw_' + 'a'.repeat(24) },
+    { type: 'NVIDIA_API_KEY', key: 'nvapi-' + 'a'.repeat(64) },
+    { type: 'ANYSCALE_API_KEY', key: 'esecret_' + 'a'.repeat(24) },
+    { type: 'LANGSMITH_API_KEY', key: 'lsv2_pt_' + 'a'.repeat(32) },
+    { type: 'GOOGLE_API_KEY', key: 'AIza' + 'a'.repeat(35) },
+    { type: 'GOOGLE_OAUTH_TOKEN', key: 'ya29.' + 'a'.repeat(40) },
+    { type: 'AWS_ACCESS_KEY', key: 'ASIAIOSFODNN7EXAMPLE' }, // temporary/STS id
+    { type: 'AWS_MWS_KEY', key: 'amzn.mws.4ea38b7b-f563-4709-4bae-87aea1234567' },
+  ]
+
+  for (const { type, key } of cases) {
+    it(`detects ${type}`, () => {
+      const f = scanner.scan('credential: ' + key + ' end')
+      const hit = f.find(x => x.type === type)
+      expect(hit, `expected a ${type} finding`).toBeDefined()
+      expect(hit!.match).toBe(key)
+    })
+  }
+
+  it('detects a keyword-adjacent AWS secret access key', () => {
+    const secret = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' // canonical 40-char example
+    const f = scanner.scan('AWS_SECRET_ACCESS_KEY=' + secret)
+    expect(f.some(x => x.type === 'AWS_SECRET_KEY')).toBe(true)
+  })
+
+  it('does not confuse Anthropic / OpenRouter keys with OpenAI keys', () => {
+    const ant = 'sk-ant-api03-' + 'a'.repeat(40)
+    const or = 'sk-or-v1-' + 'a'.repeat(64)
+    expect(scanner.scan(ant).some(x => x.type === 'OPENAI_API_KEY')).toBe(false)
+    expect(scanner.scan(or).some(x => x.type === 'OPENAI_API_KEY')).toBe(false)
+  })
+
+  it('does not flag short look-alike prefixes (negatives)', () => {
+    const text = 'sk-short hf_short gsk_short AIzaShort ya29.short xai-short'
+    const f = scanner.scan(text)
+    expect(f).toHaveLength(0)
+  })
+
+  it('redacts each provider key with a JSON-safe marker', () => {
+    for (const { key } of cases) {
+      const json = JSON.stringify({ messages: [{ role: 'user', content: 'key ' + key }] })
+      const redacted = scanner.redact(json, scanner.scan(json))
+      expect(redacted, `key ${key} should be redacted`).not.toContain(key)
+      expect(() => JSON.parse(redacted)).not.toThrow()
+    }
+  })
+
+  it('respects detector filtering for provider keys', () => {
+    const onlyOpenai = makeScanner(['openai'])
+    const text = 'sk-' + 'a1B2c3D4'.repeat(6) + ' AIza' + 'a'.repeat(35)
+    const f = onlyOpenai.scan(text)
+    expect(f.some(x => x.type === 'OPENAI_API_KEY')).toBe(true)
+    expect(f.some(x => x.type === 'GOOGLE_API_KEY')).toBe(false)
+  })
+})
+
+describe('DlpScanner.scan — corporate / SaaS / infra secrets', () => {
+  const scanner = makeScanner()
+
+  // Synthetic, well-formed sample values (not live secrets). Bodies use repeated
+  // chars so they satisfy each format's charset and length without tripping the
+  // entropy detector.
+  const cases: { type: string; key: string }[] = [
+    { type: 'GITHUB_FINE_GRAINED_PAT', key: 'github_pat_' + 'a'.repeat(82) },
+    { type: 'GITLAB_PAT', key: 'glpat-' + 'a'.repeat(20) },
+    { type: 'NPM_TOKEN', key: 'npm_' + 'a'.repeat(36) },
+    { type: 'PYPI_TOKEN', key: 'pypi-AgEI' + 'a'.repeat(50) },
+    { type: 'RUBYGEMS_KEY', key: 'rubygems_' + 'a'.repeat(48) },
+    { type: 'DOCKERHUB_PAT', key: 'dckr_pat_' + 'a'.repeat(24) },
+    { type: 'VAULT_TOKEN', key: 'hvs.' + 'a'.repeat(24) },
+    { type: 'TERRAFORM_CLOUD_TOKEN', key: 'a'.repeat(14) + '.atlasv1.' + 'a'.repeat(40) },
+    { type: 'DATABRICKS_TOKEN', key: 'dapi' + 'a'.repeat(32) },
+    { type: 'ATLASSIAN_API_TOKEN', key: 'ATATT3' + 'a'.repeat(100) },
+    { type: 'SQUARE_TOKEN', key: 'sq0atp-' + 'a'.repeat(22) },
+    { type: 'SHOPIFY_TOKEN', key: 'shpat_' + 'a'.repeat(32) },
+    { type: 'TWILIO_KEY', key: 'AC' + 'a'.repeat(32) },
+    { type: 'SENDGRID_KEY', key: 'SG.' + 'a'.repeat(22) + '.' + 'a'.repeat(43) },
+    { type: 'MAILGUN_KEY', key: 'key-' + 'a'.repeat(32) },
+    { type: 'MAILCHIMP_KEY', key: 'a'.repeat(32) + '-us5' },
+    { type: 'TELEGRAM_BOT_TOKEN', key: '123456789:' + 'a'.repeat(35) },
+    { type: 'DISCORD_WEBHOOK', key: 'https://discord.com/api/webhooks/123456789012345678/' + 'a'.repeat(40) },
+    { type: 'DISCORD_BOT_TOKEN', key: 'M' + 'a'.repeat(23) + '.' + 'a'.repeat(6) + '.' + 'a'.repeat(27) },
+    { type: 'AZURE_STORAGE_KEY', key: 'AccountKey=' + 'a'.repeat(86) + '==' },
+    { type: 'DIGITALOCEAN_TOKEN', key: 'dop_v1_' + 'a'.repeat(64) },
+    { type: 'NEWRELIC_KEY', key: 'NRAK-' + 'a'.repeat(27) },
+    { type: 'SENTRY_DSN', key: 'https://' + 'a'.repeat(32) + '@o447951.ingest.sentry.io/12345' },
+    { type: 'GITHUB_TOKEN', key: 'ghu_' + 'a'.repeat(36) }, // user-to-server, now covered
+    { type: 'STRIPE_LIVE_KEY', key: 'rk_live_' + 'a'.repeat(24) }, // restricted live key
+    { type: 'STRIPE_WEBHOOK_SECRET', key: 'whsec_' + 'a'.repeat(32) },
+    { type: 'SLACK_WEBHOOK', key: 'https://hooks.slack.com/services/T00000000/B00000000/' + 'a'.repeat(24) },
+    {
+      type: 'JWT',
+      key: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c',
+    },
+    { type: 'CONNECTION_URI', key: 'postgres://dbuser:s3cretPass@db.internal.example.com:5432/prod' },
+  ]
+
+  for (const { type, key } of cases) {
+    it(`detects ${type}`, () => {
+      const f = scanner.scan('credential: ' + key + ' end')
+      expect(f.some(x => x.type === type), `expected a ${type} finding`).toBe(true)
+    })
+  }
+
+  it('redacts every corporate secret and keeps JSON valid', () => {
+    for (const { key } of cases) {
+      const json = JSON.stringify({ messages: [{ role: 'user', content: 'value ' + key }] })
+      const redacted = scanner.redact(json, scanner.scan(json))
+      expect(() => JSON.parse(redacted)).not.toThrow()
+      // The sensitive core must be gone (connection strings keep the trailing
+      // path after the credential, so assert on the secret segment).
+      const core = key.includes('@') ? key.split('@')[0] : key
+      expect(redacted, `secret ${core} should be redacted`).not.toContain(core)
+    }
+  })
+
+  it('does not flag a DB URI without an embedded password (negative)', () => {
+    expect(scanner.scan('postgres://dbuser@db.example.com:5432/prod').some(x => x.type === 'CONNECTION_URI')).toBe(false)
+  })
+
+  it('does not flag arbitrary three-part base64 as a JWT (negative)', () => {
+    // Segments do not base64url-decode to a JSON object (no eyJ prefix).
+    expect(scanner.scan('abcdefghij.klmnopqrst.uvwxyz0123').some(x => x.type === 'JWT')).toBe(false)
   })
 })
 
