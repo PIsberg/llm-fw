@@ -194,6 +194,52 @@ const ML_MARKERS = [
   'fadlan',
   // Swahili
   'tafadhali',
+  // Greek
+  'παρακαλώ',
+  // Hungarian
+  'kérlek', 'kérem', 'légyszíves', 'szíveskedjen',
+  // Romanian
+  'vă rog', 'te rog',
+  // Bulgarian
+  'моля',
+  // Serbian / Croatian / Bosnian
+  'molim', 'molim te', 'molim vas',
+  // Slovak
+  'prosím vás',
+  // Danish
+  'venligst',
+  // Norwegian
+  'vennligst',
+  // Malayalam
+  'ദയവായി',
+  // Telugu
+  'దయచేసి',
+  // Kannada
+  'ದಯವಿಟ್ಟು',
+  // Gujarati
+  'કૃપા કરીને',
+  // Punjabi
+  'ਕਿਰਪਾ ਕਰਕੇ',
+  // Sinhala
+  'කරුණාකර',
+  // Amharic
+  'እባክህ', 'እባክዎ', 'እባክሽ',
+  // Hausa
+  'don allah',
+  // Pashto
+  'مهرباني وکړئ',
+  // Azerbaijani
+  'zəhmət olmasa', 'xahiş edirəm',
+  // Georgian
+  'გთხოვთ',
+  // Armenian
+  'խնդրում',
+  // Khmer
+  'សូម',
+  // Burmese
+  'ကျေးဇူးပြု',
+  // Lao
+  'ກະລຸນາ',
 ]
 
 // Send-class verbs — the exfiltration / disclosure family. A hit near an email
@@ -261,6 +307,57 @@ const ML_SEND_VERBS = [
   'dir', 'gudbi', 'wareeji', 'wadaag', 'muuji', 'shaaci',
   // Swahili
   'tuma', 'peleka', 'sambaza', 'hamisha', 'shiriki', 'gawana', 'fichua', 'funua', 'pakia',
+  // Greek
+  'στείλε', 'στείλτε', 'προώθησε', 'μετάφερε', 'μεταφέρετε', 'μοιράσου', 'αποκάλυψε',
+  // Hungarian
+  'küldd', 'küldje', 'továbbítsd', 'továbbítsa', 'utald', 'utalja', 'oszd meg', 'ossza meg', 'fedd fel', 'tárd fel',
+  // Romanian
+  'trimite', 'trimiteți', 'redirecționează', 'înaintează', 'transferă', 'transferați', 'partajează', 'împarte', 'dezvăluie',
+  // Bulgarian
+  'изпрати', 'изпратете', 'препрати', 'препратете', 'преведи', 'прехвърли', 'сподели', 'разкрий',
+  // Serbian / Croatian / Bosnian
+  'пошаљи', 'pošalji', 'pošaljite', 'prosledi', 'proslijedi', 'preusmeri', 'prebaci', 'prenesi', 'podeli', 'podijeli', 'otkrij',
+  // Slovak
+  'prepošli', 'prepošlite', 'posuň', 'zdieľaj', 'odhaľ',
+  // Danish
+  'videresend', 'overfør', 'afslør',
+  // Norwegian
+  'avslør',
+  // Malayalam
+  'അയയ്ക്കുക', 'കൈമാറുക', 'മാറ്റുക', 'പങ്കിടുക', 'വെളിപ്പെടുത്തുക',
+  // Telugu
+  'పంపండి', 'పంపు', 'బదిలీ', 'భాగస్వామ్యం', 'వెల్లడించండి',
+  // Kannada
+  'ಕಳುಹಿಸಿ', 'ರವಾನಿಸಿ', 'ವರ್ಗಾಯಿಸಿ', 'ಹಂಚಿಕೊಳ್ಳಿ', 'ಬಹಿರಂಗಪಡಿಸಿ',
+  // Marathi
+  'पाठवा', 'अग्रेषित', 'हस्तांतरित', 'सामायिक', 'उघड',
+  // Gujarati
+  'મોકલો', 'ફોરવર્ડ', 'ટ્રાન્સફર', 'સ્થાનાંતરિત', 'વહેંચો', 'જાહેર',
+  // Punjabi
+  'ਭੇਜੋ', 'ਫਾਰਵਰਡ', 'ਟ੍ਰਾਂਸਫਰ', 'ਤਬਦੀਲ', 'ਸਾਂਝਾ', 'ਪ੍ਰਗਟ',
+  // Nepali
+  'पठाउनुहोस्', 'फर्वार्ड', 'स्थानान्तरण', 'बाँड्नुहोस्', 'प्रकट',
+  // Sinhala
+  'යවන්න', 'මාරු කරන්න', 'බෙදාගන්න', 'හෙළි කරන්න',
+  // Amharic
+  'ላክ', 'ላኩ', 'አስተላልፍ', 'አስተላልፉ', 'አጋራ', 'ግለጽ',
+  // Hausa
+  'aika', 'tura', 'canja', 'raba', 'fallasa',
+  // Pashto
+  'ولېږئ', 'واستوئ', 'لېږد', 'شریک', 'ښکاره',
+  // Azerbaijani
+  'göndər', 'yönləndir', 'ötür', 'köçür', 'paylaş', 'açıqla',
+  // Georgian
+  'გააგზავნე', 'გადააგზავნე', 'გადარიცხე', 'გააზიარე', 'გაამხილე', 'გაამჟღავნე',
+  // Armenian
+  'ուղարկիր', 'ուղարկեք', 'վերահղիր', 'փոխանցիր', 'փոխանցեք', 'կիսվիր', 'բացահայտիր',
+  // Khmer
+  'ផ្ញើ', 'បញ្ជូនបន្ត', 'ផ្ទេរ', 'ចែករំលែក', 'បង្ហាញ',
+  // Burmese — bare 'ပို့'(send) dropped (morpheme inside 'ပို့ဆောင်'=delivery);
+  // 'ဖော်ပြ' dropped too (means "as described", common in benign text).
+  'ဆက်ပို့', 'လွှဲ', 'မျှဝေ', 'ထုတ်ဖော်',
+  // Lao — bare 'ສົ່ງ'(send) dropped, same delivery-morpheme risk as Thai
+  'ສົ່ງຕໍ່', 'ໂອນ', 'ແບ່ງປັນ', 'ເປີດເຜີຍ',
 ]
 
 // Other sensitive, side-effecting verbs — access grants, destructive and
@@ -326,6 +423,56 @@ const ML_OTHER_VERBS = [
   'sii', 'ogolow', 'fasax', 'tirtir', 'bixi', 'iibso',
   // Swahili
   'ruhusu', 'kabidhi', 'futa', 'ondoa', 'lipa', 'nunua',
+  // Greek
+  'χορήγησε', 'παραχώρησε', 'διάγραψε', 'σβήσε', 'πλήρωσε', 'αγόρασε',
+  // Hungarian
+  'engedélyezz', 'töröld', 'törölje', 'fizess', 'fizesse', 'vegyél', 'vásárolj',
+  // Romanian
+  'acordă', 'autorizează', 'activează', 'șterge', 'ștergeți', 'revocă', 'plătește', 'cumpără',
+  // Bulgarian
+  'предостави', 'разреши', 'изтрий', 'изтрийте', 'плати', 'заплати', 'купи',
+  // Serbian / Croatian / Bosnian
+  'одобри', 'odobri', 'dodeli', 'dodijeli', 'obriši', 'izbriši', 'plati', 'kupi', 'aktiviraj',
+  // Slovak
+  'udeľ', 'poskytni', 'vymaž', 'zmaž', 'odstráň', 'zaplať', 'kúp', 'povoľ',
+  // Danish
+  'tildel', 'slet', 'betal', 'køb',
+  // Norwegian
+  'slett', 'kjøp',
+  // Malayalam
+  'അനുവദിക്കുക', 'നൽകുക', 'ഇല്ലാതാക്കുക', 'അടയ്ക്കുക', 'വാങ്ങുക',
+  // Telugu
+  'మంజూరు', 'ఇవ్వండి', 'తొలగించండి', 'చెల్లించండి', 'కొనండి',
+  // Kannada
+  'ನೀಡಿ', 'ಅನುಮತಿಸಿ', 'ಅಳಿಸಿ', 'ಪಾವತಿಸಿ', 'ಖರೀದಿಸಿ',
+  // Marathi
+  'मंजूर', 'हटवा', 'भरणा', 'खरेदी',
+  // Gujarati
+  'આપો', 'મંજૂરી', 'કાઢી નાખો', 'ડિલીટ', 'ચૂકવો', 'ખરીદો',
+  // Punjabi
+  'ਦਿਓ', 'ਮਨਜ਼ੂਰ', 'ਮਿਟਾਓ', 'ਹਟਾਓ', 'ਭੁਗਤਾਨ', 'ਖਰੀਦੋ',
+  // Nepali
+  'दिनुहोस्', 'अनुमति', 'मेटाउनुहोस्', 'हटाउनुहोस्', 'भुक्तानी', 'किन्नुहोस्',
+  // Sinhala
+  'ලබා දෙන්න', 'දෙන්න', 'මකන්න', 'ගෙවන්න', 'මිලදී ගන්න',
+  // Amharic
+  'ስጥ', 'ፍቀድ', 'ሰርዝ', 'አጥፋ', 'ክፈል', 'ግዛ',
+  // Hausa
+  'bayar', 'goge', 'biya', 'saya',
+  // Pashto
+  'ورکړئ', 'اجازه', 'ړنګ', 'تادیه', 'واخلئ',
+  // Azerbaijani
+  'icazə ver', 'sil', 'ödə', 'ləğv et',
+  // Georgian
+  'მიეცი', 'დართე', 'წაშალე', 'გადაიხადე', 'იყიდე',
+  // Armenian
+  'տրամադրիր', 'շնորհիր', 'ջնջիր', 'վճարիր', 'գնիր',
+  // Khmer
+  'ផ្ដល់', 'អនុញ្ញាត', 'លុប', 'បង់', 'ទិញ',
+  // Burmese
+  'ပေး', 'ခွင့်ပြု', 'ဖျက်', 'ပေးချေ', 'ဝယ်',
+  // Lao
+  'ອະນຸຍາດ', 'ລຶບ', 'ຈ່າຍ', 'ຊື້',
 ]
 
 const ML_VERBS = Array.from(new Set([...ML_SEND_VERBS, ...ML_OTHER_VERBS]))
@@ -337,11 +484,12 @@ const ML_SEND_SET = new Set(ML_SEND_VERBS)
 // "…送金し…してください"), so we test proximity in EITHER direction.
 const ML_IMPERATIVE_PROXIMITY = 60
 
-// CJK / Hangul / kana / Thai have no inter-word spaces, so a substring hit IS a
-// token hit. For alphabetic + abjad + Brahmic scripts (which DO use spaces) we
+// CJK / Hangul / kana / Thai / Lao / Khmer / Myanmar have no inter-word spaces,
+// so a substring hit IS a token hit. For alphabetic + abjad + Brahmic scripts
+// (Latin, Cyrillic, Arabic, Devanagari, … — which DO use spaces) we
 // require non-letter boundaries so a verb stem inside a longer benign word
 // ("send" in "sender", "pay" in "paypal") does not fire.
-const ML_NOSPACE_RE = /[぀-ヿ㐀-鿿豈-﫿가-힯ก-๛]/
+const ML_NOSPACE_RE = /[぀-ヿ㐀-鿿豈-﫿가-힯ก-๛ກ-ໟក-៿က-႟]/
 const ML_LETTER_RE = /\p{L}/u
 
 function mlIndices(haystack: string, needle: string): number[] {
