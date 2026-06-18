@@ -158,6 +158,42 @@ const ML_MARKERS = [
   'ください', 'してください', 'お願いします', 'お願いいたします',
   // Korean
   '주세요', '해주세요', '부탁',
+  // Swedish
+  'snälla', 'vänligen',
+  // Dutch
+  'alstublieft', 'gelieve', 'a.u.b.',
+  // Polish
+  'proszę',
+  // Czech
+  'prosím',
+  // Finnish
+  'ole hyvä', 'olkaa hyvä', 'pyydän',
+  // Turkish
+  'lütfen',
+  // Indonesian / Malay
+  'tolong', 'mohon', 'silakan',
+  // Tagalog
+  'mangyaring', 'pakiusap',
+  // Vietnamese
+  'vui lòng', 'làm ơn',
+  // Thai
+  'กรุณา', 'โปรด',
+  // Tamil
+  'தயவுசெய்து',
+  // Bengali
+  'অনুগ্রহ করে', 'দয়া করে',
+  // Persian
+  'لطفا', 'لطفاً', 'خواهشمندم',
+  // Hebrew
+  'בבקשה', 'אנא',
+  // Ukrainian
+  'будь ласка', 'прошу',
+  // Urdu
+  'براہ کرم', 'مہربانی',
+  // Somali
+  'fadlan',
+  // Swahili
+  'tafadhali',
 ]
 
 // Send-class verbs — the exfiltration / disclosure family. A hit near an email
@@ -187,6 +223,44 @@ const ML_SEND_VERBS = [
   '送信', '送って', '送金', '送付', '転送', '共有', '開示', 'アップロード', 'エクスポート', '渡して',
   // Korean
   '보내', '전달', '송금', '공유', '업로드', '공개',
+  // Swedish
+  'skicka', 'sänd', 'vidarebefordra', 'överför', 'överföra', 'dela', 'avslöja', 'exportera',
+  // Dutch (imperative stems + 'te'-infinitives)
+  'stuur', 'verstuur', 'versturen', 'doorsturen', 'overmaak', 'overmaken', 'overschrijf', 'deel', 'delen', 'onthul', 'onthullen', 'exporteer', 'exporteren',
+  // Polish
+  'wyślij', 'prześlij', 'przekaż', 'przelej', 'udostępnij', 'ujawnij',
+  // Czech
+  'pošli', 'pošlete', 'odešli', 'přepošli', 'převeď', 'převeďte', 'sdílej', 'sdílejte', 'odhal', 'prozraď',
+  // Finnish
+  'lähetä', 'välitä', 'siirrä', 'paljasta',
+  // Turkish
+  'gönder', 'ilet', 'yönlendir', 'aktar', 'havale', 'paylaş', 'açıkla', 'ifşa',
+  // Indonesian / Malay
+  'kirim', 'kirimkan', 'teruskan', 'pindahkan', 'bagikan', 'ungkapkan', 'beberkan', 'unggah',
+  // Tagalog
+  'ipadala', 'ipasa', 'ilipat', 'ibahagi', 'ihayag', 'ibunyag',
+  // Vietnamese
+  'gửi', 'chuyển tiếp', 'chuyển khoản', 'chia sẻ', 'tiết lộ', 'để lộ', 'tải lên',
+  // Thai — bare 'ส่ง' (send) is dropped: it is a common morpheme inside benign
+  // words ("จัดส่ง" = delivery), and Thai has no word boundaries to fence it.
+  // Forwarding ('ส่งต่อ') and transfer ('โอน'/'โอนเงิน') stay — they are specific.
+  'ส่งต่อ', 'โอน', 'โอนเงิน', 'แบ่งปัน', 'แชร์', 'เปิดเผย', 'อัปโหลด',
+  // Tamil
+  'அனுப்பு', 'அனுப்பவும்', 'முன்னனுப்பு', 'பகிர்', 'பகிரவும்', 'வெளிப்படுத்து',
+  // Bengali
+  'পাঠান', 'পাঠাও', 'স্থানান্তর', 'শেয়ার', 'প্রকাশ', 'অগ্রসর', 'ফরওয়ার্ড', 'আপলোড',
+  // Persian
+  'بفرست', 'ارسال', 'فوروارد', 'انتقال', 'واریز', 'منتقل', 'اشتراک', 'فاش', 'افشا',
+  // Hebrew
+  'שלח', 'שלחי', 'העבר', 'שתף', 'חשוף',
+  // Ukrainian
+  'надішли', 'надішліть', 'відправ', 'переслати', 'перешли', 'перешліть', 'перекажи', 'поділись', 'поділіться', 'розкрий', 'розкрийте',
+  // Urdu
+  'بھیجیں', 'بھیجو', 'فارورڈ', 'منتقل', 'ٹرانسفر', 'شیئر', 'بانٹیں',
+  // Somali
+  'dir', 'gudbi', 'wareeji', 'wadaag', 'muuji', 'shaaci',
+  // Swahili
+  'tuma', 'peleka', 'sambaza', 'hamisha', 'shiriki', 'gawana', 'fichua', 'funua', 'pakia',
 ]
 
 // Other sensitive, side-effecting verbs — access grants, destructive and
@@ -216,6 +290,42 @@ const ML_OTHER_VERBS = [
   '付与', '許可', '有効化', '削除', '消去', '取り消', '無効化', '支払', '振り込', '振込', '購入', '引き出',
   // Korean
   '부여', '허가', '활성화', '삭제', '제거', '취소', '결제', '지불', '구매', '출금',
+  // Swedish
+  'bevilja', 'tillåt', 'aktivera', 'radera', 'ta bort', 'återkalla', 'betala', 'köp', 'köpa',
+  // Dutch (imperative stems + 'te'-infinitives)
+  'verleen', 'verlenen', 'machtig', 'machtigen', 'activeer', 'activeren', 'verwijder', 'verwijderen', 'wis', 'herroep', 'herroepen', 'betaal', 'betalen', 'koop', 'kopen', 'geef',
+  // Polish
+  'przyznaj', 'udziel', 'autoryzuj', 'aktywuj', 'usuń', 'skasuj', 'odwołaj', 'zapłać', 'opłać', 'kup',
+  // Czech
+  'uděl', 'udělte', 'poskytni', 'aktivuj', 'smaž', 'smažte', 'vymaž', 'odvolej', 'zaplať', 'zaplaťte', 'kup',
+  // Finnish
+  'myönnä', 'salli', 'aktivoi', 'poista', 'peruuta', 'maksa', 'osta',
+  // Turkish
+  'izin ver', 'yetkilendir', 'etkinleştir', 'sil', 'iptal et', 'öde', 'satın al',
+  // Indonesian / Malay
+  'berikan', 'izinkan', 'aktifkan', 'hapus', 'cabut', 'bayar', 'beli',
+  // Tagalog
+  'pahintulutan', 'ibigay', 'burahin', 'tanggalin', 'bayaran', 'bilhin',
+  // Vietnamese
+  'cấp', 'cho phép', 'kích hoạt', 'xóa', 'xoá', 'thu hồi', 'thanh toán', 'mua',
+  // Thai
+  'อนุญาต', 'ลบ', 'เพิกถอน', 'จ่าย', 'ชำระ', 'ซื้อ',
+  // Tamil
+  'வழங்கு', 'அனுமதி', 'நீக்கு', 'அழி', 'செலுத்து', 'வாங்கு',
+  // Bengali
+  'প্রদান', 'অনুমতি', 'মুছুন', 'মুছে', 'বাতিল', 'পরিশোধ', 'কিনুন',
+  // Persian
+  'اعطا', 'دسترسی', 'حذف', 'لغو', 'پرداخت', 'بخر',
+  // Hebrew
+  'הענק', 'מחק', 'בטל', 'קנה',
+  // Ukrainian
+  'надай', 'надайте', 'дозволь', 'активуй', 'видали', 'видаліть', 'скасуй', 'заплати', 'оплати', 'купи',
+  // Urdu
+  'اجازت', 'عطا', 'حذف', 'مٹا', 'منسوخ', 'ادائیگی', 'خریدیں',
+  // Somali
+  'sii', 'ogolow', 'fasax', 'tirtir', 'bixi', 'iibso',
+  // Swahili
+  'ruhusu', 'kabidhi', 'futa', 'ondoa', 'lipa', 'nunua',
 ]
 
 const ML_VERBS = Array.from(new Set([...ML_SEND_VERBS, ...ML_OTHER_VERBS]))
@@ -227,11 +337,11 @@ const ML_SEND_SET = new Set(ML_SEND_VERBS)
 // "…送金し…してください"), so we test proximity in EITHER direction.
 const ML_IMPERATIVE_PROXIMITY = 60
 
-// CJK / Hangul / kana have no inter-word spaces, so a substring hit IS a token
-// hit. For alphabetic + abjad + Brahmic scripts we require non-letter
-// boundaries so a verb stem inside a longer benign word ("send" in "sender",
-// "pay" in "paypal") does not fire.
-const ML_NOSPACE_RE = /[぀-ヿ㐀-鿿豈-﫿가-힯]/
+// CJK / Hangul / kana / Thai have no inter-word spaces, so a substring hit IS a
+// token hit. For alphabetic + abjad + Brahmic scripts (which DO use spaces) we
+// require non-letter boundaries so a verb stem inside a longer benign word
+// ("send" in "sender", "pay" in "paypal") does not fire.
+const ML_NOSPACE_RE = /[぀-ヿ㐀-鿿豈-﫿가-힯ก-๛]/
 const ML_LETTER_RE = /\p{L}/u
 
 function mlIndices(haystack: string, needle: string): number[] {
