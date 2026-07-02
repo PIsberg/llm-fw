@@ -70,6 +70,16 @@ function makeCdpExtension(crlUrl: string): object {
 export class CertFactory {
   private caForge: { cert: forge.pki.Certificate; key: forge.pki.rsa.PrivateKey } | null = null;
   private certCache = new Map<string, TLSCredentials>();
+  // Single shared key pair for all host certs — generated once, reused forever.
+  // Generating a 2048-bit RSA pair per hostname blocks the event loop for 100-2000ms.
+  private hostKeyPair: forge.pki.rsa.KeyPair | null = null;
+
+  /** Pre-generate the shared host key during setup so getHostCert never blocks mid-request. */
+  warmHostKey(): void {
+    if (!this.hostKeyPair) {
+      this.hostKeyPair = forge.pki.rsa.generateKeyPair(2048);
+    }
+  }
 
   generateCA(): TLSCredentials {
     fs.mkdirSync(LLMFW_DIR, { recursive: true });
@@ -114,6 +124,8 @@ export class CertFactory {
     fs.writeFileSync(CA_KEY_PATH, keyPem, { encoding: 'utf8' });
 
     this.caForge = { cert, key: keys.privateKey };
+    // Pre-warm shared host key while RSA generation is already on the critical path during setup.
+    this.warmHostKey();
 
     return { cert: certPem, key: keyPem };
   }
@@ -195,7 +207,9 @@ export class CertFactory {
 
     const ca = this.getOrLoadCA();
 
-    const keys = forge.pki.rsa.generateKeyPair(2048);
+    // Reuse the single pre-generated host key pair — never block the event loop per hostname.
+    this.warmHostKey();
+    const keys = this.hostKeyPair!;
     const cert = forge.pki.createCertificate();
 
     cert.publicKey = keys.publicKey;
