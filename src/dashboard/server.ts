@@ -7,6 +7,7 @@ import { Config } from '../types.js'
 import { deepMerge } from '../config/config.js'
 import { EventBus } from './eventBus.js'
 import { Pipeline } from '../detection/pipeline.js'
+import { SuppressionStore } from '../detection/suppressions.js'
 import { getParser } from '../detection/parsers.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
 import { ocrImage, isOcrCandidate } from '../detection/ocr.js'
@@ -609,6 +610,10 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section drawer-full">' +
         '<button class="btn" id="wl-btn-' + esc(id) + '">Mark as false positive</button>' +
         '<span id="wl-status-' + esc(id) + '" style="margin-left:12px;font-size:0.82rem;color:#388e3c"></span>' +
+        (ev.action === 'blocked'
+          ? '<button class="btn" id="fp-btn-' + esc(id) + '" style="margin-left:12px" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
+            '<span id="fp-status-' + esc(id) + '" style="margin-left:12px;font-size:0.82rem;color:#388e3c"></span>'
+          : '') +
       '</div>' +
     '</div>' +
     '</td></tr>';
@@ -620,6 +625,32 @@ function toggleDrawer(id, ev) {
     // never has to be quote-escaped inside this HTML template literal.
     const wlBtn = document.getElementById('wl-btn-' + id);
     if (wlBtn) wlBtn.onclick = () => whitelistEvent(id, wlBtn);
+    const fpBtn = document.getElementById('fp-btn-' + id);
+    if (fpBtn) fpBtn.onclick = () => suppressEvent(id, fpBtn);
+  }
+}
+
+// ── Suppress (false-positive feedback loop, distinct from Whitelist above:
+// this one actually changes future pipeline behavior — see /api/feedback) ─────
+async function suppressEvent(id, btn) {
+  const status = document.getElementById('fp-status-' + id);
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId: id })
+    });
+    const d = await res.json();
+    if (res.ok) {
+      if (status) status.textContent = '✓ Suppressed — an identical prompt will warn, not block';
+      btn.textContent = 'Suppressed';
+    } else {
+      btn.disabled = false;
+      if (status) { status.style.color = '#b3261e'; status.textContent = 'Error: ' + (d.error || res.status); }
+    }
+  } catch (err) {
+    btn.disabled = false;
+    if (status) { status.style.color = '#b3261e'; status.textContent = 'Error: ' + err.message; }
   }
 }
 
@@ -1173,6 +1204,7 @@ const SETTINGS_SCHEMA = [
     { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'A local Ollama model reasons about intent for prompts the cheap stages miss. Requires Ollama (run: llm-fw setup-judge)' },
     { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block the request on a MALICIOUS verdict, instead of only logging a warning' },
     { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Routes nearly every prompt to the judge. NOT recommended with a small local judge — measured 27-86% false positives on held-out data. Use the trained classifier above for novel-attack coverage instead' },
+    { key: 'suppressions', label: 'False-positive suppression list', sub: 'Downgrade a block to a warn when the exact prompt was previously marked a false positive from an event’s "Mark false positive" button. Empty until an operator marks one — never loosens detection for anything else' },
   ]},
   { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
     { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },
@@ -1511,6 +1543,7 @@ interface SettingsView {
   promptInjectionJudge: boolean
   judgeBlock: boolean
   judgeUnlessBenign: boolean
+  suppressions: boolean
   rag: boolean
   dlp: boolean
   dlpMode: 'block' | 'redact' | 'audit'
@@ -1555,6 +1588,7 @@ function readSettings(config: Config): SettingsView {
     promptInjectionJudge: config.detection?.judgeEnabled ?? false,
     judgeBlock: config.detection?.judgeBlock ?? false,
     judgeUnlessBenign: config.detection?.judgeUnlessBenign ?? false,
+    suppressions: config.detection?.suppressions ?? true,
     rag: config.rag?.enabled ?? true,
     dlp: config.dlp?.enabled ?? true,
     dlpMode: config.dlp?.mode ?? 'redact',
@@ -1592,6 +1626,7 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   manyShot: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).enabled = v },
   crescendo: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).enabled = v },
   responseHarm: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).harmfulCompliance = v },
+  suppressions: (c, v) => { c.detection.suppressions = v },
   promptInjectionJudge: (c, v) => { c.detection.judgeEnabled = v },
   judgeBlock: (c, v) => { c.detection.judgeBlock = v },
   judgeUnlessBenign: (c, v) => { c.detection.judgeUnlessBenign = v },
@@ -1647,6 +1682,7 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       judgeEnabled: config.detection.judgeEnabled,
       judgeBlock: config.detection.judgeBlock,
       judgeUnlessBenign: config.detection.judgeUnlessBenign ?? false,
+      suppressions: config.detection.suppressions ?? true,
       judgeModel: config.detection.judgeModel,
       heuristicBlockThreshold: config.detection.heuristicBlockThreshold,
       embeddingBlockThreshold: config.detection.embeddingBlockThreshold,
@@ -1799,7 +1835,14 @@ export function tokenMatches(presented: string, expected: string): boolean {
   return crypto.timingSafeEqual(a, b)
 }
 
-export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline): http.Server {
+export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline, suppressions?: SuppressionStore): http.Server {
+  // Defaults to a private store (behaviorally an always-empty suppression
+  // list) when the caller doesn't share one — e.g. tests that construct the
+  // dashboard server directly. cli/start.ts passes the SAME instance used by
+  // the live-traffic pipeline so a false positive marked here actually
+  // affects real traffic.
+  const suppressionStore = suppressions ?? new SuppressionStore()
+  suppressionStore.load()
   // Effective auth token: configured value, else a generated one so a
   // remotely-reachable dashboard is never left open. Loopback callers bypass auth
   // entirely, so a purely local dashboard never needs the token.
@@ -2178,6 +2221,93 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     if (req.method === 'GET' && path === '/api/whitelist') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(eventBus.readWhitelist()))
+      return
+    }
+
+    // Operator false-positive feedback loop (Task B2). Distinct from
+    // /api/whitelist above: whitelist is an audit trail only (never consulted
+    // by the pipeline). This endpoint resolves the buffered event's ORIGINAL
+    // prompt text (payload_full) and adds it to the persisted suppression
+    // list, so an identical future prompt is downgraded from block to warn by
+    // the detection pipeline (see Pipeline.isSuppressed).
+    if (req.method === 'POST' && path === '/api/feedback') {
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        try {
+          const { eventId } = JSON.parse(body || '{}') as { eventId?: string }
+          if (!eventId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'eventId is required' }))
+            return
+          }
+          const event = eventBus.getAll().find(e => e.id === eventId)
+          if (!event) {
+            res.writeHead(404, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'event not found' }))
+            return
+          }
+          if (event.action !== 'blocked') {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'only blocked events can be suppressed' }))
+            return
+          }
+          const promptText = event.payload_full || event.payload_preview
+          if (!promptText) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'event has no payload to suppress' }))
+            return
+          }
+          const entry = suppressionStore.add(promptText)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, entry }))
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: String(err) }))
+        }
+      })
+      req.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'request read error' }))
+      })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/api/suppressions') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(suppressionStore.list()))
+      return
+    }
+
+    // Remove a suppression, e.g. the operator changes their mind. hash is the
+    // sha256 identifying the suppressed (normalized) text — see suppressions.ts.
+    if (req.method === 'DELETE' && path === '/api/suppressions') {
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
+      const hash = url.searchParams.get('hash') ?? ''
+      if (!hash) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'hash query param is required' }))
+        return
+      }
+      const removed = suppressionStore.remove(hash)
+      if (!removed) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'no suppression with that hash' }))
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
       return
     }
 

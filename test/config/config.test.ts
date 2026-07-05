@@ -41,7 +41,7 @@ describe('loadConfig env overrides', () => {
     'LLM_FW_PROXY_PORT', 'LLM_FW_PROXY_MODE', 'LLM_FW_HTTPS_PORT',
     'LLM_FW_JUDGE_ENABLED', 'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DLP_MODE',
     'LLM_FW_DASHBOARD_PORT', 'LLM_FW_PROXY_BIND', 'LLM_FW_DASHBOARD_BIND',
-    'LLM_FW_EXTRA_TARGETS', 'LLM_FW_INTERCEPT_DOMAINS',
+    'LLM_FW_EXTRA_TARGETS', 'LLM_FW_INTERCEPT_DOMAINS', 'LLM_FW_SUPPRESSIONS_ENABLED',
   ]
   afterEach(() => { for (const k of ENV_KEYS) delete process.env[k] })
 
@@ -62,6 +62,14 @@ describe('loadConfig env overrides', () => {
     expect((await loadConfig()).detection.judgeEnabled).toBe(true)
     process.env.LLM_FW_JUDGE_ENABLED = 'false'
     expect((await loadConfig()).detection.judgeEnabled).toBe(false)
+  })
+
+  it('defaults detection.suppressions to true and honours LLM_FW_SUPPRESSIONS_ENABLED', async () => {
+    expect(DEFAULT_CONFIG.detection.suppressions).toBe(true)
+    process.env.LLM_FW_SUPPRESSIONS_ENABLED = 'false'
+    expect((await loadConfig()).detection.suppressions).toBe(false)
+    process.env.LLM_FW_SUPPRESSIONS_ENABLED = 'true'
+    expect((await loadConfig()).detection.suppressions).toBe(true)
   })
 
   it('applies string/enum env overrides', async () => {

@@ -94,6 +94,11 @@ export const DEFAULT_CONFIG: Config = {
     // it), downgrade a classifier block to a warn. ON by default but inert unless
     // the opt-in classifier is enabled. Also LLM_FW_INTENT_MENTION_ENABLED.
     intentMention: true,
+    // Operator false-positive suppression list (see suppressions.ts). ON by
+    // default — the list is empty until an operator marks a block as a false
+    // positive from the dashboard, so this is behavior-preserving out of the
+    // box. Also LLM_FW_SUPPRESSIONS_ENABLED.
+    suppressions: true,
     // Trusted by default: the system prompt is developer-authored and naturally
     // contains instruction-management language that injection heuristics flag, so
     // scanning it blocks legitimate traffic. Enable only when untrusted data is
@@ -323,6 +328,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_CLASSIFIER_THRESHOLD: (c, v) => { if (c.detection.classifier) c.detection.classifier.blockThreshold = parseFloat(v); },
   LLM_FW_CLASSIFIER_ESCALATE: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.detection.classifier) c.detection.classifier.escalateThreshold = n; },
   LLM_FW_INTENT_MENTION_ENABLED: (c, v) => { c.detection.intentMention = v === 'true'; },
+  LLM_FW_SUPPRESSIONS_ENABLED: (c, v) => { c.detection.suppressions = v === 'true'; },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = parseFloat(v); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = parseFloat(v); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },

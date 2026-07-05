@@ -6,6 +6,7 @@ import { Config } from '../types.js'
 import { CertFactory } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
+import { SuppressionStore } from '../detection/suppressions.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
@@ -153,12 +154,18 @@ export class ProxyServer {
   private eventBus: EventBus
   private config: Config
 
-  constructor(config: Config, eventBus: EventBus) {
+  // Optional so every existing call site (tests, scripts) that doesn't care
+  // about sharing the suppression store across Pipeline instances is
+  // unaffected. When provided (see cli/start.ts), the SAME store backs both
+  // this proxy's live-traffic pipeline and the dashboard's playground
+  // pipeline, so a false-positive marked from the dashboard actually
+  // suppresses future real traffic, not just the dashboard's own test runs.
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore) {
     this.config = config
     this.eventBus = eventBus
     this.certFactory = new CertFactory()
     this.resolver = new UpstreamResolver(config.proxy)
-    this.pipeline = new Pipeline(config, partial => eventBus.emit(partial))
+    this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions)
     this.urlClassifier = new UrlClassifier(config.proxy.urlFilter)
     this.dlp = new DlpScanner(config.dlp)
     this.quota = new QuotaManager(config.dos)

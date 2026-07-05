@@ -78,6 +78,15 @@ export interface DetectionConfig {
   // LLM_FW_INTENT_MENTION_ENABLED. Scoped to the prompt/system surface — never
   // applied to untrusted tool_result/document data.
   intentMention?: boolean;
+  // Operator-driven false-positive suppression (see suppressions.ts). When a
+  // prompt/system candidate's normalized text matches an operator-approved
+  // suppression (added via the dashboard's "mark false positive" feedback),
+  // downgrade what would otherwise be a BLOCK to a warn. ON by default; an
+  // empty suppression list (the default, fresh-install state) is a no-op, so
+  // enabling this never changes behaviour until an operator actually marks a
+  // false positive. Also LLM_FW_SUPPRESSIONS_ENABLED. Scoped to prompt/system
+  // — never applied to untrusted tool_result/document data.
+  suppressions?: boolean;
 }
 
 export interface ClassifierConfig {

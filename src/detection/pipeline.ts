@@ -12,6 +12,7 @@ import { detectCrescendo } from './crescendo.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
+import { SuppressionStore } from './suppressions.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -28,19 +29,32 @@ export class Pipeline {
   private judge: JudgeClient
   private config: Config
   private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void
+  private suppressions: SuppressionStore
 
-  constructor(config: Config, onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void) {
+  constructor(
+    config: Config,
+    onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void,
+    // Shared across the process's Pipeline instances (e.g. ProxyServer's live
+    // pipeline and the dashboard's playground pipeline) so a suppression added
+    // via the dashboard takes effect on real traffic too, not just the
+    // instance that added it. Defaults to a private store when the caller
+    // doesn't share one (e.g. most tests), which is behaviorally identical to
+    // no suppressions ever having been added.
+    suppressions?: SuppressionStore,
+  ) {
     this.config = config
     this.onBlock = onBlock
     this.heuristic = new HeuristicScorer()
     this.embedding = new EmbeddingChecker(config.detection)
     this.classifier = new InjectionClassifier(config.detection)
     this.judge = new JudgeClient(config.detection)
+    this.suppressions = suppressions ?? new SuppressionStore()
   }
 
   async init(): Promise<void> {
     await this.embedding.init()
     await this.classifier.init() // no-op unless the classifier stage is enabled
+    this.suppressions.load()
   }
 
   async run(
@@ -50,6 +64,18 @@ export class Pipeline {
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
+
+    // A warn is the WEAKEST positive verdict. It must never short-circuit the
+    // scan: a different candidate (e.g. the base64-DECODED form of the same
+    // prompt) may still BLOCK, and a block must win over an earlier warn. So we
+    // record the first warn and keep scanning every candidate of every surface;
+    // the warn is only emitted at the end if nothing blocked. (Previously the
+    // warn returned immediately, which let an early embedding-warn on the raw
+    // "decode this base64 …" candidate mask the heuristic block on its decoded
+    // payload — encoded attacks slipped through as warns.) Declared here (before
+    // the crescendo check below) so an operator-suppressed crescendo block can
+    // downgrade into it too.
+    let pendingWarn: { result: PipelineResult; prompt: string; source: ScanSource } | null = null
 
     // Stage C — Multi-turn crescendo. Operates on the WHOLE conversation (the
     // request resends every turn), not a single surface, so it runs once here
@@ -62,8 +88,13 @@ export class Pipeline {
       if (cr.severity === 'block') {
         const finalText = conversation.filter(t => t.role === 'user').pop()?.text ?? ''
         const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }
-        this.emit(result, meta, `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`, 'prompt')
-        return result
+        const line = `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`
+        if (this.isSuppressed(finalText, 'prompt')) {
+          pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source: 'prompt' }
+        } else {
+          this.emit(result, meta, line, 'prompt')
+          return result
+        }
       }
     }
 
@@ -149,16 +180,6 @@ export class Pipeline {
     const { heuristicBlockThreshold: ragBlockThreshold } = this.config.detection
     const ragEnabled = this.config.rag?.enabled
 
-    // A warn is the WEAKEST positive verdict. It must never short-circuit the
-    // scan: a different candidate (e.g. the base64-DECODED form of the same
-    // prompt) may still BLOCK, and a block must win over an earlier warn. So we
-    // record the first warn and keep scanning every candidate of every surface;
-    // the warn is only emitted at the end if nothing blocked. (Previously the
-    // warn returned immediately, which let an early embedding-warn on the raw
-    // "decode this base64 …" candidate mask the heuristic block on its decoded
-    // payload — encoded attacks slipped through as warns.)
-    let pendingWarn: { result: PipelineResult; prompt: string; source: ScanSource } | null = null
-
     for (const { text: prompt, source } of scanItems) {
       // Stage S — ASCII smuggling. Invisible-character instruction smuggling
       // (Unicode Tags block, bidi overrides, plane-14 variation selectors).
@@ -178,8 +199,13 @@ export class Pipeline {
             prompt: hidden.decoded || prompt,
             smuggleRanges: hidden.ranges,
           }
-          this.emit(result, meta, `[hidden: ${hidden.ranges.join(', ')}]${decodedNote}`, source)
-          return result
+          const line = `[hidden: ${hidden.ranges.join(', ')}]${decodedNote}`
+          if (this.isSuppressed(prompt, source)) {
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
+          } else {
+            this.emit(result, meta, line, source)
+            return result
+          }
         }
       }
 
@@ -193,8 +219,13 @@ export class Pipeline {
         const ms = detectManyShot(prompt, this.config.manyShot)
         if (ms.severity === 'block') {
           const result: PipelineResult = { action: 'block', stage: 'many-shot', score: 100, similarity: 0, prompt }
-          this.emit(result, meta, `[many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`, source)
-          return result
+          const line = `[many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`
+          if (this.isSuppressed(prompt, source)) {
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
+          } else {
+            this.emit(result, meta, line, source)
+            return result
+          }
         }
         if (ms.severity === 'warn' && !pendingWarn) {
           pendingWarn = {
@@ -235,8 +266,13 @@ export class Pipeline {
         if (harm) {
           if (this.config.harmfulRequest.mode === 'block') {
             const result: PipelineResult = { action: 'block', stage: 'harmful-request', score: 100, similarity: 0, prompt }
-            this.emit(result, meta, `[harmful-request: ${harm.kind} "${harm.anchor}"] ${harm.snippet}`, source)
-            return result
+            const line = `[harmful-request: ${harm.kind} "${harm.anchor}"] ${harm.snippet}`
+            if (this.isSuppressed(prompt, source)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
+            } else {
+              this.emit(result, meta, line, source)
+              return result
+            }
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'harmful-request', score: 0, similarity: 0, prompt },
@@ -258,8 +294,12 @@ export class Pipeline {
           const ragHeur = ragInjectionScore(prompt, this.heuristic)
           if (ragHeur.score >= ragBlockThreshold) {
             const result: PipelineResult = { action: 'block', stage: 'rag', score: ragHeur.score, similarity: 0, prompt, heuristicMatches: ragHeur.matches }
-            this.emit(result, meta, prompt, source)
-            return result
+            if (this.isSuppressed(prompt, source)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+            } else {
+              this.emit(result, meta, prompt, source)
+              return result
+            }
           }
 
           // Signal 2: specialized judge on each isolated data block. Bounded
@@ -269,8 +309,12 @@ export class Pipeline {
             const poisoned = await this.judgeRagBlocks(ragBlocks)
             if (poisoned) {
               const result: PipelineResult = { action: 'block', stage: 'rag', score: 50, similarity: 0, verdict: 'MALICIOUS', prompt, ragTag: poisoned.tag }
-              this.emit(result, meta, prompt, source)
-              return result
+              if (this.isSuppressed(prompt, source)) {
+                if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+              } else {
+                this.emit(result, meta, prompt, source)
+                return result
+              }
             }
           }
         }
@@ -285,8 +329,12 @@ export class Pipeline {
         const j = await this.judge.classify(prompt)
         if (j.verdict === 'MALICIOUS') {
           const result: PipelineResult = { action: 'block', stage: 'judge', score: 30, similarity: 0, verdict: 'MALICIOUS', prompt }
-          this.emit(result, meta, prompt, source)
-          return result
+          if (this.isSuppressed(prompt, source)) {
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+          } else {
+            this.emit(result, meta, prompt, source)
+            return result
+          }
         }
       }
 
@@ -325,8 +373,13 @@ export class Pipeline {
             }
           } else {
             const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
-            this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
-            return result
+            const line = `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`
+            if (this.isSuppressed(prompt, source)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
+            } else {
+              this.emit(result, meta, line, source)
+              return result
+            }
           }
         } else if (v) {
           // Two-tier policy (Option B): a gray-zone score is too confident to be
@@ -351,8 +404,13 @@ export class Pipeline {
                 }
               } else {
                 const result: PipelineResult = { action: 'block', stage: 'judge', score: Math.round(v.score * 100), similarity: 0, verdict: 'MALICIOUS', prompt }
-                this.emit(result, meta, `[classifier→judge: gray-zone ${(v.score * 100).toFixed(1)}% confirmed injection] ${prompt.slice(0, 80)}`, source)
-                return result
+                const line = `[classifier→judge: gray-zone ${(v.score * 100).toFixed(1)}% confirmed injection] ${prompt.slice(0, 80)}`
+                if (this.isSuppressed(prompt, source)) {
+                  if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
+                } else {
+                  this.emit(result, meta, line, source)
+                  return result
+                }
               }
             }
             // Judge SAFE -> fall through to Stage 1/2 as today.
@@ -368,8 +426,12 @@ export class Pipeline {
         
         if (h.score >= heuristicBlockThreshold) {
           const result: PipelineResult = { action: 'block', stage: 'heuristic', score: h.score, similarity: 0, prompt: candidate.text, heuristicMatches: h.matches }
-          this.emit(result, meta, prompt, source)
-          return result
+          if (this.isSuppressed(prompt, source)) {
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+          } else {
+            this.emit(result, meta, prompt, source)
+            return result
+          }
         }
         // Stage 2: embedding (fast, catches zero-heuristic semantic variants).
         // Skipped for tool DEFINITIONS: these are developer-authored descriptions
@@ -397,8 +459,12 @@ export class Pipeline {
 
           if (eSim >= embeddingBlockThreshold && eMargin >= embeddingMarginThreshold) {
             const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: eSim, prompt: candidate.text, nearestTemplate: eNearest }
-            this.emit(result, meta, prompt, source)
-            return result
+            if (this.isSuppressed(prompt, source)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+            } else {
+              this.emit(result, meta, prompt, source)
+              return result
+            }
           }
         }
 
@@ -433,8 +499,12 @@ export class Pipeline {
             const j = await this.judge.classify(candidate.text)
             if (j.verdict === 'MALICIOUS') {
               const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }
-              this.emit(result, meta, prompt, source)
-              return result
+              if (this.isSuppressed(prompt, source)) {
+                if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+              } else {
+                this.emit(result, meta, prompt, source)
+                return result
+              }
             }
           } else {
             // Async monitoring mode
@@ -520,6 +590,23 @@ export class Pipeline {
       }
     }
     return null
+  }
+
+  /**
+   * Operator false-positive suppression (Task B2). Consulted immediately
+   * before every BLOCK verdict in `run()`, on the prompt/system surfaces
+   * only — a suppression is an operator's judgment about a specific piece of
+   * user/system text, not a blanket pass for untrusted tool_result/document
+   * data, where a "known-safe" quoted string is standard indirect-injection
+   * dressing and must still block. Off by default only when the operator
+   * explicitly disables `detection.suppressions`; an empty suppression list
+   * (the default, fresh-install state) always returns false, so this is a
+   * no-op until an operator actually marks a false positive.
+   */
+  private isSuppressed(text: string, source: ScanSource): boolean {
+    if (source !== 'prompt' && source !== 'system') return false
+    if (this.config.detection.suppressions === false) return false
+    return this.suppressions.isSuppressed(text)
   }
 
   // Max concurrent specialized-judge queries for RAG data blocks. A prompt with
