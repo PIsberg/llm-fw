@@ -197,3 +197,48 @@ Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
 - **JBB-behaviors recall hits 100.0%**: All 100 harmful/jailbreak prompts are successfully blocked at the cheap heuristic stage. The single remaining false positive in `benign` is blocked by the embedding stage (unrelated to harmfulRequest).
 - **HarmBench recall rises to 41.0% (+3.7 pp)**: Misinformation/disinformation recall surges from 26% to 43% by correctly matching war/genocide denialism and bypassing the defensive suppression when persuasive intent is explicitly requested.
 
+## Round 6 (intent-vs-mention gate + two-tier classifier policy)
+
+Two additions to the opt-in **classifier** stage (`feat/intent-mention-and-blending`);
+the cheap preset is untouched (heldout cheap: 61.3% recall / 9.5% FPR, unchanged).
+
+1. **Intent-vs-mention gate** (`src/detection/intentMention.ts`) — a
+   classifier-block **false-positive suppressor**. The DeBERTa classifier cannot
+   tell a prompt that ISSUES an override from one that merely quotes, translates,
+   documents, or fictionalizes one — its single largest FP source. When a
+   mention frame (quoted / translation / documentation / fiction) is detected
+   AND no live override imperative sits outside quote/code spans, a classifier
+   block is downgraded to a warn. Scoped to the **prompt/system surfaces only**
+   (on `tool_result`/`document` a quoted instruction is standard
+   indirect-injection dressing and still blocks). On by default; opt out with
+   `LLM_FW_INTENT_MENTION_ENABLED=false`.
+2. **Two-tier classifier policy** — classifier score **≥ 0.9** blocks directly
+   (unchanged); a gray-zone score in **[0.5, 0.9)** escalates to the local
+   Ollama judge when enabled (MALICIOUS → block at stage `judge`, SAFE → fall
+   through to the cheap stages). `escalateThreshold` default 0.5, override via
+   `LLM_FW_CLASSIFIER_ESCALATE`. The mention gate applies to judge-confirmed
+   gray-zone blocks too.
+
+| Dataset | Preset | n | Recall before → after | FPR before → after |
+|---|---|---|---|---|
+| **heldout** | classifier (judge off) | 52 | 77.4% → **80.6%** | 23.8% → **9.5%** |
+
+Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
+
+### Notes
+
+- **FPR is the headline: 23.8% → 9.5%.** The gate removed *every*
+  classifier-specific false positive; the two remaining FPs are the documented
+  irreducible embedding borderlines (benign imperatives at cosine 0.860/0.861)
+  that pre-date the classifier stage.
+- **Recall also rises (+3.2 pp)** — direct-override, encoding, indirect and
+  many-shot all reach 100% on the set; the remaining misses are `semantic-hard`
+  (0/4), one refusal, one social-engineering rephrasing.
+- **Option B not exercised in this run**: the benchmark's `classifier` preset
+  runs with the judge off, so gray-zone escalation numbers are pending a re-run
+  with a live Ollama judge.
+- **No suppression on live attacks**: an un-quoted override imperative defeats
+  every mention frame, so fiction-wrapper jailbreaks ("In a story, ignore all
+  previous instructions…") still block; the gate is also skipped entirely on
+  the indirect-injection surfaces.
+

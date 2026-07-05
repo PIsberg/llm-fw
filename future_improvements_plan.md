@@ -34,6 +34,38 @@ detection suite green. New unit cases + benign fences in
 
 ---
 
+## ✅ Shipped — branch `feat/intent-mention-and-blending` (Options C + B)
+
+**Option C — intent-vs-mention gate** ([intentMention.ts](file:///C:/dev/private/llm-fw/src/detection/intentMention.ts)):
+a false-positive suppressor for the trained classifier stage. When a prompt only
+QUOTES / translates / documents / fictionalizes injection phrasing (rather than
+issuing it as a live instruction), a classifier block is downgraded to a warn.
+Precision-gated: an un-quoted live override imperative ("ignore all previous
+instructions …" outside quote/code spans) defeats every frame, so thin
+fiction-wrapper jailbreaks still block. Scoped to the `prompt`/`system` surfaces
+only — on `tool_result`/`document` a quoted instruction is standard
+indirect-injection dressing and still blocks. On by default (inert unless the
+opt-in classifier is enabled); opt out with `LLM_FW_INTENT_MENTION_ENABLED=false`.
+
+**Option B — two-tier classifier policy** (pipeline Stage 2.5): classifier score
+≥ 0.9 blocks directly as before; a gray-zone score in `[0.5, 0.9)` now escalates
+to the local Ollama judge when the judge is enabled — verdict MALICIOUS blocks
+(stage `judge`), SAFE falls through to the cheap stages. `escalateThreshold`
+defaults to 0.5, override via `LLM_FW_CLASSIFIER_ESCALATE`. The intent-mention
+gate applies to judge-confirmed gray-zone blocks too.
+
+**Measured (heldout, classifier preset — judge off, so Option B not exercised):**
+recall **77.4% → 80.6%** (25/31), FPR **23.8% → 9.5%** (2/21). The gate removed
+*every* classifier-specific false positive — the two remaining FPs are the
+pre-existing irreducible embedding borderlines (cosine 0.860/0.861). All of
+direct-override, encoding, indirect and many-shot are now 100% on that set; the
+misses left are `semantic-hard` (0/4), one refusal, one social-engineering.
+Gray-zone (Option B) heldout numbers: **pending classifier-preset re-run with a
+live Ollama judge** (the benchmark's `classifier` preset runs judge-off).
+Local scorecard: **100% TPR / 0% FPR — unchanged.**
+
+---
+
 ## 📊 Current State of the Project
 
 The prompt injection firewall is already highly optimized on its deterministic and cheap heuristic layers. Here is the current baseline on full splits across our benchmark suite:
@@ -68,7 +100,7 @@ To establish a credible "state-of-the-art" claim, we need to compare `llm-fw` ag
     3.  Generate a **Precision-Recall Frontier Plot** (recall vs. FPR scatter chart) in `docs/BENCHMARK.md`.
 *   **Why**: Prove where `llm-fw` sits relative to others in terms of latency, CPU footprint, and accuracy.
 
-### Option B: Classifier Ensembling & Signal Blending (Phase 3)
+### Option B: Classifier Ensembling & Signal Blending (Phase 3) — ✅ SHIPPED (two-tier policy; see above)
 Currently, the DeBERTa classifier operates on a static threshold. We want to ensemble it with embedding similarity and heuristics scores to catch novel semantic-only attacks.
 *   **What to do**:
     1.  Introduce a blending function in [pipeline.ts](file:///C:/dev/private/llm-fw/src/detection/pipeline.ts) (such as a logistic regression blend or a calibrated decision rule).
@@ -77,7 +109,7 @@ Currently, the DeBERTa classifier operates on a static threshold. We want to ens
         *   **Escalate** to the local Ollama Judge in the gray zone ($0.5 \le \text{score} < 0.9$).
 *   **Why**: Boosts `heldout` recall to $\ge 90\%$ while bypassing the Ollama judge's high false-positive rate on ordinary benign traffic.
 
-### Option C: Intent vs. Mention Contextual Filtering (Phase 4)
+### Option C: Intent vs. Mention Contextual Filtering (Phase 4) — ✅ SHIPPED (syntactic gate; see above)
 The primary driver of false positives (23.8% on the held-out set) is benign text discussing or quoting instructions (e.g. *"translate 'disregard the previous draft'"* or *"summarize a heist movie"*).
 *   **What to do**:
     1.  Add syntactic rules to detect whether matching phrases are inside quotation marks, code fences, or translation wrappers.
