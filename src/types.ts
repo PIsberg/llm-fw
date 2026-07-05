@@ -173,6 +173,24 @@ export interface ResponseScanConfig {
   // output-content classification is fuzzier than input matching and a harmful
   // response can't be cleanly neutralized. Default on. Independent of `mode`.
   harmfulCompliance?: boolean;
+  // Trained ONNX output-moderation classifier (Task B5, Option D) — a learned
+  // generalization layer over the regex-based harmfulCompliance co-occurrence
+  // scan, for responses whose harmful content doesn't match the hand-written
+  // vocabulary/procedural patterns. Opt-in: disabled by default (small model,
+  // but still a network download + inference cost per response). Unlike
+  // harmfulCompliance (always audit-only), this stage RESPECTS `mode`: block
+  // actually blocks the buffered (non-streaming) response; streamed SSE text
+  // is already forwarded by the time it's scored, so it can only audit. See
+  // src/detection/outputClassifier.ts for the model choice + rationale.
+  classifier?: OutputClassifierConfig;
+}
+
+export interface OutputClassifierConfig {
+  enabled: boolean;
+  /** HF model id. Defaults to the model chosen in outputClassifier.ts. */
+  model?: string;
+  /** Flagged-label probability at/above which a response is treated as harmful (0–1). */
+  blockThreshold?: number;
 }
 
 export interface AsciiSmugglingConfig {
