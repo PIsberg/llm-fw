@@ -166,6 +166,14 @@ export const DEFAULT_CONFIG: Config = {
       enabled: false,
       blockThreshold: 0.9,
     },
+    // Outbound tool-call argument exfiltration guard (Task C1). On by default,
+    // audit mode — it reuses the existing DLP pattern engine + UrlClassifier
+    // (both already on by default), so this adds visibility with no new
+    // heuristics to tune. Also LLM_FW_TOOLUSE_SCAN_ENABLED / _MODE.
+    toolUse: {
+      enabled: true,
+      mode: 'audit',
+    },
   },
   // Non-text content blocks (issue #60). Text-bearing payloads (text/* docs,
   // JSON, data-URL files, PDFs with uncompressed text) are decoded and scanned
@@ -386,6 +394,9 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_RESPONSE_CLASSIFIER_ENABLED: (c, v) => { if (c.responseScan?.classifier) c.responseScan.classifier.enabled = v === 'true'; },
   LLM_FW_RESPONSE_CLASSIFIER_MODEL: (c, v) => { if (c.responseScan?.classifier) c.responseScan.classifier.model = v; },
   LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.responseScan?.classifier) c.responseScan.classifier.blockThreshold = n; },
+  // Outbound tool-call argument exfiltration guard (Task C1).
+  LLM_FW_TOOLUSE_SCAN_ENABLED: (c, v) => { if (c.responseScan?.toolUse) c.responseScan.toolUse.enabled = v === 'true'; },
+  LLM_FW_TOOLUSE_SCAN_MODE: (c, v) => { if (c.responseScan?.toolUse && (v === 'block' || v === 'audit')) c.responseScan.toolUse.mode = v; },
   LLM_FW_NONTEXT_ENABLED: (c, v) => { if (c.nonText) c.nonText.enabled = v === 'true'; },
   LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },

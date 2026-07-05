@@ -24,6 +24,7 @@ import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/provid
 import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
+import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -929,6 +930,51 @@ export class ProxyServer {
     return false
   }
 
+  /**
+   * Task C1 — outbound tool-call argument exfiltration guard. Scans every
+   * tool_use/tool_call/functionCall the model's response carries for secrets
+   * (existing DLP pattern engine, this.dlp) and exfil-sink URLs (existing
+   * UrlClassifier, this.urlClassifier) in its serialized ARGUMENTS. This
+   * closes a vector the request-side scans never see: a model handing a tool
+   * a secret/PII value, or an attacker-controlled exfil URL, that only
+   * appears in its own OUTPUT. Buffered JSON can be withheld in block mode
+   * (bytes not yet sent); flushed SSE text has already reached the agent, so
+   * it always degrades to audit — same rule as runResponseHarmScan's
+   * classifier layer. Returns true when the caller must BLOCK the response.
+   */
+  private runToolUseScan(calls: ScannedToolCall[], req: http.IncomingMessage, hostname: string, canBlock: boolean): boolean {
+    if (!this.config.responseScan?.enabled) return false
+    if (calls.length === 0) return false
+    const cfg = this.config.responseScan.toolUse
+    if (cfg?.enabled === false) return false
+
+    const findings = scanToolCallsForExfil(calls, this.dlp, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
+    if (findings.length === 0) return false
+
+    const block = (cfg?.mode ?? 'audit') === 'block' && canBlock
+    for (const f of findings) {
+      const parts: string[] = []
+      if (f.dlpFindings.length) parts.push(`secrets: ${[...new Set(f.dlpFindings.map(d => d.label))].join(', ')}`)
+      if (f.urlFindings.length) parts.push(`exfil URL: ${f.urlFindings.map(u => u.url).join(', ')}`)
+      this.eventBus.emit({
+        stage: 'none',
+        score: 100,
+        similarity: 0,
+        target: hostname,
+        method: req.method ?? 'GET',
+        path: req.url ?? '/',
+        payload_preview: `${block ? 'Blocked' : 'Flagged'} tool call '${f.toolName}' args (${parts.join('; ')})`.slice(0, 220),
+        payload_full: serializeToolArgs(f.args).slice(0, 2000),
+        action: block ? 'blocked' : 'warned',
+        kind: 'tool-use-exfil',
+        mcpTool: f.toolName,
+        ...(f.dlpFindings[0] ? { dlpType: f.dlpFindings[0].type } : {}),
+        ...(f.urlFindings[0] ? { exfilUrl: f.urlFindings[0].url } : {}),
+      })
+    }
+    return block
+  }
+
   // One-line, context-rich console output for failed requests. Expected
   // operational conditions (upstream idle timeouts) log as a concise warning;
   // genuinely unexpected errors keep their stack so they stay debuggable.
@@ -1138,10 +1184,19 @@ export class ProxyServer {
           // Response-exfil scan on the buffered body → can neutralize when mode=block.
           const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
           if (neutralized !== null) finalBody = neutralized
+          // Tool-call argument exfil scan (Task C1): DLP + URL-classifier over
+          // the serialized arguments of every tool call the model emitted.
+          // Buffered body → bytes not yet sent, so block mode can withhold it.
+          const toolCalls = parser ? extractToolCallsFromJson(finalBody, parser) : []
+          const toolUseBlock = this.runToolUseScan(toolCalls, req, hostname, true)
           // Response-harm scan: audit-only regex compliance layer + opt-in
           // output classifier. Buffered body → the classifier layer may block.
-          if (await this.runResponseHarmScan(finalBody, req, hostname, true)) {
-            const errBody = JSON.stringify({ error: 'response blocked by output moderation', kind: 'response-harm' })
+          const harmBlock = await this.runResponseHarmScan(finalBody, req, hostname, true)
+          if (toolUseBlock || harmBlock) {
+            const errBody = JSON.stringify({
+              error: harmBlock ? 'response blocked by output moderation' : 'response blocked by tool-call exfiltration guard',
+              kind: harmBlock ? 'response-harm' : 'tool-use-exfil',
+            })
             res.writeHead(403, { 'Content-Type': 'application/json' })
             res.end(errBody)
             respBodyBytes = Buffer.byteLength(errBody)
@@ -1155,6 +1210,7 @@ export class ProxyServer {
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
             // Already streamed → audit only (cannot retract sent bytes).
             this.runResponseExfilScan(sseText, req, hostname, false)
+            this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
           }
           res.end()

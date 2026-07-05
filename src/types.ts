@@ -183,6 +183,18 @@ export interface ResponseScanConfig {
   // is already forwarded by the time it's scored, so it can only audit. See
   // src/detection/outputClassifier.ts for the model choice + rationale.
   classifier?: OutputClassifierConfig;
+  // Outbound tool-call argument exfiltration guard (Task C1): scans the
+  // serialized ARGUMENTS of every tool_use/tool_call/functionCall the model's
+  // response carries with the existing DLP pattern engine + UrlClassifier —
+  // closing the vector where a model hands a tool a secret/PII value or an
+  // attacker-controlled exfil URL that the input-side scan never saw (it only
+  // sees what the USER sent). On by default (audit) — reuses established,
+  // low-false-positive detectors, no new heuristics. mode 'block' additionally
+  // withholds a BUFFERED (non-streaming) response; a flushed SSE stream has
+  // already reached the agent by scan time, so it always degrades to audit —
+  // same rule as the response-harm classifier layer. Also
+  // LLM_FW_TOOLUSE_SCAN_ENABLED / _MODE.
+  toolUse?: { enabled: boolean; mode: 'audit' | 'block' };
 }
 
 export interface OutputClassifierConfig {
@@ -375,7 +387,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;
