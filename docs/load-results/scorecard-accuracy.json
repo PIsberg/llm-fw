@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-07-05T12:11:29.601Z",
+  "timestamp": "2026-07-05T18:29:20.026Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,8 +17,14 @@
       "fn": 0
     },
     "perClass": {
-      "skeleton-key": {
-        "tp": 3,
+      "roleplay-fiction": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "social-engineering": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -29,43 +35,7 @@
         "tn": 78,
         "fp": 0
       },
-      "refusal-override": {
-        "tp": 4,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "persona-jailbreak": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "prompt-exfil": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "delimiter-confusion": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
       "direct-override": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "indirect-injection": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
@@ -77,32 +47,62 @@
         "tn": 0,
         "fp": 0
       },
-      "obfuscation-encoding": {
-        "tp": 12,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "social-engineering": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "roleplay-fiction": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
       "payload-splitting": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "many-shot": {
-        "tp": 2,
+      "skeleton-key": {
+        "tp": 3,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "refusal-override": {
+        "tp": 4,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "prompt-exfil": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "indirect-injection": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "persona-jailbreak": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "delimiter-confusion": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "obfuscation-encoding": {
+        "tp": 12,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "multilingual": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "prefix-injection": {
+        "tp": 4,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -113,8 +113,8 @@
         "tn": 0,
         "fp": 0
       },
-      "prefix-injection": {
-        "tp": 4,
+      "many-shot": {
+        "tp": 2,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -122,10 +122,10 @@
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 82,
-    "p50LatencyMs": 70,
-    "p95LatencyMs": 180,
-    "p99LatencyMs": 257,
+    "avgLatencyMs": 106.1,
+    "p50LatencyMs": 95,
+    "p95LatencyMs": 207,
+    "p99LatencyMs": 260,
     "errCount": 0
   },
   "passed": true,
