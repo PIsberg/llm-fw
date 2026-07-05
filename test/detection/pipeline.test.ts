@@ -510,4 +510,67 @@ describe('Pipeline', () => {
       expect(result.stage).toBe('classifier')
     })
   })
+
+  // ── Stage 2.5 classifier — two-tier policy (Option B gray-zone escalation) ──
+  describe('classifier gray-zone escalation to judge', () => {
+    const BENIGN_PROMPT = 'Please summarize this article about gardening tips.'
+    const body = JSON.stringify({ messages: [{ role: 'user', content: BENIGN_PROMPT }] })
+
+    function classifierJudgeConfig(overrides: Record<string, unknown> = {}) {
+      return makeConfig({
+        classifier: { enabled: true, blockThreshold: 0.9, escalateThreshold: 0.5 },
+        judgeEnabled: true,
+        ...overrides,
+      })
+    }
+
+    beforeEach(() => {
+      mockScore.mockReturnValue({ score: 0, matches: [] })
+      mockCheck.mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 1 })
+    })
+
+    it('gray-zone score (0.7) + judge MALICIOUS -> block, stage=judge', async () => {
+      mockClassifierClassify.mockResolvedValue({ injection: false, score: 0.7 })
+      mockClassify.mockResolvedValue({ verdict: 'MALICIOUS', latencyMs: 5 })
+      const pipeline = new Pipeline(classifierJudgeConfig(), undefined)
+      const result = await pipeline.run('/v1/messages', body, META)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('judge')
+      expect(mockClassify).toHaveBeenCalled()
+    })
+
+    it('gray-zone score + judge SAFE -> falls through, no block', async () => {
+      mockClassifierClassify.mockResolvedValue({ injection: false, score: 0.7 })
+      mockClassify.mockResolvedValue({ verdict: 'SAFE', latencyMs: 5 })
+      const pipeline = new Pipeline(classifierJudgeConfig(), undefined)
+      const result = await pipeline.run('/v1/messages', body, META)
+      expect(result.action).toBe('pass')
+      expect(mockClassify).toHaveBeenCalled()
+    })
+
+    it('gray-zone score + judge disabled -> judge never called', async () => {
+      mockClassifierClassify.mockResolvedValue({ injection: false, score: 0.7 })
+      const pipeline = new Pipeline(classifierJudgeConfig({ judgeEnabled: false }), undefined)
+      const result = await pipeline.run('/v1/messages', body, META)
+      expect(mockClassify).not.toHaveBeenCalled()
+      expect(result.action).toBe('pass')
+    })
+
+    it('score below escalateThreshold -> judge never called', async () => {
+      mockClassifierClassify.mockResolvedValue({ injection: false, score: 0.3 })
+      const pipeline = new Pipeline(classifierJudgeConfig(), undefined)
+      const result = await pipeline.run('/v1/messages', body, META)
+      expect(mockClassify).not.toHaveBeenCalled()
+      expect(result.action).toBe('pass')
+    })
+
+    it('score >= 0.9 -> direct classifier block unchanged (no judge involvement)', async () => {
+      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.95 })
+      const pipeline = new Pipeline(classifierJudgeConfig(), undefined)
+      const result = await pipeline.run('/v1/messages', body, META)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('classifier')
+      expect(mockClassify).not.toHaveBeenCalled()
+    })
+  })
 })

@@ -84,6 +84,12 @@ export interface ClassifierConfig {
   enabled: boolean;
   /** INJECTION probability at/above which a prompt is blocked (0–1). */
   blockThreshold: number;
+  // Gray-zone floor for judge escalation (Option B two-tier policy): a score in
+  // [escalateThreshold, blockThreshold) is not confident enough to block outright
+  // but too suspicious to pass — it is escalated to the Stage 3 judge for a
+  // second opinion instead of silently passing. Below escalateThreshold the
+  // classifier signal is treated as noise. Also LLM_FW_CLASSIFIER_ESCALATE.
+  escalateThreshold?: number;
 }
 
 export interface DashboardConfig {
