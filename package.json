@@ -46,6 +46,7 @@
     "load:charts": "node --import tsx/esm scripts/gen-load-charts.ts",
     "scorecard": "node --import tsx/esm scripts/gen-scorecard.ts",
     "bench:competitors": "node --import tsx/esm test/eval/competitors/run.ts",
+    "study:ml-indirect": "node --import tsx/esm scripts/study-ml-indirect.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip"
