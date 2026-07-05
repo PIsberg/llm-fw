@@ -71,6 +71,13 @@ export interface DetectionConfig {
   // every real request. Enable only when untrusted data is concatenated into the
   // system prompt (e.g. RAG-into-system). Also LLM_FW_SCAN_SYSTEM_PROMPT.
   scanSystemPrompt?: boolean;
+  // Suppress a classifier BLOCK when the prompt only QUOTES / translates /
+  // documents / fictionalizes injection content instead of issuing it (see
+  // intentMention.ts). Downgrades such a block to a warn. ON by default, but has
+  // no effect unless the classifier stage is enabled. Also
+  // LLM_FW_INTENT_MENTION_ENABLED. Scoped to the prompt/system surface — never
+  // applied to untrusted tool_result/document data.
+  intentMention?: boolean;
 }
 
 export interface ClassifierConfig {

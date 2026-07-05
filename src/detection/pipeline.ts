@@ -11,6 +11,7 @@ import { detectManyShot } from './manyShot.js'
 import { detectCrescendo } from './crescendo.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
+import { detectMentionFrame } from './intentMention.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -298,9 +299,30 @@ export class Pipeline {
       if (this.config.detection.classifier?.enabled) {
         const v = await this.classifier.classify(prompt)
         if (v?.injection) {
-          const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
-          this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
-          return result
+          // Intent-vs-mention gate (Option C): the classifier can't tell a prompt
+          // that ISSUES an override from one that only QUOTES/translates/documents/
+          // fictionalizes one — its single largest source of false positives.
+          // Scoped to the prompt/system surface ONLY: on tool_result/document/
+          // tool_definition surfaces a "quoted" or "fictional" instruction is
+          // standard indirect-injection dressing and must still block.
+          const frame = this.config.detection.intentMention !== false && (source === 'prompt' || source === 'system')
+            ? detectMentionFrame(prompt)
+            : null
+          if (frame) {
+            // Downgrade to a warn rather than blocking, and keep scanning — a
+            // later candidate/surface may still block, which must take
+            // precedence over this downgraded warn (mirrors the pendingWarn
+            // pattern used by the other soft-signal stages above).
+            if (!pendingWarn) pendingWarn = {
+              result: { action: 'warn', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt },
+              prompt: `[classifier: injection ${(v.score * 100).toFixed(1)}% — mention-framed: ${frame.frame}] ${prompt.slice(0, 80)}`,
+              source,
+            }
+          } else {
+            const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
+            this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
+            return result
+          }
         }
       }
 
