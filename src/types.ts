@@ -244,6 +244,12 @@ export interface CrescendoConfig {
   enabled: boolean
   minUserTurns: number
   mode: 'audit' | 'block'
+  // Opt-in cross-request escalation memory (Task B4) — see
+  // src/detection/crescendo.ts CrescendoSessionMemory. Default false: a
+  // shared/multi-tenant proxy risks cross-client bleed if the session
+  // identity collides, and it is unbounded-memory-growth risk if enabled
+  // carelessly.
+  crossRequest?: boolean
 }
 
 export interface IndirectInstructionConfig {

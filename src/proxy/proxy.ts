@@ -532,6 +532,12 @@ export class ProxyServer {
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
 
+      // Session identity shared across the proxy's per-client state (taint
+      // tracking below, and — opt-in — the pipeline's cross-request crescendo
+      // memory): the client's normalized source IP. Computed once here so both
+      // consumers key on the exact same identity.
+      const sessionKey = normalizeIp(innerReq.socket.remoteAddress)
+
       // Stage T — Cross-turn taint tracking (information flow, not content
       // classification). Flags when a distinctive token (host / secret) that
       // first entered via an untrusted tool result in a PRIOR request reappears
@@ -541,7 +547,6 @@ export class ProxyServer {
       // first, then this request's own tool results are recorded, so a request
       // can never taint and then flag itself.
       if (this.config.taint?.enabled) {
-        const sessionKey = normalizeIp(innerReq.socket.remoteAddress) ?? 'unknown'
         const now = Date.now()
         const findings = this.taint.checkSink(sessionKey, `${hostname} ${dlpPath}`, now)
         if (findings.length) {
@@ -679,7 +684,8 @@ export class ProxyServer {
           path: innerReq.url ?? '/',
           sandboxClient: sb.client,
           isSandboxed: sb.sandboxed,
-          sandboxConfidence: sb.confidence
+          sandboxConfidence: sb.confidence,
+          sessionKey,
         }
       )
 

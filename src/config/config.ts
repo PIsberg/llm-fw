@@ -186,6 +186,9 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     minUserTurns: 3,
     mode: 'block',
+    // Opt-in (Task B4) — see crescendo.ts CrescendoSessionMemory for the
+    // memory-growth / shared-proxy multi-tenant rationale for default false.
+    crossRequest: false,
   },
   // Indirect prompt injection — an imperative action-instruction planted in
   // tool/document output (InjecAgent's threat model; the primary agentic
@@ -374,6 +377,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_MANYSHOT_MODE: (c, v) => { if (c.manyShot && (v === 'audit' || v === 'block')) c.manyShot.mode = v; },
   LLM_FW_CRESCENDO_ENABLED: (c, v) => { if (c.crescendo) c.crescendo.enabled = v === 'true'; },
   LLM_FW_CRESCENDO_MODE: (c, v) => { if (c.crescendo && (v === 'audit' || v === 'block')) c.crescendo.mode = v; },
+  LLM_FW_CRESCENDO_CROSS_REQUEST: (c, v) => { if (c.crescendo) c.crescendo.crossRequest = v === 'true'; },
   LLM_FW_INDIRECT_INSTRUCTION_ENABLED: (c, v) => { if (c.indirectInstruction) c.indirectInstruction.enabled = v === 'true'; },
   LLM_FW_INDIRECT_INSTRUCTION_MODE: (c, v) => { if (c.indirectInstruction && (v === 'audit' || v === 'block')) c.indirectInstruction.mode = v; },
   LLM_FW_HARMFUL_REQUEST_ENABLED: (c, v) => { if (c.harmfulRequest) c.harmfulRequest.enabled = v === 'true'; },

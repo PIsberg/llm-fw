@@ -8,7 +8,7 @@ import { InjectionClassifier } from './classifier.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
-import { detectCrescendo } from './crescendo.js'
+import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
@@ -52,6 +52,10 @@ export class Pipeline {
   private config: Config
   private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void
   private suppressions: SuppressionStore
+  // Opt-in cross-request crescendo memory (Task B4, crescendo.crossRequest).
+  // Lives for the lifetime of this Pipeline instance — the same lifetime as
+  // the proxy's other per-process session state (QuotaManager, TaintTracker).
+  private crescendoMemory = new CrescendoSessionMemory()
 
   constructor(
     config: Config,
@@ -82,7 +86,15 @@ export class Pipeline {
   async run(
     requestPath: string,
     body: string,
-    meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }
+    meta: {
+      target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
+      // Session identity for opt-in cross-request crescendo memory — the SAME
+      // identity the proxy's DoS/taint session state uses (client IP; see
+      // normalizeIp(...remoteAddress) in src/proxy/proxy.ts). Optional: callers
+      // that don't pass one (e.g. the dashboard playground, most tests) simply
+      // never build cross-request memory.
+      sessionKey?: string;
+    }
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
@@ -106,16 +118,45 @@ export class Pipeline {
     // content — an attack no per-prompt stage can see.
     if (this.config.crescendo?.enabled && parser.extractConversation) {
       const conversation = parser.extractConversation(body)
-      const cr = detectCrescendo(conversation, this.config.crescendo)
-      if (cr.severity === 'block') {
+
+      // Cross-request memory (opt-in, Task B4): only consulted when this
+      // request's OWN conversation is shorter than the minimum-turns gate —
+      // a caller resending full history each turn never needs it, since the
+      // whole trajectory is already visible in `conversation`.
+      const crossRequestEnabled = this.config.crescendo.crossRequest === true
+      const ownUserTurns = conversation.filter(t => t.role === 'user').length
+      const sessionContext = (crossRequestEnabled && meta.sessionKey && ownUserTurns < this.config.crescendo.minUserTurns)
+        ? this.crescendoMemory.getContext(meta.sessionKey)
+        : undefined
+
+      const cr = detectCrescendo(conversation, this.config.crescendo, sessionContext)
+
+      // Record THIS request's own contribution for future requests in the
+      // same session, regardless of whether memory was consulted above.
+      if (crossRequestEnabled && meta.sessionKey) {
+        this.crescendoMemory.record(meta.sessionKey, conversation)
+      }
+
+      if (cr.severity === 'block' || cr.severity === 'warn') {
         const finalText = conversation.filter(t => t.role === 'user').pop()?.text ?? ''
-        const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }
         const line = `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`
-        if (this.isSuppressed(finalText, 'prompt')) {
-          pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source: 'prompt' }
-        } else {
-          this.emit(result, meta, line, 'prompt')
-          return result
+        if (cr.severity === 'block') {
+          const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }
+          if (this.isSuppressed(finalText, 'prompt')) {
+            pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source: 'prompt' }
+          } else {
+            this.emit(result, meta, line, 'prompt')
+            return result
+          }
+        } else if (!pendingWarn) {
+          // config.mode === 'audit' downgraded what would otherwise block —
+          // "'audit' only ever warns" (see CrescendoConfig), so surface it as
+          // a warn event rather than silently discarding the signal.
+          pendingWarn = {
+            result: { action: 'warn', stage: 'crescendo', score: 0, similarity: 0, prompt: finalText },
+            prompt: line,
+            source: 'prompt',
+          }
         }
       }
     }
