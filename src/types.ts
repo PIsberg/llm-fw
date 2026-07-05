@@ -87,6 +87,21 @@ export interface DetectionConfig {
   // false positive. Also LLM_FW_SUPPRESSIONS_ENABLED. Scoped to prompt/system
   // — never applied to untrusted tool_result/document data.
   suppressions?: boolean;
+  // Per-surface sensitivity overrides (Task B3). The untrusted data surfaces
+  // (tool_result / document) can be tuned tighter (or looser) than the global
+  // default without touching the thresholds every other surface relies on —
+  // e.g. an operator who sees repeated indirect-injection near-misses in tool
+  // output can lower heuristicBlockThreshold there without affecting how the
+  // user's own prompt is scored. Only these two knobs are overridable; the
+  // embedding stage's absolute block/warn cosines stay global — they are e5
+  // calibration constants (see embedding.ts) and must not be tuned per-surface.
+  // Absent (the default) ⇒ no override ⇒ identical behaviour to today. The
+  // tool_result heuristic threshold is also settable via
+  // LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD; everything else is file-config only.
+  surfaces?: { [S in 'tool_result' | 'document']?: {
+    heuristicBlockThreshold?: number;
+    embeddingMarginThreshold?: number;
+  } };
 }
 
 export interface ClassifierConfig {

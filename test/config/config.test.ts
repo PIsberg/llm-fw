@@ -119,4 +119,27 @@ describe('loadConfig env overrides', () => {
     expect(cfg.proxy.bindHost).toBe('0.0.0.0')
     expect(cfg.dashboard.bindHost).toBe('10.0.0.5')
   })
+
+  it('has no default surfaces override (absent ⇒ no per-surface behaviour change)', async () => {
+    expect(DEFAULT_CONFIG.detection.surfaces).toBeUndefined()
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBeUndefined()
+  })
+
+  it('LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD sets only the tool_result heuristic override', async () => {
+    process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD = '30'
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBe(30)
+    // The global default and the document surface are untouched.
+    expect(cfg.detection.heuristicBlockThreshold).toBe(DEFAULT_CONFIG.detection.heuristicBlockThreshold)
+    expect(cfg.detection.surfaces?.document).toBeUndefined()
+    delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
+  })
+
+  it('ignores an unparsable LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD value', async () => {
+    process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD = 'not-a-number'
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBeUndefined()
+    delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
+  })
 })

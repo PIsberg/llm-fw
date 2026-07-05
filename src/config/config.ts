@@ -279,8 +279,16 @@ export async function loadConfig(): Promise<Config> {
     userConfig = JSON.parse(readFileSync(p, 'utf8')) as Partial<Config>;
   } catch { /* not present */ }
 
+  // Clone the default before merging: deepMerge only recurses into keys the
+  // SOURCE layer actually sets, so a section neither the project file nor
+  // ~/.llm-fw/config.json touches (e.g. `detection` when only `targets` is
+  // overridden) would otherwise come through as the literal DEFAULT_CONFIG
+  // object reference. ENV_OVERRIDES below mutate config sections in place, so
+  // without this clone an env var can permanently corrupt DEFAULT_CONFIG for
+  // the rest of the process (surfaced by Task B3's surfaces override, but a
+  // latent risk for every existing in-place env override too).
   let config = deepMerge<Config>(
-    deepMerge<Config>(DEFAULT_CONFIG, (found?.config as Partial<Config> | undefined) ?? {}),
+    deepMerge<Config>(structuredClone(DEFAULT_CONFIG), (found?.config as Partial<Config> | undefined) ?? {}),
     userConfig
   );
 
@@ -329,6 +337,16 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_CLASSIFIER_ESCALATE: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.detection.classifier) c.detection.classifier.escalateThreshold = n; },
   LLM_FW_INTENT_MENTION_ENABLED: (c, v) => { c.detection.intentMention = v === 'true'; },
   LLM_FW_SUPPRESSIONS_ENABLED: (c, v) => { c.detection.suppressions = v === 'true'; },
+  // Per-surface override (Task B3): only the tool_result heuristic block
+  // threshold is env-settable; everything else (document surface, embedding
+  // margin overrides) is file-config only. Guarded like the other numeric
+  // overrides — an unparsable value leaves the existing config untouched.
+  LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD: (c, v) => {
+    const n = parseInt(v, 10);
+    if (Number.isNaN(n)) return;
+    c.detection.surfaces = c.detection.surfaces ?? {};
+    c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, heuristicBlockThreshold: n };
+  },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = parseFloat(v); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = parseFloat(v); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },

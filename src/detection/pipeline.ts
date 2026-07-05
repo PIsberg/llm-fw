@@ -22,6 +22,28 @@ import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/par
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
 type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document'
 
+// Per-surface sensitivity overrides (Task B3). Resolves the effective Stage 1
+// (heuristic) / Stage 2 (embedding contrastive margin) threshold for a given
+// candidate's source: tool_result/document may carry an operator override in
+// detection.surfaces; every other surface — and an absent override — falls
+// through to the global default, so behaviour is bit-identical unless an
+// operator has explicitly configured a surface override. The embedding
+// absolute block/warn cosines are NOT resolved here — they stay global (e5
+// calibration is locked; see embedding.ts).
+function resolveHeuristicBlockThreshold(config: Config, source: ScanSource): number {
+  const override = (source === 'tool_result' || source === 'document')
+    ? config.detection.surfaces?.[source]?.heuristicBlockThreshold
+    : undefined
+  return override ?? config.detection.heuristicBlockThreshold
+}
+
+function resolveEmbeddingMarginThreshold(config: Config, source: ScanSource): number {
+  const override = (source === 'tool_result' || source === 'document')
+    ? config.detection.surfaces?.[source]?.embeddingMarginThreshold
+    : undefined
+  return override ?? config.detection.embeddingMarginThreshold ?? 0
+}
+
 export class Pipeline {
   private heuristic: HeuristicScorer
   private embedding: EmbeddingChecker
@@ -172,8 +194,7 @@ export class Pipeline {
       return this.pass(0, 0)
     }
 
-    const { heuristicBlockThreshold, embeddingBlockThreshold, embeddingWarnThreshold, judgeEnabled, judgeBlock } = this.config.detection
-    const embeddingMarginThreshold = this.config.detection.embeddingMarginThreshold ?? 0
+    const { embeddingBlockThreshold, embeddingWarnThreshold, judgeEnabled, judgeBlock } = this.config.detection
     let lastScore = 0
     let lastSim = 0
 
@@ -181,6 +202,11 @@ export class Pipeline {
     const ragEnabled = this.config.rag?.enabled
 
     for (const { text: prompt, source } of scanItems) {
+      // Per-surface sensitivity overrides (Task B3) — resolved once per scan
+      // item since `source` doesn't change across its candidates below.
+      const heuristicBlockThreshold = resolveHeuristicBlockThreshold(this.config, source)
+      const embeddingMarginThreshold = resolveEmbeddingMarginThreshold(this.config, source)
+
       // Stage S — ASCII smuggling. Invisible-character instruction smuggling
       // (Unicode Tags block, bidi overrides, plane-14 variation selectors).
       // Checked on the RAW prompt BEFORE normalization strips the characters.

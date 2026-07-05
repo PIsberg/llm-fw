@@ -654,4 +654,54 @@ describe('Pipeline', () => {
       expect(result.action).toBe('block')
     })
   })
+
+  describe('per-surface sensitivity overrides (Task B3)', () => {
+    // A score that sits BELOW the global heuristicBlockThreshold (50) but at/above
+    // a tightened tool_result override (30) — borderline by construction. The text
+    // itself has no sensitive action verb or email target, so indirect-instruction
+    // detection never fires ahead of the heuristic stage.
+    const BORDERLINE = 'The weather report mentions unusually high pollen counts today.'
+    const scoreBorderline = () => ({ score: 40, matches: ['x'] })
+
+    function toolResultBody(text: string) {
+      return JSON.stringify({
+        messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: text }] }],
+      })
+    }
+    function promptBody(text: string) {
+      return JSON.stringify({ messages: [{ role: 'user', content: text }] })
+    }
+
+    it('lowered tool_result heuristicBlockThreshold blocks a borderline score there', async () => {
+      mockScore.mockImplementation(scoreBorderline)
+      const config = makeConfig({ surfaces: { tool_result: { heuristicBlockThreshold: 30 } } })
+      const pipeline = new Pipeline(config, undefined)
+      const result = await pipeline.run('/v1/messages', toolResultBody(BORDERLINE), META)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('heuristic')
+    })
+
+    it('the SAME borderline text on the prompt surface still passes (override is tool_result-only)', async () => {
+      mockScore.mockImplementation(scoreBorderline)
+      const config = makeConfig({ surfaces: { tool_result: { heuristicBlockThreshold: 30 } } })
+      const pipeline = new Pipeline(config, undefined)
+      const result = await pipeline.run('/v1/messages', promptBody(BORDERLINE), META)
+      expect(result.action).not.toBe('block')
+    })
+
+    it('absent surfaces config leaves tool_result at the global threshold (bit-identical default)', async () => {
+      mockScore.mockImplementation(scoreBorderline)
+      const pipeline = new Pipeline(makeConfig(), undefined)
+      const result = await pipeline.run('/v1/messages', toolResultBody(BORDERLINE), META)
+      expect(result.action).not.toBe('block')
+    })
+
+    it('a document-surface override does not affect the tool_result surface', async () => {
+      mockScore.mockImplementation(scoreBorderline)
+      const config = makeConfig({ surfaces: { document: { heuristicBlockThreshold: 30 } } })
+      const pipeline = new Pipeline(config, undefined)
+      const result = await pipeline.run('/v1/messages', toolResultBody(BORDERLINE), META)
+      expect(result.action).not.toBe('block')
+    })
+  })
 })
