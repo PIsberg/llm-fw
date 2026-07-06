@@ -24,10 +24,16 @@ export interface HotReloadOptions {
   reload?: () => Promise<Config>
 }
 
+// Keys that resolve to Object.prototype — refuse to traverse or write through
+// them so a config path can never pollute the prototype. HOT_PATHS/COLD_PATHS
+// are static allowlists (never attacker-derived), so this is belt-and-braces,
+// but it keeps the walker safe if a dynamic path is ever passed in.
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 function getPath(obj: unknown, path: Path): unknown {
   let cur: unknown = obj
   for (const key of path) {
-    if (cur === null || typeof cur !== 'object') return undefined
+    if (cur === null || typeof cur !== 'object' || UNSAFE_KEYS.has(key)) return undefined
     cur = (cur as Record<string, unknown>)[key]
   }
   return cur
@@ -46,11 +52,14 @@ function setPath(obj: object, path: Path, value: unknown): void {
   let cur = obj as Record<string, unknown>
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i]
+    if (UNSAFE_KEYS.has(key)) return
     const next = cur[key]
     if (next === null || typeof next !== 'object') cur[key] = {}
     cur = cur[key] as Record<string, unknown>
   }
-  cur[path[path.length - 1]] = value
+  const last = path[path.length - 1]
+  if (UNSAFE_KEYS.has(last)) return
+  cur[last] = value
 }
 
 function pathStr(path: Path): string {
