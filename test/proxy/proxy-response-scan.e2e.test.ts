@@ -98,7 +98,7 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
   const auditEvents: BlockEvent[] = []
   const auditConfig = {
     ...testConfig,
-    proxy: { ...testConfig.proxy, port: 18095 },
+    proxy: { ...testConfig.proxy, port: 18113 },
     dashboard: { ...testConfig.dashboard, port: 17795 },
     responseScan: { enabled: true, mode: 'audit' as const },
   }
