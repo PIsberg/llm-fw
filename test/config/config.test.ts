@@ -142,4 +142,34 @@ describe('loadConfig env overrides', () => {
     expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBeUndefined()
     delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
   })
+
+  it('defaults detection.failMode to closed (matches the pre-C2 implicit deny-on-error)', async () => {
+    expect(DEFAULT_CONFIG.detection.failMode).toBe('closed')
+    const cfg = await loadConfig()
+    expect(cfg.detection.failMode).toBe('closed')
+  })
+
+  it('LLM_FW_FAIL_MODE accepts only open/closed and ignores anything else', async () => {
+    process.env.LLM_FW_FAIL_MODE = 'open'
+    expect((await loadConfig()).detection.failMode).toBe('open')
+    process.env.LLM_FW_FAIL_MODE = 'closed'
+    expect((await loadConfig()).detection.failMode).toBe('closed')
+    process.env.LLM_FW_FAIL_MODE = 'wide-open'
+    expect((await loadConfig()).detection.failMode).toBe('closed')
+    delete process.env.LLM_FW_FAIL_MODE
+  })
+
+  it('defaults detection.workerInference to false (Task C3, opt-in isolation)', async () => {
+    expect(DEFAULT_CONFIG.detection.workerInference).toBe(false)
+    const cfg = await loadConfig()
+    expect(cfg.detection.workerInference).toBe(false)
+  })
+
+  it('LLM_FW_WORKER_INFERENCE toggles detection.workerInference', async () => {
+    process.env.LLM_FW_WORKER_INFERENCE = 'true'
+    expect((await loadConfig()).detection.workerInference).toBe(true)
+    process.env.LLM_FW_WORKER_INFERENCE = 'false'
+    expect((await loadConfig()).detection.workerInference).toBe(false)
+    delete process.env.LLM_FW_WORKER_INFERENCE
+  })
 })

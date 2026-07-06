@@ -104,11 +104,26 @@ export const DEFAULT_CONFIG: Config = {
     // scanning it blocks legitimate traffic. Enable only when untrusted data is
     // mixed into the system prompt. Also LLM_FW_SCAN_SYSTEM_PROMPT.
     scanSystemPrompt: false,
+    // Task C2. 'closed' matches today's actual (previously implicit) behavior
+    // when Pipeline.run() throws: the exception used to propagate out to the
+    // per-connection catch in proxy.ts, which 502'd the request without
+    // forwarding it — a deny-on-error outcome. 'closed' makes that the
+    // explicit default (as a standard 403 block); flip to 'open' to instead
+    // forward unscanned + emit an audit event. Also LLM_FW_FAIL_MODE.
+    failMode: 'closed',
+    // Task C3 — opt-in worker-thread inference isolation. Off by default:
+    // embedding + classifier forward passes run in-process exactly as today
+    // (bit-identical). Also LLM_FW_WORKER_INFERENCE.
+    workerInference: false,
   },
   dashboard: {
     port: 7731,
     maxEvents: 100,
     bindHost: '127.0.0.1',
+    // Task C4 — Prometheus /metrics scrape endpoint. On by default (behind
+    // the same auth gate as every other dashboard route). Also
+    // LLM_FW_METRICS_ENABLED.
+    metrics: true,
   },
   dlp: {
     enabled: true,
@@ -165,6 +180,14 @@ export const DEFAULT_CONFIG: Config = {
     classifier: {
       enabled: false,
       blockThreshold: 0.9,
+    },
+    // Outbound tool-call argument exfiltration guard (Task C1). On by default,
+    // audit mode — it reuses the existing DLP pattern engine + UrlClassifier
+    // (both already on by default), so this adds visibility with no new
+    // heuristics to tune. Also LLM_FW_TOOLUSE_SCAN_ENABLED / _MODE.
+    toolUse: {
+      enabled: true,
+      mode: 'audit',
     },
   },
   // Non-text content blocks (issue #60). Text-bearing payloads (text/* docs,
@@ -244,6 +267,11 @@ export const DEFAULT_CONFIG: Config = {
   // so the firewall covers all supported services out of the box.
   targets: AI_PROVIDER_HOSTS,
   extraTargets: [],
+  // Task C5 — config.json hot-reload. On by default: editing detection/dlp/
+  // dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/harmfulRequest/
+  // responseScan toggles+thresholds takes effect within the debounce window,
+  // no restart. Also LLM_FW_HOT_RELOAD.
+  hotReload: true,
 };
 
 export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
@@ -367,6 +395,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_DASHBOARD_PORT: (c, v) => { c.dashboard.port = parseInt(v, 10); },
   LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
   LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
+  LLM_FW_METRICS_ENABLED: (c, v) => { c.dashboard.metrics = v === 'true'; },
   LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
   LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
   LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },
@@ -386,6 +415,9 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_RESPONSE_CLASSIFIER_ENABLED: (c, v) => { if (c.responseScan?.classifier) c.responseScan.classifier.enabled = v === 'true'; },
   LLM_FW_RESPONSE_CLASSIFIER_MODEL: (c, v) => { if (c.responseScan?.classifier) c.responseScan.classifier.model = v; },
   LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.responseScan?.classifier) c.responseScan.classifier.blockThreshold = n; },
+  // Outbound tool-call argument exfiltration guard (Task C1).
+  LLM_FW_TOOLUSE_SCAN_ENABLED: (c, v) => { if (c.responseScan?.toolUse) c.responseScan.toolUse.enabled = v === 'true'; },
+  LLM_FW_TOOLUSE_SCAN_MODE: (c, v) => { if (c.responseScan?.toolUse && (v === 'block' || v === 'audit')) c.responseScan.toolUse.mode = v; },
   LLM_FW_NONTEXT_ENABLED: (c, v) => { if (c.nonText) c.nonText.enabled = v === 'true'; },
   LLM_FW_NONTEXT_MODE: (c, v) => { if (c.nonText && (v === 'audit' || v === 'block')) c.nonText.mode = v; },
   LLM_FW_NONTEXT_OCR: (c, v) => { if (c.nonText) c.nonText.ocr = v === 'true'; },
@@ -398,6 +430,12 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_INDIRECT_INSTRUCTION_MODE: (c, v) => { if (c.indirectInstruction && (v === 'audit' || v === 'block')) c.indirectInstruction.mode = v; },
   LLM_FW_HARMFUL_REQUEST_ENABLED: (c, v) => { if (c.harmfulRequest) c.harmfulRequest.enabled = v === 'true'; },
   LLM_FW_HARMFUL_REQUEST_MODE: (c, v) => { if (c.harmfulRequest && (v === 'audit' || v === 'block')) c.harmfulRequest.mode = v; },
+  // Explicit detection failMode (Task C2) — see DetectionConfig.failMode.
+  LLM_FW_FAIL_MODE: (c, v) => { if (v === 'open' || v === 'closed') c.detection.failMode = v; },
+  // Opt-in worker-thread inference isolation (Task C3).
+  LLM_FW_WORKER_INFERENCE: (c, v) => { c.detection.workerInference = v === 'true'; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
+  // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
+  LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },
 };

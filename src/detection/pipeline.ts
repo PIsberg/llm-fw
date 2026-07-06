@@ -16,11 +16,14 @@ import { SuppressionStore } from './suppressions.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
+import { closeInferenceWorker } from './inferenceWorker.js'
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
-type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document'
+// Exported (Task C6) so the programmatic API (src/api.ts) can tag a raw-text
+// scan with the same provenance the proxy derives from a real request shape.
+export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document'
 
 // Per-surface sensitivity overrides (Task B3). Resolves the effective Stage 1
 // (heuristic) / Stage 2 (embedding contrastive margin) threshold for a given
@@ -81,6 +84,25 @@ export class Pipeline {
     await this.embedding.init()
     await this.classifier.init() // no-op unless the classifier stage is enabled
     this.suppressions.load()
+  }
+
+  /**
+   * Task C3 shutdown hook — terminates the shared inference worker thread, if
+   * one was ever spawned (detection.workerInference). Safe to call even when
+   * the flag is off / no worker was spawned (no-op). Wired into the proxy's
+   * stop() and the CLI's SIGINT/SIGTERM cleanup.
+   */
+  async close(): Promise<void> {
+    await closeInferenceWorker()
+  }
+
+  /**
+   * Task C4 — read-only snapshot of the two lazy-loaded detection models, for
+   * the dashboard's /metrics gauges (`llmfw_model_loaded`). Never triggers a
+   * load itself — just reflects whatever init() has (or hasn't) done so far.
+   */
+  getModelStatus(): { embedding: boolean; classifier: boolean } {
+    return { embedding: this.embedding.isInitialized(), classifier: this.classifier.isInitialized() }
   }
 
   async run(

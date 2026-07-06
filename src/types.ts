@@ -102,6 +102,28 @@ export interface DetectionConfig {
     heuristicBlockThreshold?: number;
     embeddingMarginThreshold?: number;
   } };
+  // What happens to a request when Pipeline.run() itself THROWS (a bug in a
+  // parser/normalizer/stage, not a detected injection) — Task C2. Before this
+  // setting existed the behavior was IMPLICIT: the throw propagated out of
+  // handleRequest to the outer per-connection try/catch in handleConnect /
+  // startSinkhole, which logged the error and returned 502 `{ error: "proxy
+  // error" }` WITHOUT forwarding the request upstream — i.e. the request was
+  // silently denied. `'closed'` makes that same deny-on-error behavior
+  // explicit (as the standard 403 block response, like every other stage) and
+  // is therefore the DEFAULT — it matches today's observed behavior.
+  // `'open'` instead forwards the request upstream unscanned and emits an
+  // audit ('error' kind) event, trading availability for a small detection
+  // gap during the failure. Also settable via LLM_FW_FAIL_MODE.
+  failMode: 'open' | 'closed';
+  // Task C3 — opt-in worker_threads isolation for the embedding + classifier
+  // model forward passes. OFF by default: both stages run in-process exactly
+  // as before. When true, a single persistent worker thread hosts both
+  // models (lazy-spawned on first use); a worker crash respawns once, then
+  // permanently falls back to in-process inference with a console.warn. The
+  // forward pass itself is numerically IDENTICAL either way — same model,
+  // same dtype, same single-text (never batched) calls — see embedding.ts's
+  // q8 calibration note. Also LLM_FW_WORKER_INFERENCE.
+  workerInference?: boolean;
 }
 
 export interface ClassifierConfig {
@@ -129,6 +151,10 @@ export interface DashboardConfig {
   // is auto-generated at startup and logged, so a standalone dashboard is never
   // left open. Override via LLM_FW_DASHBOARD_TOKEN.
   authToken?: string;
+  // Task C4 — Prometheus text-exposition scrape endpoint at GET /metrics
+  // (same auth gate as every other dashboard route). Default true; behind a
+  // flag so an operator can opt out. Also LLM_FW_METRICS_ENABLED.
+  metrics?: boolean;
 }
 
 export interface DLPConfig {
@@ -183,6 +209,18 @@ export interface ResponseScanConfig {
   // is already forwarded by the time it's scored, so it can only audit. See
   // src/detection/outputClassifier.ts for the model choice + rationale.
   classifier?: OutputClassifierConfig;
+  // Outbound tool-call argument exfiltration guard (Task C1): scans the
+  // serialized ARGUMENTS of every tool_use/tool_call/functionCall the model's
+  // response carries with the existing DLP pattern engine + UrlClassifier —
+  // closing the vector where a model hands a tool a secret/PII value or an
+  // attacker-controlled exfil URL that the input-side scan never saw (it only
+  // sees what the USER sent). On by default (audit) — reuses established,
+  // low-false-positive detectors, no new heuristics. mode 'block' additionally
+  // withholds a BUFFERED (non-streaming) response; a flushed SSE stream has
+  // already reached the agent by scan time, so it always degrades to audit —
+  // same rule as the response-harm classifier layer. Also
+  // LLM_FW_TOOLUSE_SCAN_ENABLED / _MODE.
+  toolUse?: { enabled: boolean; mode: 'audit' | 'block' };
 }
 
 export interface OutputClassifierConfig {
@@ -324,6 +362,15 @@ export interface Config {
   // registry — this is the additive path. Also settable via
   // LLM_FW_EXTRA_TARGETS (comma-separated).
   extraTargets?: string[];
+  // Task C5 — watch `<getLlmFwDir()>/config.json` for edits and hot-apply
+  // detection/dlp/dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/
+  // harmfulRequest/responseScan toggles+thresholds without a restart (see
+  // src/config/hotReload.ts for the exact hot-safe key list). Cold keys
+  // (proxy ports/mode/bind/bypass, dashboard port/bind, targets/
+  // interceptDomains/extraTargets) are detected but NOT applied — a
+  // "restart required" note is logged instead. On by default. Also
+  // LLM_FW_HOT_RELOAD.
+  hotReload?: boolean;
 }
 
 export interface HeuristicResult {
@@ -375,7 +422,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'error';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;

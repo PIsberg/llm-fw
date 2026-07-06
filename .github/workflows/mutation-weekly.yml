@@ -1,0 +1,67 @@
+name: Weekly Mutation Testing
+
+# Task C9 — mutation testing on the regex-boundary detection modules
+# (src/detection/{heuristic,normalize,intentMention,indirectInstruction,
+# harmfulRequest,manyShot,crescendo}.ts) via Stryker + the vitest runner,
+# scoped to test/detection (see vitest.mutation.config.ts / stryker.config.json
+# for the excluded stage3-judge/model-download/real-inference suites).
+#
+# Deliberately NOT wired into PR CI — a full run takes tens of minutes, far
+# too slow for the per-PR gate. This is opt-in only: a weekly schedule plus
+# workflow_dispatch for on-demand runs. It never fails the build (the score
+# is informational — see docs/TESTING.md for the recorded baseline and the
+# top surviving-mutant clusters); the HTML/JSON report is uploaded as an
+# artifact for manual review, nothing is committed back.
+on:
+  schedule:
+    - cron: '15 4 * * 0' # Sundays 04:15 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-mutation-testing
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: Mutation testing (detection modules)
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_OPTIONS: '--max-old-space-size=4096'
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Informational only — never blocks the workflow. The recorded baseline
+      # + surviving-mutant clusters live in docs/TESTING.md; fixing gaps found
+      # by a given run is separate follow-up work, not this job's job.
+      - name: Run mutation testing
+        continue-on-error: true
+        run: npm run mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 30

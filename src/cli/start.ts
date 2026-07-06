@@ -4,8 +4,10 @@ import { ProxyServer } from '../proxy/proxy.js';
 import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
+import { MetricsRegistry } from '../dashboard/metrics.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
+import { startConfigHotReload } from '../config/hotReload.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -223,9 +225,13 @@ export async function run(args: string[] = []): Promise<void> {
     } catch { }
   }
 
-  // Register cleanup hooks before any IO
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
-  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+  // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
+  // paths, so they also terminate the shared inference worker thread (Task
+  // C3, detection.workerInference) if one was ever spawned — a no-op
+  // otherwise. uncaughtException exits immediately without waiting on it;
+  // the worker thread dies with the process either way.
+  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();
@@ -236,13 +242,27 @@ export async function run(args: string[] = []): Promise<void> {
   fs.mkdirSync(llmfwDir, { recursive: true });
   fs.writeFileSync(pidFile, String(process.pid), 'utf8');
 
-  const eventBus = new EventBus(config.dashboard);
+  // Task C4 — shared across the dashboard's EventBus (records block/warn/
+  // event counters from the same hook that emits dashboard events) and both
+  // Pipeline instances' run() call boundaries (proxy live traffic +
+  // dashboard playground), so GET /metrics reports on the whole process.
+  const metrics = new MetricsRegistry();
+  const eventBus = new EventBus(config.dashboard, metrics);
   // Shared across the dashboard's playground pipeline and the proxy's live-
   // traffic pipeline (constructed below) so an operator marking a false
   // positive from the dashboard actually suppresses future real traffic —
   // not just the dashboard's own /api/test calls.
   const suppressions = new SuppressionStore();
   const pipeline = new Pipeline(config, (partial) => eventBus.emit(partial), suppressions);
+
+  // Task C5 — watches <getLlmFwDir()>/config.json and hot-applies detection/
+  // dlp/dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/
+  // harmfulRequest/responseScan toggles+thresholds onto this SAME `config`
+  // object (shared by pipeline/proxy/dashboard below) with no restart. Cold
+  // keys (ports/binds/mode/targets/interceptDomains) are logged as
+  // restart-required and left untouched. On by default (config.hotReload,
+  // env LLM_FW_HOT_RELOAD); stopped on graceful shutdown below.
+  const hotReload = startConfigHotReload(config);
 
   // Auto-upgrade CA cert if it lacks a CRL Distribution Point (fixes Windows Schannel).
   const caCertPath = join(llmfwDir, 'ca.crt');
@@ -271,12 +291,12 @@ export async function run(args: string[] = []): Promise<void> {
   await pipeline.init();
   console.log('Model ready.');
 
-  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions);
+  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
   });
 
-  const proxy = new ProxyServer(config, eventBus, suppressions);
+  const proxy = new ProxyServer(config, eventBus, suppressions, metrics);
   await proxy.init();
   proxy.start();
 

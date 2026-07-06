@@ -68,6 +68,20 @@ node --import tsx/esm scripts/run-benchmark.ts <preset> [ollama-model] [--json] 
 # --json emits machine-readable results incl. a per-attack-class breakdown
 ```
 
+## Nightly drift tracking
+
+`.github/workflows/nightly.yml` runs the cheap preset (no Ollama, no
+classifier download) over `heldout`, `safeguard-prompt-injection`, and
+`injecagent` every night, appends `{ dateFromCI, commit, split, recall, fpr }`
+rows to [`docs/load-results/bench-trend.jsonl`](load-results/bench-trend.jsonl),
+and fails the run if any split's recall drops more than 3 points or FPR rises
+more than 1 point vs. the median of that split's last 7 runs
+(`scripts/bench-trend.ts`, `checkDrift`) — a silent regression from a
+dependency bump or a change elsewhere in the pipeline gets caught within a
+day instead of at the next manual benchmark pass. The trend file is committed
+back by the workflow itself (`github-actions[bot]`) regardless of pass/fail,
+since a regressed run is still a valid data point for future medians.
+
 ## Results
 
 Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR

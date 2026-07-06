@@ -2,7 +2,7 @@
 import http from 'node:http'
 import net from 'node:net'
 import tls from 'node:tls'
-import { Config } from '../types.js'
+import { Config, PipelineResult } from '../types.js'
 import { CertFactory } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -24,6 +24,8 @@ import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/provid
 import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
+import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
+import { MetricsRegistry } from '../dashboard/metrics.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -155,6 +157,11 @@ export class ProxyServer {
   private outputClassifier: OutputModerationClassifier
   private eventBus: EventBus
   private config: Config
+  // Task C4 — optional shared metrics registry (see cli/start.ts). Records
+  // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_ms at the
+  // pipeline.run() call boundary below; block/warn/event counters are
+  // recorded centrally by EventBus.emit() instead.
+  private metrics?: MetricsRegistry
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -162,9 +169,10 @@ export class ProxyServer {
   // this proxy's live-traffic pipeline and the dashboard's playground
   // pipeline, so a false-positive marked from the dashboard actually
   // suppresses future real traffic, not just the dashboard's own test runs.
-  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore) {
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry) {
     this.config = config
     this.eventBus = eventBus
+    this.metrics = metrics
     this.certFactory = new CertFactory()
     this.resolver = new UpstreamResolver(config.proxy)
     this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions)
@@ -237,6 +245,9 @@ export class ProxyServer {
   stop(): Promise<void> {
     const closes: Promise<void>[] = [
       new Promise(resolve => this.server.close(() => resolve())),
+      // Task C3 — terminates the shared inference worker thread if one was
+      // ever spawned (detection.workerInference); no-op otherwise.
+      this.pipeline.close(),
     ]
     if (this.sinkholeServer) {
       closes.push(new Promise(resolve => this.sinkholeServer!.close(() => resolve())))
@@ -685,19 +696,72 @@ export class ProxyServer {
         })
       }
 
-      const result = await this.pipeline.run(
-        innerReq.url ?? '/',
-        body,
-        {
-          target: hostname,
-          method: innerReq.method ?? 'GET',
-          path: innerReq.url ?? '/',
-          sandboxClient: sb.client,
-          isSandboxed: sb.sandboxed,
-          sandboxConfidence: sb.confidence,
-          sessionKey,
+      // Task C2 — explicit failMode. Pipeline.run() itself throwing (a bug in a
+      // parser/normalizer/stage, NOT a detected injection) used to propagate
+      // uncaught out of handleRequest to the per-connection catch in
+      // handleConnect/startSinkhole, which 502'd the request without
+      // forwarding it — an implicit deny-on-error. `failMode` makes that
+      // choice explicit and configurable: 'closed' (default, matches the old
+      // behavior) blocks with the standard 403 response; 'open' forwards the
+      // request upstream unscanned and only emits an audit event.
+      let result: PipelineResult
+      // Task C4 — timed at this call boundary (non-invasive: Pipeline.run()
+      // itself is untouched) to feed llmfw_requests_total{surface="proxy"} +
+      // the overall llmfw_scan_duration_ms histogram.
+      const scanStart = Date.now()
+      try {
+        result = await this.pipeline.run(
+          innerReq.url ?? '/',
+          body,
+          {
+            target: hostname,
+            method: innerReq.method ?? 'GET',
+            path: innerReq.url ?? '/',
+            sandboxClient: sb.client,
+            isSandboxed: sb.sandboxed,
+            sandboxConfidence: sb.confidence,
+            sessionKey,
+          }
+        )
+        this.metrics?.recordScan('proxy', Date.now() - scanStart)
+      } catch (err) {
+        this.metrics?.recordScan('proxy', Date.now() - scanStart)
+        this.logRequestError('pipeline', hostname, innerReq, err)
+        const message = (err as Error)?.message ?? String(err)
+        if (this.config.detection.failMode === 'open') {
+          emitEvent({
+            stage: 'none',
+            score: 0,
+            similarity: 0,
+            target: hostname,
+            method,
+            path: dlpPath,
+            payload_preview: `Detection pipeline error — failing OPEN, forwarding unscanned: ${message}`.slice(0, 220),
+            payload_full: (err as Error)?.stack ?? message,
+            action: 'warned',
+            kind: 'error',
+          })
+          // Treat as a clean pass and fall through to the same forwarding path
+          // a normal 'pass' verdict takes below.
+          result = { action: 'pass', stage: 'none', score: 0, similarity: 0 }
+        } else {
+          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error: 'detection pipeline error — failing closed', stage: 'error' }))
+          emitEvent({
+            stage: 'none',
+            score: 0,
+            similarity: 0,
+            target: hostname,
+            method,
+            path: dlpPath,
+            payload_preview: `Detection pipeline error — failing CLOSED, blocked: ${message}`.slice(0, 220),
+            payload_full: (err as Error)?.stack ?? message,
+            action: 'blocked',
+            kind: 'error',
+          })
+          return
         }
-      )
+      }
 
       if (result.action === 'block') {
         innerRes.writeHead(403, { 'Content-Type': 'application/json' })
@@ -929,6 +993,51 @@ export class ProxyServer {
     return false
   }
 
+  /**
+   * Task C1 — outbound tool-call argument exfiltration guard. Scans every
+   * tool_use/tool_call/functionCall the model's response carries for secrets
+   * (existing DLP pattern engine, this.dlp) and exfil-sink URLs (existing
+   * UrlClassifier, this.urlClassifier) in its serialized ARGUMENTS. This
+   * closes a vector the request-side scans never see: a model handing a tool
+   * a secret/PII value, or an attacker-controlled exfil URL, that only
+   * appears in its own OUTPUT. Buffered JSON can be withheld in block mode
+   * (bytes not yet sent); flushed SSE text has already reached the agent, so
+   * it always degrades to audit — same rule as runResponseHarmScan's
+   * classifier layer. Returns true when the caller must BLOCK the response.
+   */
+  private runToolUseScan(calls: ScannedToolCall[], req: http.IncomingMessage, hostname: string, canBlock: boolean): boolean {
+    if (!this.config.responseScan?.enabled) return false
+    if (calls.length === 0) return false
+    const cfg = this.config.responseScan.toolUse
+    if (cfg?.enabled === false) return false
+
+    const findings = scanToolCallsForExfil(calls, this.dlp, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
+    if (findings.length === 0) return false
+
+    const block = (cfg?.mode ?? 'audit') === 'block' && canBlock
+    for (const f of findings) {
+      const parts: string[] = []
+      if (f.dlpFindings.length) parts.push(`secrets: ${[...new Set(f.dlpFindings.map(d => d.label))].join(', ')}`)
+      if (f.urlFindings.length) parts.push(`exfil URL: ${f.urlFindings.map(u => u.url).join(', ')}`)
+      this.eventBus.emit({
+        stage: 'none',
+        score: 100,
+        similarity: 0,
+        target: hostname,
+        method: req.method ?? 'GET',
+        path: req.url ?? '/',
+        payload_preview: `${block ? 'Blocked' : 'Flagged'} tool call '${f.toolName}' args (${parts.join('; ')})`.slice(0, 220),
+        payload_full: serializeToolArgs(f.args).slice(0, 2000),
+        action: block ? 'blocked' : 'warned',
+        kind: 'tool-use-exfil',
+        mcpTool: f.toolName,
+        ...(f.dlpFindings[0] ? { dlpType: f.dlpFindings[0].type } : {}),
+        ...(f.urlFindings[0] ? { exfilUrl: f.urlFindings[0].url } : {}),
+      })
+    }
+    return block
+  }
+
   // One-line, context-rich console output for failed requests. Expected
   // operational conditions (upstream idle timeouts) log as a concise warning;
   // genuinely unexpected errors keep their stack so they stay debuggable.
@@ -1138,10 +1247,19 @@ export class ProxyServer {
           // Response-exfil scan on the buffered body → can neutralize when mode=block.
           const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
           if (neutralized !== null) finalBody = neutralized
+          // Tool-call argument exfil scan (Task C1): DLP + URL-classifier over
+          // the serialized arguments of every tool call the model emitted.
+          // Buffered body → bytes not yet sent, so block mode can withhold it.
+          const toolCalls = parser ? extractToolCallsFromJson(finalBody, parser) : []
+          const toolUseBlock = this.runToolUseScan(toolCalls, req, hostname, true)
           // Response-harm scan: audit-only regex compliance layer + opt-in
           // output classifier. Buffered body → the classifier layer may block.
-          if (await this.runResponseHarmScan(finalBody, req, hostname, true)) {
-            const errBody = JSON.stringify({ error: 'response blocked by output moderation', kind: 'response-harm' })
+          const harmBlock = await this.runResponseHarmScan(finalBody, req, hostname, true)
+          if (toolUseBlock || harmBlock) {
+            const errBody = JSON.stringify({
+              error: harmBlock ? 'response blocked by output moderation' : 'response blocked by tool-call exfiltration guard',
+              kind: harmBlock ? 'response-harm' : 'tool-use-exfil',
+            })
             res.writeHead(403, { 'Content-Type': 'application/json' })
             res.end(errBody)
             respBodyBytes = Buffer.byteLength(errBody)
@@ -1155,6 +1273,7 @@ export class ProxyServer {
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
             // Already streamed → audit only (cannot retract sent bytes).
             this.runResponseExfilScan(sseText, req, hostname, false)
+            this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
           }
           res.end()
