@@ -94,6 +94,15 @@ export class Pipeline {
     await closeInferenceWorker()
   }
 
+  /**
+   * Task C4 — read-only snapshot of the two lazy-loaded detection models, for
+   * the dashboard's /metrics gauges (`llmfw_model_loaded`). Never triggers a
+   * load itself — just reflects whatever init() has (or hasn't) done so far.
+   */
+  getModelStatus(): { embedding: boolean; classifier: boolean } {
+    return { embedding: this.embedding.isInitialized(), classifier: this.classifier.isInitialized() }
+  }
+
   async run(
     requestPath: string,
     body: string,

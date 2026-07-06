@@ -370,6 +370,8 @@ All clients' traffic now appears in the server dashboard's **Live Traffic** tab,
 
 **Dashboard authentication.** The dashboard shows captured request payloads and exposes the live defense toggles, so non-local access is gated by a shared token. The operator on the **same machine (loopback) always has access with no token**. Any **remote** client must present the token as `Authorization: Bearer <token>` (or HTTP Basic with the token as the password — browsers are prompted natively). Set it via `LLM_FW_DASHBOARD_TOKEN`; if the dashboard is bound non-locally and no token is configured, one is **auto-generated and printed at startup** so a standalone dashboard is never left open. The CA-download endpoints (`/ca.crt`, `/crl`) stay public so clients can bootstrap trust.
 
+**Prometheus metrics.** `GET /metrics` on the dashboard port serves a hand-rolled Prometheus text exposition (no extra runtime dependency) — same auth gate as every other dashboard route. Counters: `llmfw_requests_total{surface}` (proxy live traffic vs. dashboard playground), `llmfw_blocks_total{stage}`, `llmfw_warns_total{stage}`, `llmfw_events_total{kind}`. A histogram `llmfw_scan_duration_ms` (buckets 5–2500ms) tracks overall pipeline scan latency. Gauges `llmfw_model_loaded{model="embedding"|"classifier"}` reflect whether each lazy-loaded model has finished initializing. On by default; disable with `dashboard.metrics: false` or `LLM_FW_METRICS_ENABLED=false`.
+
 ---
 
 ## Running in development (from source)

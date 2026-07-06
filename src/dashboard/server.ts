@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { Config } from '../types.js'
 import { deepMerge } from '../config/config.js'
 import { EventBus } from './eventBus.js'
+import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { SuppressionStore } from '../detection/suppressions.js'
 import { getParser } from '../detection/parsers.js'
@@ -1835,7 +1836,7 @@ export function tokenMatches(presented: string, expected: string): boolean {
   return crypto.timingSafeEqual(a, b)
 }
 
-export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline, suppressions?: SuppressionStore): http.Server {
+export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline, suppressions?: SuppressionStore, metrics?: MetricsRegistry): http.Server {
   // Defaults to a private store (behaviorally an always-empty suppression
   // list) when the caller doesn't share one — e.g. tests that construct the
   // dashboard server directly. cli/start.ts passes the SAME instance used by
@@ -1843,6 +1844,11 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   // affects real traffic.
   const suppressionStore = suppressions ?? new SuppressionStore()
   suppressionStore.load()
+  // Task C4 — same sharing pattern as suppressionStore above: cli/start.ts
+  // passes the SAME registry used by the proxy's live-traffic pipeline (via
+  // EventBus.emit()) so GET /metrics reports on both surfaces, not just
+  // playground scans run from this dashboard.
+  const metricsRegistry = metrics ?? new MetricsRegistry()
   // Effective auth token: configured value, else a generated one so a
   // remotely-reachable dashboard is never left open. Loopback callers bypass auth
   // entirely, so a purely local dashboard never needs the token.
@@ -1883,6 +1889,20 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         'WWW-Authenticate': 'Basic realm="llm-fw dashboard", charset="UTF-8"',
       })
       res.end(JSON.stringify({ error: 'authentication required' }))
+      return
+    }
+
+    // Task C4 — Prometheus scrape endpoint. Behind the SAME auth gate as
+    // every other dashboard route (the check above already ran); gated by
+    // config.dashboard.metrics (default true) so an operator can opt out.
+    if (req.method === 'GET' && path === '/metrics') {
+      if (config.dashboard.metrics === false) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' })
+      res.end(metricsRegistry.render(pipeline.getModelStatus()))
       return
     }
 
@@ -2016,11 +2036,16 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               max_tokens: 1,
               messages: [{ role: 'user', content: [block] }],
             })
+            // Task C4 — timed at this call boundary (mirrors proxy.ts) to
+            // feed llmfw_requests_total{surface="playground"} + the overall
+            // llmfw_scan_duration_ms histogram.
+            const imageScanStart = Date.now()
             const imageResult = await pipeline.run(
               '/v1/messages',
               imageBody,
               { target: 'playground', method: 'POST', path: '/v1/messages' }
             )
+            metricsRegistry.recordScan('playground', Date.now() - imageScanStart)
 
             // Mode-independent introspection: report what was extracted and
             // whether it was decodable, so the UI is informative even in audit
@@ -2160,11 +2185,13 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             messages: [{ role: 'user', content: text }],
             max_tokens: 1,
           })
+          const textScanStart = Date.now()
           const result = await pipeline.run(
             '/v1/messages',
             anthropicBody,
             { target: 'playground', method: 'POST', path: '/v1/messages' }
           )
+          metricsRegistry.recordScan('playground', Date.now() - textScanStart)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ...result, judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
         } catch (err) {

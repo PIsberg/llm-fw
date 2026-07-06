@@ -151,6 +151,10 @@ export interface DashboardConfig {
   // is auto-generated at startup and logged, so a standalone dashboard is never
   // left open. Override via LLM_FW_DASHBOARD_TOKEN.
   authToken?: string;
+  // Task C4 — Prometheus text-exposition scrape endpoint at GET /metrics
+  // (same auth gate as every other dashboard route). Default true; behind a
+  // flag so an operator can opt out. Also LLM_FW_METRICS_ENABLED.
+  metrics?: boolean;
 }
 
 export interface DLPConfig {

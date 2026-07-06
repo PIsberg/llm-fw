@@ -4,6 +4,7 @@ import { ServerResponse } from 'node:http'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { getLlmFwDir } from '../config/paths.js'
+import { MetricsRegistry } from './metrics.js'
 
 export class EventBus {
   private ring: BlockEvent[] = []
@@ -18,7 +19,13 @@ export class EventBus {
     return join(getLlmFwDir(), 'whitelist.json')
   }
 
-  constructor(config: DashboardConfig) { this.maxSize = config.maxEvents }
+  // Task C4 — optional shared metrics registry. Populated from the SAME hook
+  // every dashboard block/warn/audit event already funnels through (this
+  // emit() method), so /metrics stays consistent with what the Live Traffic
+  // / Events UI shows without a second wiring pass through every scanner in
+  // proxy.ts. Optional so every existing call site (tests, scripts) that
+  // doesn't care about metrics is unaffected.
+  constructor(config: DashboardConfig, private metrics?: MetricsRegistry) { this.maxSize = config.maxEvents }
 
   emit(partial: Omit<BlockEvent, 'id' | 'timestamp'>): BlockEvent {
     const event: BlockEvent = {
@@ -31,6 +38,7 @@ export class EventBus {
     const data = 'data: ' + JSON.stringify(event) + '\n\n'
     this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
     for (const res of this.subscribers) res.write(data)
+    this.metrics?.recordEvent(event)
     return event
   }
 

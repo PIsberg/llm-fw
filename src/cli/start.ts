@@ -4,6 +4,7 @@ import { ProxyServer } from '../proxy/proxy.js';
 import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
+import { MetricsRegistry } from '../dashboard/metrics.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import forge from 'node-forge';
@@ -240,7 +241,12 @@ export async function run(args: string[] = []): Promise<void> {
   fs.mkdirSync(llmfwDir, { recursive: true });
   fs.writeFileSync(pidFile, String(process.pid), 'utf8');
 
-  const eventBus = new EventBus(config.dashboard);
+  // Task C4 — shared across the dashboard's EventBus (records block/warn/
+  // event counters from the same hook that emits dashboard events) and both
+  // Pipeline instances' run() call boundaries (proxy live traffic +
+  // dashboard playground), so GET /metrics reports on the whole process.
+  const metrics = new MetricsRegistry();
+  const eventBus = new EventBus(config.dashboard, metrics);
   // Shared across the dashboard's playground pipeline and the proxy's live-
   // traffic pipeline (constructed below) so an operator marking a false
   // positive from the dashboard actually suppresses future real traffic —
@@ -275,12 +281,12 @@ export async function run(args: string[] = []): Promise<void> {
   await pipeline.init();
   console.log('Model ready.');
 
-  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions);
+  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
   });
 
-  const proxy = new ProxyServer(config, eventBus, suppressions);
+  const proxy = new ProxyServer(config, eventBus, suppressions, metrics);
   await proxy.init();
   proxy.start();
 

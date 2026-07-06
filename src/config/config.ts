@@ -120,6 +120,10 @@ export const DEFAULT_CONFIG: Config = {
     port: 7731,
     maxEvents: 100,
     bindHost: '127.0.0.1',
+    // Task C4 — Prometheus /metrics scrape endpoint. On by default (behind
+    // the same auth gate as every other dashboard route). Also
+    // LLM_FW_METRICS_ENABLED.
+    metrics: true,
   },
   dlp: {
     enabled: true,
@@ -386,6 +390,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_DASHBOARD_PORT: (c, v) => { c.dashboard.port = parseInt(v, 10); },
   LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
   LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
+  LLM_FW_METRICS_ENABLED: (c, v) => { c.dashboard.metrics = v === 'true'; },
   LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
   LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
   LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },

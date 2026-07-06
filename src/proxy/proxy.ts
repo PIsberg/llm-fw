@@ -25,6 +25,7 @@ import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.j
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
+import { MetricsRegistry } from '../dashboard/metrics.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -156,6 +157,11 @@ export class ProxyServer {
   private outputClassifier: OutputModerationClassifier
   private eventBus: EventBus
   private config: Config
+  // Task C4 — optional shared metrics registry (see cli/start.ts). Records
+  // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_ms at the
+  // pipeline.run() call boundary below; block/warn/event counters are
+  // recorded centrally by EventBus.emit() instead.
+  private metrics?: MetricsRegistry
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -163,9 +169,10 @@ export class ProxyServer {
   // this proxy's live-traffic pipeline and the dashboard's playground
   // pipeline, so a false-positive marked from the dashboard actually
   // suppresses future real traffic, not just the dashboard's own test runs.
-  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore) {
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry) {
     this.config = config
     this.eventBus = eventBus
+    this.metrics = metrics
     this.certFactory = new CertFactory()
     this.resolver = new UpstreamResolver(config.proxy)
     this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions)
@@ -698,6 +705,10 @@ export class ProxyServer {
       // behavior) blocks with the standard 403 response; 'open' forwards the
       // request upstream unscanned and only emits an audit event.
       let result: PipelineResult
+      // Task C4 — timed at this call boundary (non-invasive: Pipeline.run()
+      // itself is untouched) to feed llmfw_requests_total{surface="proxy"} +
+      // the overall llmfw_scan_duration_ms histogram.
+      const scanStart = Date.now()
       try {
         result = await this.pipeline.run(
           innerReq.url ?? '/',
@@ -712,7 +723,9 @@ export class ProxyServer {
             sessionKey,
           }
         )
+        this.metrics?.recordScan('proxy', Date.now() - scanStart)
       } catch (err) {
+        this.metrics?.recordScan('proxy', Date.now() - scanStart)
         this.logRequestError('pipeline', hostname, innerReq, err)
         const message = (err as Error)?.message ?? String(err)
         if (this.config.detection.failMode === 'open') {
