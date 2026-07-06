@@ -4,6 +4,15 @@
   "description": "Local LLM prompt injection firewall",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "llm-fw": "./dist/cli/index.js"
   },

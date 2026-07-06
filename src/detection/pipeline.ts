@@ -21,7 +21,9 @@ import { closeInferenceWorker } from './inferenceWorker.js'
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
-type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document'
+// Exported (Task C6) so the programmatic API (src/api.ts) can tag a raw-text
+// scan with the same provenance the proxy derives from a real request shape.
+export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document'
 
 // Per-surface sensitivity overrides (Task B3). Resolves the effective Stage 1
 // (heuristic) / Stage 2 (embedding contrastive margin) threshold for a given
