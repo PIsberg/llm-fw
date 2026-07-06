@@ -71,12 +71,25 @@ export interface DetectionConfig {
   // every real request. Enable only when untrusted data is concatenated into the
   // system prompt (e.g. RAG-into-system). Also LLM_FW_SCAN_SYSTEM_PROMPT.
   scanSystemPrompt?: boolean;
+  // Suppress a classifier BLOCK when the prompt only QUOTES / translates /
+  // documents / fictionalizes injection content instead of issuing it (see
+  // intentMention.ts). Downgrades such a block to a warn. ON by default, but has
+  // no effect unless the classifier stage is enabled. Also
+  // LLM_FW_INTENT_MENTION_ENABLED. Scoped to the prompt/system surface — never
+  // applied to untrusted tool_result/document data.
+  intentMention?: boolean;
 }
 
 export interface ClassifierConfig {
   enabled: boolean;
   /** INJECTION probability at/above which a prompt is blocked (0–1). */
   blockThreshold: number;
+  // Gray-zone floor for judge escalation (Option B two-tier policy): a score in
+  // [escalateThreshold, blockThreshold) is not confident enough to block outright
+  // but too suspicious to pass — it is escalated to the Stage 3 judge for a
+  // second opinion instead of silently passing. Below escalateThreshold the
+  // classifier signal is treated as noise. Also LLM_FW_CLASSIFIER_ESCALATE.
+  escalateThreshold?: number;
 }
 
 export interface DashboardConfig {

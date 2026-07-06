@@ -11,6 +11,7 @@ import { detectManyShot } from './manyShot.js'
 import { detectCrescendo } from './crescendo.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
+import { detectMentionFrame } from './intentMention.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
@@ -297,10 +298,65 @@ export class Pipeline {
       // model on first use when enabled.
       if (this.config.detection.classifier?.enabled) {
         const v = await this.classifier.classify(prompt)
+
+        // Intent-vs-mention gate (Option C): the classifier can't tell a prompt
+        // that ISSUES an override from one that only QUOTES/translates/documents/
+        // fictionalizes one — its single largest source of false positives.
+        // Scoped to the prompt/system surface ONLY: on tool_result/document/
+        // tool_definition surfaces a "quoted" or "fictional" instruction is
+        // standard indirect-injection dressing and must still block. Computed
+        // lazily (only once we know a block is actually about to happen) since
+        // it's irrelevant to the gray-zone pass-through / judge-SAFE cases.
+        const mentionFrame = () => this.config.detection.intentMention !== false && (source === 'prompt' || source === 'system')
+          ? detectMentionFrame(prompt)
+          : null
+
         if (v?.injection) {
-          const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
-          this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
-          return result
+          const frame = mentionFrame()
+          if (frame) {
+            // Downgrade to a warn rather than blocking, and keep scanning — a
+            // later candidate/surface may still block, which must take
+            // precedence over this downgraded warn (mirrors the pendingWarn
+            // pattern used by the other soft-signal stages above).
+            if (!pendingWarn) pendingWarn = {
+              result: { action: 'warn', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt },
+              prompt: `[classifier: injection ${(v.score * 100).toFixed(1)}% — mention-framed: ${frame.frame}] ${prompt.slice(0, 80)}`,
+              source,
+            }
+          } else {
+            const result: PipelineResult = { action: 'block', stage: 'classifier', score: Math.round(v.score * 100), similarity: 0, prompt }
+            this.emit(result, meta, `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`, source)
+            return result
+          }
+        } else if (v) {
+          // Two-tier policy (Option B): a gray-zone score is too confident to be
+          // noise but not confident enough to block outright. Rather than pass
+          // it silently, escalate to the (more expensive, more accurate) Stage 3
+          // judge for a second opinion — the same trade-off the entropy-escalation
+          // check above makes for high-entropy payloads.
+          const escalateThreshold = this.config.detection.classifier.escalateThreshold ?? 0.5
+          const blockThreshold = this.config.detection.classifier.blockThreshold ?? 0.9
+          if (judgeEnabled && v.score >= escalateThreshold && v.score < blockThreshold) {
+            const j = await this.judge.classify(prompt)
+            if (j.verdict === 'MALICIOUS') {
+              // Same intent-mention downgrade rule applies: this is still a
+              // classifier-driven signal on the prompt surface, just confirmed
+              // by the judge instead of crossing blockThreshold directly.
+              const frame = mentionFrame()
+              if (frame) {
+                if (!pendingWarn) pendingWarn = {
+                  result: { action: 'warn', stage: 'judge', score: Math.round(v.score * 100), similarity: 0, verdict: 'MALICIOUS', prompt },
+                  prompt: `[classifier→judge: gray-zone ${(v.score * 100).toFixed(1)}% confirmed — mention-framed: ${frame.frame}] ${prompt.slice(0, 80)}`,
+                  source,
+                }
+              } else {
+                const result: PipelineResult = { action: 'block', stage: 'judge', score: Math.round(v.score * 100), similarity: 0, verdict: 'MALICIOUS', prompt }
+                this.emit(result, meta, `[classifier→judge: gray-zone ${(v.score * 100).toFixed(1)}% confirmed injection] ${prompt.slice(0, 80)}`, source)
+                return result
+              }
+            }
+            // Judge SAFE -> fall through to Stage 1/2 as today.
+          }
         }
       }
 
