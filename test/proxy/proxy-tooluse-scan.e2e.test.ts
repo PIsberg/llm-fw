@@ -119,7 +119,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
   const blockEvents: BlockEvent[] = []
   const blockConfig = {
     ...DEFAULT_CONFIG,
-    proxy: { ...DEFAULT_CONFIG.proxy, port: 18100 },
+    proxy: { ...DEFAULT_CONFIG.proxy, port: 18110 },
     dashboard: { ...DEFAULT_CONFIG.dashboard, port: 17800 },
     dos: { ...DEFAULT_CONFIG.dos, enabled: false },
     responseScan: {
@@ -135,7 +135,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
   const auditEvents: BlockEvent[] = []
   const auditConfig = {
     ...blockConfig,
-    proxy: { ...blockConfig.proxy, port: 18101 },
+    proxy: { ...blockConfig.proxy, port: 18111 },
     dashboard: { ...blockConfig.dashboard, port: 17801 },
     responseScan: { ...blockConfig.responseScan, toolUse: { enabled: true, mode: 'audit' as const } },
   }
@@ -144,7 +144,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
   const offEvents: BlockEvent[] = []
   const offConfig = {
     ...blockConfig,
-    proxy: { ...blockConfig.proxy, port: 18102 },
+    proxy: { ...blockConfig.proxy, port: 18112 },
     dashboard: { ...blockConfig.dashboard, port: 17802 },
     responseScan: { ...blockConfig.responseScan, toolUse: { enabled: false, mode: 'block' as const } },
   }

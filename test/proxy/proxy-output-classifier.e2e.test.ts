@@ -116,7 +116,7 @@ describe('Proxy output-moderation classifier wiring (E2E, mocked classifier)', {
   const auditEvents: BlockEvent[] = []
   const auditConfig = {
     ...blockConfig,
-    proxy: { ...blockConfig.proxy, port: 18097 },
+    proxy: { ...blockConfig.proxy, port: 18114 },
     dashboard: { ...blockConfig.dashboard, port: 17797 },
     responseScan: { ...blockConfig.responseScan, mode: 'audit' as const },
   }
