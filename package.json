@@ -1,6 +1,6 @@
 {
   "name": "llm-fw",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local LLM prompt injection firewall",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
@@ -45,6 +45,8 @@
     "test:load": "npm run test:load:perf && npm run test:load:accuracy",
     "load:charts": "node --import tsx/esm scripts/gen-load-charts.ts",
     "scorecard": "node --import tsx/esm scripts/gen-scorecard.ts",
+    "bench:competitors": "node --import tsx/esm test/eval/competitors/run.ts",
+    "study:ml-indirect": "node --import tsx/esm scripts/study-ml-indirect.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip"

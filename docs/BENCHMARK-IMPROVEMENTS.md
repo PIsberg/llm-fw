@@ -242,3 +242,41 @@ Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
   previous instructions…") still block; the gate is also skipped entirely on
   the indirect-injection surfaces.
 
+### Round 6 — safeguard + injecagent splits (Task B1 re-measure)
+
+Full-split re-run of the two remaining big sets, cheap AND classifier presets.
+The benchmark's `classifier` preset hard-codes the judge off, so Option B
+gray-zone escalation is NOT exercised in any of these numbers. "Before" = the
+baselines recorded in `future_improvements_plan.md` (2026-06-13).
+
+| Dataset | Preset | n | Recall before → after | FPR before → after |
+|---|---|---|---|---|
+| **safeguard** | cheap | 2,060 | 45.4% → **43.5%** (283/650) | 0.6% → **0.2%** (3/1410) |
+| **safeguard** | classifier (judge off) | 2,060 | 84.9% → **84.2%** (547/650) | 0.7% → **0.3%** (4/1410) |
+| **injecagent** | cheap | 1,071 | 95.2% → **100.0%** (1054/1054) | 0.0% → **0.0%** (0/17) |
+| **injecagent** | classifier (judge off) | 1,071 | 97.6% → **100.0%** (1054/1054) | 35.3% → **35.3%** (6/17) |
+
+Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
+
+Notes:
+
+- **The safeguard deltas are a code-change shift, not run variance** (the
+  pipeline is deterministic; the dataset revision is pinned and unchanged).
+  The 45.4%/0.6% baseline was written 2026-06-13; commit `3c933bb`
+  (2026-06-14 — trusted surfaces, contrastive embedding margin) landed the day
+  after and reduced embedding-stage blocks on both sides of the ledger:
+  recall −1.9 pp, FPR −0.4 pp.
+- **safeguard classifier FPR 0.7% → 0.3%**: safeguard rows are user-prompt
+  surface, so the intent-vs-mention gate applies — it suppresses classifier
+  false positives here just as on heldout. Recall is essentially flat
+  (84.9 → 84.2%), the small drop shared with the `3c933bb` shift above.
+- **injecagent classifier FPR is UNCHANGED at 35.3% (6/17) — by design.** The
+  mention gate is scoped to the prompt/system surfaces only; on `tool_result`
+  a quoted instruction is standard indirect-injection dressing and must still
+  block, so the gate cannot (and should not) touch these FPs. The cheap preset
+  (100% recall / 0% FPR since Round 3) remains the optimal operating point on
+  the indirect surface.
+- **injecagent recall 100% in both presets**: the plan-doc baseline (95.2%
+  cheap / 97.6% classifier) pre-dated Round 3, which closed the last 51 misses
+  with three action verbs. Re-confirmed here on the pinned revision.
+

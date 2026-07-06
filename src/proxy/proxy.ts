@@ -6,6 +6,7 @@ import { Config } from '../types.js'
 import { CertFactory } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
+import { SuppressionStore } from '../detection/suppressions.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
@@ -22,6 +23,7 @@ import zlib from 'node:zlib'
 import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
 import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
+import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -150,15 +152,22 @@ export class ProxyServer {
   private mcp: McpScanner
   private taint: TaintTracker
   private sandbox: SandboxDetector
+  private outputClassifier: OutputModerationClassifier
   private eventBus: EventBus
   private config: Config
 
-  constructor(config: Config, eventBus: EventBus) {
+  // Optional so every existing call site (tests, scripts) that doesn't care
+  // about sharing the suppression store across Pipeline instances is
+  // unaffected. When provided (see cli/start.ts), the SAME store backs both
+  // this proxy's live-traffic pipeline and the dashboard's playground
+  // pipeline, so a false-positive marked from the dashboard actually
+  // suppresses future real traffic, not just the dashboard's own test runs.
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore) {
     this.config = config
     this.eventBus = eventBus
     this.certFactory = new CertFactory()
     this.resolver = new UpstreamResolver(config.proxy)
-    this.pipeline = new Pipeline(config, partial => eventBus.emit(partial))
+    this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions)
     this.urlClassifier = new UrlClassifier(config.proxy.urlFilter)
     this.dlp = new DlpScanner(config.dlp)
     this.quota = new QuotaManager(config.dos)
@@ -169,12 +178,20 @@ export class ProxyServer {
     // legitimate request to that same provider.
     this.taint = new TaintTracker(config.targets)
     this.sandbox = new SandboxDetector()
+    // Output-side moderation classifier (Task B5). Constructed unconditionally
+    // like every other scanner; init()/classify() are no-ops unless
+    // responseScan.classifier.enabled is set, so the default config never
+    // downloads the model.
+    this.outputClassifier = new OutputModerationClassifier(config.responseScan)
     this.server = http.createServer()
   }
 
   private sinkholeServer: tls.Server | null = null
 
-  async init(): Promise<void> { await this.pipeline.init() }
+  async init(): Promise<void> {
+    await this.pipeline.init()
+    await this.outputClassifier.init() // no-op unless responseScan.classifier is enabled
+  }
 
   start(): void {
     this.server.on('connect', (req, socket, head) => {
@@ -525,6 +542,12 @@ export class ProxyServer {
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
 
+      // Session identity shared across the proxy's per-client state (taint
+      // tracking below, and — opt-in — the pipeline's cross-request crescendo
+      // memory): the client's normalized source IP. Computed once here so both
+      // consumers key on the exact same identity.
+      const sessionKey = normalizeIp(innerReq.socket.remoteAddress)
+
       // Stage T — Cross-turn taint tracking (information flow, not content
       // classification). Flags when a distinctive token (host / secret) that
       // first entered via an untrusted tool result in a PRIOR request reappears
@@ -534,7 +557,6 @@ export class ProxyServer {
       // first, then this request's own tool results are recorded, so a request
       // can never taint and then flag itself.
       if (this.config.taint?.enabled) {
-        const sessionKey = normalizeIp(innerReq.socket.remoteAddress) ?? 'unknown'
         const now = Date.now()
         const findings = this.taint.checkSink(sessionKey, `${hostname} ${dlpPath}`, now)
         if (findings.length) {
@@ -672,7 +694,8 @@ export class ProxyServer {
           path: innerReq.url ?? '/',
           sandboxClient: sb.client,
           isSandboxed: sb.sandboxed,
-          sandboxConfidence: sb.confidence
+          sandboxConfidence: sb.confidence,
+          sessionKey,
         }
       )
 
@@ -844,27 +867,66 @@ export class ProxyServer {
   }
 
   /**
-   * Audit-only defense-in-depth: flag a response that produced harmful HOW-TO
-   * content (a jailbreak the input stages missed and the model complied with).
-   * Never blocks — emits a warn event so the operator sees the miss. Cheap
-   * co-occurrence scan over the already-decoded text.
+   * Response-harm scan, two layers over the decoded response text:
+   *
+   * 1. Regex harmful-compliance co-occurrence (detectHarmfulCompliance) —
+   *    audit-only defense-in-depth, exactly as before: flags a harmful HOW-TO
+   *    the model produced because a jailbreak slipped past input detection.
+   *    Always warns, never blocks, independent of responseScan.mode.
+   * 2. Opt-in trained output-moderation classifier (Task B5, Option D — see
+   *    outputClassifier.ts). A verdict at/above the configured threshold
+   *    respects responseScan.mode: 'audit' emits a warn event; 'block' emits a
+   *    blocked event and — when `canBlock` (buffered JSON, bytes not yet sent)
+   *    — tells the caller to withhold the response. Streamed SSE text is
+   *    already forwarded by the time it is scored, so it degrades to audit.
+   *
+   * Returns true when the caller must BLOCK the response (classifier layer,
+   * block mode, blockable body only).
    */
-  private runResponseHarmScan(text: string, req: http.IncomingMessage, hostname: string): void {
-    if (!this.config.responseScan?.enabled || this.config.responseScan.harmfulCompliance === false) return
-    const finding = detectHarmfulCompliance(text)
-    if (!finding) return
-    this.eventBus.emit({
-      stage: 'none',
-      score: 0,
-      similarity: 0,
-      target: hostname,
-      method: req.method ?? 'GET',
-      path: req.url ?? '/',
-      payload_preview: `Possible harmful compliance in response (${finding.term}): ${finding.snippet.slice(0, 120)}`,
-      payload_full: finding.snippet,
-      action: 'warned',
-      kind: 'response-harm',
-    })
+  private async runResponseHarmScan(text: string, req: http.IncomingMessage, hostname: string, canBlock: boolean): Promise<boolean> {
+    if (!this.config.responseScan?.enabled) return false
+
+    if (this.config.responseScan.harmfulCompliance !== false) {
+      const finding = detectHarmfulCompliance(text)
+      if (finding) {
+        this.eventBus.emit({
+          stage: 'none',
+          score: 0,
+          similarity: 0,
+          target: hostname,
+          method: req.method ?? 'GET',
+          path: req.url ?? '/',
+          payload_preview: `Possible harmful compliance in response (${finding.term}): ${finding.snippet.slice(0, 120)}`,
+          payload_full: finding.snippet,
+          action: 'warned',
+          kind: 'response-harm',
+        })
+      }
+    }
+
+    if (this.config.responseScan.classifier?.enabled) {
+      // classify() applies responseScan.classifier.blockThreshold itself and
+      // returns null when the stage is unavailable (model failed to load), so
+      // the proxy degrades gracefully to the regex layer above.
+      const verdict = await this.outputClassifier.classify(text)
+      if (verdict?.flagged) {
+        const block = this.config.responseScan.mode === 'block' && canBlock
+        this.eventBus.emit({
+          stage: 'none',
+          score: Math.round(verdict.score * 100),
+          similarity: 0,
+          target: hostname,
+          method: req.method ?? 'GET',
+          path: req.url ?? '/',
+          payload_preview: `${block ? 'Blocked' : 'Flagged'} response by output classifier (${(verdict.score * 100).toFixed(1)}%): ${text.slice(0, 120).replace(/\s+/g, ' ').trim()}`,
+          payload_full: text.slice(0, 2000),
+          action: block ? 'blocked' : 'warned',
+          kind: 'response-harm',
+        })
+        return block
+      }
+    }
+    return false
   }
 
   // One-line, context-rich console output for failed requests. Expected
@@ -1040,7 +1102,7 @@ export class ProxyServer {
           if (out.length) { res.write(out); respBodyBytes += out.length }
         }
       })
-      upstream.on('end', () => {
+      upstream.on('end', async () => {
         upstream.setTimeout(0) // response complete — disarm the idle timer
         if (mode === 'json') {
           const raw = Buffer.concat(jsonChunks)
@@ -1076,18 +1138,24 @@ export class ProxyServer {
           // Response-exfil scan on the buffered body → can neutralize when mode=block.
           const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
           if (neutralized !== null) finalBody = neutralized
-          // Defense-in-depth: audit-only harmful-compliance scan on the response.
-          this.runResponseHarmScan(finalBody, req, hostname)
-
-          res.writeHead(status, inspectedHeaders())
-          res.end(Buffer.from(finalBody, 'utf8'))
-          respBodyBytes = Buffer.byteLength(finalBody)
+          // Response-harm scan: audit-only regex compliance layer + opt-in
+          // output classifier. Buffered body → the classifier layer may block.
+          if (await this.runResponseHarmScan(finalBody, req, hostname, true)) {
+            const errBody = JSON.stringify({ error: 'response blocked by output moderation', kind: 'response-harm' })
+            res.writeHead(403, { 'Content-Type': 'application/json' })
+            res.end(errBody)
+            respBodyBytes = Buffer.byteLength(errBody)
+          } else {
+            res.writeHead(status, inspectedHeaders())
+            res.end(Buffer.from(finalBody, 'utf8'))
+            respBodyBytes = Buffer.byteLength(finalBody)
+          }
         } else {
           if (mode === 'sse') {
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
             // Already streamed → audit only (cannot retract sent bytes).
             this.runResponseExfilScan(sseText, req, hostname, false)
-            this.runResponseHarmScan(sseText, req, hostname)
+            await this.runResponseHarmScan(sseText, req, hostname, false)
           }
           res.end()
         }

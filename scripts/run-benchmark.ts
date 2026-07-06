@@ -26,7 +26,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { Pipeline } from '../src/detection/pipeline.js'
 import { DEFAULT_CONFIG } from '../src/config/config.js'
 import type { Config } from '../src/types.js'
@@ -34,13 +34,15 @@ import type { Config } from '../src/types.js'
 const __dir = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dir, '..', 'test', 'eval', 'data')
 
-interface Row { text: string; label: number; class?: string; surface?: 'tool_result' }
-type Threat = 'injection' | 'harmful-content' | 'indirect-injection'
-interface Dataset { name: string; threat: Threat; revision?: string; rows: Row[] }
+export interface Row { text: string; label: number; class?: string; surface?: 'tool_result' }
+export type Threat = 'injection' | 'harmful-content' | 'indirect-injection'
+export interface Dataset { name: string; threat: Threat; revision?: string; rows: Row[] }
 
 /** Load every *.json in the eval data dir that has a labelled `rows` array, so
- *  dropping a new public dataset file in extends the suite automatically. */
-function loadAll(): Dataset[] {
+ *  dropping a new public dataset file in extends the suite automatically.
+ *  Exported so other eval runners (e.g. test/eval/competitors/run.ts) reuse
+ *  this loader instead of re-implementing dataset discovery. */
+export function loadAll(): Dataset[] {
   return readdirSync(dataDir)
     .filter(f => f.endsWith('.json'))
     .sort()
@@ -186,4 +188,10 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+// Only auto-run when this file is the directly-executed entry script — other
+// eval runners (e.g. test/eval/competitors/run.ts) import loadAll() from here
+// and must NOT trigger a full benchmark sweep as an import side effect.
+const isMain = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  main().catch(e => { console.error(e); process.exit(1) })
+}

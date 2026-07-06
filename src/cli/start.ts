@@ -5,6 +5,7 @@ import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
 import { Pipeline } from '../detection/pipeline.js';
+import { SuppressionStore } from '../detection/suppressions.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -236,7 +237,12 @@ export async function run(args: string[] = []): Promise<void> {
   fs.writeFileSync(pidFile, String(process.pid), 'utf8');
 
   const eventBus = new EventBus(config.dashboard);
-  const pipeline = new Pipeline(config, (partial) => eventBus.emit(partial));
+  // Shared across the dashboard's playground pipeline and the proxy's live-
+  // traffic pipeline (constructed below) so an operator marking a false
+  // positive from the dashboard actually suppresses future real traffic —
+  // not just the dashboard's own /api/test calls.
+  const suppressions = new SuppressionStore();
+  const pipeline = new Pipeline(config, (partial) => eventBus.emit(partial), suppressions);
 
   // Auto-upgrade CA cert if it lacks a CRL Distribution Point (fixes Windows Schannel).
   const caCertPath = join(llmfwDir, 'ca.crt');
@@ -265,12 +271,12 @@ export async function run(args: string[] = []): Promise<void> {
   await pipeline.init();
   console.log('Model ready.');
 
-  const dashboardServer = createDashboardServer(config, eventBus, pipeline);
+  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
   });
 
-  const proxy = new ProxyServer(config, eventBus);
+  const proxy = new ProxyServer(config, eventBus, suppressions);
   await proxy.init();
   proxy.start();
 

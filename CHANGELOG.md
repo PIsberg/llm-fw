@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-05
+
+### Added
+
+**Generalization layer — gray-zone judge escalation + intent-vs-mention gate**
+- Intent-vs-mention gate (`src/detection/intentMention.ts`) — closes the trained classifier's single largest false-positive source: a prompt that *quotes*, *translates*, *documents*, or *fictionalizes* an override rather than issuing one. When a mention frame is detected and no live override imperative sits outside a quote/code span, a classifier BLOCK is downgraded to a warn. Scoped to the **prompt/system surfaces only** — on `tool_result`/`document` a quoted instruction is standard indirect-injection dressing and still blocks. On by default (`detection.intentMention`, `LLM_FW_INTENT_MENTION_ENABLED`).
+- Two-tier classifier policy — a classifier score **≥ 0.9** still blocks directly; a gray-zone score in **[0.5, 0.9)** now escalates to the local Ollama judge (when enabled) for a second opinion instead of being silently passed through (`detection.classifier.escalateThreshold`, default 0.5, `LLM_FW_CLASSIFIER_ESCALATE`). The mention gate applies to judge-confirmed gray-zone blocks too.
+- Additive Stage-1 heuristic rules closing several `heldout` benchmark near-misses (no classifier or embedding changes).
+- Measured impact (heldout, classifier preset, judge off): FPR **23.8% → 9.5%**, recall **77.4% → 80.6%**. Full-split re-measure of safeguard + injecagent recorded alongside. See `docs/BENCHMARK-IMPROVEMENTS.md` (Round 6).
+
+**Multilingual indirect-injection coverage**
+- `detectIndirectInstruction` (the `tool_result`/`document`-scoped detector that catches an imperative planted in tool output, e.g. the InjecAgent threat model) extended from 11 languages to **56 languages** across European, South/Southeast Asian, Caucasian, and African scripts — an instruction planted in tool output in any of these is now caught instead of passing silently because it's outside the embedding stage's direct-injection anchors.
+- `docs/ML-INDIRECT-STUDY.md` — feasibility study probing further into low-resource Bantu languages (Zulu, Xhosa, and Swahili-adjacent tongues). Honest negative result: no e5 cosine margin cleanly separates attacks from benign tool data at 0 FP for the out-of-table languages tested, so a `tool_result`-scoped embedding fallback is a **no-go** for now — deterministic per-language rules remain the right tool.
+
+**Dashboard — false-positive feedback loop**
+- A **"Mark false positive"** button on any block event now writes to a persisted suppression list (`~/.llm-fw/suppressions.json`) keyed by the sha256 hash of the *normalized* prompt text (never the raw text). An identical future prompt on the `prompt`/`system` surfaces is downgraded from block to warn (`[suppressed-fp]`) instead of blocking again — without loosening any threshold for anything else. Not applied to `tool_result`/`document`. New `GET /api/suppressions` + delete endpoint, behind the existing dashboard auth. On by default (`detection.suppressions`, `LLM_FW_SUPPRESSIONS_ENABLED`).
+
+**Per-surface detection sensitivity**
+- `detection.surfaces.{tool_result,document}.{heuristicBlockThreshold,embeddingMarginThreshold}` — override the heuristic block threshold and embedding margin independently for the two untrusted-data surfaces (e.g. tighten `tool_result` sensitivity without touching the user-prompt surface). Absent config is bit-identical to prior behavior; global embedding block/warn cosines are untouched. `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` for the one env-tunable knob.
+
+**Cross-request crescendo tracking (opt-in)**
+- The multi-turn crescendo detector gains an in-memory, per-session escalation memory — a ring buffer of the last 8 requests' topic/escalation scores (30-minute TTL, 500-session LRU cap), keyed by the same session identity the DoS budget already uses — so a jailbreak escalation spread across **separate requests**, not just separate turns within one request, can still be caught. Off by default (memory growth + shared-proxy multi-tenant risk). `crescendo.crossRequest`, `LLM_FW_CRESCENDO_CROSS_REQUEST`.
+
+**Output-side moderation classifier (opt-in, Option D)**
+- New response-side classifier stage (`src/detection/outputClassifier.ts`, `protectai/distilroberta-base-rejection-v1`) mirrors the input-side ONNX classifier: lazy-loaded, local-only ONNX inference, no Ollama. It detects the upstream model's own **refusal** of a request — strong evidence a harmful/jailbreak prompt slipped past every input stage and only the model's own alignment caught it. Runs alongside the existing regex-based harmful-compliance scan, on both buffered JSON and flushed SSE response text. Disabled by default (network download + per-response inference cost); when enabled, respects `responseScan.mode` (audit → warn `response-harm` event, block → blocks the buffered response; streamed SSE can only audit). `responseScan.classifier.{enabled,model,blockThreshold}` (default threshold 0.9), `LLM_FW_RESPONSE_CLASSIFIER_{ENABLED,MODEL,THRESHOLD}`.
+
+**Competitor benchmark harness (Option A)**
+- `npm run bench:competitors` — a pluggable third-party guardrail adapter interface (`test/eval/competitors/`) runs external prompt-injection/jailbreak detectors against the same held-out splits llm-fw is measured on (heldout, safeguard-prompt-injection, injecagent) and reports recall/FPR head-to-head, with a recall-vs-FPR SVG scatter per split. protectai DeBERTa (standalone, threshold 0.5) ran; Meta Prompt Guard 86M, Llama Guard 3 (via local Ollama), and Lakera Guard (hosted API) are wired but each skips cleanly and reports "not run" when its prerequisite isn't present (gated HF model + `HF_TOKEN`, a pulled `llama-guard3` Ollama model, or `LAKERA_API_KEY`). See `docs/BENCHMARK-COMPETITORS.md`.
+
+### Changed
+- Re-measured the full `safeguard` and `injecagent` splits (cheap and classifier presets) against the pre-batch baselines, after the earlier trusted-surfaces/contrastive-margin change: `injecagent` now **100%** recall in both presets; `safeguard` classifier FPR improves **0.7% → 0.3%** (the intent-vs-mention gate applies on the prompt surface). Recorded in `docs/BENCHMARK-IMPROVEMENTS.md`.
+
+Scorecard: 100% TPR / 0% FPR (heuristic + embedding, judge off) — unchanged.
+
 ## [0.3.0] - 2026-06-15
 
 ### Added
@@ -111,7 +145,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/PIsberg/llm-fw/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PIsberg/llm-fw/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PIsberg/llm-fw/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/PIsberg/llm-fw/releases/tag/v0.1.0

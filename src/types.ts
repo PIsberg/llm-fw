@@ -78,6 +78,30 @@ export interface DetectionConfig {
   // LLM_FW_INTENT_MENTION_ENABLED. Scoped to the prompt/system surface — never
   // applied to untrusted tool_result/document data.
   intentMention?: boolean;
+  // Operator-driven false-positive suppression (see suppressions.ts). When a
+  // prompt/system candidate's normalized text matches an operator-approved
+  // suppression (added via the dashboard's "mark false positive" feedback),
+  // downgrade what would otherwise be a BLOCK to a warn. ON by default; an
+  // empty suppression list (the default, fresh-install state) is a no-op, so
+  // enabling this never changes behaviour until an operator actually marks a
+  // false positive. Also LLM_FW_SUPPRESSIONS_ENABLED. Scoped to prompt/system
+  // — never applied to untrusted tool_result/document data.
+  suppressions?: boolean;
+  // Per-surface sensitivity overrides (Task B3). The untrusted data surfaces
+  // (tool_result / document) can be tuned tighter (or looser) than the global
+  // default without touching the thresholds every other surface relies on —
+  // e.g. an operator who sees repeated indirect-injection near-misses in tool
+  // output can lower heuristicBlockThreshold there without affecting how the
+  // user's own prompt is scored. Only these two knobs are overridable; the
+  // embedding stage's absolute block/warn cosines stay global — they are e5
+  // calibration constants (see embedding.ts) and must not be tuned per-surface.
+  // Absent (the default) ⇒ no override ⇒ identical behaviour to today. The
+  // tool_result heuristic threshold is also settable via
+  // LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD; everything else is file-config only.
+  surfaces?: { [S in 'tool_result' | 'document']?: {
+    heuristicBlockThreshold?: number;
+    embeddingMarginThreshold?: number;
+  } };
 }
 
 export interface ClassifierConfig {
@@ -149,6 +173,24 @@ export interface ResponseScanConfig {
   // output-content classification is fuzzier than input matching and a harmful
   // response can't be cleanly neutralized. Default on. Independent of `mode`.
   harmfulCompliance?: boolean;
+  // Trained ONNX output-moderation classifier (Task B5, Option D) — a learned
+  // generalization layer over the regex-based harmfulCompliance co-occurrence
+  // scan, for responses whose harmful content doesn't match the hand-written
+  // vocabulary/procedural patterns. Opt-in: disabled by default (small model,
+  // but still a network download + inference cost per response). Unlike
+  // harmfulCompliance (always audit-only), this stage RESPECTS `mode`: block
+  // actually blocks the buffered (non-streaming) response; streamed SSE text
+  // is already forwarded by the time it's scored, so it can only audit. See
+  // src/detection/outputClassifier.ts for the model choice + rationale.
+  classifier?: OutputClassifierConfig;
+}
+
+export interface OutputClassifierConfig {
+  enabled: boolean;
+  /** HF model id. Defaults to the model chosen in outputClassifier.ts. */
+  model?: string;
+  /** Flagged-label probability at/above which a response is treated as harmful (0–1). */
+  blockThreshold?: number;
 }
 
 export interface AsciiSmugglingConfig {
@@ -220,6 +262,12 @@ export interface CrescendoConfig {
   enabled: boolean
   minUserTurns: number
   mode: 'audit' | 'block'
+  // Opt-in cross-request escalation memory (Task B4) — see
+  // src/detection/crescendo.ts CrescendoSessionMemory. Default false: a
+  // shared/multi-tenant proxy risks cross-client bleed if the session
+  // identity collides, and it is unbounded-memory-growth risk if enabled
+  // carelessly.
+  crossRequest?: boolean
 }
 
 export interface IndirectInstructionConfig {

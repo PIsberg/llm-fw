@@ -73,14 +73,15 @@ The prompt injection firewall is already highly optimized on its deterministic a
 | Dataset | Threat Model | Size ($N$) | Cheap Preset (Default) | + Trained Classifier | Status / Gaps |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **gandalf** | Direct Injection | 112 | 85.7% Recall / — | **100% Recall / —** | **Excellent.** 100% caught. |
-| **safeguard** | Balanced Direct | 2,060 | 45.4% Rec / 0.6% FPR | **84.9% Rec / 0.7% FPR** | **Strong.** Classifier generalizes well with minimal FP impact. |
-| **heldout** | Adversarial Direct | 52 | 45.2% Rec / 14.3% FPR | **77.4% Rec / 23.8% FPR** | **FPR Gap.** High false positives on hard injection-adjacent benign negatives. |
-| **injecagent** | Indirect Injection | 1,071 | **95.2% Rec / 0% FPR** | 97.6% Rec / 35.3% FPR | **Excellent.** Cheap detector alone is the optimal operating point. |
+| **safeguard** | Balanced Direct | 2,060 | 43.5% Rec / 0.2% FPR | **84.2% Rec / 0.3% FPR** | **Strong.** Intent-mention gate cut classifier FPR 0.7→0.3%; recall ~flat (small shift from the contrastive-embedding fix `3c933bb`). |
+| **heldout** | Adversarial Direct | 52 | 61.3% Rec / 9.5% FPR | **80.6% Rec / 9.5% FPR** | **Gate landed.** Classifier FPR 23.8→9.5%; remaining FPs are the 2 irreducible embedding borderlines. |
+| **injecagent** | Indirect Injection | 1,071 | **100% Rec / 0% FPR** | 100% Rec / 35.3% FPR | **Excellent.** Cheap detector alone is the optimal operating point; the mention gate is prompt/system-scoped, so classifier FPR on `tool_result` is unchanged by design. |
 | **jbb-behaviors** | Harmful Requests | 200 | **93.0% Rec / 1.0% FPR** | 93.0% Rec / 1.0% FPR | **Tuned.** Keyword/regex heuristic covers most of this threat. |
 | **harmbench** | Harmful Requests | 400 | **41.0% Recall / —** | 41.0% Recall / — | **Euphemism tail.** Heuristic misses novel or indirect phrasing. |
 
 > [!NOTE]
 > The benchmark suite runs on full splits (no sampling) and registers a perfect **100% Recall / 0.0% FPR** on the local regression [SCORECARD.md](file:///C:/dev/private/llm-fw/docs/SCORECARD.md).
+> The "+ Trained Classifier" column is measured with the benchmark's `classifier` preset, which hard-codes the Ollama judge OFF — the two-tier gray-zone escalation (Option B) is therefore not exercised in these numbers.
 
 ---
 
