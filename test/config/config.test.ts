@@ -158,4 +158,18 @@ describe('loadConfig env overrides', () => {
     expect((await loadConfig()).detection.failMode).toBe('closed')
     delete process.env.LLM_FW_FAIL_MODE
   })
+
+  it('defaults detection.workerInference to false (Task C3, opt-in isolation)', async () => {
+    expect(DEFAULT_CONFIG.detection.workerInference).toBe(false)
+    const cfg = await loadConfig()
+    expect(cfg.detection.workerInference).toBe(false)
+  })
+
+  it('LLM_FW_WORKER_INFERENCE toggles detection.workerInference', async () => {
+    process.env.LLM_FW_WORKER_INFERENCE = 'true'
+    expect((await loadConfig()).detection.workerInference).toBe(true)
+    process.env.LLM_FW_WORKER_INFERENCE = 'false'
+    expect((await loadConfig()).detection.workerInference).toBe(false)
+    delete process.env.LLM_FW_WORKER_INFERENCE
+  })
 })

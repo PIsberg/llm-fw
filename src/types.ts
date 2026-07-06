@@ -115,6 +115,15 @@ export interface DetectionConfig {
   // audit ('error' kind) event, trading availability for a small detection
   // gap during the failure. Also settable via LLM_FW_FAIL_MODE.
   failMode: 'open' | 'closed';
+  // Task C3 — opt-in worker_threads isolation for the embedding + classifier
+  // model forward passes. OFF by default: both stages run in-process exactly
+  // as before. When true, a single persistent worker thread hosts both
+  // models (lazy-spawned on first use); a worker crash respawns once, then
+  // permanently falls back to in-process inference with a console.warn. The
+  // forward pass itself is numerically IDENTICAL either way — same model,
+  // same dtype, same single-text (never batched) calls — see embedding.ts's
+  // q8 calibration note. Also LLM_FW_WORKER_INFERENCE.
+  workerInference?: boolean;
 }
 
 export interface ClassifierConfig {

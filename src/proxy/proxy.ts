@@ -238,6 +238,9 @@ export class ProxyServer {
   stop(): Promise<void> {
     const closes: Promise<void>[] = [
       new Promise(resolve => this.server.close(() => resolve())),
+      // Task C3 — terminates the shared inference worker thread if one was
+      // ever spawned (detection.workerInference); no-op otherwise.
+      this.pipeline.close(),
     ]
     if (this.sinkholeServer) {
       closes.push(new Promise(resolve => this.sinkholeServer!.close(() => resolve())))

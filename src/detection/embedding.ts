@@ -6,14 +6,40 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 
 // Minimal shape of the @huggingface/transformers feature-extraction output we use.
-interface FeatureTensor {
+export interface FeatureTensor {
   data?: Float32Array | number[]
   tolist?: () => number[][]
   [index: number]: { data?: Float32Array | number[] } | undefined
 }
-type FeatureExtractor = (texts: string[], opts: { pooling: 'mean'; normalize: boolean }) => Promise<FeatureTensor>
+export type FeatureExtractor = (texts: string[], opts: { pooling: 'mean'; normalize: boolean }) => Promise<FeatureTensor>
+
+// Model identity, exported so the worker-thread entry (inferenceWorkerEntry.ts)
+// loads the EXACT same model/dtype — never a hand-copied duplicate that could
+// silently drift from the in-process path (see the q8 calibration note below).
+export const EMBEDDING_MODEL_ID = 'Xenova/multilingual-e5-small'
+export const EMBEDDING_DTYPE = 'q8' as const
+
+export async function loadEmbeddingExtractor(): Promise<FeatureExtractor> {
+  return (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, { dtype: EMBEDDING_DTYPE })) as unknown as FeatureExtractor
+}
+
+/**
+ * The raw single-text forward pass — exported so both the in-process path
+ * (embed() below) and the worker-thread entry run the IDENTICAL computation
+ * (same "query: " prefix, same pooling/normalize opts, same tensor-shape
+ * fallback). Task C3: this is what guarantees numerically identical results
+ * whether detection.workerInference is on or off.
+ */
+export async function embedRaw(extractor: FeatureExtractor, text: string): Promise<Float32Array> {
+  // E5 requires the "query: " task prefix; omitting it mis-calibrates the
+  // embedding. Both anchors and inputs use the same prefix (symmetric task).
+  const output = await extractor(['query: ' + text], { pooling: 'mean', normalize: true })
+  const raw = output[0]?.data ?? output.data ?? output.tolist?.()[0]
+  return raw instanceof Float32Array ? raw : Float32Array.from(raw ?? [])
+}
 
 // check() results for repeated identical (normalized) inputs. Proxy traffic is
 // highly repetitive — client retries, agent loops re-sending the same system
@@ -40,9 +66,17 @@ export class EmbeddingChecker {
   private benignEmbeddings: Float32Array[] = []
   private config: DetectionConfig
   private cache = new Map<string, EmbeddingResult>()
+  // Task C3 — opt-in worker-thread isolation. `ready` tracks whether the
+  // stage is usable (either backend), decoupled from `extractor`, since in
+  // worker mode `extractor` stays null until/unless a permanent fallback
+  // loads it. Defaults to the process-wide shared client; tests inject their
+  // own instance (mock factory) for full control over crash/respawn timing.
+  private ready = false
+  private readonly workerClient: InferenceWorkerClient
 
-  constructor(config: DetectionConfig) {
+  constructor(config: DetectionConfig, workerClient?: InferenceWorkerClient) {
     this.config = config
+    this.workerClient = workerClient ?? getInferenceWorkerClient()
   }
 
   async init(): Promise<void> {
@@ -53,33 +87,58 @@ export class EmbeddingChecker {
     env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
     env.allowLocalModels = false
 
-    try {
-      // multilingual-e5-small: a 384-dim sentence encoder (drop-in for the
-      // former model's dimension) with genuine cross-lingual alignment across
-      // 100 languages. This matters because the previous model
-      // (paraphrase-multilingual-MiniLM) has UNUSABLE representations for many
-      // lower-resource languages — empirically it scored a benign Bengali
-      // question HIGHER against an injection than an actual Bengali injection,
-      // so coverage was accidental (Swedish blocked, Urdu/Hindi/Tamil/Thai/…
-      // passed). E5 aligns an injection in ANY language to the English intent
-      // anchors below (attack ~0.87, benign ~0.66 to the same anchor), giving a
-      // uniform cross-lingual separation the old model lacked.
-      //
-      // E5 expects an asymmetric "query:"/"passage:" prefix. For this symmetric
-      // short-text similarity task we use "query: " on both sides (see embed());
-      // the prefix is REQUIRED — without it E5 embeddings are mis-calibrated.
-      // Thresholds are re-tuned for E5's distribution in config.ts.
-      this.extractor = (await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { dtype: 'q8' })) as unknown as FeatureExtractor
-    } catch (err) {
-      // The semantic-similarity stage is best-effort. If the model can't be
-      // fetched (offline, or HuggingFace rate-limits the download with a 429),
-      // don't take the whole firewall down — log and leave the stage disabled.
-      // The pipeline guards Stage 2 behind isInitialized(), so heuristics, DLP,
-      // MCP, URL filtering and DoS keep working; only embedding similarity is
-      // skipped until the model becomes reachable.
-      this.extractor = null
-      console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
-      return
+    // multilingual-e5-small: a 384-dim sentence encoder (drop-in for the
+    // former model's dimension) with genuine cross-lingual alignment across
+    // 100 languages. This matters because the previous model
+    // (paraphrase-multilingual-MiniLM) has UNUSABLE representations for many
+    // lower-resource languages — empirically it scored a benign Bengali
+    // question HIGHER against an injection than an actual Bengali injection,
+    // so coverage was accidental (Swedish blocked, Urdu/Hindi/Tamil/Thai/…
+    // passed). E5 aligns an injection in ANY language to the English intent
+    // anchors below (attack ~0.87, benign ~0.66 to the same anchor), giving a
+    // uniform cross-lingual separation the old model lacked.
+    //
+    // E5 expects an asymmetric "query:"/"passage:" prefix. For this symmetric
+    // short-text similarity task we use "query: " on both sides (see embed());
+    // the prefix is REQUIRED — without it E5 embeddings are mis-calibrated.
+    // Thresholds are re-tuned for E5's distribution in config.ts.
+    if (this.config.workerInference) {
+      // Task C3: the forward pass runs in the persistent worker thread
+      // instead of this process. The model loads lazily INSIDE the worker on
+      // this ensure() call (or, if the worker is already permanently
+      // disabled from an earlier crash elsewhere in this process, falls back
+      // to loading it in-process right here) — mirrors the in-process
+      // catch-and-disable behaviour below for a genuine load failure.
+      try {
+        await this.workerClient.ensure('embed')
+      } catch (err) {
+        if (err instanceof WorkerUnavailableError) {
+          try {
+            this.extractor = await loadEmbeddingExtractor()
+          } catch (loadErr) {
+            this.extractor = null
+            console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
+            return
+          }
+        } else {
+          console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
+          return
+        }
+      }
+    } else {
+      try {
+        this.extractor = await loadEmbeddingExtractor()
+      } catch (err) {
+        // The semantic-similarity stage is best-effort. If the model can't be
+        // fetched (offline, or HuggingFace rate-limits the download with a 429),
+        // don't take the whole firewall down — log and leave the stage disabled.
+        // The pipeline guards Stage 2 behind isInitialized(), so heuristics, DLP,
+        // MCP, URL filtering and DoS keep working; only embedding similarity is
+        // skipped until the model becomes reachable.
+        this.extractor = null
+        console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
+        return
+      }
     }
 
     // Curated canonical injection-intent anchors (data/semantic-anchors.json),
@@ -107,15 +166,26 @@ export class EmbeddingChecker {
       const benign = JSON.parse(readFileSync(benignPath, 'utf-8')) as string[]
       for (const b of benign) this.benignEmbeddings.push(await this.embed(b))
     } catch { /* no benign anchors — contrastive margin falls back to raw similarity */ }
+
+    this.ready = true
   }
 
   private async embed(text: string): Promise<Float32Array> {
-    if (!this.extractor) throw new Error('Embedding model not initialized')
-    // E5 requires the "query: " task prefix; omitting it mis-calibrates the
-    // embedding. Both anchors and inputs use the same prefix (symmetric task).
-    const output = await this.extractor(['query: ' + text], { pooling: 'mean', normalize: true })
-    const raw = output[0]?.data ?? output.data ?? output.tolist?.()[0]
-    return raw instanceof Float32Array ? raw : Float32Array.from(raw ?? [])
+    if (this.config.workerInference && this.workerClient.isAvailable()) {
+      try {
+        return await this.workerClient.embed(text)
+      } catch (err) {
+        // Any error OTHER than "permanently disabled" is a genuine failure
+        // (e.g. this specific request raced a worker crash) — propagate it
+        // exactly like an in-process extractor() throw would, so it reaches
+        // Pipeline.run() and the detection.failMode gate applies.
+        if (!(err instanceof WorkerUnavailableError)) throw err
+        // Permanent fallback (second worker crash): load the in-process
+        // extractor lazily below and continue, same as the flag-off path.
+      }
+    }
+    if (!this.extractor) this.extractor = await loadEmbeddingExtractor()
+    return embedRaw(this.extractor, text)
   }
 
   private cosineSimilarity(a: Float32Array, b: Float32Array): number {
@@ -224,6 +294,10 @@ export class EmbeddingChecker {
   }
 
   isInitialized(): boolean {
-    return this.extractor !== null
+    // Worker mode: `extractor` stays null in the common case (no permanent
+    // fallback yet), so `ready` is the accurate signal there. Flag off:
+    // `ready` and `extractor !== null` become true together (see init()),
+    // preserving the exact original expression for the default path.
+    return this.config.workerInference ? this.ready : this.extractor !== null
   }
 }

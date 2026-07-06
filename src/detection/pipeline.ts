@@ -16,6 +16,7 @@ import { SuppressionStore } from './suppressions.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
+import { closeInferenceWorker } from './inferenceWorker.js'
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
@@ -81,6 +82,16 @@ export class Pipeline {
     await this.embedding.init()
     await this.classifier.init() // no-op unless the classifier stage is enabled
     this.suppressions.load()
+  }
+
+  /**
+   * Task C3 shutdown hook — terminates the shared inference worker thread, if
+   * one was ever spawned (detection.workerInference). Safe to call even when
+   * the flag is off / no worker was spawned (no-op). Wired into the proxy's
+   * stop() and the CLI's SIGINT/SIGTERM cleanup.
+   */
+  async close(): Promise<void> {
+    await closeInferenceWorker()
   }
 
   async run(

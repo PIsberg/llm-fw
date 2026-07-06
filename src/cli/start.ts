@@ -223,9 +223,13 @@ export async function run(args: string[] = []): Promise<void> {
     } catch { }
   }
 
-  // Register cleanup hooks before any IO
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
-  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+  // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
+  // paths, so they also terminate the shared inference worker thread (Task
+  // C3, detection.workerInference) if one was ever spawned — a no-op
+  // otherwise. uncaughtException exits immediately without waiting on it;
+  // the worker thread dies with the process either way.
+  process.on('SIGINT', () => { cleanup(); void pipeline.close().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { cleanup(); void pipeline.close().finally(() => process.exit(0)); });
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();
