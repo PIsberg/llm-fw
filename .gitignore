@@ -18,3 +18,9 @@ test-proxy.js
 
 # Local scratch / probe scripts and backups (never committed)
 scratch/
+
+# Stryker mutation testing (Task C9) — local run artifacts, not committed.
+# The baseline score + surviving-mutant clusters are recorded in
+# docs/TESTING.md instead.
+.stryker-tmp/
+reports/mutation/

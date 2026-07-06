@@ -4,7 +4,7 @@ import tsparser from "@typescript-eslint/parser";
 /** @type {import("eslint").Linter.FlatConfig[]} */
 export default [
   {
-    ignores: ["dist/**", "node_modules/**", "coverage/**"],
+    ignores: ["dist/**", "node_modules/**", "coverage/**", ".stryker-tmp/**", "reports/**"],
   },
   // src — full type-aware rules
   {

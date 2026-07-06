@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Task C9 — mutation testing for the regex-boundary detection modules. Manual/opt-in only (npm run mutation); NOT wired into PR CI, too slow. See docs/TESTING.md for the recorded baseline and candidate test-gap clusters.",
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "vitest": {
+    "configFile": "vitest.mutation.config.ts"
+  },
+  "mutate": [
+    "src/detection/heuristic.ts",
+    "src/detection/normalize.ts",
+    "src/detection/intentMention.ts",
+    "src/detection/indirectInstruction.ts",
+    "src/detection/harmfulRequest.ts",
+    "src/detection/manyShot.ts",
+    "src/detection/crescendo.ts"
+  ],
+  "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "timeoutFactor": 2,
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true,
+  "reporters": ["progress", "clear-text", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/html/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  }
+}
