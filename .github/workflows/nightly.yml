@@ -1,0 +1,89 @@
+name: Nightly Benchmark Trend
+
+# Tracks recall / FPR over time on a fixed cheap-preset benchmark slice
+# (heldout, safeguard-prompt-injection, injecagent — no Ollama, no classifier
+# download; heuristic + embedding stages only) and fails the run if either
+# metric drifts beyond tolerance vs. the last-7-run median for that split
+# (scripts/bench-trend.ts). The updated docs/load-results/bench-trend.jsonl is
+# committed back by the workflow itself using the default GITHUB_TOKEN and the
+# standard github-actions[bot] identity — no such commit-back pattern exists
+# yet elsewhere in this repo's workflows, so this establishes it.
+on:
+  schedule:
+    - cron: '37 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-benchmark-trend
+  cancel-in-progress: false
+
+jobs:
+  bench-trend:
+    name: Benchmark trend + drift gate
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # required to commit bench-trend.jsonl back
+
+    env:
+      LLM_FW_MODEL_DIR: ${{ github.workspace }}/.hf-model-cache
+      # Cheap preset does no batching/classifier inference, but keep the knob
+      # available in case a future runner leans on it — matches other jobs.
+      NODE_OPTIONS: '--max-old-space-size=4096'
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache embedding model
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        with:
+          path: ${{ github.workspace }}/.hf-model-cache
+          key: llm-fw-model-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Runs the cheap-preset benchmark, appends this run's {dateFromCI,
+      # commit, split, recall, fpr} rows to docs/load-results/bench-trend.jsonl,
+      # and exits non-zero if any split regressed beyond tolerance vs. the
+      # last-7-run median. continue-on-error so the (already-written) trend
+      # file is committed back below even on a failing/regressed run — a
+      # regressed run is still a valid data point for future medians.
+      - name: Run benchmark + drift gate
+        id: trend
+        continue-on-error: true
+        run: npm run bench:trend -- --only=heldout,safeguard-prompt-injection,injecagent
+
+      - name: Commit updated trend data
+        if: always()
+        run: |
+          git add docs/load-results/bench-trend.jsonl
+          if git diff --cached --quiet; then
+            echo "No trend changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "ci: nightly benchmark trend update [skip ci]"
+          git push
+
+      - name: Fail job if drift gate regressed
+        if: steps.trend.outcome == 'failure'
+        run: |
+          echo "::error::Benchmark drift gate failed — recall/FPR regressed beyond tolerance vs. the last-7-run median. See the 'Run benchmark + drift gate' step log above for per-split detail."
+          exit 1
