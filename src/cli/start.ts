@@ -7,6 +7,7 @@ import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
+import { startConfigHotReload } from '../config/hotReload.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -229,8 +230,8 @@ export async function run(args: string[] = []): Promise<void> {
   // C3, detection.workerInference) if one was ever spawned — a no-op
   // otherwise. uncaughtException exits immediately without waiting on it;
   // the worker thread dies with the process either way.
-  process.on('SIGINT', () => { cleanup(); void pipeline.close().finally(() => process.exit(0)); });
-  process.on('SIGTERM', () => { cleanup(); void pipeline.close().finally(() => process.exit(0)); });
+  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();
@@ -253,6 +254,15 @@ export async function run(args: string[] = []): Promise<void> {
   // not just the dashboard's own /api/test calls.
   const suppressions = new SuppressionStore();
   const pipeline = new Pipeline(config, (partial) => eventBus.emit(partial), suppressions);
+
+  // Task C5 — watches <getLlmFwDir()>/config.json and hot-applies detection/
+  // dlp/dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/
+  // harmfulRequest/responseScan toggles+thresholds onto this SAME `config`
+  // object (shared by pipeline/proxy/dashboard below) with no restart. Cold
+  // keys (ports/binds/mode/targets/interceptDomains) are logged as
+  // restart-required and left untouched. On by default (config.hotReload,
+  // env LLM_FW_HOT_RELOAD); stopped on graceful shutdown below.
+  const hotReload = startConfigHotReload(config);
 
   // Auto-upgrade CA cert if it lacks a CRL Distribution Point (fixes Windows Schannel).
   const caCertPath = join(llmfwDir, 'ca.crt');

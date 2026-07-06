@@ -267,6 +267,11 @@ export const DEFAULT_CONFIG: Config = {
   // so the firewall covers all supported services out of the box.
   targets: AI_PROVIDER_HOSTS,
   extraTargets: [],
+  // Task C5 — config.json hot-reload. On by default: editing detection/dlp/
+  // dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/harmfulRequest/
+  // responseScan toggles+thresholds takes effect within the debounce window,
+  // no restart. Also LLM_FW_HOT_RELOAD.
+  hotReload: true,
 };
 
 export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
@@ -431,4 +436,6 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_WORKER_INFERENCE: (c, v) => { c.detection.workerInference = v === 'true'; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
+  // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
+  LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },
 };

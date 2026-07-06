@@ -362,6 +362,15 @@ export interface Config {
   // registry — this is the additive path. Also settable via
   // LLM_FW_EXTRA_TARGETS (comma-separated).
   extraTargets?: string[];
+  // Task C5 — watch `<getLlmFwDir()>/config.json` for edits and hot-apply
+  // detection/dlp/dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/
+  // harmfulRequest/responseScan toggles+thresholds without a restart (see
+  // src/config/hotReload.ts for the exact hot-safe key list). Cold keys
+  // (proxy ports/mode/bind/bypass, dashboard port/bind, targets/
+  // interceptDomains/extraTargets) are detected but NOT applied — a
+  // "restart required" note is logged instead. On by default. Also
+  // LLM_FW_HOT_RELOAD.
+  hotReload?: boolean;
 }
 
 export interface HeuristicResult {
