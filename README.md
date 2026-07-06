@@ -40,6 +40,7 @@
 - [Standalone server mode — one firewall for many clients](#standalone-server-mode--one-firewall-for-many-clients)
 - [Running in development (from source)](#running-in-development-from-source)
 - [Uninstall](#uninstall)
+- [Run on startup (auto-start service)](#run-on-startup-auto-start-service)
 - [IDE Integration (Antigravity IDE & VS Code)](#ide-integration-antigravity-ide--vs-code)
 - [Using llm-fw with popular tools](#using-llm-fw-with-popular-tools)
 - [How llm-fw compares](#how-llm-fw-compares)
@@ -474,6 +475,32 @@ Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS
 - Any **Ollama judge model** you pulled — remove with `ollama rm <model>`.
 
 Run `llm-fw doctor` afterwards to confirm a clean teardown.
+
+---
+
+## Run on startup (auto-start service)
+
+`llm-fw install-service` registers llm-fw to start automatically at login, using each OS's native mechanism — no new dependency, and no code runs until you invoke the subcommand yourself:
+
+```bash
+llm-fw install-service
+```
+
+| Platform | Mechanism | Registered as |
+| --- | --- | --- |
+| Windows | Task Scheduler | A per-user `ONLOGON` task named `llm-fw` (`schtasks`) — does **not** require an elevated terminal. |
+| macOS | launchd | A per-user LaunchAgent at `~/Library/LaunchAgents/dev.llmfw.plist`, loaded with `launchctl load`. |
+| Linux | systemd (user) | A user unit at `~/.config/systemd/user/llm-fw.service`, enabled with `systemctl --user enable --now`. |
+
+Each runs `llm-fw start` with the exact same node binary + script path you're currently invoking the CLI with, so it works whether you installed via npm or are running from a source checkout.
+
+Reverse it with:
+
+```bash
+llm-fw uninstall-service
+```
+
+which deletes the scheduled task / unloads and removes the LaunchAgent plist / disables and removes the systemd unit, respectively. If registration fails (e.g. `systemctl --user` needs an active session — on a headless Linux box run `loginctl enable-linger $USER` first), llm-fw prints the specific fix rather than a raw stack trace.
 
 ---
 
@@ -1372,6 +1399,8 @@ await firewall.close() // releases the worker-thread inference pool, if enabled
 | `llm-fw stop` | Stop processes; restore hosts file if sinkhole mode |
 | `llm-fw status` | Show running state, active mode, dashboard URL |
 | `llm-fw doctor` | Diagnose the interception setup and print a fix for anything that's off (`--json` for machine-readable output) |
+| `llm-fw install-service` | Register llm-fw to auto-start at login (Task Scheduler / launchd / systemd --user) |
+| `llm-fw uninstall-service` | Reverse `install-service` |
 
 ---
 

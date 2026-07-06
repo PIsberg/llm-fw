@@ -39,6 +39,16 @@ switch (command) {
     await run(args);
     break;
   }
+  case 'install-service': {
+    const { installService } = await import('./service.js');
+    installService(args);
+    break;
+  }
+  case 'uninstall-service': {
+    const { uninstallService } = await import('./service.js');
+    uninstallService(args);
+    break;
+  }
   default: {
     console.log(`Usage: llm-fw <command> [options]
 
@@ -61,6 +71,10 @@ Commands:
   status                Show firewall status
   doctor [--json]       Diagnose the interception setup (CA, env vars, proxy,
                         sinkhole hosts/redirect, iphlpsvc) and print fixes
+  install-service        Register llm-fw to start automatically at login
+                        (Windows Task Scheduler / macOS launchd / Linux
+                        systemd --user)
+  uninstall-service      Reverse install-service
 `);
     process.exit(command ? 1 : 0);
   }
