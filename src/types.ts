@@ -102,6 +102,19 @@ export interface DetectionConfig {
     heuristicBlockThreshold?: number;
     embeddingMarginThreshold?: number;
   } };
+  // What happens to a request when Pipeline.run() itself THROWS (a bug in a
+  // parser/normalizer/stage, not a detected injection) — Task C2. Before this
+  // setting existed the behavior was IMPLICIT: the throw propagated out of
+  // handleRequest to the outer per-connection try/catch in handleConnect /
+  // startSinkhole, which logged the error and returned 502 `{ error: "proxy
+  // error" }` WITHOUT forwarding the request upstream — i.e. the request was
+  // silently denied. `'closed'` makes that same deny-on-error behavior
+  // explicit (as the standard 403 block response, like every other stage) and
+  // is therefore the DEFAULT — it matches today's observed behavior.
+  // `'open'` instead forwards the request upstream unscanned and emits an
+  // audit ('error' kind) event, trading availability for a small detection
+  // gap during the failure. Also settable via LLM_FW_FAIL_MODE.
+  failMode: 'open' | 'closed';
 }
 
 export interface ClassifierConfig {
@@ -387,7 +400,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'error';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;

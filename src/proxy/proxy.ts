@@ -2,7 +2,7 @@
 import http from 'node:http'
 import net from 'node:net'
 import tls from 'node:tls'
-import { Config } from '../types.js'
+import { Config, PipelineResult } from '../types.js'
 import { CertFactory } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -686,19 +686,66 @@ export class ProxyServer {
         })
       }
 
-      const result = await this.pipeline.run(
-        innerReq.url ?? '/',
-        body,
-        {
-          target: hostname,
-          method: innerReq.method ?? 'GET',
-          path: innerReq.url ?? '/',
-          sandboxClient: sb.client,
-          isSandboxed: sb.sandboxed,
-          sandboxConfidence: sb.confidence,
-          sessionKey,
+      // Task C2 — explicit failMode. Pipeline.run() itself throwing (a bug in a
+      // parser/normalizer/stage, NOT a detected injection) used to propagate
+      // uncaught out of handleRequest to the per-connection catch in
+      // handleConnect/startSinkhole, which 502'd the request without
+      // forwarding it — an implicit deny-on-error. `failMode` makes that
+      // choice explicit and configurable: 'closed' (default, matches the old
+      // behavior) blocks with the standard 403 response; 'open' forwards the
+      // request upstream unscanned and only emits an audit event.
+      let result: PipelineResult
+      try {
+        result = await this.pipeline.run(
+          innerReq.url ?? '/',
+          body,
+          {
+            target: hostname,
+            method: innerReq.method ?? 'GET',
+            path: innerReq.url ?? '/',
+            sandboxClient: sb.client,
+            isSandboxed: sb.sandboxed,
+            sandboxConfidence: sb.confidence,
+            sessionKey,
+          }
+        )
+      } catch (err) {
+        this.logRequestError('pipeline', hostname, innerReq, err)
+        const message = (err as Error)?.message ?? String(err)
+        if (this.config.detection.failMode === 'open') {
+          emitEvent({
+            stage: 'none',
+            score: 0,
+            similarity: 0,
+            target: hostname,
+            method,
+            path: dlpPath,
+            payload_preview: `Detection pipeline error — failing OPEN, forwarding unscanned: ${message}`.slice(0, 220),
+            payload_full: (err as Error)?.stack ?? message,
+            action: 'warned',
+            kind: 'error',
+          })
+          // Treat as a clean pass and fall through to the same forwarding path
+          // a normal 'pass' verdict takes below.
+          result = { action: 'pass', stage: 'none', score: 0, similarity: 0 }
+        } else {
+          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error: 'detection pipeline error — failing closed', stage: 'error' }))
+          emitEvent({
+            stage: 'none',
+            score: 0,
+            similarity: 0,
+            target: hostname,
+            method,
+            path: dlpPath,
+            payload_preview: `Detection pipeline error — failing CLOSED, blocked: ${message}`.slice(0, 220),
+            payload_full: (err as Error)?.stack ?? message,
+            action: 'blocked',
+            kind: 'error',
+          })
+          return
         }
-      )
+      }
 
       if (result.action === 'block') {
         innerRes.writeHead(403, { 'Content-Type': 'application/json' })

@@ -104,6 +104,13 @@ export const DEFAULT_CONFIG: Config = {
     // scanning it blocks legitimate traffic. Enable only when untrusted data is
     // mixed into the system prompt. Also LLM_FW_SCAN_SYSTEM_PROMPT.
     scanSystemPrompt: false,
+    // Task C2. 'closed' matches today's actual (previously implicit) behavior
+    // when Pipeline.run() throws: the exception used to propagate out to the
+    // per-connection catch in proxy.ts, which 502'd the request without
+    // forwarding it — a deny-on-error outcome. 'closed' makes that the
+    // explicit default (as a standard 403 block); flip to 'open' to instead
+    // forward unscanned + emit an audit event. Also LLM_FW_FAIL_MODE.
+    failMode: 'closed',
   },
   dashboard: {
     port: 7731,
@@ -409,6 +416,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_INDIRECT_INSTRUCTION_MODE: (c, v) => { if (c.indirectInstruction && (v === 'audit' || v === 'block')) c.indirectInstruction.mode = v; },
   LLM_FW_HARMFUL_REQUEST_ENABLED: (c, v) => { if (c.harmfulRequest) c.harmfulRequest.enabled = v === 'true'; },
   LLM_FW_HARMFUL_REQUEST_MODE: (c, v) => { if (c.harmfulRequest && (v === 'audit' || v === 'block')) c.harmfulRequest.mode = v; },
+  // Explicit detection failMode (Task C2) — see DetectionConfig.failMode.
+  LLM_FW_FAIL_MODE: (c, v) => { if (v === 'open' || v === 'closed') c.detection.failMode = v; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
 };

@@ -62,6 +62,7 @@
 - [MCP Monitoring & Tool Firewall](#mcp-monitoring--tool-firewall)
 - [False-Positive Suppression List](#false-positive-suppression-list)
 - [Per-Surface Detection Sensitivity](#per-surface-detection-sensitivity)
+- [Failure Semantics](#failure-semantics)
 
 **Reference**
 - [Advanced: Sinkhole mode (covered above)](#advanced-sinkhole-mode-covered-above)
@@ -1268,6 +1269,25 @@ Environment overrides:
 | Variable | Effect |
 |----------|--------|
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | integer — overrides `detection.surfaces.tool_result.heuristicBlockThreshold` only; the rest of the per-surface config is file-only |
+
+---
+
+## Failure Semantics
+
+What happens if the detection pipeline itself **fails** — a parser or stage throws on a request it should have scanned? That is a bug (the fuzz suite in `test/fuzz/` exists to keep it from happening), but the outcome must never be undefined behavior. `detection.failMode` makes it explicit:
+
+- **`closed`** (default) — the request is **blocked** with the standard `403` block response (`{ "error": "detection pipeline error — failing closed" }`) and a blocked `error` event appears on the dashboard. Nothing that could not be scanned reaches the provider. This matches the firewall's historical behavior, where a pipeline exception ended the request with an error response instead of forwarding it.
+- **`open`** — the request is **forwarded upstream unscanned**, and a warned `error` audit event records the failure (including the stack) on the dashboard. Choose this when availability matters more than a scan gap during a firewall bug.
+
+```json
+{ "detection": { "failMode": "closed" } }
+```
+
+| Variable | Effect |
+|----------|--------|
+| `LLM_FW_FAIL_MODE` | `open` / `closed` — any other value is ignored |
+
+Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` (`LLM_FW_BYPASS=true`) turns the whole proxy into a transparent no-inspection tunnel, and upstream/network failures still surface as `502` proxy errors as before.
 
 ---
 

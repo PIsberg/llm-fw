@@ -142,4 +142,20 @@ describe('loadConfig env overrides', () => {
     expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBeUndefined()
     delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
   })
+
+  it('defaults detection.failMode to closed (matches the pre-C2 implicit deny-on-error)', async () => {
+    expect(DEFAULT_CONFIG.detection.failMode).toBe('closed')
+    const cfg = await loadConfig()
+    expect(cfg.detection.failMode).toBe('closed')
+  })
+
+  it('LLM_FW_FAIL_MODE accepts only open/closed and ignores anything else', async () => {
+    process.env.LLM_FW_FAIL_MODE = 'open'
+    expect((await loadConfig()).detection.failMode).toBe('open')
+    process.env.LLM_FW_FAIL_MODE = 'closed'
+    expect((await loadConfig()).detection.failMode).toBe('closed')
+    process.env.LLM_FW_FAIL_MODE = 'wide-open'
+    expect((await loadConfig()).detection.failMode).toBe('closed')
+    delete process.env.LLM_FW_FAIL_MODE
+  })
 })
