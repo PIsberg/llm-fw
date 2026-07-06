@@ -4,8 +4,14 @@ updates:
     directory: /
     schedule:
       interval: daily
+    # Wait 7 days before proposing updates to newly published versions — a
+    # newly published package/action can be malicious or unstable.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: daily
+    cooldown:
+      default-days: 7
