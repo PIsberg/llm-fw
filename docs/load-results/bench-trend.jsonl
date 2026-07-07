@@ -1,0 +1,3 @@
+{"dateFromCI":"2026-07-07T07:03:46.719Z","commit":"4a9eed01d77f6552c4862ba4c4b7fad44c8d59c8","split":"heldout","recall":0.6129032258064516,"fpr":0.09523809523809523}
+{"dateFromCI":"2026-07-07T07:03:46.719Z","commit":"4a9eed01d77f6552c4862ba4c4b7fad44c8d59c8","split":"injecagent","recall":1,"fpr":0}
+{"dateFromCI":"2026-07-07T07:03:46.719Z","commit":"4a9eed01d77f6552c4862ba4c4b7fad44c8d59c8","split":"safeguard-prompt-injection","recall":0.43538461538461537,"fpr":0.002127659574468085}
