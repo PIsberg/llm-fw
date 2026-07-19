@@ -213,6 +213,17 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.status).toBe(400)
   })
 
+  it('POST /api/test with a malformed JSON body returns 400, not 500', async () => {
+    const res = await req(server, 'POST', '/api/test', 'not json{')
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.body).error).toBe('invalid JSON body')
+  })
+
+  it('POST /api/test with an empty body returns 400, not 500', async () => {
+    const res = await req(server, 'POST', '/api/test', '')
+    expect(res.status).toBe(400)
+  })
+
   it('GET /api/events?limit=2 returns array of length <= 2', async () => {
     const res = await req(server, 'GET', '/api/events?limit=2')
     expect(res.status).toBe(200)
