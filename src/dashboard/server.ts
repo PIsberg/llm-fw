@@ -1991,7 +1991,14 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       })
       req.on('end', () => { if (tooLarge) return; void (async () => {
         try {
-          const parsed = JSON.parse(body) as { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
+          let parsed: { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
+          try {
+            parsed = JSON.parse(body) as { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'invalid JSON body' }))
+            return
+          }
           const category = parsed.category
           // Unified text field with back-compat fallback to the original `prompt`.
           const text = (parsed.text ?? parsed.prompt ?? '').toString()
@@ -2195,8 +2202,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ...result, judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
         } catch (err) {
+          console.error('[dashboard] /api/test handler error:', err)
           res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: String(err) }))
+          res.end(JSON.stringify({ error: 'internal error' }))
         }
       })() })
       req.on('error', () => {
