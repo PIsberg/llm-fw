@@ -85,3 +85,6 @@
 {"dateFromCI":"2026-08-04T06:14:49.062Z","commit":"16cbe1c3ec00882bd312d8e3e2c64963345523d7","split":"heldout","recall":0.6129032258064516,"fpr":0.09523809523809523}
 {"dateFromCI":"2026-08-04T06:14:49.062Z","commit":"16cbe1c3ec00882bd312d8e3e2c64963345523d7","split":"injecagent","recall":1,"fpr":0}
 {"dateFromCI":"2026-08-04T06:14:49.062Z","commit":"16cbe1c3ec00882bd312d8e3e2c64963345523d7","split":"safeguard-prompt-injection","recall":0.43846153846153846,"fpr":0.002127659574468085}
+{"dateFromCI":"2026-08-05T06:11:04.938Z","commit":"a010c5d25207351383dbe2722b0432d9302c7251","split":"heldout","recall":0.6129032258064516,"fpr":0.09523809523809523}
+{"dateFromCI":"2026-08-05T06:11:04.938Z","commit":"a010c5d25207351383dbe2722b0432d9302c7251","split":"injecagent","recall":1,"fpr":0}
+{"dateFromCI":"2026-08-05T06:11:04.938Z","commit":"a010c5d25207351383dbe2722b0432d9302c7251","split":"safeguard-prompt-injection","recall":0.43846153846153846,"fpr":0.002127659574468085}
