@@ -1,18 +1,44 @@
-// The licence terms in one place the CLI can print. `llm-fw license` exists so
-// that "what am I allowed to do with this?" is answerable without leaving the
-// terminal — the question that otherwise gets answered by guessing, because the
-// npm page shows "SEE LICENSE IN LICENSE.md" and stops there.
+// The licence terms in one place the CLI can print, plus the licence-key
+// commands. `llm-fw license` exists so that "what am I allowed to do with this?"
+// is answerable without leaving the terminal — the question that otherwise gets
+// answered by guessing, because the npm page shows "SEE LICENSE IN LICENSE.md"
+// and stops there.
 //
 // LICENSE_NAME is asserted against LICENSE.md by test/cli/license.test.ts: the
 // file is the authority, this constant is a copy, and the test is what keeps the
 // copy honest.
+//
+// Keys are sold through Paddle and issued by Keygen. The check is offline (see
+// src/license/keygenKey.ts) and it does NOT gate the firewall: an unlicensed or
+// expired machine is told loudly and keeps being protected. A licence check that
+// can turn off prompt-injection defence is a security bug wearing a business
+// model.
+import {
+  licenseStatus,
+  saveLicenseKey,
+  clearLicenseKey,
+  licenseKeyPath,
+  type LicenseStatus,
+} from '../license/status.js'
+
 export const LICENSE_NAME = 'PolyForm Noncommercial License 1.0.0'
 export const LICENSE_URL = 'https://polyformproject.org/licenses/noncommercial/1.0.0'
 export const COMMERCIAL_URL = 'https://deversity.se/llmfw'
+export const CONTACT_EMAIL = 'peter.isberg@deversity.se'
 
 export const SHORT_NOTICE =
   `llm-fw is licensed under the ${LICENSE_NAME} — free for noncommercial use. ` +
   `Commercial use requires a licence: ${COMMERCIAL_URL}`
+
+/**
+ * The two-line block printed wherever an unlicensed machine is noticed: on
+ * `start`, in `status`, and as a `doctor` check. Both channels the buyer might
+ * prefer are on it, because a licence prompt that offers no way to pay is just
+ * noise.
+ */
+export const UNLICENSED_NOTICE =
+  `No licence key found — llm-fw is running unlicensed on this machine.\n` +
+  `Contact ${CONTACT_EMAIL} or go to ${COMMERCIAL_URL} to get one.`
 
 export const NOTICE = `llm-fw — Copyright 2026 Peter Isberg
 Licensed under the ${LICENSE_NAME}
@@ -29,9 +55,93 @@ NOT GRANTED BY THIS LICENCE — commercial use
   needs a separate licence.
 
   Buy one, or ask for an invoice:  ${COMMERCIAL_URL}
+  Or email:                        ${CONTACT_EMAIL}
+
+  Once you have a key:  llm-fw license --activate <key>
 
 Full terms ship with the package as LICENSE.md.`
 
-export function run(): void {
+/** One line describing the licence state, for `status` and `doctor`. */
+export function statusLine(status: LicenseStatus = licenseStatus()): string {
+  const who = status.holder ? ` — ${status.holder}` : ''
+  const plan = status.plan ? ` (${status.plan})` : ''
+  switch (status.state) {
+    case 'licensed':
+      return `licensed${who}${plan}${status.expiry ? `, expires ${status.expiry.slice(0, 10)}` : ''}`
+    case 'expired':
+      return `EXPIRED${who} — renew at ${COMMERCIAL_URL}`
+    case 'invalid':
+      return `INVALID KEY — signature does not verify. Contact ${CONTACT_EMAIL}`
+    case 'unverified':
+      return `key present but not verifiable offline — run "llm-fw license --verify"`
+    case 'unlicensed':
+      return `UNLICENSED — ${CONTACT_EMAIL} or ${COMMERCIAL_URL}`
+  }
+}
+
+/** The `start` banner: nothing when licensed, the notice otherwise. */
+export function unlicensedBanner(status: LicenseStatus = licenseStatus()): string[] {
+  if (status.state === 'licensed') return []
+  const head =
+    status.state === 'unlicensed'
+      ? UNLICENSED_NOTICE
+      : `Licence problem: ${statusLine(status)}\nContact ${CONTACT_EMAIL} or go to ${COMMERCIAL_URL}.`
+  return ['', ...head.split('\n').map(l => `  ⚠  ${l}`), '']
+}
+
+function printStatus(): void {
+  const status = licenseStatus()
+  console.log(`Licence: ${statusLine(status)}`)
+  if (status.source) console.log(`  key from: ${status.source === 'env' ? 'LLM_FW_LICENSE_KEY' : licenseKeyPath()}`)
+}
+
+export async function run(args: string[] = []): Promise<void> {
+  const flag = args[0]
+
+  if (flag === '--activate') {
+    const key = args[1]
+    if (!key) {
+      console.error('Usage: llm-fw license --activate <key>')
+      process.exitCode = 1
+      return
+    }
+    const path = saveLicenseKey(key)
+    console.log(`Key saved to ${path}`)
+    printStatus()
+    return
+  }
+
+  if (flag === '--deactivate') {
+    console.log(clearLicenseKey() ? `Removed ${licenseKeyPath()}` : 'No activated key on this machine.')
+    return
+  }
+
+  if (flag === '--status') {
+    printStatus()
+    return
+  }
+
+  if (flag === '--verify') {
+    const status = licenseStatus()
+    printStatus()
+    const found = status.source ? true : false
+    if (!found) {
+      console.log(UNLICENSED_NOTICE)
+      process.exitCode = 1
+      return
+    }
+    const { readLicenseKey } = await import('../license/status.js')
+    const { verifyOnline } = await import('../license/verifyOnline.js')
+    console.log('Checking with api.keygen.sh (this is the only network call llm-fw makes for licensing)...')
+    const result = await verifyOnline(readLicenseKey()!.key)
+    console.log(`  ${result.code ? `[${result.code}] ` : ''}${result.detail}`)
+    // null (unreachable) is not a failure: an offline machine has not been shown
+    // to be unlicensed, so it must not be reported as one.
+    if (result.valid === false) process.exitCode = 1
+    return
+  }
+
   console.log(NOTICE)
+  console.log('')
+  printStatus()
 }

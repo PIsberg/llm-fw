@@ -51,7 +51,7 @@ switch (command) {
   }
   case 'license': {
     const { run } = await import('./license.js');
-    run();
+    await run(args);
     break;
   }
   default: {
@@ -80,11 +80,17 @@ Commands:
                         (Windows Task Scheduler / macOS launchd / Linux
                         systemd --user)
   uninstall-service      Reverse install-service
-  license                Print the licence terms and how to buy a commercial one
+  license                Print the licence terms and this machine's status
+    [--activate <key>]  Store a licence key bought at https://deversity.se/llmfw
+    [--deactivate]      Remove the stored key
+    [--status]          Print the licence state only
+    [--verify]          Check the key with Keygen (the only licensing network
+                        call llm-fw ever makes; everything else is offline)
 
 Licensed under the PolyForm Noncommercial License 1.0.0. Noncommercial use is
 free. Commercial use is not granted by that licence and needs a separate one:
-https://deversity.se/llmfw — run \`llm-fw license\` for the details.
+https://deversity.se/llmfw or peter.isberg@deversity.se — run
+\`llm-fw license\` for the details.
 `);
     process.exit(command ? 1 : 0);
   }

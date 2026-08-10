@@ -5,6 +5,16 @@ import { loadConfig } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
 
 export async function run(): Promise<void> {
+  await reportStatus();
+
+  // Printed on every path, including the stopped ones. A licence notice you can
+  // dodge by not starting the firewall is a licence notice nobody sees.
+  const { statusLine, unlicensedBanner } = await import('./license.js');
+  console.log(`  Licence:   ${statusLine()}`);
+  for (const line of unlicensedBanner()) console.log(line);
+}
+
+async function reportStatus(): Promise<void> {
   const pidFile = join(getLlmFwDir(), 'llm-fw.pid');
 
   if (!fs.existsSync(pidFile)) {
