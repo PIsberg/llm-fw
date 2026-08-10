@@ -23,6 +23,15 @@
 
 > Beyond prompt injection, llm-fw also ships DLP secret-scanning, cost/DoS circuit breakers, an MCP tool firewall, RAG context-poisoning detection, ASCII-smuggling defense, response-side exfiltration filtering, and an opt-in output-side moderation classifier — see the [feature tour](#data-loss-prevention-dlp) below, and [how llm-fw stacks up against competing guardrails](docs/BENCHMARK-COMPETITORS.md) head-to-head.
 
+> [!IMPORTANT]
+> **llm-fw is not open source.** It is licensed under the
+> [PolyForm Noncommercial License 1.0.0](LICENSE.md): **free for any noncommercial
+> purpose** — personal, hobby, study, research, education, charity, and government —
+> with no key and no signup. **Commercial use is not granted by that licence.** Running
+> llm-fw inside a for-profit company, including on one developer's machine or in CI,
+> needs a commercial licence: **[deversity.se/llmfw](https://deversity.se/llmfw)**.
+> See [License](#license) for the full boundary, or run `llm-fw license`.
+
 ![llm-fw infographic](infographics-llm-fw.jpg)
 
 ---
@@ -1486,7 +1495,39 @@ Only `dist/` and `data/` ship (the `files` whitelist); `npm pack --dry-run` show
 
 ## License
 
-Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE.md)** — free for any
-noncommercial purpose (personal, research, education, charity, government, and other
-noncommercial organizations). **Commercial use is not granted** by this license; for a
-commercial license, contact the licensor (Peter Isberg).
+llm-fw is **not open source**. It is dual-licensed: free under a noncommercial licence,
+paid for commercial use.
+
+### Noncommercial use — free
+
+Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE.md)**. No key, no
+signup, no telemetry. Any noncommercial purpose qualifies:
+
+- personal projects, hobby work, private study, amateur pursuits
+- research and teaching
+- charities, educational institutions, public research bodies, public safety and health
+  organizations, environmental organizations, and government institutions — regardless of
+  how they are funded
+
+### Commercial use — requires a licence
+
+The PolyForm licence does **not** grant commercial use. If llm-fw runs anywhere in a
+for-profit organization's work, you need a commercial licence. That includes:
+
+- a developer machine at a company, whatever the company sells
+- CI, build agents, and test infrastructure
+- `llm-fw start --standalone` as a shared proxy for a team
+- embedding or redistributing llm-fw inside a product you sell (this needs an OEM
+  agreement, not a standard licence)
+
+Licences are annual and priced by the number of developers whose work llm-fw protects;
+one licence covers your whole team, with no per-seat keys.
+
+**[deversity.se/llmfw](https://deversity.se/llmfw)** — prices, checkout, and invoices.
+Purchases are handled by a merchant of record, which handles VAT and sales tax. Prefer a
+purchase order, or have a question first? <peter.isberg@deversity.se>.
+
+Run `llm-fw license` to print this summary from the terminal. Sold and licensed by
+Deversity AB (Org.nr 559303-2278), Sweden.
+
+Required Notice: Copyright 2026 Peter Isberg

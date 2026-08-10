@@ -338,6 +338,13 @@ export async function run(args: string[] = []): Promise<void> {
     console.log(`  Dashboard:   http://127.0.0.1:${config.dashboard.port}`);
   }
 
+  // Printed on every start, in both modes. Standalone mode in particular is the
+  // shape a company reaches for — one shared server for a team — so the licence
+  // boundary should not be something you only discover by opening LICENSE.md.
+  const { SHORT_NOTICE } = await import('./license.js');
+  console.log('');
+  console.log(`  ${SHORT_NOTICE}`);
+
   // Keep process alive
   setInterval(() => { }, 1 << 30);
 }
