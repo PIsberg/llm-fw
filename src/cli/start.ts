@@ -341,9 +341,13 @@ export async function run(args: string[] = []): Promise<void> {
   // Printed on every start, in both modes. Standalone mode in particular is the
   // shape a company reaches for — one shared server for a team — so the licence
   // boundary should not be something you only discover by opening LICENSE.md.
-  const { SHORT_NOTICE } = await import('./license.js');
+  const { SHORT_NOTICE, unlicensedBanner } = await import('./license.js');
   console.log('');
   console.log(`  ${SHORT_NOTICE}`);
+  // Unlicensed machines get the loud version too. Deliberately AFTER the proxy
+  // is already listening: the banner is a nag, not a gate, and the firewall runs
+  // either way. Anything else would turn a lapsed invoice into an open door.
+  for (const line of unlicensedBanner()) console.log(line);
 
   // Keep process alive
   setInterval(() => { }, 1 << 30);

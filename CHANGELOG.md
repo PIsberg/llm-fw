@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**Licence keys** — commercial licences bought at [deversity.se/llmfw](https://deversity.se/llmfw) (checkout via Paddle, keys issued by [Keygen](https://keygen.sh)) now come with a key the CLI understands.
+
+- `llm-fw license --activate <key>` stores it in `<LLM_FW_DIR>/license.key`; `--status`, `--deactivate` and `--verify` round it out. `LLM_FW_LICENSE_KEY` is read first, for containers and CI that should not write a bearer credential to disk.
+- Keys are Ed25519-signed (Keygen `ED25519_SIGN`) and verified **offline** against an account public key compiled into the build (`src/license/account.ts`). No network call, no telemetry, works air-gapped. `llm-fw license --verify` is the single opt-in exception and exists only to catch revocation, which a signature cannot express.
+- A machine with no key is told so on `llm-fw start`, `llm-fw status` and `llm-fw doctor`, with both channels to fix it: <peter.isberg@deversity.se> and <https://deversity.se/llmfw>.
+- **The check never gates the firewall.** Unlicensed, expired, and invalid keys change the output and nothing else; the doctor check can only reach `warn`, so `llm-fw doctor` still exits 0 on a correctly intercepting unlicensed machine. A licence check able to switch off prompt-injection defence would be a security hole with a business model attached.
+- "We could not check this key" is reported separately from "this key is fake": a plain non-cryptographic key, or a build shipped without its verify key, reads as `unverified`, never as forged.
+
 ## [0.4.0] - 2026-07-05
 
 ### Added

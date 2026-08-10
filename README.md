@@ -1520,12 +1520,35 @@ for-profit organization's work, you need a commercial licence. That includes:
 - embedding or redistributing llm-fw inside a product you sell (this needs an OEM
   agreement, not a standard licence)
 
-Licences are annual and priced by the number of developers whose work llm-fw protects;
-one licence covers your whole team, with no per-seat keys.
+Licences are annual and priced by the number of developers whose work llm-fw protects.
+One licence covers your whole team: you get a single key, not one per seat.
 
 **[deversity.se/llmfw](https://deversity.se/llmfw)** — prices, checkout, and invoices.
 Purchases are handled by a merchant of record, which handles VAT and sales tax. Prefer a
 purchase order, or have a question first? <peter.isberg@deversity.se>.
+
+### The licence key
+
+A commercial licence comes with a key. Activate it once per machine:
+
+```bash
+llm-fw license --activate key/eyJ...
+llm-fw license --status
+```
+
+Or set `LLM_FW_LICENSE_KEY` instead, for containers and CI that should not write a key
+to disk. Without a key, `llm-fw start`, `llm-fw status` and `llm-fw doctor` print a
+notice telling you where to get one.
+
+Two things the key deliberately does not do:
+
+- **It does not gate the firewall.** An unlicensed, expired, or missing key changes the
+  output, never the protection. A licence check able to switch off prompt-injection
+  defence would be a security hole with a business model attached.
+- **It does not phone home.** Keys are signed (Ed25519, issued by
+  [Keygen](https://keygen.sh)) and verified locally, so activation works offline and the
+  "no telemetry" promise above still holds. The one exception is `llm-fw license
+  --verify`, which contacts Keygen only because you asked it to.
 
 Run `llm-fw license` to print this summary from the terminal. Sold and licensed by
 Deversity AB (Org.nr 559303-2278), Sweden.

@@ -6,6 +6,9 @@ import { platform } from 'node:os'
 import { getLlmFwDir } from '../config/paths.js'
 import { execFileSync } from 'node:child_process'
 import { loadConfig } from '../config/config.js'
+import { licenseStatus, type LicenseStatus } from '../license/status.js'
+import { isKeygenConfigured } from '../license/account.js'
+import { statusLine, UNLICENSED_NOTICE, COMMERCIAL_URL, CONTACT_EMAIL } from './license.js'
 
 /**
  * `llm-fw doctor` — diagnose whether the interception environment is set up
@@ -248,6 +251,47 @@ export function summarize(checks: CheckResult[]): { ok: number; fail: number; wa
   const count = (l: CheckLevel) => checks.filter(c => c.level === l).length
   const fail = count('fail')
   return { ok: count('ok'), fail, warn: count('warn'), info: count('info'), healthy: fail === 0 }
+}
+
+/**
+ * The licence as a doctor check. Kept out of `evaluateProbe` because it reasons
+ * about a different thing entirely — entitlement, not interception — and folding
+ * it in would let a licensing question grow the interception decision table.
+ *
+ * Never `fail`: only `fail` clears `healthy`, and an unpaid invoice is not a
+ * broken firewall. `doctor` must keep exiting 0 on a correctly intercepting but
+ * unlicensed machine, or every CI pipeline that gates on it starts going red for
+ * a reason that has nothing to do with the environment it was asked about.
+ */
+export function licenseCheck(status: LicenseStatus): CheckResult {
+  const buy = ['llm-fw license --activate <key>', `Buy or ask: ${COMMERCIAL_URL} · ${CONTACT_EMAIL}`]
+  switch (status.state) {
+    case 'licensed':
+      return { level: 'ok', title: `Licence: ${statusLine(status)}` }
+    case 'expired':
+      return { level: 'warn', title: 'Licence expired', detail: statusLine(status), fix: buy }
+    case 'invalid':
+      return { level: 'warn', title: 'Licence key does not verify', detail: statusLine(status), fix: buy }
+    case 'unverified':
+      // "We could not check it" has two causes with opposite owners: the
+      // customer holds a non-signed key, or this build shipped without its own
+      // verify key. Naming the wrong one sends the wrong person to fix it.
+      return isKeygenConfigured()
+        ? {
+            level: 'warn',
+            title: 'Licence key present but not a cryptographic key',
+            detail: 'Only signed keys verify offline. This one has to be checked against the server.',
+            fix: ['llm-fw license --verify'],
+          }
+        : {
+            level: 'warn',
+            title: 'This build cannot verify licence keys',
+            detail: 'No Keygen account public key was compiled in, so no key can be checked offline.',
+            fix: [`Report it: ${CONTACT_EMAIL}`],
+          }
+    case 'unlicensed':
+      return { level: 'warn', title: 'No licence key on this machine', detail: UNLICENSED_NOTICE, fix: buy }
+  }
 }
 
 // ── OS-touching probe ─────────────────────────────────────────────────────────
@@ -510,7 +554,7 @@ function render(checks: CheckResult[]): void {
 
 export async function run(args: string[] = []): Promise<void> {
   const snapshot = await probe()
-  const checks = evaluateProbe(snapshot)
+  const checks = [...evaluateProbe(snapshot), licenseCheck(licenseStatus())]
 
   if (args.includes('--json')) {
     console.log(JSON.stringify({ probe: snapshot, checks, summary: summarize(checks) }, null, 2))
