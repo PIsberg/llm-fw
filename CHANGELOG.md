@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-10
+
 ### Added
 
 **Licence keys** — commercial licences bought at [deversity.se/llmfw](https://deversity.se/llmfw) (checkout via Paddle, keys issued by [Keygen](https://keygen.sh)) now come with a key the CLI understands.
@@ -16,10 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A machine with no key is told so on `llm-fw start`, `llm-fw status` and `llm-fw doctor`, with both channels to fix it: <peter.isberg@deversity.se> and <https://deversity.se/llmfw>.
 - **The check never gates the firewall.** Unlicensed, expired, and invalid keys change the output and nothing else; the doctor check can only reach `warn`, so `llm-fw doctor` still exits 0 on a correctly intercepting unlicensed machine. A licence check able to switch off prompt-injection defence would be a security hole with a business model attached.
 - "We could not check this key" is reported separately from "this key is fake": a plain non-cryptographic key, or a build shipped without its verify key, reads as `unverified`, never as forged.
-
-## [0.4.0] - 2026-07-05
-
-### Added
 
 **Generalization layer — gray-zone judge escalation + intent-vs-mention gate**
 - Intent-vs-mention gate (`src/detection/intentMention.ts`) — closes the trained classifier's single largest false-positive source: a prompt that *quotes*, *translates*, *documents*, or *fictionalizes* an override rather than issuing one. When a mention frame is detected and no live override imperative sits outside a quote/code span, a classifier BLOCK is downgraded to a warn. Scoped to the **prompt/system surfaces only** — on `tool_result`/`document` a quoted instruction is standard indirect-injection dressing and still blocks. On by default (`detection.intentMention`, `LLM_FW_INTENT_MENTION_ENABLED`).
