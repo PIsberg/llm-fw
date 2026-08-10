@@ -49,6 +49,11 @@ switch (command) {
     uninstallService(args);
     break;
   }
+  case 'license': {
+    const { run } = await import('./license.js');
+    run();
+    break;
+  }
   default: {
     console.log(`Usage: llm-fw <command> [options]
 
@@ -75,6 +80,11 @@ Commands:
                         (Windows Task Scheduler / macOS launchd / Linux
                         systemd --user)
   uninstall-service      Reverse install-service
+  license                Print the licence terms and how to buy a commercial one
+
+Licensed under the PolyForm Noncommercial License 1.0.0. Noncommercial use is
+free. Commercial use is not granted by that licence and needs a separate one:
+https://deversity.se/llmfw — run \`llm-fw license\` for the details.
 `);
     process.exit(command ? 1 : 0);
   }
