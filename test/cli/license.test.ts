@@ -127,8 +127,10 @@ describe('statusLine', () => {
   })
 
   it.each(['unlicensed', 'expired', 'invalid'] as const)('points %s at a way to pay', state => {
-    expect(statusLine({ state })).toMatch(
-      new RegExp(`${COMMERCIAL_URL}|${CONTACT_EMAIL.replace(/\./g, '\\.')}`),
-    )
+    // Substring checks rather than a regex built from these constants: hand
+    // escaping a URL and an email into a pattern is how a test starts matching
+    // something other than what it names.
+    const line = statusLine({ state })
+    expect(line.includes(COMMERCIAL_URL) || line.includes(CONTACT_EMAIL)).toBe(true)
   })
 })
