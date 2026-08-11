@@ -84,6 +84,7 @@
 - [Supported platforms](#supported-platforms)
 - [Publishing (maintainers)](#publishing-maintainers)
 - [Documentation](#documentation)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -1490,6 +1491,17 @@ Only `dist/` and `data/` ship (the `files` whitelist); `npm pack --dry-run` show
 - [docs/BENCHMARK-COMPETITORS.md](docs/BENCHMARK-COMPETITORS.md) — head-to-head recall/FPR vs. third-party guardrails on the same held-out data
 - [docs/ML-INDIRECT-STUDY.md](docs/ML-INDIRECT-STUDY.md) — multilingual indirect-injection embedding feasibility study
 - [CHANGELOG.md](CHANGELOG.md) — release history
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to report bugs (incl. detection false positives/negatives), suggest features, and submit pull requests
+
+---
+
+## Contributing
+
+Bug reports, detection false-positive/negative reports, feature suggestions,
+and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for
+how to report them, the coding and testing standards, and the PR process.
+Security vulnerabilities should be reported privately; see
+[CONTRIBUTING.md#security-vulnerabilities](CONTRIBUTING.md#security-vulnerabilities).
 
 ---
 

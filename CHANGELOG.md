@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Competitor benchmark harness (Option A)**
 - `npm run bench:competitors` — a pluggable third-party guardrail adapter interface (`test/eval/competitors/`) runs external prompt-injection/jailbreak detectors against the same held-out splits llm-fw is measured on (heldout, safeguard-prompt-injection, injecagent) and reports recall/FPR head-to-head, with a recall-vs-FPR SVG scatter per split. protectai DeBERTa (standalone, threshold 0.5) ran; Meta Prompt Guard 86M, Llama Guard 3 (via local Ollama), and Lakera Guard (hosted API) are wired but each skips cleanly and reports "not run" when its prerequisite isn't present (gated HF model + `HF_TOKEN`, a pulled `llama-guard3` Ollama model, or `LAKERA_API_KEY`). See `docs/BENCHMARK-COMPETITORS.md`.
 
+**Contributor documentation**
+- `CONTRIBUTING.md` — how to report bugs and detection false positives/negatives (with the detail the corpus regression gate needs), suggest features, the code style and testing gates PRs must clear, benchmark/regression expectations, documentation expectations, the PR process, and how to report a security vulnerability privately.
+
 ### Changed
 - Re-measured the full `safeguard` and `injecagent` splits (cheap and classifier presets) against the pre-batch baselines, after the earlier trusted-surfaces/contrastive-margin change: `injecagent` now **100%** recall in both presets; `safeguard` classifier FPR improves **0.7% → 0.3%** (the intent-vs-mention gate applies on the prompt surface). Recorded in `docs/BENCHMARK-IMPROVEMENTS.md`.
 
