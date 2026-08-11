@@ -25,3 +25,20 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: 'Dependency Review'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # semgrep 1.172.0 hard-pins `mcp==1.23.3`, which carries these three.
+          # They were always in the tree — the unpinned `pip install semgrep`
+          # resolved the same mcp — but hash-pinning the install
+          # (semgrep-requirements.txt) is what made the manifest visible here.
+          #
+          # All three are server-side: task handlers, HTTP transport principal
+          # checks, WebSocket Host/Origin validation. The workflow runs
+          # `semgrep scan`, never `semgrep mcp`, so no MCP server is started and
+          # none of this code executes.
+          #
+          # The newest semgrep that accepts a patched mcp (>= 1.28.1) is 1.136.0.
+          # Running a scanner 36 minor versions behind, to dodge advisories in
+          # code the scanner never starts, is the worse trade.
+          #
+          # Drop these once semgrep bumps its mcp pin past 1.28.1.
+          allow-ghsas: GHSA-hvrp-rf83-w775,GHSA-jpw9-pfvf-9f58,GHSA-vj7q-gjh5-988w

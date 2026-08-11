@@ -6,41 +6,20 @@ import tls from 'node:tls'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import forge from 'node-forge'
 import { ProxyServer } from '../../src/proxy/proxy.js'
 import { createDashboardServer } from '../../src/dashboard/server.js'
 import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { UpstreamResolver } from '../../src/proxy/upstream.js'
 import { CertFactory } from '../../src/proxy/certs.js'
+import { issueUpstreamCert, trustCA } from './lib/tls-trust.js'
 
 // Mock the upstream DNS resolver to always point target hostnames to localhost
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
 
-// ---------------------------------------------------------------------------
-// Helper: Dynamic Self-Signed Certificate Generator
-// ---------------------------------------------------------------------------
-function generateSelfSignedCert() {
-  const keys = forge.pki.rsa.generateKeyPair(2048)
-  const cert = forge.pki.createCertificate()
-  cert.publicKey = keys.publicKey
-  cert.serialNumber = '01'
-  cert.validity.notBefore = new Date()
-  cert.validity.notAfter = new Date()
-  cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1)
-  
-  const attrs = [
-    { name: 'commonName', value: 'api.anthropic.com' }
-  ]
-  cert.setSubject(attrs)
-  cert.setIssuer(attrs)
-  cert.sign(keys.privateKey)
-  
-  return {
-    key: forge.pki.privateKeyToPem(keys.privateKey),
-    cert: forge.pki.certificateToPem(cert)
-  }
-}
+// The proxy's own CA, captured in beforeAll. sendProxyRequest verifies the
+// MITM certificate against it instead of accepting anything.
+let proxyCaPem = ''
 
 // ---------------------------------------------------------------------------
 // Helper: Chunked Response Decoder
@@ -113,7 +92,8 @@ async function sendProxyRequest(
         const tlsSocket = tls.connect({
           socket,
           servername: targetHost,
-          rejectUnauthorized: false // accept the proxy's dynamically generated CA cert
+          ca: proxyCaPem, // verify the proxy's MITM cert against the proxy's own CA
+          rejectUnauthorized: true
         }, () => {
           // 4. Send the HTTP request over the encrypted tunnel
           tlsSocket.write(`${method} ${path} HTTP/1.1\r\n`)
@@ -197,6 +177,7 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
   let tempDir: string
   let mockUpstream: https.Server
   let mockUpstreamPort: number
+  let restoreTrust: () => void
   let receivedRequests: { url: string; method: string; body: string }[] = []
 
   let proxy: ProxyServer
@@ -221,15 +202,16 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     process.env.LLM_FW_DIR = tempDir
 
     // 2. Pre-generate a custom Root CA in this sandbox directory
-    const certFactory = new CertFactory()
-    certFactory.generateCA()
+    proxyCaPem = new CertFactory().generateCA().cert
 
-    // 3. Temporarily allow self-signed certs in node TLS connection to mock upstream
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+    // Both TLS legs stay verified: the proxy checks the mock upstream against
+    // the throwaway CA added here, and sendProxyRequest checks the proxy
+    // against its own CA below.
+    const upstreamCert = issueUpstreamCert('api.anthropic.com')
+    restoreTrust = trustCA(upstreamCert.ca)
 
     // 4. Start the Mock Upstream HTTPS Server representing api.anthropic.com
-    const certs = generateSelfSignedCert()
-    mockUpstream = https.createServer(certs, (req, res) => {
+    mockUpstream = https.createServer({ key: upstreamCert.key, cert: upstreamCert.cert }, (req, res) => {
       let body = ''
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
@@ -278,8 +260,8 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
   })
 
   afterAll(async () => {
-    // Restore node TLS validation rules
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
+    // Drop the mock upstream's CA back out of the process trust store
+    restoreTrust()
 
     // Close connections and shut down servers gracefully
     dashboard?.closeAllConnections()

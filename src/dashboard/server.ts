@@ -1945,7 +1945,14 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
         try {
-          const patch = JSON.parse(body || '{}') as Record<string, unknown>
+          let patch: Record<string, unknown>
+          try {
+            patch = JSON.parse(body || '{}') as Record<string, unknown>
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'invalid JSON body' }))
+            return
+          }
           if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'body must be a JSON object of settings' }))
@@ -1961,8 +1968,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, applied, errors, settings: readSettings(config) }))
         } catch (err) {
+          console.error('[dashboard] /api/settings handler error:', err)
           res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: String(err) }))
+          res.end(JSON.stringify({ error: 'internal error' }))
         }
       })
       req.on('error', () => {
@@ -2227,7 +2235,14 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
         try {
-          const { id, reason } = JSON.parse(body || '{}') as { id?: string; reason?: string }
+          let id: string | undefined, reason: string | undefined
+          try {
+            ;({ id, reason } = JSON.parse(body || '{}') as { id?: string; reason?: string })
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'invalid JSON body' }))
+            return
+          }
           if (!id) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'id is required' }))
@@ -2242,8 +2257,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, entry }))
         } catch (err) {
+          console.error('[dashboard] /api/whitelist handler error:', err)
           res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: String(err) }))
+          res.end(JSON.stringify({ error: 'internal error' }))
         }
       })
       req.on('error', () => {
@@ -2276,7 +2292,14 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
         try {
-          const { eventId } = JSON.parse(body || '{}') as { eventId?: string }
+          let eventId: string | undefined
+          try {
+            ;({ eventId } = JSON.parse(body || '{}') as { eventId?: string })
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'invalid JSON body' }))
+            return
+          }
           if (!eventId) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'eventId is required' }))
@@ -2303,8 +2326,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, entry }))
         } catch (err) {
+          console.error('[dashboard] /api/feedback handler error:', err)
           res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: String(err) }))
+          res.end(JSON.stringify({ error: 'internal error' }))
         }
       })
       req.on('error', () => {
@@ -2361,7 +2385,15 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', () => { void (async () => {
         try {
-          const { text, target, source } = JSON.parse(body || '{}') as { text?: string; target?: string; source?: string }
+          let parsed: { text?: string; target?: string; source?: string }
+          try {
+            parsed = JSON.parse(body || '{}') as { text?: string; target?: string; source?: string }
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'invalid JSON body' }))
+            return
+          }
+          const { text, target, source } = parsed
           if (!text || !target) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'text and target are required' }))
@@ -2371,8 +2403,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify(result))
         } catch (err) {
+          console.error('[dashboard] /api/translate handler error:', err)
           res.writeHead(502, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: String(err instanceof Error ? err.message : err) }))
+          res.end(JSON.stringify({ error: 'translation request failed' }))
         }
       })() })
       req.on('error', () => {

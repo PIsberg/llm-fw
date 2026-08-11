@@ -5,28 +5,19 @@ import tls from 'node:tls'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import forge from 'node-forge'
 import { ProxyServer } from '../../src/proxy/proxy.js'
 import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { UpstreamResolver } from '../../src/proxy/upstream.js'
 import { CertFactory } from '../../src/proxy/certs.js'
+import { issueUpstreamCert, trustCA } from './lib/tls-trust.js'
 import type { BlockEvent } from '../../src/types.js'
 
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
 
-function selfSignedCert() {
-  const keys = forge.pki.rsa.generateKeyPair(2048)
-  const cert = forge.pki.createCertificate()
-  cert.publicKey = keys.publicKey
-  cert.serialNumber = '01'
-  cert.validity.notBefore = new Date()
-  cert.validity.notAfter = new Date()
-  cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1)
-  const attrs = [{ name: 'commonName', value: 'api.anthropic.com' }]
-  cert.setSubject(attrs); cert.setIssuer(attrs); cert.sign(keys.privateKey)
-  return { key: forge.pki.privateKeyToPem(keys.privateKey), cert: forge.pki.certificateToPem(cert) }
-}
+// The proxy's own CA, captured in beforeAll. sendProxyRequest verifies the
+// MITM certificate against it instead of accepting anything.
+let proxyCaPem = ''
 
 function dechunk(body: string): string {
   let out = '', pos = 0
@@ -52,7 +43,7 @@ async function sendProxyRequest(proxyPort: number, host: string, port: number, b
       buf += c.toString('binary')
       if (buf.indexOf('\r\n\r\n') === -1) return
       socket.removeListener('data', onConnect)
-      const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: false }, () => {
+      const tlsSocket = tls.connect({ socket, servername: host, ca: proxyCaPem, rejectUnauthorized: true }, () => {
         tlsSocket.write(`POST /v1/messages HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n`)
         tlsSocket.write(body)
       })
@@ -114,6 +105,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
   let tempDir: string
   let mockUpstream: https.Server
   let upstreamPort: number
+  let restoreTrust: () => void
 
   let proxyBlock: ProxyServer
   const blockEvents: BlockEvent[] = []
@@ -152,9 +144,14 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-tooluse-e2e-'))
     process.env.LLM_FW_DIR = tempDir
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
-    mockUpstream = https.createServer(selfSignedCert(), (req, res) => {
+    // Both TLS legs stay verified: the proxy checks the mock upstream against
+    // the throwaway CA added here, and sendProxyRequest checks the proxy
+    // against its own CA below.
+    const upstreamCert = issueUpstreamCert('api.anthropic.com')
+    restoreTrust = trustCA(upstreamCert.ca)
+
+    mockUpstream = https.createServer({ key: upstreamCert.key, cert: upstreamCert.cert }, (req, res) => {
       let body = ''
       req.on('data', (c) => { body += c })
       req.on('end', () => {
@@ -172,7 +169,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
     await new Promise<void>((r) => mockUpstream.listen(0, '127.0.0.1', () => r()))
     upstreamPort = (mockUpstream.address() as net.AddressInfo).port
 
-    new CertFactory().generateCA()
+    proxyCaPem = new CertFactory().generateCA().cert
 
     const mk = async (config: typeof blockConfig, sink: BlockEvent[]) => {
       const bus = new EventBus(config.dashboard)
@@ -192,6 +189,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
     await proxyAudit.stop()
     await proxyOff.stop()
     mockUpstream.close()
+    restoreTrust()
     if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
   })
 

@@ -27,7 +27,12 @@ jobs:
       # timeouts / rate limits ("registry-1.docker.io: context deadline
       # exceeded"). PyPI is the more reliable source and removes the Docker Hub
       # dependency entirely.
+      #
+      # Every package in the tree is pinned by version and sha256 —
+      # --require-hashes makes pip refuse anything unpinned, so the resolver
+      # cannot quietly pull a different build. See semgrep-requirements.txt for
+      # how to regenerate it.
       - name: Install Semgrep
-        run: pip install --no-cache-dir semgrep
+        run: pip install --no-cache-dir --require-hashes -r .github/workflows/semgrep-requirements.txt
       - name: Run Semgrep
         run: semgrep scan --config=p/default --error --metrics=off

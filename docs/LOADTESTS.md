@@ -45,7 +45,7 @@ A self-signed HTTPS server listens on a random port. `UpstreamResolver.prototype
 
 ### How requests are sent
 
-Each virtual user opens a raw TCP socket to the proxy, sends an HTTP `CONNECT api.anthropic.com:<mock-port>` request, then upgrades to TLS (with `rejectUnauthorized: false` to accept the proxy's dynamically-generated MITM cert). HTTP `POST /v1/messages` is sent through the TLS tunnel with a JSON body containing the prompt under test.
+Each virtual user opens a raw TCP socket to the proxy, sends an HTTP `CONNECT api.anthropic.com:<mock-port>` request, then upgrades to TLS, verifying the proxy's dynamically-generated MITM cert against the proxy's own CA. HTTP `POST /v1/messages` is sent through the TLS tunnel with a JSON body containing the prompt under test.
 
 This means the full proxy pipeline runs on every request:
 - URL filter (hostname + path)
@@ -232,13 +232,12 @@ Returns a `Harness` object with two fields:
 Internally it:
 
 1. Creates a **temporary directory** and sets `LLM_FW_DIR` so the proxy's `CertFactory` writes its CA key and certificate there, not to `~/.llm-fw`.
-2. Sets `NODE_TLS_REJECT_UNAUTHORIZED=0` so Node accepts the proxy's self-signed MITM certificate.
+2. Issues a **throwaway CA and server certificate** for the mock upstream (`test/proxy/lib/tls-trust.ts`) and adds that CA to the process trust store, so the proxy's outbound leg verifies the mock upstream normally.
 3. Patches `UpstreamResolver.prototype.resolve` to always return `127.0.0.1`.
-4. Generates a **self-signed TLS certificate** for the mock upstream server (via `node-forge`).
-5. Starts a minimal **mock HTTPS server** on a random OS-assigned port that accepts any POST and immediately returns `{ id: "mock", choices: [...] }`.
-6. Builds a **proxy config** with detection settings optimised for load testing (see table below).
-7. Calls `proxy.init()` to load the HuggingFace embedding model into memory.
-8. Calls `proxy.start()` to begin listening.
+4. Starts a minimal **mock HTTPS server** on a random OS-assigned port that accepts any POST and immediately returns `{ id: "mock", choices: [...] }`.
+5. Builds a **proxy config** with detection settings optimised for load testing (see table below).
+6. Calls `proxy.init()` to load the HuggingFace embedding model into memory.
+7. Calls `proxy.start()` to begin listening.
 
 ### Proxy config overrides for load testing
 
