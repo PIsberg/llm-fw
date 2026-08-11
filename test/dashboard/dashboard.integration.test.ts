@@ -399,6 +399,53 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.status).toBe(403)
   })
 
+  // ── Exception detail must not reach the client (CodeQL js/stack-trace-exposure)
+  // The dashboard listens on loopback, but any local process — and any page that
+  // can get past checkSameOrigin — can reach these routes. Echoing the raw
+  // exception back handed out absolute install paths and stack frames of the
+  // host process. The operator still gets the detail, on stderr.
+  const SECRET = 'C:\\Users\\victim\\.llm-fw\\suppressions.json'
+
+  it('POST /api/feedback answers 500 without the exception text when the store throws', async () => {
+    const ev = eventBus.emit({
+      stage: 'heuristic', score: 90, similarity: 0, target: 'api.anthropic.com', method: 'POST', path: '/v1/messages',
+      payload_preview: 'boom prompt', payload_full: 'boom prompt', action: 'blocked',
+    })
+    vi.spyOn(SuppressionStore.prototype, 'add').mockImplementation(() => {
+      throw new Error(`EACCES: permission denied, open '${SECRET}'`)
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await req(server, 'POST', '/api/feedback', JSON.stringify({ eventId: ev.id }))
+    expect(res.status).toBe(500)
+    expect(res.body).not.toContain(SECRET)
+    expect(res.body).not.toContain('EACCES')
+    expect(JSON.parse(res.body).error).toBe('internal error')
+  })
+
+  it('POST /api/whitelist answers 500 without the exception text when the bus throws', async () => {
+    vi.spyOn(EventBus.prototype, 'whitelist').mockImplementation(() => {
+      throw new Error(`EACCES: permission denied, open '${SECRET}'`)
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await req(server, 'POST', '/api/whitelist', '{"id":"any"}')
+    expect(res.status).toBe(500)
+    expect(res.body).not.toContain(SECRET)
+    expect(JSON.parse(res.body).error).toBe('internal error')
+  })
+
+  it.each([
+    ['/api/settings'],
+    ['/api/whitelist'],
+    ['/api/feedback'],
+    ['/api/translate'],
+  ])('POST %s with a malformed JSON body returns 400, not 500', async (path) => {
+    const res = await req(server, 'POST', path, 'not json{')
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.body).error).toBe('invalid JSON body')
+  })
+
   it('GET / HTML exposes the "Mark false positive" suppression button on a block event', async () => {
     const res = await req(server, 'GET', '/')
     expect(res.status).toBe(200)
