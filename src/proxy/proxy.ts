@@ -197,6 +197,9 @@ export class ProxyServer {
   private sinkholeServer: tls.Server | null = null
 
   async init(): Promise<void> {
+    // Generate the shared host key now, while startup is already slow, so the
+    // first intercepted hostname never pays the blocking RSA keygen mid-request.
+    this.certFactory.warmHostKey()
     await this.pipeline.init()
     await this.outputClassifier.init() // no-op unless responseScan.classifier is enabled
   }
