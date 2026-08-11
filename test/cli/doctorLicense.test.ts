@@ -48,7 +48,7 @@ describe('licenseCheck', () => {
   })
 
   it('blames the build when no account public key was compiled in', () => {
-    process.env['LLM_FW_KEYGEN_PUBLIC_KEY'] = ''
+    process.env['LLM_FW_KEYGEN_PUBLIC_KEY'] = 'z'.repeat(64) // non-hex: '' would fall through to the real compiled-in key
     const check = licenseCheck({ state: 'unverified' })
     // Telling a customer to re-check their key is useless when the binary is the
     // thing that cannot check anything.
