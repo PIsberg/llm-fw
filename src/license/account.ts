@@ -40,3 +40,22 @@ export function keygenPublicKey(): string {
 export function isKeygenConfigured(): boolean {
   return /^[0-9a-f]{64}$/i.test(keygenPublicKey())
 }
+
+// A second, Keygen-independent verify key: for licence FILES issued directly
+// (see offlineLicense.ts) — custom deals, complementary licences, OSS grants —
+// with no Keygen policy or Paddle transaction behind them. Generate the
+// signing keypair with `scripts/issue-offline-license.ts keygen <dir>`; the
+// private key must stay on the operator machine only. Empty until then, same
+// as the Keygen key above: an unconfigured build reports `unconfigured`,
+// never accuses a file of being forged.
+const OFFLINE_LICENSE_VERIFY_KEY = ''
+
+/** Offline-licence-file Ed25519 verify key, hex. Override with LLM_FW_OFFLINE_LICENSE_KEY. */
+export function offlineLicenseVerifyKey(): string {
+  return process.env['LLM_FW_OFFLINE_LICENSE_KEY'] || OFFLINE_LICENSE_VERIFY_KEY
+}
+
+/** True once this build can verify offline licence files. */
+export function isOfflineLicenseConfigured(): boolean {
+  return /^[0-9a-f]{64}$/i.test(offlineLicenseVerifyKey())
+}

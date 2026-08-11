@@ -1491,6 +1491,7 @@ Only `dist/` and `data/` ship (the `files` whitelist); `npm pack --dry-run` show
 - [docs/BENCHMARK-COMPETITORS.md](docs/BENCHMARK-COMPETITORS.md) — head-to-head recall/FPR vs. third-party guardrails on the same held-out data
 - [docs/ML-INDIRECT-STUDY.md](docs/ML-INDIRECT-STUDY.md) — multilingual indirect-injection embedding feasibility study
 - [CHANGELOG.md](CHANGELOG.md) — release history
+- [docs/LICENSING.md](docs/LICENSING.md) — how commercial licences and offline licence files are issued (maintainer runbook)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to report bugs (incl. detection false positives/negatives), suggest features, and submit pull requests
 
 ---
@@ -1561,6 +1562,17 @@ Two things the key deliberately does not do:
   [Keygen](https://keygen.sh)) and verified locally, so activation works offline and the
   "no telemetry" promise above still holds. The one exception is `llm-fw license
   --verify`, which contacts Keygen only because you asked it to.
+
+For a licence issued directly — a custom deal, a complementary licence, an OSS grant —
+with no Keygen account or Paddle purchase behind it, activate the file instead:
+
+```bash
+llm-fw license --activate-file /path/to/your.lfw-license
+```
+
+Or `LLM_FW_LICENSE_FILE=/path/to/your.lfw-license` for containers and CI. Verified fully
+offline the same way, against a separate signing key. See
+[docs/LICENSING.md](docs/LICENSING.md) for how these are issued.
 
 Run `llm-fw license` to print this summary from the terminal. Sold and licensed by
 Deversity AB (Org.nr 559303-2278), Sweden.

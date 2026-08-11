@@ -83,6 +83,9 @@ Commands:
   license                Print the licence terms and this machine's status
     [--activate <key>]  Store a licence key bought at https://deversity.se/llmfw
     [--deactivate]      Remove the stored key
+    [--activate-file <path>]  Store an offline licence file (a licence issued
+                        directly, no Keygen account or Paddle purchase needed)
+    [--deactivate-file] Remove the stored offline licence file
     [--status]          Print the licence state only
     [--verify]          Check the key with Keygen (the only licensing network
                         call llm-fw ever makes; everything else is offline)

@@ -7,7 +7,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { execFileSync } from 'node:child_process'
 import { loadConfig } from '../config/config.js'
 import { licenseStatus, type LicenseStatus } from '../license/status.js'
-import { isKeygenConfigured } from '../license/account.js'
+import { isKeygenConfigured, isOfflineLicenseConfigured } from '../license/account.js'
 import { statusLine, UNLICENSED_NOTICE, COMMERCIAL_URL, CONTACT_EMAIL } from './license.js'
 
 /**
@@ -272,10 +272,27 @@ export function licenseCheck(status: LicenseStatus): CheckResult {
       return { level: 'warn', title: 'Licence expired', detail: statusLine(status), fix: buy }
     case 'invalid':
       return { level: 'warn', title: 'Licence key does not verify', detail: statusLine(status), fix: buy }
-    case 'unverified':
+    case 'unverified': {
+      const offline = status.source === 'offline-env' || status.source === 'offline-file'
       // "We could not check it" has two causes with opposite owners: the
-      // customer holds a non-signed key, or this build shipped without its own
-      // verify key. Naming the wrong one sends the wrong person to fix it.
+      // holder has a credential this build cannot check, or the build shipped
+      // without its own verify key. Naming the wrong one sends the wrong
+      // person to fix it.
+      if (offline) {
+        return isOfflineLicenseConfigured()
+          ? {
+              level: 'warn',
+              title: 'Offline licence file is not for this product',
+              detail: statusLine(status),
+              fix: [`Report it: ${CONTACT_EMAIL}`],
+            }
+          : {
+              level: 'warn',
+              title: 'This build cannot verify offline licence files',
+              detail: 'No offline-licence verify key was compiled in, so the file cannot be checked.',
+              fix: [`Report it: ${CONTACT_EMAIL}`],
+            }
+      }
       return isKeygenConfigured()
         ? {
             level: 'warn',
@@ -289,6 +306,7 @@ export function licenseCheck(status: LicenseStatus): CheckResult {
             detail: 'No Keygen account public key was compiled in, so no key can be checked offline.',
             fix: [`Report it: ${CONTACT_EMAIL}`],
           }
+    }
     case 'unlicensed':
       return { level: 'warn', title: 'No licence key on this machine', detail: UNLICENSED_NOTICE, fix: buy }
   }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Offline licence files** — a second, Keygen/Paddle-independent way to license a machine: `llm-fw license --activate-file <path>` (or `LLM_FW_LICENSE_FILE`) activates a signed `.lfw-license` file with no network call and no Keygen account behind it, for custom deals, complementary licences, and OSS grants. Verified against a separate Ed25519 signing key (`OFFLINE_LICENSE_VERIFY_KEY` in `src/license/account.ts`), issued with `scripts/issue-offline-license.ts`. When both an offline file and a Keygen key are present, the offline file wins. See `docs/LICENSING.md`.
+
 ## [0.4.0] - 2026-08-11
 
 ### Added

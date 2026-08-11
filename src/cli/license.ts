@@ -18,8 +18,12 @@ import {
   saveLicenseKey,
   clearLicenseKey,
   licenseKeyPath,
+  saveLicenseFile,
+  clearLicenseFile,
+  licenseFilePath,
   type LicenseStatus,
 } from '../license/status.js'
+import { readFileSync } from 'node:fs'
 
 export const LICENSE_NAME = 'PolyForm Noncommercial License 1.0.0'
 export const LICENSE_URL = 'https://polyformproject.org/licenses/noncommercial/1.0.0'
@@ -92,56 +96,96 @@ export function unlicensedBanner(status: LicenseStatus = licenseStatus()): strin
 function printStatus(): void {
   const status = licenseStatus()
   console.log(`Licence: ${statusLine(status)}`)
-  if (status.source) console.log(`  key from: ${status.source === 'env' ? 'LLM_FW_LICENSE_KEY' : licenseKeyPath()}`)
+  if (status.source === 'env') console.log('  key from: LLM_FW_LICENSE_KEY')
+  else if (status.source === 'file') console.log(`  key from: ${licenseKeyPath()}`)
+  else if (status.source === 'offline-env') console.log('  offline licence file from: LLM_FW_LICENSE_FILE')
+  else if (status.source === 'offline-file') console.log(`  offline licence file from: ${licenseFilePath()}`)
+}
+
+function handleActivate(args: string[]): void {
+  const key = args[1]
+  if (!key) {
+    console.error('Usage: llm-fw license --activate <key>')
+    process.exitCode = 1
+    return
+  }
+  const path = saveLicenseKey(key)
+  console.log(`Key saved to ${path}`)
+  printStatus()
+}
+
+function handleDeactivate(): void {
+  console.log(clearLicenseKey() ? `Removed ${licenseKeyPath()}` : 'No activated key on this machine.')
+}
+
+// For a licence issued directly (custom deal, complementary licence, OSS
+// grant) — no Keygen policy or Paddle transaction behind it. See
+// src/license/offlineLicense.ts.
+function handleActivateFile(args: string[]): void {
+  const filePath = args[1]
+  if (!filePath) {
+    console.error('Usage: llm-fw license --activate-file <path>')
+    process.exitCode = 1
+    return
+  }
+  let contents: string
+  try {
+    contents = readFileSync(filePath, 'utf8')
+  } catch (err) {
+    console.error(`Could not read ${filePath}: ${err instanceof Error ? err.message : String(err)}`)
+    process.exitCode = 1
+    return
+  }
+  const savedPath = saveLicenseFile(contents)
+  console.log(`Offline licence file saved to ${savedPath}`)
+  printStatus()
+}
+
+function handleDeactivateFile(): void {
+  console.log(
+    clearLicenseFile() ? `Removed ${licenseFilePath()}` : 'No activated offline licence file on this machine.',
+  )
+}
+
+async function handleVerify(): Promise<void> {
+  const status = licenseStatus()
+  printStatus()
+  if (!status.source) {
+    console.log(UNLICENSED_NOTICE)
+    process.exitCode = 1
+    return
+  }
+  if (status.source === 'offline-env' || status.source === 'offline-file') {
+    console.log('  offline licence files have no online counterpart to check — the signature check above is authoritative.')
+    return
+  }
+  const { readLicenseKey } = await import('../license/status.js')
+  const { verifyOnline } = await import('../license/verifyOnline.js')
+  console.log('Checking with api.keygen.sh (this is the only network call llm-fw makes for licensing)...')
+  const result = await verifyOnline(readLicenseKey()!.key)
+  console.log(`  ${result.code ? `[${result.code}] ` : ''}${result.detail}`)
+  // null (unreachable) is not a failure: an offline machine has not been shown
+  // to be unlicensed, so it must not be reported as one.
+  if (result.valid === false) process.exitCode = 1
 }
 
 export async function run(args: string[] = []): Promise<void> {
-  const flag = args[0]
-
-  if (flag === '--activate') {
-    const key = args[1]
-    if (!key) {
-      console.error('Usage: llm-fw license --activate <key>')
-      process.exitCode = 1
-      return
-    }
-    const path = saveLicenseKey(key)
-    console.log(`Key saved to ${path}`)
-    printStatus()
-    return
+  switch (args[0]) {
+    case '--activate':
+      return handleActivate(args)
+    case '--deactivate':
+      return handleDeactivate()
+    case '--activate-file':
+      return handleActivateFile(args)
+    case '--deactivate-file':
+      return handleDeactivateFile()
+    case '--status':
+      return printStatus()
+    case '--verify':
+      return handleVerify()
+    default:
+      console.log(NOTICE)
+      console.log('')
+      printStatus()
   }
-
-  if (flag === '--deactivate') {
-    console.log(clearLicenseKey() ? `Removed ${licenseKeyPath()}` : 'No activated key on this machine.')
-    return
-  }
-
-  if (flag === '--status') {
-    printStatus()
-    return
-  }
-
-  if (flag === '--verify') {
-    const status = licenseStatus()
-    printStatus()
-    const found = status.source ? true : false
-    if (!found) {
-      console.log(UNLICENSED_NOTICE)
-      process.exitCode = 1
-      return
-    }
-    const { readLicenseKey } = await import('../license/status.js')
-    const { verifyOnline } = await import('../license/verifyOnline.js')
-    console.log('Checking with api.keygen.sh (this is the only network call llm-fw makes for licensing)...')
-    const result = await verifyOnline(readLicenseKey()!.key)
-    console.log(`  ${result.code ? `[${result.code}] ` : ''}${result.detail}`)
-    // null (unreachable) is not a failure: an offline machine has not been shown
-    // to be unlicensed, so it must not be reported as one.
-    if (result.valid === false) process.exitCode = 1
-    return
-  }
-
-  console.log(NOTICE)
-  console.log('')
-  printStatus()
 }
