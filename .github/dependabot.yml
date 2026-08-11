@@ -16,12 +16,15 @@ updates:
     cooldown:
       default-days: 7
 
-  # The Semgrep workflow installs from a hash-pinned requirements file. Pinning
-  # without an update path just means running a frozen scanner, so let
-  # Dependabot move the pins. It rewrites the hashes with the versions.
-  - package-ecosystem: pip
-    directory: /.github/workflows
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
+  # No pip ecosystem for .github/workflows/semgrep-requirements.txt, on purpose.
+  #
+  # That file is a fully-resolved lock, not a manifest: semgrep is the only real
+  # input and the other 65 entries are pins semgrep itself dictates. Dependabot
+  # reads it as a flat requirement list and bumps entries one at a time, which
+  # produces installs that cannot resolve — semgrep 1.172.0 hard-pins
+  # mcp==1.23.3, so a PR moving mcp to 1.28.1 fails with ResolutionImpossible.
+  # Six such PRs appeared within an hour of adding the ecosystem here.
+  #
+  # Regenerate the whole file with uv instead; the command is in its header.
+  # The Semgrep job fails loudly if the lock is ever unsatisfiable, so a stale
+  # or broken pin cannot pass silently.

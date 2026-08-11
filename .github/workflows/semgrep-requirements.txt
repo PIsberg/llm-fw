@@ -9,7 +9,17 @@
 # Regenerate after bumping semgrep or changing the runner's Python:
 #
 #   echo "semgrep==<version>" > semgrep.in
-#   uv pip compile semgrep.in --generate-hashes --no-header #     --python-version 3.12 --python-platform x86_64-unknown-linux-gnu #     -o .github/workflows/semgrep-requirements.txt
+#   uv pip compile semgrep.in --generate-hashes --no-header
+#        --python-version 3.12
+#        --python-platform x86_64-unknown-linux-gnu
+#        -o .github/workflows/semgrep-requirements.txt
+#
+#   (one line; split here only for width)
+#
+# Regenerate the WHOLE file. Editing one entry does not work: semgrep is the
+# only real input here and the rest are pins semgrep dictates, so moving one on
+# its own gives pip a ResolutionImpossible (semgrep 1.172.0 hard-pins
+# mcp==1.23.3). This is also why there is no pip ecosystem in dependabot.yml.
 #
 # uv rather than `pip --dry-run --report`: pip evaluates environment markers
 # against the machine it runs on, so resolving from Windows drags in
