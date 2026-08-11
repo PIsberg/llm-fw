@@ -19,11 +19,8 @@
 // `unconfigured` rather than pretending a key is bad, so a shipped-but-
 // unconfigured build never accuses a paying customer of piracy.
 
-// TODO(release): paste the real values from the Keygen dashboard before cutting
-// the first licensed release. `llm-fw doctor` reports an unconfigured build as a
-// warning rather than silently accepting every key.
-const KEYGEN_ACCOUNT_ID = ''
-const KEYGEN_PUBLIC_KEY = ''
+const KEYGEN_ACCOUNT_ID = 'e32e3ad2-6680-45ea-81e0-df983822fdd0'
+const KEYGEN_PUBLIC_KEY = 'b3e5aa9ce5b26e60f85bb144d8f8a261245f266b14d8dd34d0b7bee4ce398010'
 
 /** Keygen account UUID. Override for staging with LLM_FW_KEYGEN_ACCOUNT. */
 export function keygenAccountId(): string {
