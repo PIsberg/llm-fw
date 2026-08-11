@@ -73,9 +73,9 @@ To guarantee E2E tests run reliably on both local developer machines and offline
 2.  **In-Memory Root CA Generation**:
     The suite instantiates a test-isolated Root CA inside the temp directory using `node-forge`. The proxy's certificate factory automatically loads this local CA to intercept and sign hostnames.
 3.  **Mock Upstream HTTPS Server**:
-    A secure local HTTPS server is started on a random port to act as the target LLM API (`api.anthropic.com`). It records incoming payloads and serves mock API JSON responses.
+    A secure local HTTPS server is started on a random port to act as the target LLM API (`api.anthropic.com`). It records incoming payloads and serves mock API JSON responses. Its certificate is issued by a throwaway CA (`test/proxy/lib/tls-trust.ts`) which the suite adds to the process trust store for the duration of the file, so the proxy's outbound leg verifies it normally.
 4.  **Network Tunnel Simulation**:
-    A raw TCP client connects to the active `ProxyServer` port, issues an HTTP `CONNECT` command, upgrades the socket to TLS (passing `rejectUnauthorized: false` to trust the dynamic CA cert), and transmits requests.
+    A raw TCP client connects to the active `ProxyServer` port, issues an HTTP `CONNECT` command, upgrades the socket to TLS — verifying the proxy's MITM certificate against the proxy's own CA, not `rejectUnauthorized: false` — and transmits requests.
 5.  **Teardown**:
     Upon suite completion (`afterAll`), all servers are shut down, and the sandbox directory is recursively deleted.
 

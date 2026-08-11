@@ -11,35 +11,17 @@ import tls from 'node:tls'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import forge from 'node-forge'
 import { ProxyServer } from '../../../src/proxy/proxy.js'
 import { EventBus } from '../../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../../src/config/config.js'
 import { UpstreamResolver } from '../../../src/proxy/upstream.js'
 import { CertFactory } from '../../../src/proxy/certs.js'
+import { issueUpstreamCert, trustCA } from '../../proxy/lib/tls-trust.js'
 import type { Config } from '../../../src/types.js'
 
 // Redirect all DNS lookups to localhost so the proxy hits our mock upstream.
 // Must be patched before any ProxyServer instance is created.
 ;(UpstreamResolver.prototype as any).resolve = (_h: string) => Promise.resolve('127.0.0.1')
-
-function buildSelfSignedCert(): { key: string; cert: string } {
-  const keys = forge.pki.rsa.generateKeyPair(2048)
-  const cert = forge.pki.createCertificate()
-  cert.publicKey = keys.publicKey
-  cert.serialNumber = '01'
-  cert.validity.notBefore = new Date()
-  cert.validity.notAfter = new Date()
-  cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1)
-  const attrs = [{ name: 'commonName', value: 'mock-upstream' }]
-  cert.setSubject(attrs)
-  cert.setIssuer(attrs)
-  cert.sign(keys.privateKey)
-  return {
-    key: forge.pki.privateKeyToPem(keys.privateKey),
-    cert: forge.pki.certificateToPem(cert),
-  }
-}
 
 function dechunk(body: string): string {
   let pos = 0, result = ''
@@ -72,14 +54,15 @@ const REQUEST_TIMEOUT_MS = 10_000
 export async function setupHarness(proxyPort: number, dashPort: number): Promise<Harness> {
   const tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-load-'))
   process.env.LLM_FW_DIR = tempDir
-  // Allow the proxy's dynamically-generated CA to be accepted by Node TLS.
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+  const proxyCaPem = new CertFactory().generateCA().cert
 
-  new CertFactory().generateCA()
+  // Both TLS legs stay verified: the proxy checks the mock upstream against the
+  // throwaway CA trusted here, and send() checks the proxy against its own CA.
+  const upstreamCert = issueUpstreamCert(TARGET_HOST)
+  const restoreTrust = trustCA(upstreamCert.ca)
 
   // Mock upstream HTTPS server — accepts any request and returns a dummy 200.
-  const mockCerts = buildSelfSignedCert()
-  const mockUpstream = https.createServer(mockCerts, (req, res) => {
+  const mockUpstream = https.createServer({ key: upstreamCert.key, cert: upstreamCert.cert }, (req, res) => {
     let body = ''
     req.on('data', c => { body += c })
     req.on('end', () => {
@@ -147,7 +130,7 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
           return resolve({ statusCode: parseInt(firstLine.split(' ')[1] ?? '502', 10), latencyMs: Date.now() - t0 })
         }
 
-        const tlsSocket = tls.connect({ socket, servername: TARGET_HOST, rejectUnauthorized: false }, () => {
+        const tlsSocket = tls.connect({ socket, servername: TARGET_HOST, ca: proxyCaPem, rejectUnauthorized: true }, () => {
           const bodyLen = Buffer.byteLength(body)
           tlsSocket.write(
             `POST /v1/messages HTTP/1.1\r\n` +
@@ -184,7 +167,7 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
     })
 
   const teardown = async () => {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
+    restoreTrust()
     await proxy.stop()
     await new Promise<void>(r => mockUpstream.close(() => r()))
     try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch {}
