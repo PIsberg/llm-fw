@@ -21,7 +21,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Cleared 12 npm advisories and bumped every pinned GitHub Action. The proxy test suite now verifies TLS instead of switching verification off. Added a security policy (`SECURITY.md`).
+- **Cleared all 12 open npm advisories**; `npm audit` now reports 0. Six went with `npm audit fix` (brace-expansion, fast-uri, js-yaml, nanoid, postcss, protobufjs). Three needed an `overrides` entry because the direct parent still pinned the vulnerable range, which is why both npm and Scorecard reported them as "no fix available":
+  - `qs` 6.15.1 → 6.15.3 (GHSA-q8mj-m7cp-5q26), via `@stryker-mutator/core`. Dev-only.
+  - `adm-zip` 0.5.18 → 0.6.0 (GHSA-xcpc-8h2w-3j85), via `@huggingface/transformers` → `onnxruntime-node`, which uses it to unpack the native ONNX binary at install time.
+  - `sharp` 0.34.5 → 0.35.3 (GHSA-f88m-g3jw-g9cj, four libvips CVEs), a direct dependency of `@huggingface/transformers`. llm-fw imports only the text pipelines, so sharp is never on a path this project executes; the bump stops the vulnerable copy from shipping.
+
+  Dependabot alerts had been switched off on the repository, so none of these were being surfaced.
+
+- **The proxy end-to-end suites now verify TLS instead of switching verification off.** Every one of them opened with `NODE_TLS_REJECT_UNAUTHORIZED=0` and connected with `rejectUnauthorized: false`, which disabled certificate checking for every socket in the worker — including the ones under assertion. The mock upstream certificates carried no `subjectAltName` at all, which Node has rejected since v18, and all 14 suites passed anyway. Both legs are checked for real now, so the suites can actually notice the proxy serving a chain no client would accept. (CodeQL `js/disabling-certificate-validation`.)
+
+- **The Semgrep CI job installs from a hash-pinned requirements file.** `pip install semgrep` re-resolved the whole tree on every run, so a compromised release of Semgrep or any of its 65 transitive dependencies would have executed in CI. `--require-hashes` makes pip refuse anything not pinned to a version and a sha256. (Scorecard Pinned-Dependencies.)
+
+- **Every pinned GitHub Action bumped** — 26 `uses:` refs across 8 workflows, including `actions/setup-python` v6 → v7 and `ossf/scorecard-action` v2.4.3 → v2.4.4, neither of which Dependabot had opened a PR for.
+
+- **Runtime and tooling dependencies updated**, notably `cosmiconfig` 9 → 10 and `node-forge` 1.3.1 → 1.4.0, plus the dev toolchain (eslint 10.5 → 10.8.1, vitest 4.1.7 → 4.1.10, typescript-eslint 8.61 → 8.67, knip 6.16 → 6.32, tsx 4.22 → 4.23, Playwright 1.60 → 1.62.1).
+
+- **Added a security policy** (`SECURITY.md`) with a private reporting route.
+
+- Three MCP advisories in the Semgrep job's Python manifest (GHSA-hvrp-rf83-w775, GHSA-jpw9-pfvf-9f58, GHSA-vj7q-gjh5-988w in `mcp` 1.23.3) are allow-listed in `dependency-review`. All three are MCP *server-side* issues and nothing here runs an MCP server; the exposure is not new, since the previously unpinned install resolved the same package. Hash-pinning only made it visible.
+
+### Internal
+
+- `test/config/hotReload.test.ts` waits for the config watcher instead of sleeping a flat 500ms. `fs.watch` delivery is not synchronous with the write, so under load the event plus debounce overran that budget and failed a test with nothing wrong. The cold-key case was the worst of them: its sibling assertion passed either way, because "the event has not arrived" and "the cold key was correctly refused" are indistinguishable from outside.
+
+- The nightly benchmark trend history writes to the `bench-trend-data` branch rather than protected `main`.
 
 ## [0.4.0] - 2026-08-11
 
