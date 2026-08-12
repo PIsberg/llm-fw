@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/**, fix/**, chore/**]
+    # release/** matters as much as the rest: a release branch outlives its PR.
+    # When 0.4.1's PR was merged early, later pushes to the branch stopped
+    # triggering `pull_request` and matched nothing here, so two commits sat
+    # unverified while `gh pr checks` kept reporting green from the merged SHA.
+    branches: [main, feat/**, fix/**, chore/**, release/**]
   pull_request:
     branches: [main]
 
