@@ -62,6 +62,12 @@ what lets a customer's machine check a file with no network and no account. The 
 refuses to overwrite an existing `private.pem`: rotating it invalidates every file already
 issued against released versions.
 
+> **Published builds ship this constant empty.** As of 0.4.1 the npm package has no
+> compiled-in offline verify key, so offline licensing reports `unconfigured` and
+> `--activate-file` will not accept a file. Either build from source with the constant
+> filled in, or set `LLM_FW_OFFLINE_LICENSE_KEY` to the hex public key at runtime.
+> Keygen-issued licence keys are unaffected.
+
 ### Issue a file
 
 ```bash

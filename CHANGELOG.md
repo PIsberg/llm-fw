@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-12
+
 ### Added
 
 - **Offline licence files** — a second, Keygen/Paddle-independent way to license a machine: `llm-fw license --activate-file <path>` (or `LLM_FW_LICENSE_FILE`) activates a signed `.lfw-license` file with no network call and no Keygen account behind it, for custom deals, complementary licences, and OSS grants. Verified against a separate Ed25519 signing key (`OFFLINE_LICENSE_VERIFY_KEY` in `src/license/account.ts`), issued with `scripts/issue-offline-license.ts`. When both an offline file and a Keygen key are present, the offline file wins. See `docs/LICENSING.md`.
+
+  **This build ships without an offline verify key configured.** `OFFLINE_LICENSE_VERIFY_KEY` is empty, so offline licensing reports `unconfigured` and `--activate-file` will not accept a file. Set `LLM_FW_OFFLINE_LICENSE_KEY` to the hex public key of your signing keypair to enable it. Keygen-issued licence keys are unaffected and behave as they did in 0.4.0.
+
+### Fixed
+
+- The dashboard JSON API no longer echoes exception detail in its error responses, which could disclose internal paths and stack frames to any client able to reach the dashboard port.
+
+### Security
+
+- Cleared 12 npm advisories and bumped every pinned GitHub Action. The proxy test suite now verifies TLS instead of switching verification off. Added a security policy (`SECURITY.md`).
 
 ## [0.4.0] - 2026-08-11
 
@@ -160,7 +172,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/PIsberg/llm-fw/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/PIsberg/llm-fw/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PIsberg/llm-fw/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PIsberg/llm-fw/compare/v0.1.0...v0.2.0
