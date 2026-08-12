@@ -73,14 +73,33 @@ node --import tsx/esm scripts/run-benchmark.ts <preset> [ollama-model] [--json] 
 `.github/workflows/nightly.yml` runs the cheap preset (no Ollama, no
 classifier download) over `heldout`, `safeguard-prompt-injection`, and
 `injecagent` every night, appends `{ dateFromCI, commit, split, recall, fpr }`
-rows to [`docs/load-results/bench-trend.jsonl`](load-results/bench-trend.jsonl),
-and fails the run if any split's recall drops more than 3 points or FPR rises
-more than 1 point vs. the median of that split's last 7 runs
-(`scripts/bench-trend.ts`, `checkDrift`) — a silent regression from a
-dependency bump or a change elsewhere in the pipeline gets caught within a
-day instead of at the next manual benchmark pass. The trend file is committed
-back by the workflow itself (`github-actions[bot]`) regardless of pass/fail,
-since a regressed run is still a valid data point for future medians.
+rows to the accumulated history, and fails the run if any split's recall drops
+more than 3 points or FPR rises more than 1 point vs. the median of that
+split's last 7 runs (`scripts/bench-trend.ts`, `checkDrift`) — a silent
+regression from a dependency bump or a change elsewhere in the pipeline gets
+caught within a day instead of at the next manual benchmark pass. The history
+is written back by the workflow itself (`github-actions[bot]`) regardless of
+pass/fail, since a regressed run is still a valid data point for future
+medians.
+
+That history lives on the orphan branch
+[`bench-trend-data`](https://github.com/PIsberg/llm-fw/blob/bench-trend-data/bench-trend.jsonl),
+one JSONL file at its root, not on `main`. `main` requires a pull request and
+an approving review, so a scheduled job cannot push to it — before the split
+the nightly commit-back failed with `GH006: Protected branch update failed`.
+The nightly run fetches that branch, appends, and pushes it back; nothing
+triggers on it, so the push starts no further CI.
+
+To read the history locally:
+
+```bash
+git fetch origin bench-trend-data
+git show origin/bench-trend-data:bench-trend.jsonl
+```
+
+`npm run bench:trend` on its own writes to `docs/load-results/bench-trend.jsonl`
+(git-ignored) so a local run never touches the shared history. Point it at a
+fetched copy with `--file=` to reproduce the gate as CI evaluates it.
 
 ## Results
 

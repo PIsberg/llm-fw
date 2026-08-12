@@ -24,3 +24,8 @@ scratch/
 # docs/TESTING.md instead.
 .stryker-tmp/
 reports/mutation/
+
+# Local `npm run bench:trend` output. The shared nightly history lives on the
+# bench-trend-data branch (see docs/BENCHMARK.md), not on main — a local run
+# writing here must never be committed back into the tracked tree.
+docs/load-results/bench-trend.jsonl
