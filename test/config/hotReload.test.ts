@@ -17,6 +17,38 @@ function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+/**
+ * How long a real fs.watch delivery plus the 30ms debounce is allowed to take.
+ *
+ * Generous on purpose: it is an upper bound that only shows up in the failure
+ * path, not a delay every run pays. waitFor returns as soon as the condition
+ * holds, so raising this costs nothing when the watcher is working.
+ */
+const WATCH_SETTLE_MS = 5000
+
+/** Window the disabled-watcher test waits out. See its comment for why it is short. */
+const DISABLED_WATCH_WINDOW_MS = 500
+
+/**
+ * Poll until `predicate` holds, or fail saying what never happened.
+ *
+ * These suites used to write a file, sleep a flat 500ms and assert. fs.watch
+ * delivery is not synchronous with the write, and on a loaded machine the event
+ * plus debounce overruns that budget often enough to flake — twice in three
+ * full local runs while preparing 0.4.1, on two different tests in this file.
+ * The failure was also actively misleading: in the cold-key test the sibling
+ * assertion on live.proxy.port passed, because "not applied yet" and "correctly
+ * refused" look identical from outside.
+ */
+async function waitFor(predicate: () => boolean, what: string, timeoutMs = WATCH_SETTLE_MS): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await wait(10)
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`)
+}
+
 // The classic system-override phrase — heuristic.ts's 'system-override' rule
 // (weight 50) matches it, so it is a reliable trigger regardless of the exact
 // threshold value chosen below.
@@ -111,7 +143,7 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
 
     // Low enough that the SAME phrase now blocks.
     fs.writeFileSync(configPath, JSON.stringify({ detection: { heuristicBlockThreshold: 10 } }), 'utf8')
-    await wait(500)
+    await waitFor(() => live.detection.heuristicBlockThreshold === 10, 'the edited threshold to be applied')
 
     expect(live.detection.heuristicBlockThreshold).toBe(10)
     const after = await pipeline.run('/v1/messages', ATTACK, META)
@@ -136,7 +168,7 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
     // Write-then-rename: the atomic-save pattern editors/config writers use.
     fs.writeFileSync(tmpPath, JSON.stringify({ detection: { heuristicBlockThreshold: 10 } }), 'utf8')
     fs.renameSync(tmpPath, configPath)
-    await wait(500)
+    await waitFor(() => live.detection.heuristicBlockThreshold === 10, 'the renamed-over config to be applied')
 
     expect(live.detection.heuristicBlockThreshold).toBe(10)
     expect((await pipeline.run('/v1/messages', ATTACK, META)).action).toBe('block')
@@ -155,10 +187,16 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
     handle = startConfigHotReload(live, { debounceMs: 30, log: (m) => messages.push(m) })
 
     fs.writeFileSync(configPath, JSON.stringify({ proxy: { port: 19191 } }), 'utf8')
-    await wait(500)
+    // The watcher fired once it has said something about proxy.port. Waiting on
+    // live.proxy.port is not an option here — a cold key is never applied, so
+    // "unchanged" reads the same before the event arrives and after it is
+    // deliberately ignored.
+    await waitFor(
+      () => messages.some(m => m.toLowerCase().includes('restart') && m.includes('proxy.port')),
+      'a restart-required message naming proxy.port',
+    )
 
     expect(live.proxy.port).toBe(18080) // NOT applied
-    expect(messages.some(m => m.toLowerCase().includes('restart') && m.includes('proxy.port'))).toBe(true)
   }, 10000)
 
   it('config.hotReload = false disables the watcher entirely', async () => {
@@ -172,7 +210,13 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
     handle = startConfigHotReload(live, { debounceMs: 30 })
 
     fs.writeFileSync(configPath, JSON.stringify({ detection: { heuristicBlockThreshold: 10 }, hotReload: false }), 'utf8')
-    await wait(500)
+    // Asserting an absence, so there is nothing to poll for — this one has to
+    // spend the wait. Deliberately short rather than WATCH_SETTLE_MS: the only
+    // way this test can be wrong is fail-open (a watcher that fires later than
+    // the window looks disabled), which costs a missed regression, not a red
+    // pipeline. Paying 5s on every run to narrow that is a bad trade, and the
+    // polling tests above are what actually establish the watcher is alive.
+    await wait(DISABLED_WATCH_WINDOW_MS)
 
     expect(live.detection.heuristicBlockThreshold).toBe(1000)
   }, 10000)
