@@ -62,11 +62,12 @@ what lets a customer's machine check a file with no network and no account. The 
 refuses to overwrite an existing `private.pem`: rotating it invalidates every file already
 issued against released versions.
 
-> **Published builds ship this constant empty.** As of 0.4.1 the npm package has no
-> compiled-in offline verify key, so offline licensing reports `unconfigured` and
-> `--activate-file` will not accept a file. Either build from source with the constant
-> filled in, or set `LLM_FW_OFFLINE_LICENSE_KEY` to the hex public key at runtime.
-> Keygen-issued licence keys are unaffected.
+> **Do not ship a release with this constant empty.** 0.4.0 did, and the result is
+> quiet rather than loud: `--activate-file` still saves the file, `llm-fw license
+> --status` reports `unverified` instead of `licensed`, and because `licenseStatus`
+> reads the offline file before it reads the Keygen key, an empty constant also
+> downgrades a customer who has a perfectly good online key. Nothing errors.
+> `test/license/offlineLicenseWiring.test.ts` now fails the build in that state.
 
 ### Issue a file
 

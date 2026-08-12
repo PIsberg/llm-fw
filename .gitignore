@@ -29,3 +29,10 @@ reports/mutation/
 # bench-trend-data branch (see docs/BENCHMARK.md), not on main — a local run
 # writing here must never be committed back into the tracked tree.
 docs/load-results/bench-trend.jsonl
+
+# Offline-licence signing material and issued files. The signing key belongs on
+# the operator machine only (docs/LICENSING.md); committing it would let anyone
+# mint licences that the released build accepts. Issued .lfw-license files are
+# customer documents, not source.
+*.pem
+*.lfw-license

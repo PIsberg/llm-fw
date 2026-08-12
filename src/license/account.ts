@@ -45,10 +45,12 @@ export function isKeygenConfigured(): boolean {
 // (see offlineLicense.ts) — custom deals, complementary licences, OSS grants —
 // with no Keygen policy or Paddle transaction behind them. Generate the
 // signing keypair with `scripts/issue-offline-license.ts keygen <dir>`; the
-// private key must stay on the operator machine only. Empty until then, same
-// as the Keygen key above: an unconfigured build reports `unconfigured`,
-// never accuses a file of being forged.
-const OFFLINE_LICENSE_VERIFY_KEY = ''
+// private key must stay on the operator machine only. An unconfigured build
+// reports `unconfigured`, same as the Keygen key above, and never accuses a
+// file of being forged — but it also silently shadows a working Keygen key
+// (see licenseStatus in status.ts), so a release must not ship this empty.
+// test/license/offlineLicenseWiring.test.ts fails the build if it does.
+const OFFLINE_LICENSE_VERIFY_KEY = '289705545ee9a8bf796ea18f8e6f306b8e92da40844c0dfb38fbb940e2106caa'
 
 /** Offline-licence-file Ed25519 verify key, hex. Override with LLM_FW_OFFLINE_LICENSE_KEY. */
 export function offlineLicenseVerifyKey(): string {
