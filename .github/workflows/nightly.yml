@@ -4,10 +4,11 @@ name: Nightly Benchmark Trend
 # (heldout, safeguard-prompt-injection, injecagent — no Ollama, no classifier
 # download; heuristic + embedding stages only) and fails the run if either
 # metric drifts beyond tolerance vs. the last-7-run median for that split
-# (scripts/bench-trend.ts). The updated docs/load-results/bench-trend.jsonl is
-# committed back by the workflow itself using the default GITHUB_TOKEN and the
-# standard github-actions[bot] identity — no such commit-back pattern exists
-# yet elsewhere in this repo's workflows, so this establishes it.
+# (scripts/bench-trend.ts). The accumulated history is a single JSONL file on
+# the orphan branch `bench-trend-data`, fetched at the start of the run and
+# pushed back at the end with the default GITHUB_TOKEN under the standard
+# github-actions[bot] identity. It is deliberately not on main: main requires
+# a pull request and an approving review, which a scheduled job cannot supply.
 on:
   schedule:
     - cron: '37 3 * * *'
@@ -33,6 +34,10 @@ jobs:
       # Cheap preset does no batching/classifier inference, but keep the knob
       # available in case a future runner leans on it — matches other jobs.
       NODE_OPTIONS: '--max-old-space-size=4096'
+      # Where the accumulated trend history lives. Not main: see the comment
+      # on the "Fetch trend history" step below.
+      TREND_BRANCH: bench-trend-data
+      TREND_FILE: bench-trend.jsonl
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -58,29 +63,72 @@ jobs:
           path: ${{ github.workspace }}/.hf-model-cache
           key: llm-fw-model-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
+      # main is branch-protected (pull request + one approving review), so the
+      # nightly run cannot commit the trend history back to it. The history
+      # lives on the unprotected orphan branch $TREND_BRANCH instead: a single
+      # JSONL file at its root, sharing no history with main. No workflow
+      # triggers on that branch, so a push there starts no further CI.
+      - name: Fetch trend history
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin \
+            "+refs/heads/$TREND_BRANCH:refs/remotes/origin/$TREND_BRANCH" || true
+          if git rev-parse --verify --quiet "refs/remotes/origin/$TREND_BRANCH"; then
+            git show "origin/$TREND_BRANCH:$TREND_FILE" > "$TREND_FILE"
+            echo "Loaded $(wc -l < "$TREND_FILE") prior trend rows."
+          else
+            echo "::notice::Branch $TREND_BRANCH not found — starting an empty history. The drift gate stays inert until each split has a prior run to compare against."
+            : > "$TREND_FILE"
+          fi
+
       # Runs the cheap-preset benchmark, appends this run's {dateFromCI,
-      # commit, split, recall, fpr} rows to docs/load-results/bench-trend.jsonl,
-      # and exits non-zero if any split regressed beyond tolerance vs. the
-      # last-7-run median. continue-on-error so the (already-written) trend
-      # file is committed back below even on a failing/regressed run — a
-      # regressed run is still a valid data point for future medians.
+      # commit, split, recall, fpr} rows to $TREND_FILE, and exits non-zero
+      # if any split regressed beyond tolerance vs. the last-7-run median.
+      # continue-on-error so the (already-written) trend file is committed
+      # back below even on a failing/regressed run — a regressed run is
+      # still a valid data point for future medians.
       - name: Run benchmark + drift gate
         id: trend
         continue-on-error: true
-        run: npm run bench:trend -- --only=heldout,safeguard-prompt-injection,injecagent
+        run: npm run bench:trend -- --file="$TREND_FILE" --only=heldout,safeguard-prompt-injection,injecagent
 
+      # Built with plumbing rather than `git commit`: the working tree here is
+      # main's, and the data branch must hold only $TREND_FILE. commit-tree
+      # against a scratch index produces that one-file commit without
+      # disturbing the checkout or switching branches.
       - name: Commit updated trend data
         if: always()
+        env:
+          GIT_AUTHOR_NAME: 'github-actions[bot]'
+          GIT_AUTHOR_EMAIL: 'github-actions[bot]@users.noreply.github.com'
+          GIT_COMMITTER_NAME: 'github-actions[bot]'
+          GIT_COMMITTER_EMAIL: 'github-actions[bot]@users.noreply.github.com'
         run: |
-          git add docs/load-results/bench-trend.jsonl
-          if git diff --cached --quiet; then
-            echo "No trend changes to commit."
+          set -euo pipefail
+          if [ ! -s "$TREND_FILE" ]; then
+            echo "No trend data written — nothing to commit."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "ci: nightly benchmark trend update [skip ci]"
-          git push
+
+          GIT_INDEX_FILE="$RUNNER_TEMP/trend.index"
+          export GIT_INDEX_FILE
+          rm -f "$GIT_INDEX_FILE"
+          blob="$(git hash-object -w "$TREND_FILE")"
+          git update-index --add --cacheinfo "100644,$blob,$TREND_FILE"
+          tree="$(git write-tree)"
+
+          msg='ci: nightly benchmark trend update [skip ci]'
+          if git rev-parse --verify --quiet "refs/remotes/origin/$TREND_BRANCH"; then
+            parent="$(git rev-parse "refs/remotes/origin/$TREND_BRANCH")"
+            if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+              echo "No trend changes to commit."
+              exit 0
+            fi
+            commit="$(git commit-tree "$tree" -p "$parent" -m "$msg")"
+          else
+            commit="$(git commit-tree "$tree" -m "$msg")"
+          fi
+          git push origin "$commit:refs/heads/$TREND_BRANCH"
 
       - name: Fail job if drift gate regressed
         if: steps.trend.outcome == 'failure'
