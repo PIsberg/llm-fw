@@ -104,50 +104,63 @@ fetched copy with `--file=` to reproduce the gate as CI evaluates it.
 ## Results
 
 Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
-is better. Per-dataset recall / FPR, cheap stages (heuristic + embedding)
-vs. cheap + the trained ONNX classifier:
+is better.
 
-The **cheap (default)** column now includes two deterministic detectors added
-to close the indirect-injection and harmful-content gaps Phase 1 measured:
-`indirectInstruction` (tool_result/document surface) and `harmfulRequest` (user
-prompt). They cost no model and run before the classifier — see
-[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) for the before/after.
+**Provenance.** The **cheap (default)** column was re-measured on 2026-08-13
+against ruleset `2026.08.4` by `node --import tsx/esm scripts/run-benchmark.ts
+cheap --json`; the counts below are that run's. The **classifier** column has
+NOT been re-measured since; it dates from the Round 6 run recorded in
+[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) and predates this
+ruleset, so it is marked accordingly rather than presented as current.
+
+This table previously carried figures from an earlier ruleset that had drifted
+on every row — understating jbb-behaviors by 74 points and harmbench by 23,
+while overstating gandalf by 4. Numbers written down once and left alone are a
+claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) | + Trained classifier |
+| Dataset | n | Cheap (default) — measured 2026-08-13 | + Trained classifier (not re-measured) |
 |---|---|---|---|
-| gandalf (real "ignore instructions" attacks) | 112 | 85.7% / — | **100% / —** |
-| safeguard (clean, balanced, full split) | 2,060 | 45.4% / 0.6% | **84.9% / 0.7%** |
-| deepset (noisy labels) | 116 | 16.7% / 0% | 41.7% / 0% |
-| heldout (hardest, adversarial benign) | 52 | 45.2% / 14.3% | 77.4% / 23.8% |
+| gandalf (real "ignore instructions" attacks) | 112 | 81.3% (91/112) / — | 100% / — ‡ |
+| safeguard (clean, balanced, full split) | 2,060 | 43.5% (283/650) / 0.21% (3/1,410) | 84.9% / 0.7% ‡ |
+| deepset (noisy labels) | 116 | 15.0% (9/60) / 0% (0/56) | 41.7% / 0% ‡ |
+| heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 9.5% (2/21) | 80.6% / 9.5% ‡ |
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) | + Trained classifier |
+| Dataset | n | Cheap (default) — measured 2026-08-13 | + Trained classifier (not re-measured) |
 |---|---|---|---|
-| injecagent (tool-result poisoning) | 1,071 | **95.2% / 0%** | 97.6% / 35.3%† |
+| injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
 
-The new surface-scoped detector lifts cheap-stage indirect-injection recall from
-0% to **95.2% at 0% FPR** — it catches the planted instruction before the
-classifier runs. Adding the classifier nudges recall to 97.6% but at 35% FPR (it
-fires on the instruction-shaped benign tool responses), so the cheap detector
-alone is the better operating point on this surface.
-† FPR over only 17 synthetic benign rows — indicative, not precise.
+The surface-scoped `indirectInstruction` detector catches the planted
+instruction before any model runs. Adding the classifier does not help here and
+costs a great deal of precision (35% FPR — it fires on instruction-shaped benign
+tool responses), so the cheap detector alone is the better operating point on
+this surface.
+
+† FPR over only 17 synthetic benign rows — indicative, not precise. The same
+caveat applies to heldout's 21 benign rows: a 9.5% FPR there is 2 prompts.
 
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) | + Trained classifier |
+| Dataset | n | Cheap (default) — measured 2026-08-13 | + Trained classifier (not re-measured) |
 |---|---|---|---|
-| jbb-behaviors (100 harmful / 100 benign) | 200 | **26.0% / 2.0%** | 26.0% / 3.0% |
-| harmbench | 400 | **18.2% / —** | 18.5% / — |
-| advbench | 520 | **40.4% / —** | 40.4% / — |
+| jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
+| harmbench | 400 | **41.0% (164/400) / —** | 18.5% / — ‡ |
+| advbench | 520 | **63.3% (329/520) / —** | 40.4% / — ‡ |
 
-The deterministic `harmfulRequest` rule lifts harmful-content recall 5–10× over
-the 2–4% baseline. The injection-specific classifier adds little on this threat
-model — the residual gap is the honest case for a trained content-moderation
-layer (PLAN-future Phase 5).
+‡ Measured on an earlier ruleset. Where the cheap column now exceeds it, that is
+staleness in the classifier column, not evidence that the classifier hurts —
+re-run `scripts/run-benchmark.ts classifier` to refresh it. Note the memory
+constraint: run the full splits per-split in subprocesses with
+`--max-old-space-size=8192`, or the single-process run dies silently on OOM.
+
+The deterministic `harmfulRequest` rule is what carries the harmful-content
+column. Its weakest class by far is harmbench `copyright` at **0/100** — a
+category of request the rule does not model at all, and the honest case for a
+trained content-moderation layer rather than more hand-written patterns.
 
 The generative judge, measured on deepset + heldout (qwen2.5:3b), as a contrast
 (measured on the earlier sampled splits; the conclusion is threshold-level, not
