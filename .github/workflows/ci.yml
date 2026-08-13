@@ -172,6 +172,25 @@ jobs:
           LOAD_FPR_MAX: '2.0'
           LOAD_TPR_MIN: '70.0'
 
+      # Scenario D gates the failure mode the other scenarios cannot see. The
+      # scorecard corpus was co-tuned to 100%/0%, so it cannot answer "does this
+      # block real benign traffic?"; this runs a HELD-OUT benign corpus weighted
+      # toward the shapes that have actually produced false positives here, and
+      # fails on the FIRST false positive in any category that currently has
+      # none. Recall has always been gated; this is the other half.
+      - name: Scenario D — False-positive SLO (held-out benign corpus)
+        run: npm run fpr
+        env:
+          FPR_OUTPUT_FILE: docs/load-results/fpr.json
+
+      - name: Upload false-positive report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: false-positive-report
+          path: docs/load-results/fpr.json
+          if-no-files-found: ignore
+
       - name: Upload scorecard
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

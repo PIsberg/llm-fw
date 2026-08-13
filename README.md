@@ -825,6 +825,8 @@ Both events appear in `GET http://localhost:7731/api/events`:
 
 Measured, not promised. The table below is regenerated from the labelled corpus by `npm run scorecard` and verified on every CI run (`docs/SCORECARD.md` carries the standalone copy).
 
+> **Read the false-positive page too.** This corpus was co-tuned with the heuristics it grades, so its 0% FPR cannot tell you what the firewall does to *your* traffic. [docs/FALSE-POSITIVES.md](docs/FALSE-POSITIVES.md) measures that against a held-out benign corpus and reports **13.38% (95% CI 8.7–20.0%)** on deliberately hard legitimate traffic, with a per-category breakdown of exactly what gets blocked and why. `npm run fpr` runs it; CI fails on the first false positive in any category that currently has none.
+
 <!-- scorecard:start -->
 Deterministic full sweep over the labelled corpus (110 attacks, 78 benign prompts incl. security-themed hard negatives) through the real proxy.
 Cheap stages only — **heuristic + embedding, judge off**; enabling the local Ollama judge raises recall further on novel phrasings.
