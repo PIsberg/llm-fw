@@ -352,6 +352,30 @@ export interface McpConfig {
 }
 
 /**
+ * Durable audit trail. Without it, events live only in the dashboard's
+ * in-memory ring (100 by default) and are lost on restart, which answers
+ * neither "show me every block last quarter" nor any retention requirement.
+ */
+export interface AuditConfig {
+  // Off by default so a package upgrade never starts writing to disk on its
+  // own. The container image and Helm chart turn it on. Also
+  // LLM_FW_AUDIT_ENABLED.
+  enabled: boolean;
+  // Newline-delimited JSON. Defaults to <LLM_FW_DIR>/audit.jsonl. Also
+  // LLM_FW_AUDIT_FILE.
+  file?: string;
+  // Rotate to <file>.1 past this size, keeping one previous generation.
+  maxFileBytes?: number;
+  // Whether the prompt text itself is written. OFF by default: payloads carry
+  // customer data and secrets, and turning on an audit log should not silently
+  // start persisting them. Also LLM_FW_AUDIT_PAYLOADS.
+  includePayloads?: boolean;
+  // Also POST batches to a collector (SIEM, webhook receiver). The file remains
+  // the durable record; this shipper drops rather than backlogs when the
+  // collector is unavailable. Also LLM_FW_AUDIT_WEBHOOK.
+  webhookUrl?: string;
+}
+/**
  * Reverse-proxy ("gateway") deployment — clients point their SDK `base_url` at
  * the firewall instead of installing its CA and setting HTTPS_PROXY. See
  * src/gateway/gateway.ts for why this is the deployment companies can actually
@@ -400,6 +424,7 @@ export interface Config {
   detection: DetectionConfig;
   dashboard: DashboardConfig;
   gateway?: GatewayConfig;
+  audit?: AuditConfig;
   dlp: DLPConfig;
   dos: DosConfig;
   rag: RagConfig;

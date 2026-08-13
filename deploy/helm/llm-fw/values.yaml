@@ -1,0 +1,101 @@
+image:
+  repository: llm-fw
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# More than one replica is safe: the gateway holds no cross-request state that
+# a second pod would need. The two features that DO keep per-client state
+# (cross-request crescendo memory, DoS quotas) are per-process, so with several
+# replicas they see only the share of traffic that lands on their own pod —
+# enable sessionAffinity below if you rely on them.
+replicaCount: 1
+
+gateway:
+  enabled: true
+  port: 8081
+  # Provider serving bare /v1/... paths that carry no /<provider>/ prefix.
+  defaultProvider: openai
+
+# The forward proxy (clients set HTTPS_PROXY and trust the firewall CA). Off by
+# default in Kubernetes: the gateway is the deployment that does not require
+# distributing a CA to every client.
+proxy:
+  enabled: false
+  port: 8080
+
+# The dashboard renders captured request payloads, so it is not exposed through
+# the ingress by default. Reach it with `kubectl port-forward`.
+dashboard:
+  enabled: true
+  port: 7731
+
+# Secrets. Either set `create: true` and put the values here (they land in a
+# Secret this chart manages), or point `existingSecret` at one you manage
+# elsewhere — External Secrets, Vault, sealed-secrets.
+#
+# gatewayToken is what clients present as X-Llm-Fw-Key. Leave it empty and the
+# pod generates one per restart, which means every rollout breaks your clients:
+# set it in any real deployment.
+secrets:
+  create: true
+  existingSecret: ""
+  gatewayToken: ""
+  dashboardToken: ""
+  # Upstream provider keys. Setting one puts the gateway in custody mode for
+  # that provider: clients never hold the provider credential.
+  providerKeys: {}
+    # anthropic: sk-ant-...
+    # openai: sk-...
+
+# Durable audit trail. Events are otherwise held in an in-memory ring and lost
+# on restart, which no compliance reviewer accepts.
+audit:
+  enabled: true
+  # Also stream every event to a collector (SIEM, webhook receiver).
+  webhookUrl: ""
+
+detection:
+  # The trained ONNX classifier lifts recall substantially but adds a ~700 MB
+  # model download unless the image was built with LLM_FW_WARM_CLASSIFIER=true.
+  classifierEnabled: false
+  # 'closed' refuses the request when the detection pipeline itself throws;
+  # 'open' forwards it unscanned and records an audit event. In front of a
+  # revenue path, 'open' plus an alert on llmfw_events_total{kind="error"} is
+  # usually the right trade — decide deliberately.
+  failMode: closed
+
+# Persistent state: CA key, config, false-positive suppressions, audit log.
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  # Pin a client to one pod so per-process state (crescendo memory, quotas)
+  # sees that client's whole conversation.
+  sessionAffinity: None
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: llm-fw.example.com
+  tls:
+    enabled: true
+    secretName: llm-fw-tls
+
+# The embedding model loads at startup, so the readiness probe is 503 for the
+# first several seconds. startupProbe covers that window rather than letting the
+# liveness probe restart a pod that is merely still loading.
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

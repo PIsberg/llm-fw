@@ -1,0 +1,38 @@
+{{- if .Values.ingress.enabled }}
+{{- /*
+  Only the gateway is routed. The dashboard renders captured request payloads
+  and the forward proxy speaks CONNECT, neither of which belongs behind a public
+  HTTP ingress — reach the dashboard with `kubectl port-forward`.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "llm-fw.fullname" . }}
+  labels:
+    {{- include "llm-fw.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "llm-fw.fullname" . }}
+                port:
+                  name: gateway
+{{- end }}

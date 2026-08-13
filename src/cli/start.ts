@@ -2,6 +2,7 @@ import { loadConfig } from '../config/config.js';
 import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
 import { GatewayServer } from '../gateway/gateway.js';
+import { AuditLog, AuditWebhook } from '../dashboard/auditLog.js';
 import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
@@ -246,12 +247,22 @@ export async function run(args: string[] = []): Promise<void> {
     } catch { }
   }
 
-  // Declared here, assigned far below once the config says the gateway is on:
-  // the shutdown handlers close over it, and they are registered before any IO
-  // so they must not reference a binding that is still in its dead zone.
+  // Declared here, assigned further below once the config is known: the
+  // shutdown handlers close over them, and they are registered before any IO,
+  // so they must not reference bindings still in their dead zone.
   let gateway: GatewayServer | null = null;
+  let auditLog: AuditLog | null = null;
+  let auditWebhook: AuditWebhook | null = null;
+  // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
+  // the record of the last seconds before a rollout — exactly the window
+  // someone goes looking for afterwards.
   const shutdown = (): Promise<unknown> =>
-    Promise.all([pipeline.close(), gateway ? gateway.stop() : Promise.resolve()]);
+    Promise.all([
+      pipeline.close(),
+      gateway ? gateway.stop() : Promise.resolve(),
+      auditWebhook ? auditWebhook.stop() : Promise.resolve(),
+      auditLog ? auditLog.close() : Promise.resolve(),
+    ]);
 
   // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
   // paths, so they also terminate the shared inference worker thread (Task
@@ -276,6 +287,23 @@ export async function run(args: string[] = []): Promise<void> {
   // dashboard playground), so GET /metrics reports on the whole process.
   const metrics = new MetricsRegistry();
   const eventBus = new EventBus(config.dashboard, metrics);
+
+  // Durable audit trail. Attached to the EventBus because that is the single
+  // funnel every block/warn/audit event already passes through, so nothing can
+  // appear on the dashboard and be missing from the record.
+  auditLog = config.audit?.enabled ? new AuditLog(config.audit) : null;
+  auditWebhook = config.audit?.enabled && config.audit.webhookUrl
+    ? new AuditWebhook(config.audit.webhookUrl)
+    : null;
+  if (auditLog) {
+    auditLog.open();
+    console.log(`Audit log: ${auditLog.filePath}${config.audit?.includePayloads ? ' (including payloads)' : ' (metadata only — set LLM_FW_AUDIT_PAYLOADS=true to include prompt text)'}`);
+  }
+  if (auditWebhook) {
+    auditWebhook.start();
+    console.log(`Audit webhook: ${config.audit?.webhookUrl}`);
+  }
+  eventBus.setAuditSinks(auditLog ?? undefined, auditWebhook ?? undefined);
   // Shared across the dashboard's playground pipeline and the proxy's live-
   // traffic pipeline (constructed below) so an operator marking a false
   // positive from the dashboard actually suppresses future real traffic —

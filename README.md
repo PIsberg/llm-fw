@@ -47,6 +47,9 @@
 - [Quick Start](#quick-start)
 - [Sinkhole mode — for Node.js tools and native binaries](#sinkhole-mode--for-nodejs-tools-and-native-binaries)
 - [Standalone server mode — one firewall for many clients](#standalone-server-mode--one-firewall-for-many-clients)
+- [Gateway mode — point base_url at the firewall (no CA install)](#gateway-mode--point-base_url-at-the-firewall-no-ca-install)
+- [Docker and Kubernetes](#docker-and-kubernetes)
+- [Audit log and SIEM export](#audit-log-and-siem-export)
 - [Running in development (from source)](#running-in-development-from-source)
 - [Uninstall](#uninstall)
 - [Run on startup (auto-start service)](#run-on-startup-auto-start-service)
@@ -385,6 +388,116 @@ All clients' traffic now appears in the server dashboard's **Live Traffic** tab,
 **Prometheus metrics.** `GET /metrics` on the dashboard port serves a hand-rolled Prometheus text exposition (no extra runtime dependency) — same auth gate as every other dashboard route. Counters: `llmfw_requests_total{surface}` (proxy live traffic vs. dashboard playground), `llmfw_blocks_total{stage}`, `llmfw_warns_total{stage}`, `llmfw_events_total{kind}`. A histogram `llmfw_scan_duration_ms` (buckets 5–2500ms) tracks overall pipeline scan latency. Gauges `llmfw_model_loaded{model="embedding"|"classifier"}` reflect whether each lazy-loaded model has finished initializing. On by default; disable with `dashboard.metrics: false` or `LLM_FW_METRICS_ENABLED=false`.
 
 ---
+
+## Gateway mode — point base_url at the firewall (no CA install)
+
+Standalone mode above is a **forward proxy**: it inspects traffic by intercepting TLS to the provider, so every client machine has to trust the llm-fw CA and set `HTTPS_PROXY`. That is fine on a dev box you control and a hard sell everywhere else — managed laptops, CI containers, serverless runtimes.
+
+Gateway mode inverts it. The firewall **is** the endpoint: clients set their SDK's `base_url` and speak ordinary HTTPS to a certificate you already own. No CA to distribute, nothing to configure per machine.
+
+```bash
+llm-fw start --gateway
+```
+
+Clients then point at it:
+
+```bash
+export ANTHROPIC_BASE_URL=https://fw.example.com/anthropic
+export OPENAI_BASE_URL=https://fw.example.com/openai/v1
+```
+
+Two path shapes are accepted:
+
+| Request path | Routed to |
+|---|---|
+| `/anthropic/v1/messages`, `/groq/v1/chat/completions`, … | that provider, prefix stripped |
+| `/v1/messages` | Anthropic (its own API shape) |
+| `/v1beta/models/...:generateContent` | Gemini |
+| `/v1/chat/completions` and other bare `/v1/…` | `gateway.defaultProvider` (default `openai`) |
+
+Anything else is a 404 — the gateway never guesses an upstream.
+
+**Client authentication.** Clients present a token as `X-Llm-Fw-Key` (or `Authorization: Bearer`). It is required automatically as soon as the listener is bound off-host; set `LLM_FW_GATEWAY_TOKEN` to pin it, or read the generated one from the startup log.
+
+**Key custody.** Set `LLM_FW_GATEWAY_KEY_<SLUG>` and the gateway holds the provider credential: it replaces whatever the client sent and strips every other credential header, so callers never hold the provider key and cannot route around your attribution.
+
+```bash
+export LLM_FW_GATEWAY_KEY_ANTHROPIC=sk-ant-...
+export LLM_FW_GATEWAY_KEY_OPENAI=sk-...
+```
+
+**TLS.** Run behind a load balancer or ingress that terminates TLS (the common case), or serve it directly with `LLM_FW_GATEWAY_TLS_CERT` / `LLM_FW_GATEWAY_TLS_KEY`.
+
+**Private endpoints.** A self-hosted vLLM or Ollama is a config entry, including a non-standard port and plain HTTP for in-cluster traffic:
+
+```json
+{
+  "gateway": {
+    "providers": {
+      "internal": { "host": "vllm.svc.cluster.local", "port": 8000, "protocol": "http", "auth": "bearer" }
+    }
+  }
+}
+```
+
+**Health endpoints.** `/healthz` and `/livez` answer immediately; `/readyz` returns 503 until the embedding model is loaded, so a rollout never routes traffic to an instance that cannot scan yet. All three answer before authentication, because a kubelet cannot present a token.
+
+**What differs from the proxy.** The gateway runs the full **request-side** pipeline (DLP + every injection stage). Response-side scanning — exfil URLs, harmful compliance, tool-use argument scanning — currently runs on the forward proxy only; the gateway streams responses through untouched.
+
+| | Forward proxy | Gateway |
+|---|---|---|
+| Client setup | CA install + `HTTPS_PROXY` | `base_url` only |
+| Works in CI / serverless | No | Yes |
+| Provider key custody | No | Yes |
+| Request-side detection | Yes | Yes |
+| Response-side detection | Yes | Not yet |
+| Covers non-LLM traffic (URL filter, taint) | Yes | No |
+
+---
+
+## Docker and Kubernetes
+
+The image bakes the embedding model in at build time, so the first request after a rollout is not a 30 MB download and the container works on an air-gapped network.
+
+```bash
+docker compose up -d
+```
+
+Put your secrets in a `.env` file next to `docker-compose.yml` first:
+
+```
+LLM_FW_GATEWAY_TOKEN=<long random string clients present>
+LLM_FW_DASHBOARD_TOKEN=<a different one>
+LLM_FW_GATEWAY_KEY_ANTHROPIC=sk-ant-...
+```
+
+For Kubernetes:
+
+```bash
+helm install llm-fw deploy/helm/llm-fw \
+  --set secrets.gatewayToken=<token> \
+  --set secrets.providerKeys.anthropic=sk-ant-...
+```
+
+The chart wires `startupProbe`/`readinessProbe` to `/readyz` so a pod that is still loading its model is never sent traffic, and mounts a PVC for the CA key, the false-positive suppression list, and the audit log. The dashboard is deliberately **not** exposed through the ingress — it renders captured request payloads; reach it with `kubectl port-forward`.
+
+Set a `secrets.gatewayToken`. Without one each pod generates its own at startup, so every rollout invalidates your clients' token.
+
+---
+
+## Audit log and SIEM export
+
+Events otherwise live only in an in-memory ring (100 by default) and are lost on restart, which answers no retention question.
+
+```bash
+LLM_FW_AUDIT_ENABLED=true llm-fw start
+```
+
+Writes newline-delimited JSON to `<LLM_FW_DIR>/audit.jsonl` — point Vector, Fluent Bit, or any log shipper at it. Every record carries the **ruleset version** that produced the verdict, so an audit read months later does not depend on knowing which build was deployed.
+
+Prompt text is **not** written unless you ask for it: payloads carry customer data and secrets, so `LLM_FW_AUDIT_PAYLOADS=true` is a deliberate opt-in. `LLM_FW_AUDIT_WEBHOOK=<url>` additionally POSTs batches to a collector; the file stays the durable record, and the shipper drops rather than backlogs when the collector is down.
+
+**Ruleset version.** Detection carries an identifier separate from the npm version (`2026.08.3` at the time of writing), because a patch release can move a threshold and a feature release can leave detection untouched. It appears in every block response and every audit record. A CI gate hashes every file that can change a verdict and fails until the version is cut, so the identifier cannot drift from the rules it names.
 
 ## Running in development (from source)
 

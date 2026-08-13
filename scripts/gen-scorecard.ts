@@ -34,6 +34,7 @@ interface SweepResult {
     p95LatencyMs: number
   }
   passed: boolean
+  failures?: string[]
 }
 
 const README_START = '<!-- scorecard:start -->'
@@ -96,6 +97,16 @@ function main(): void {
     process.exit(sweep.status ?? 1)
   }
 
+  // A failed sweep must not publish its numbers. A failure is either a
+  // detection regression or a broken harness — and a harness where nothing
+  // reached the proxy grades every class 0/0, so writing that out would replace
+  // the committed measurements with an artefact of the failure and present it
+  // as the product's accuracy. Keep the last good scorecard and let CI go red.
+  if (!data.passed) {
+    console.error('\ngen-scorecard: sweep gate FAILED — leaving docs/SCORECARD.md untouched.')
+    for (const f of data.failures ?? []) console.error(`  • ${f}`)
+    process.exit(sweep.status || 1)
+  }
   const table = render(data)
   const doc = `# Detection Scorecard\n\n${table}\n`
   writeFileSync(join('docs', 'SCORECARD.md'), doc)

@@ -27,6 +27,7 @@ import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
+import { explainBlock } from '../detection/explain.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -213,6 +214,19 @@ export class ProxyServer {
    * token still gets a usable one.
    */
   get auth(): AuthPolicy { return this.authPolicy }
+
+  /**
+   * Dashboard base URL quoted in block responses, so a developer whose request
+   * was refused is told where to go rather than left to guess. Falls back to
+   * loopback when the dashboard is bound to every interface, since the wildcard
+   * address is not a usable link.
+   */
+  private dashboardUrl(): string | undefined {
+    const d = this.config.dashboard
+    if (!d) return undefined
+    const host = d.bindHost && d.bindHost !== '0.0.0.0' ? d.bindHost : '127.0.0.1'
+    return `http://${host}:${d.port}`
+  }
 
   private sinkholeServer: tls.Server | null = null
 
@@ -561,15 +575,23 @@ export class ProxyServer {
         chunks.push(Buffer.from(chunk))
         accumulatedBody += chunk.toString('utf-8')
 
+        let partialEventId = 'unknown'
         void this.pipeline.checkPartial(
           innerReq.url ?? '/',
           accumulatedBody,
-          { target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/' }
+          {
+            target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+            onEvent: (e) => { partialEventId = e.id },
+          }
         ).then((partialResult) => {
           if (partialResult && partialResult.action === 'block' && !blocked) {
             blocked = true
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify({ error: 'prompt injection detected', stage: partialResult.stage, score: partialResult.score }))
+            innerRes.end(JSON.stringify(explainBlock({
+              eventId: partialEventId,
+              result: partialResult,
+              dashboardUrl: this.dashboardUrl(),
+            })))
             innerReq.destroy()
           }
         }).catch(() => { })
@@ -746,6 +768,9 @@ export class ProxyServer {
       // behavior) blocks with the standard 403 response; 'open' forwards the
       // request upstream unscanned and only emits an audit event.
       let result: PipelineResult
+      // Set by the pipeline's per-run event hook below; quoted back to the
+      // client when this scan blocks so the block is traceable to one record.
+      let scanEventId = 'unknown'
       // Task C4 — timed at this call boundary (non-invasive: Pipeline.run()
       // itself is untouched) to feed llmfw_requests_total{surface="proxy"} +
       // the overall llmfw_scan_duration_ms histogram.
@@ -762,6 +787,9 @@ export class ProxyServer {
             isSandboxed: sb.sandboxed,
             sandboxConfidence: sb.confidence,
             sessionKey,
+            // Quote the exact event this scan stored, so a blocked client can be
+            // traced to one dashboard record instead of "whatever was last".
+            onEvent: (e) => { scanEventId = e.id },
           }
         )
         this.metrics?.recordScan('proxy', Date.now() - scanStart)
@@ -806,7 +834,11 @@ export class ProxyServer {
 
       if (result.action === 'block') {
         innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-        innerRes.end(JSON.stringify({ error: 'prompt injection detected', stage: result.stage, score: result.score }))
+        innerRes.end(JSON.stringify(explainBlock({
+          eventId: scanEventId,
+          result,
+          dashboardUrl: this.dashboardUrl(),
+        })))
         return
       }
 

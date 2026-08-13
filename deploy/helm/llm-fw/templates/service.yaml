@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llm-fw.fullname" . }}
+  labels:
+    {{- include "llm-fw.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  sessionAffinity: {{ .Values.service.sessionAffinity }}
+  selector:
+    {{- include "llm-fw.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- if .Values.gateway.enabled }}
+    - name: gateway
+      port: {{ .Values.gateway.port }}
+      targetPort: gateway
+    {{- end }}
+    {{- if .Values.proxy.enabled }}
+    - name: proxy
+      port: {{ .Values.proxy.port }}
+      targetPort: proxy
+    {{- end }}
+    {{- if .Values.dashboard.enabled }}
+    - name: dashboard
+      port: {{ .Values.dashboard.port }}
+      targetPort: dashboard
+    {{- end }}

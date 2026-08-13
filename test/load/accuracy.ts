@@ -15,6 +15,7 @@
  * Exit code: 0 = pass, 1 = threshold violated.
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { evaluateGate } from './lib/gate.js'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 import { setupHarness, printTable, fmtMs, percentile, type SendFn } from './lib/harness.js'
@@ -145,6 +146,10 @@ async function main(): Promise<void> {
     for (let i = 0; i < VUS; i++) requestLists.push(buildRequestList(benign, malicious, ITERATIONS))
     console.log(`  VUs: ${VUS}  |  Iterations/VU: ${ITERATIONS}  |  Total: ${VUS * ITERATIONS}  |  Benign: ${(BENIGN_RATIO * 100).toFixed(0)}%`)
   }
+  // How many requests this run intends to grade. Compared against the graded
+  // count at the end so a run that silently covered part (or none) of the
+  // corpus fails instead of reporting rates nobody can reproduce.
+  const planned = requestLists.reduce((sum, list) => sum + list.length, 0)
   console.log(`  FPR ceiling: ${FPR_MAX}%  |  TPR floor: ${TPR_MIN}%\n`)
 
   console.log('Initialising proxy and mock upstream (loading embedding model)…')
@@ -207,11 +212,10 @@ async function main(): Promise<void> {
       .map(m => [m.cls, m.prompt.replace(/\s+/g, ' ').slice(0, 60)]))
   }
 
-  const failures: string[] = []
-  if (fpr > FPR_MAX)
-    failures.push(`FPR ${fpr.toFixed(2)}% exceeds ceiling of ${FPR_MAX}% (${fp} benign blocked)`)
-  if (tpr < TPR_MIN && (tp + fn) > 0)
-    failures.push(`TPR ${tpr.toFixed(2)}% below floor of ${TPR_MIN}% (${fn} attacks missed)`)
+  const { failures } = evaluateGate({
+    tn, fp, tp, fn, errCount, planned,
+    fprMax: FPR_MAX, tprMin: TPR_MIN,
+  })
 
   const passed = failures.length === 0
 

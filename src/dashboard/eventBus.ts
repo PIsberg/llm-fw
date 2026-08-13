@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { getLlmFwDir } from '../config/paths.js'
 import { MetricsRegistry } from './metrics.js'
+import type { AuditSink } from './auditLog.js'
 
 export class EventBus {
   private ring: BlockEvent[] = []
@@ -26,6 +27,23 @@ export class EventBus {
   // / Events UI shows without a second wiring pass through every scanner in
   // proxy.ts. Optional so every existing call site (tests, scripts) that
   // doesn't care about metrics is unaffected.
+  // Durable sinks. Optional, and attached to emit() for the same reason the
+  // metrics registry is: this is the one place every block, warn and audit
+  // event already passes through, so nothing can be recorded on the dashboard
+  // and missing from the audit trail.
+  private auditLog?: AuditSink
+  private auditWebhook?: AuditSink
+
+  /**
+   * Attach the durable audit sinks. Separate from the constructor so the many
+   * existing call sites (tests, scripts, the playground pipeline) keep working
+   * unchanged and simply never write an audit record.
+   */
+  setAuditSinks(log?: AuditSink, webhook?: AuditSink): void {
+    this.auditLog = log
+    this.auditWebhook = webhook
+  }
+
   constructor(config: DashboardConfig, private metrics?: MetricsRegistry) {
     this.maxSize = config.maxEvents
     // Send SSE comment heartbeats every 15s to keep browser/proxy connections alive.
@@ -62,6 +80,11 @@ export class EventBus {
     this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
     for (const res of this.subscribers) res.write(data)
     this.metrics?.recordEvent(event)
+    // After the in-memory fan-out, never before: a slow or broken audit sink
+    // must not delay the dashboard stream or the request that produced this
+    // event. Both sinks swallow their own failures for the same reason.
+    this.auditLog?.write(event)
+    this.auditWebhook?.write(event)
     return event
   }
 

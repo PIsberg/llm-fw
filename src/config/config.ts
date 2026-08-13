@@ -125,6 +125,15 @@ export const DEFAULT_CONFIG: Config = {
     // LLM_FW_METRICS_ENABLED.
     metrics: true,
   },
+  // Durable audit trail (src/dashboard/auditLog.ts). OFF by default so an
+  // upgrade never silently starts writing to disk; the container image and the
+  // Helm chart turn it on, because an in-memory ring answers no retention
+  // question. Prompt text stays out of the file unless includePayloads is set.
+  audit: {
+    enabled: false,
+    maxFileBytes: 64 * 1024 * 1024,
+    includePayloads: false,
+  },
   // Reverse-proxy deployment. OFF by default — a package upgrade must never
   // start opening listeners on its own. `llm-fw start --gateway` (or
   // LLM_FW_GATEWAY_ENABLED=true) turns it on; see src/gateway/gateway.ts.
@@ -414,6 +423,10 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   // deliberately NOT here: they are read straight from LLM_FW_GATEWAY_KEY_<SLUG>
   // in the gateway itself, so a secret never lands in the merged config object
   // that the dashboard's settings view can read back.
+  LLM_FW_AUDIT_ENABLED: (c, v) => { if (c.audit) c.audit.enabled = v === 'true'; },
+  LLM_FW_AUDIT_FILE: (c, v) => { if (c.audit) c.audit.file = v; },
+  LLM_FW_AUDIT_PAYLOADS: (c, v) => { if (c.audit) c.audit.includePayloads = v === 'true'; },
+  LLM_FW_AUDIT_WEBHOOK: (c, v) => { if (c.audit) c.audit.webhookUrl = v; },
   LLM_FW_GATEWAY_ENABLED: (c, v) => { if (c.gateway) c.gateway.enabled = v === 'true'; },
   LLM_FW_GATEWAY_PORT: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && c.gateway) c.gateway.port = n; },
   LLM_FW_GATEWAY_BIND: (c, v) => { if (c.gateway) c.gateway.bindHost = v; },

@@ -1,0 +1,46 @@
+llm-fw is installed as {{ include "llm-fw.fullname" . }}.
+
+Point a client at the gateway (no CA install, no HTTPS_PROXY):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "llm-fw.fullname" . }} {{ .Values.gateway.port }}:{{ .Values.gateway.port }}
+
+  export ANTHROPIC_BASE_URL=http://localhost:{{ .Values.gateway.port }}/anthropic
+  export OPENAI_BASE_URL=http://localhost:{{ .Values.gateway.port }}/openai/v1
+
+Clients must present the gateway token as `X-Llm-Fw-Key` (or
+`Authorization: Bearer`).
+{{- if .Values.secrets.gatewayToken }}
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "llm-fw.secretName" . }} \
+    -o jsonpath='{.data.LLM_FW_GATEWAY_TOKEN}' | base64 -d
+{{- else }}
+
+  WARNING: no gatewayToken was set, so each pod GENERATES one at startup and it
+  changes on every restart — every rollout will break your clients. Read the
+  current one from the logs:
+
+    kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "llm-fw.fullname" . }} | grep 'Client token'
+
+  Set `secrets.gatewayToken` (or point `secrets.existingSecret` at a managed
+  Secret) before you rely on this.
+{{- end }}
+
+Dashboard (shows captured payloads — deliberately not exposed via ingress):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "llm-fw.fullname" . }} {{ .Values.dashboard.port }}:{{ .Values.dashboard.port }}
+
+Prometheus scrape endpoint: /metrics on the dashboard port, behind the same
+auth as the rest of the dashboard.
+
+{{- if not .Values.detection.classifierEnabled }}
+
+Detection is running the cheap stages only (heuristics + embeddings). The
+trained classifier raises recall substantially; enable it with
+`detection.classifierEnabled=true`, and build the image with
+LLM_FW_WARM_CLASSIFIER=true so the ~700 MB model is baked in rather than
+downloaded on first use.
+{{- end }}
+
+Response-side scanning (exfil, harmful compliance, tool-use) currently runs on
+the forward proxy only. The gateway applies the full request-side pipeline and
+streams responses through untouched.

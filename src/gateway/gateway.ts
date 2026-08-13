@@ -247,14 +247,18 @@ export class GatewayServer {
     }
 
     const started = Date.now();
-    const result = await this.pipeline.run(path, text, { target, method, path, sessionKey });
+    // Capture the id of the event THIS run stored, so the client is pointed at
+    // the record that actually describes their request. Reading the most recent
+    // event from the shared ring would attribute the wrong id under concurrent
+    // traffic — exactly when someone is trying to trace a block.
+    let eventId = 'unknown';
+    const result = await this.pipeline.run(path, text, {
+      target, method, path, sessionKey,
+      onEvent: e => { eventId = e.id; },
+    });
     this.metrics?.recordScan('gateway', Date.now() - started);
 
     if (result.action === 'block') {
-      // The pipeline emits its own event through the EventBus callback, so the
-      // id shown to the client has to come from the most recent one rather
-      // than a second event that would double-count in the dashboard.
-      const eventId = this.eventBus.getRecent(1, 0)[0]?.id ?? 'unknown';
       return {
         blocked: true, status: 403,
         body: explainBlock({ eventId, result, dashboardUrl }),
