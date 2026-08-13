@@ -35,6 +35,7 @@ import { RULESET_VERSION } from '../../src/detection/ruleset.js';
 import type { Config } from '../../src/types.js';
 import { wilsonInterval, sampleNeededFor, formatInterval } from './lib/wilson.js';
 import { evaluateFprGate } from './lib/fprGate.js';
+import { anthropicRequestFor, type EvalRow } from './lib/surfaces.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORPUS = join(HERE, 'data', 'benign-realistic.json');
@@ -82,8 +83,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   'agent-tool-definition': 1,
 };
 
-type Surface = 'prompt' | 'tool_result' | 'system' | 'tool_definition';
-interface Row { text: string; label: number; class?: string; surface?: Surface }
+type Row = EvalRow;
 
 /**
  * Deliver each row on the surface it would really arrive on.
@@ -93,27 +93,13 @@ interface Row { text: string; label: number; class?: string; surface?: Surface }
  * developer-authored and trusted (system is excluded by default; tool
  * definitions skip the fuzzy embedding stage). Feeding those rows in as user
  * messages — the obvious shortcut — measures a path production never takes and
- * manufactures false positives that no operator would ever see.
+ * manufactures false positives that no operator would ever see. The first run
+ * of this gate did exactly that and reported 2 extra blocks.
  *
- * The first run of this gate did exactly that and reported 3 blocks across
- * those two categories. They were an artefact of the harness, not of the
- * firewall.
+ * Shared with the benchmark runner rather than duplicated: when they each had
+ * their own builder they reported different FPRs for the same corpus.
  */
-const anthropic = (r: Row): string => {
-  const base = { model: 'claude-3-haiku-20240307', max_tokens: 1 };
-  switch (r.surface) {
-    case 'system':
-      return JSON.stringify({ ...base, system: r.text, messages: [{ role: 'user', content: 'Please continue.' }] });
-    case 'tool_definition': {
-      const tool = JSON.parse(r.text) as Record<string, unknown>;
-      return JSON.stringify({ ...base, tools: [tool], messages: [{ role: 'user', content: 'Which tool should I use?' }] });
-    }
-    case 'tool_result':
-      return JSON.stringify({ ...base, messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fpr', content: r.text }] }] });
-    default:
-      return JSON.stringify({ ...base, messages: [{ role: 'user', content: r.text }] });
-  }
-};
+const anthropic = (r: Row): string => anthropicRequestFor(r, 'toolu_fpr');
 
 interface ClassCount { n: number; blocked: number; examples: string[] }
 

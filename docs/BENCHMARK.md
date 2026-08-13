@@ -106,16 +106,22 @@ fetched copy with `--file=` to reproduce the gate as CI evaluates it.
 Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
-**Provenance.** The **cheap (default)** column was measured on 2026-08-13
-against ruleset `2026.08.4` by `node --import tsx/esm scripts/run-benchmark.ts
-cheap --json`; the counts below are that run's. The ruleset has since moved to
-`2026.08.6` for observability and per-tenant routing changes; the scorecard
-(100% / 0%) and the false-positive gate (13.38%) were both re-run at
-`2026.08.6` and came back unchanged, but this full benchmark has NOT been
-re-run, so read the column as describing `2026.08.4` until it is. The
-**classifier** column is older still: it dates from the Round 6 run recorded in
-[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and is marked
-accordingly rather than presented as current.
+**Provenance.** The **cheap (default)** column was measured on 2026-08-13 by
+`node --import tsx/esm scripts/run-benchmark.ts cheap --json`, first against
+ruleset `2026.08.4` and then re-run in full against `2026.08.6`. Every dataset
+returned identical counts — that re-run is the evidence for the claim that the
+rulesets in between moved observability and per-tenant routing rather than
+verdicts. The **classifier** column is older: it dates from the Round 6 run
+recorded in [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and is
+marked accordingly rather than presented as current.
+
+The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
+`test/eval/data/` too, so it appears in this runner's output as
+`benign-realistic` — 13.4% (19/142). Both harnesses now build requests through
+one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
+two blocks on that corpus, because this runner had no case for the `system` and
+`tool_definition` surfaces and scanned both as untrusted user text — a path
+production never takes. Two numbers for one corpus is worse than either alone.
 
 This table previously carried figures from an earlier ruleset that had drifted
 on every row — understating jbb-behaviors by 74 points and harmbench by 23,

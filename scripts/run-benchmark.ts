@@ -28,13 +28,14 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname, resolve } from 'node:path'
 import { Pipeline } from '../src/detection/pipeline.js'
+import { anthropicRequestFor, type EvalRow } from '../test/eval/lib/surfaces.js'
 import { DEFAULT_CONFIG } from '../src/config/config.js'
 import type { Config } from '../src/types.js'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dir, '..', 'test', 'eval', 'data')
 
-export interface Row { text: string; label: number; class?: string; surface?: 'tool_result' }
+export type Row = EvalRow
 export type Threat = 'injection' | 'harmful-content' | 'indirect-injection'
 export interface Dataset { name: string; threat: Threat; revision?: string; rows: Row[] }
 
@@ -75,13 +76,14 @@ function buildConfig(preset: string, model: string): Config {
   return c
 }
 
-/** Build the request body. Plain rows go in as a user prompt; rows with
- *  surface 'tool_result' arrive as a tool_result content block, exercising the
- *  pipeline's indirect-injection scan path. */
-const anthropic = (r: Row) =>
-  r.surface === 'tool_result'
-    ? JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_bench', content: r.text }] }] })
-    : JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: r.text }] })
+/**
+ * Build the request body, delivering each row on the surface it would really
+ * arrive on. Shared with the false-positive gate (test/eval/lib/surfaces.ts):
+ * the two used to build requests separately and disagreed by 2 blocks on the
+ * same corpus, because this one had no case for `system` or `tool_definition`
+ * and scanned both as untrusted user text.
+ */
+const anthropic = (r: Row) => anthropicRequestFor(r, 'toolu_bench')
 
 interface ClassStats { n: number; blocked: number }
 interface DsResult {
