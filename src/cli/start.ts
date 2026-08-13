@@ -1,6 +1,7 @@
 import { loadConfig } from '../config/config.js';
 import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
+import { GatewayServer } from '../gateway/gateway.js';
 import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
@@ -23,10 +24,18 @@ export function isStandalone(args: string[]): boolean {
   return args.includes('--standalone') || args.includes('--stand-alone');
 }
 
+/** True when the `start` args ask for the gateway (reverse-proxy) listener. */
+export function isGateway(args: string[]): boolean {
+  return args.includes('--gateway');
+}
+
 /**
  * Apply standalone-server overrides in place: force forward-proxy mode and bind
  * the proxy + dashboard to all interfaces so remote clients can reach them.
  * Explicit LLM_FW_*_BIND env vars take precedence over the 0.0.0.0 default.
+ *
+ * Binding off-host is exactly what turns the credential checks on (see
+ * src/auth.ts), so this also decides that clients will need a token.
  */
 export function applyStandaloneOverrides(
   config: Config,
@@ -35,6 +44,15 @@ export function applyStandaloneOverrides(
   config.proxy.mode = 'proxy';
   if (!env['LLM_FW_PROXY_BIND']) config.proxy.bindHost = '0.0.0.0';
   if (!env['LLM_FW_DASHBOARD_BIND']) config.dashboard.bindHost = '0.0.0.0';
+  if (config.gateway?.enabled && !env['LLM_FW_GATEWAY_BIND']) config.gateway.bindHost = '0.0.0.0';
+}
+
+/**
+ * Turn the gateway on from the command line. Kept separate from the config
+ * default (which is off) so `--gateway` is the single obvious way to try it.
+ */
+export function applyGatewayOverrides(config: Config): void {
+  if (config.gateway) config.gateway.enabled = true;
 }
 
 /** Best-effort primary non-internal IPv4 address, for printing client setup hints. */
@@ -94,6 +112,9 @@ export async function run(args: string[] = []): Promise<void> {
   // through this host. The sinkhole (local hosts-file redirect) is irrelevant
   // here — remote clients reach us purely as a forward HTTPS proxy — so it is
   // force-disabled below.
+  // Order matters: --gateway turns the listener on, then --standalone decides
+  // that every enabled listener binds off-host.
+  if (isGateway(args)) applyGatewayOverrides(config);
   if (standalone) applyStandaloneOverrides(config);
 
   const llmfwDir = getLlmFwDir();
@@ -225,13 +246,20 @@ export async function run(args: string[] = []): Promise<void> {
     } catch { }
   }
 
+  // Declared here, assigned far below once the config says the gateway is on:
+  // the shutdown handlers close over it, and they are registered before any IO
+  // so they must not reference a binding that is still in its dead zone.
+  let gateway: GatewayServer | null = null;
+  const shutdown = (): Promise<unknown> =>
+    Promise.all([pipeline.close(), gateway ? gateway.stop() : Promise.resolve()]);
+
   // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
   // paths, so they also terminate the shared inference worker thread (Task
   // C3, detection.workerInference) if one was ever spawned — a no-op
   // otherwise. uncaughtException exits immediately without waiting on it;
   // the worker thread dies with the process either way.
-  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
-  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
+  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); });
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();
@@ -299,6 +327,41 @@ export async function run(args: string[] = []): Promise<void> {
   const proxy = new ProxyServer(config, eventBus, suppressions, metrics);
   await proxy.init();
   proxy.start();
+
+  // Gateway (reverse-proxy) listener — opt-in, and additive: it runs alongside
+  // the forward proxy rather than replacing it, so a team can migrate clients
+  // to base_url one at a time instead of in a flag day.
+  if (config.gateway?.enabled) {
+    gateway = new GatewayServer(config, eventBus, suppressions, metrics);
+    await gateway.init();
+    gateway.start();
+    const gwHost = config.gateway.bindHost === '0.0.0.0' ? lanIPv4() : config.gateway.bindHost;
+    const scheme = config.gateway.tls ? 'https' : 'http';
+    console.log('');
+    console.log(`llm-fw GATEWAY listening on ${scheme}://${gwHost}:${config.gateway.port}`);
+    console.log('  Clients need no CA and no HTTPS_PROXY — point the SDK base_url here:');
+    console.log(`    Anthropic:  ${scheme}://${gwHost}:${config.gateway.port}/anthropic`);
+    console.log(`    OpenAI:     ${scheme}://${gwHost}:${config.gateway.port}/openai/v1`);
+    console.log(`    Default (bare /v1/... paths): ${config.gateway.defaultProvider}`);
+    if (gateway.auth.required) {
+      console.log(`  Client token (X-Llm-Fw-Key or Authorization: Bearer): ${gateway.auth.token}`);
+      if (gateway.auth.generated) {
+        console.log('    GENERATED for this run — set LLM_FW_GATEWAY_TOKEN to pin it.');
+      }
+    } else {
+      console.log('  ⚠ No client authentication (local-only bind).');
+    }
+    const custody = gateway.custodySlugs;
+    console.log(custody.length
+      ? `  Upstream key custody ON for: ${custody.join(', ')} — clients never see the provider key.`
+      : '  Upstream key custody OFF — clients send their own provider key (set LLM_FW_GATEWAY_KEY_<SLUG> to take custody).');
+    if (!config.gateway.tls) {
+      console.log('  Serving plain HTTP. Terminate TLS at a load balancer/ingress, or set');
+      console.log('  LLM_FW_GATEWAY_TLS_CERT / LLM_FW_GATEWAY_TLS_KEY to serve HTTPS directly.');
+    }
+    console.log('  Response-side scans (exfil/harm/tool-use) are proxy-only; the gateway');
+    console.log('  runs the full request-side pipeline and streams responses through.');
+  }
 
   if (config.proxy.bypass) {
     console.log('');

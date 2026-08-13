@@ -16,7 +16,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['test/proxy/**/*.e2e.test.ts'],
+    include: ['test/proxy/**/*.e2e.test.ts', 'test/gateway/**/*.e2e.test.ts'],
     fileParallelism: false,
     hookTimeout: 120000,
   },

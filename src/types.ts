@@ -351,10 +351,55 @@ export interface McpConfig {
   };
 }
 
+/**
+ * Reverse-proxy ("gateway") deployment — clients point their SDK `base_url` at
+ * the firewall instead of installing its CA and setting HTTPS_PROXY. See
+ * src/gateway/gateway.ts for why this is the deployment companies can actually
+ * roll out.
+ */
+export interface GatewayConfig {
+  // Off by default: enabling it opens a second listener, which should be a
+  // deliberate act rather than something a package upgrade does silently.
+  enabled: boolean;
+  port: number;
+  // Local-only by default, like the proxy. Container images and the Helm chart
+  // set 0.0.0.0 explicitly.
+  bindHost: string;
+  // Client credential, and whether to demand one. Same semantics as the proxy's
+  // (see ProxyConfig.authToken / requireAuth and src/auth.ts): required
+  // automatically once the listener is bound off-host. Also
+  // LLM_FW_GATEWAY_TOKEN / LLM_FW_GATEWAY_REQUIRE_AUTH.
+  authToken?: string;
+  requireAuth?: boolean;
+  // Provider slug serving bare OpenAI-compatible paths (`/v1/chat/completions`
+  // with no `/<provider>/` prefix), so a company standardised on one provider
+  // needs no path rewriting. Also LLM_FW_GATEWAY_DEFAULT_PROVIDER.
+  defaultProvider: string;
+  // Serve HTTPS directly from these PEM files. Omit when a load balancer or
+  // ingress terminates TLS in front of the gateway, which is the common case.
+  tls?: { certFile: string; keyFile: string };
+  // Add a private endpoint (self-hosted vLLM, an Azure resource) or override a
+  // built-in provider's host. `apiKey` puts the gateway in key-custody mode for
+  // that provider: the client's credential is replaced with this one, so
+  // callers never hold the provider key. Prefer the environment
+  // (LLM_FW_GATEWAY_KEY_<SLUG>) over a config file for the key itself.
+  providers?: Record<string, {
+    host?: string;
+    name?: string;
+    auth?: 'bearer' | 'x-api-key' | 'x-goog-api-key';
+    apiKey?: string;
+    // For in-cluster endpoints reached over a private network: a non-standard
+    // port, and 'http' when TLS is terminated elsewhere.
+    port?: number;
+    protocol?: 'https' | 'http';
+  }>;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
+  gateway?: GatewayConfig;
   dlp: DLPConfig;
   dos: DosConfig;
   rag: RagConfig;

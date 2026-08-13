@@ -125,6 +125,18 @@ export const DEFAULT_CONFIG: Config = {
     // LLM_FW_METRICS_ENABLED.
     metrics: true,
   },
+  // Reverse-proxy deployment. OFF by default — a package upgrade must never
+  // start opening listeners on its own. `llm-fw start --gateway` (or
+  // LLM_FW_GATEWAY_ENABLED=true) turns it on; see src/gateway/gateway.ts.
+  gateway: {
+    enabled: false,
+    port: 8081,
+    bindHost: '127.0.0.1',
+    // Bare `/v1/chat/completions` with no provider prefix goes here. OpenAI is
+    // the wire format almost every provider clones, so it is the safe default;
+    // point it at 'groq' or a private slug to standardise on another.
+    defaultProvider: 'openai',
+  },
   dlp: {
     enabled: true,
     mode: 'redact',
@@ -398,6 +410,22 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
   LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
   LLM_FW_METRICS_ENABLED: (c, v) => { c.dashboard.metrics = v === 'true'; },
+  // Gateway (reverse-proxy) listener. The per-provider upstream API keys are
+  // deliberately NOT here: they are read straight from LLM_FW_GATEWAY_KEY_<SLUG>
+  // in the gateway itself, so a secret never lands in the merged config object
+  // that the dashboard's settings view can read back.
+  LLM_FW_GATEWAY_ENABLED: (c, v) => { if (c.gateway) c.gateway.enabled = v === 'true'; },
+  LLM_FW_GATEWAY_PORT: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && c.gateway) c.gateway.port = n; },
+  LLM_FW_GATEWAY_BIND: (c, v) => { if (c.gateway) c.gateway.bindHost = v; },
+  LLM_FW_GATEWAY_TOKEN: (c, v) => { if (c.gateway) c.gateway.authToken = v; },
+  LLM_FW_GATEWAY_REQUIRE_AUTH: (c, v) => { if (c.gateway) c.gateway.requireAuth = v === 'true'; },
+  LLM_FW_GATEWAY_DEFAULT_PROVIDER: (c, v) => { if (c.gateway) c.gateway.defaultProvider = v; },
+  LLM_FW_GATEWAY_TLS_CERT: (c, v) => {
+    if (c.gateway) c.gateway.tls = { certFile: v, keyFile: c.gateway.tls?.keyFile ?? '' };
+  },
+  LLM_FW_GATEWAY_TLS_KEY: (c, v) => {
+    if (c.gateway) c.gateway.tls = { certFile: c.gateway.tls?.certFile ?? '', keyFile: v };
+  },
   LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
   LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
   LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },
