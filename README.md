@@ -450,6 +450,24 @@ export LLM_FW_GATEWAY_KEY_OPENAI=sk-...
 
 **TLS.** Run behind a load balancer or ingress that terminates TLS (the common case), or serve it directly with `LLM_FW_GATEWAY_TLS_CERT` / `LLM_FW_GATEWAY_TLS_KEY`.
 
+**Tenants.** One shared token says a caller is authorised and nothing else. Give each team its own:
+
+```json
+{
+  "gateway": {
+    "tenants": {
+      "platform":  { "token": "...", "quotaPerMinute": 600 },
+      "research":  { "token": "...", "providers": ["anthropic"] },
+      "new-team":  { "token": "...", "enforcement": "observe" }
+    }
+  }
+}
+```
+
+That buys three things a single token cannot. Every event carries the tenant, so "why did our agent break?" has an answer. Each team gets a per-minute quota, so one runaway loop cannot spend everyone's budget — the refusal is a 429 with `Retry-After`, and it never reaches the provider. And `enforcement: "observe"` puts one team in observation while the rest stay enforced, which is how you onboard a team without either exposing them to day-one false positives or turning the firewall down for everybody.
+
+A tenant token authenticates on its own; the deployment-wide token keeps working alongside them, so adding tenants never locks out the credential already in use. Quotas are per gateway process: with several replicas each enforces its own share, which the Helm chart's `replicaCount` comment spells out.
+
 **Private endpoints.** A self-hosted vLLM or Ollama is a config entry, including a non-standard port and plain HTTP for in-cluster traffic:
 
 ```json

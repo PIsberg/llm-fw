@@ -11,6 +11,7 @@ import { getParser } from '../detection/parsers.js';
 import { explainBlock, explainGate } from '../detection/explain.js';
 import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, type AuthPolicy } from '../auth.js';
 import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, type GatewayProvider, type GatewayRoute } from './routes.js';
+import { TenantRegistry, type Tenant } from './tenants.js';
 
 /**
  * Reverse-proxy ("gateway") deployment.
@@ -41,6 +42,7 @@ export class GatewayServer {
   private authPolicy: AuthPolicy;
   private providers: Record<string, GatewayProvider>;
   private apiKeys: Record<string, string>;
+  private tenants: TenantRegistry;
 
   constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry) {
     this.config = config;
@@ -71,6 +73,8 @@ export class GatewayServer {
       this.apiKeys[name.slice('LLM_FW_GATEWAY_KEY_'.length).toLowerCase()] = value;
     }
 
+    this.tenants = new TenantRegistry(gw?.tenants);
+
     this.authPolicy = resolveAuthPolicy({
       requireAuth: gw?.requireAuth,
       authToken: gw?.authToken,
@@ -91,6 +95,9 @@ export class GatewayServer {
 
   /** Slugs that have an operator-held upstream key, for the startup banner. */
   get custodySlugs(): string[] { return Object.keys(this.apiKeys).sort(); }
+
+  /** Configured tenant ids, for the startup banner. */
+  get tenantIds(): string[] { return this.tenants.ids; }
 
   async init(): Promise<void> {
     await this.pipeline.init();
@@ -140,7 +147,13 @@ export class GatewayServer {
       // exposes the standard auth header (the key-custody case).
       const presented = (req.headers['x-llm-fw-key'] as string | undefined)?.trim()
         || credentialFromAuthHeader(req.headers.authorization);
-      if (!authorizeClient(this.authPolicy, req.socket.remoteAddress, presented)) {
+      // A tenant token authenticates on its own. The deployment-wide token
+      // keeps working alongside tenants, so adding tenants to an existing
+      // gateway never locks out the credential already in use.
+      const tenant = this.tenants.resolve(presented);
+      const authorised = tenant !== null
+        || authorizeClient(this.authPolicy, req.socket.remoteAddress, presented);
+      if (!authorised) {
         res.setHeader('WWW-Authenticate', 'Bearer realm="llm-fw gateway"');
         return this.json(res, 401, {
           error: 'authentication required',
@@ -159,10 +172,40 @@ export class GatewayServer {
         });
       }
 
+      if (tenant) {
+        // Provider allowlist before quota: refusing a provider this tenant may
+        // not use should not consume their request budget.
+        if (!this.tenants.allowsProvider(tenant, route.slug)) {
+          return this.json(res, 403, {
+            error: 'provider not permitted for this tenant',
+            tenant: tenant.id,
+            provider: route.slug,
+            allowed: tenant.providers,
+          });
+        }
+        const quota = this.tenants.charge(tenant, Date.now());
+        if (!quota.allowed) {
+          res.setHeader('Retry-After', String(quota.retryAfterSeconds));
+          this.eventBus.emit({
+            stage: 'dos', score: 0, similarity: 0,
+            target: route.provider.host, method: req.method ?? 'POST', path: route.upstreamPath,
+            payload_preview: `tenant quota exceeded: ${quota.used}/${quota.limit} per minute`,
+            payload_full: `tenant ${tenant.id} exceeded ${quota.limit} requests/minute`,
+            action: 'blocked', kind: 'dos', dosReason: 'tenant-quota', tenant: tenant.id,
+          });
+          return this.json(res, 429, {
+            error: 'tenant quota exceeded',
+            tenant: tenant.id,
+            limit_per_minute: quota.limit,
+            retry_after_seconds: quota.retryAfterSeconds,
+          });
+        }
+      }
+
       const body = await this.readBody(req, res);
       if (body === null) return; // readBody already answered (413 / read error)
 
-      const decision = await this.screen(req, route, body);
+      const decision = await this.screen(req, route, body, tenant);
       if (decision.blocked) {
         this.json(res, decision.status, decision.body);
         return;
@@ -207,6 +250,7 @@ export class GatewayServer {
     req: http.IncomingMessage,
     route: GatewayRoute,
     original: Buffer,
+    tenant: Tenant | null,
   ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer }> {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
@@ -255,6 +299,11 @@ export class GatewayServer {
     const result = await this.pipeline.run(path, text, {
       target, method, path, sessionKey,
       onEvent: e => { eventId = e.id; },
+      // Per-tenant enforcement: one team can run in observation while the rest
+      // of the deployment enforces — how a team gets onboarded without either
+      // eating day-one false positives or the firewall being turned down for
+      // everyone. Also stamps tenant attribution onto every event this emits.
+      ...(tenant ? { enforcement: tenant.enforcement, tenant: tenant.id } : {}),
     });
     this.metrics?.recordScan('gateway', Date.now() - started);
 

@@ -391,6 +391,12 @@ export async function run(args: string[] = []): Promise<void> {
     } else {
       console.log('  ⚠ No client authentication (local-only bind).');
     }
+    const tenantIds = gateway.tenantIds;
+    if (tenantIds.length) {
+      console.log(`  Tenants (${tenantIds.length}): ${tenantIds.join(', ')} — each has its own token, provider`);
+      console.log('    allowlist, per-minute quota and enforcement mode. Quotas are per process,');
+      console.log('    so with several replicas each enforces its own share.');
+    }
     const custody = gateway.custodySlugs;
     console.log(custody.length
       ? `  Upstream key custody ON for: ${custody.join(', ')} — clients never see the provider key.`

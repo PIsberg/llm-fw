@@ -97,6 +97,16 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
         requireAuth: true,
         authToken: TOKEN,
         defaultProvider: 'testprovider',
+        tenants: {
+          // Restricted to a provider that is not the default route, so the
+          // allowlist is what its requests actually hit.
+          research: { token: 'tok-research', providers: ['other'] },
+          // Observes while the rest of the deployment enforces.
+          newteam: { token: 'tok-newteam', enforcement: 'observe' },
+          // Rate-limited with no provider restriction, so the quota is what its
+          // requests hit.
+          limited: { token: 'tok-limited', quotaPerMinute: 2 },
+        },
         providers: {
           testprovider: {
             name: 'Test',
@@ -209,6 +219,57 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     calls = []
     await request({ path: '/v1/chat/completions?stream=true', body: benign, headers: authed })
     expect(calls[0]!.path).toBe('/v1/chat/completions?stream=true')
+  })
+
+  it('admits a tenant on its own token and attributes the traffic', async () => {
+    calls = []
+    const res = await request({ path: '/v1/chat/completions', body: benign, headers: { 'x-llm-fw-key': 'tok-newteam' } })
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('refuses a provider outside the tenant allowlist', async () => {
+    calls = []
+    // 'research' may only reach 'other'; the default route is 'testprovider'.
+    const res = await request({ path: '/v1/chat/completions', body: benign, headers: { 'x-llm-fw-key': 'tok-research' } })
+    expect(res.status).toBe(403)
+    expect(res.json?.tenant).toBe('research')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('enforces the tenant quota and says when to retry', async () => {
+    calls = []
+    const headers = { 'x-llm-fw-key': 'tok-limited' }
+    expect((await request({ path: '/v1/chat/completions', body: benign, headers })).status).toBe(200)
+    expect((await request({ path: '/v1/chat/completions', body: benign, headers })).status).toBe(200)
+
+    const refused = await request({ path: '/v1/chat/completions', body: benign, headers })
+    expect(refused.status).toBe(429)
+    expect(refused.json?.tenant).toBe('limited')
+    expect(refused.json?.retry_after_seconds).toBeGreaterThan(0)
+    // The refused request must not reach the provider.
+    expect(calls).toHaveLength(2)
+
+    // One tenant's exhausted quota must not affect anyone else.
+    const other = await request({ path: '/v1/chat/completions', body: benign, headers: authed })
+    expect(other.status).toBe(200)
+  })
+
+  it('refuses an unknown tenant token rather than falling back to the shared one', async () => {
+    const res = await request({ path: '/v1/chat/completions', body: benign, headers: { 'x-llm-fw-key': 'tok-nonexistent' } })
+    expect(res.status).toBe(401)
+  })
+
+  it('lets one tenant observe while the deployment enforces', async () => {
+    calls = []
+    // The same injection the enforcing path blocks with a 403.
+    const res = await request({ path: '/v1/chat/completions', body: injection, headers: { 'x-llm-fw-key': 'tok-newteam' } })
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+
+    // And the shared credential still enforces on the identical request.
+    const enforced = await request({ path: '/v1/chat/completions', body: injection, headers: authed })
+    expect(enforced.status).toBe(403)
   })
 
   it('404s an unroutable path instead of guessing an upstream', async () => {

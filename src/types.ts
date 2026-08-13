@@ -381,6 +381,30 @@ export interface AuditConfig {
  * src/gateway/gateway.ts for why this is the deployment companies can actually
  * roll out.
  */
+/**
+ * One tenant of a shared gateway — typically a team or a service.
+ *
+ * A single shared token says a caller is authorised and nothing else. Tenants
+ * add the three things a company running one gateway for several teams needs:
+ * attribution on every event, a per-team quota so one runaway agent cannot
+ * spend everyone's budget, and per-team enforcement so a new team can be
+ * onboarded in observation while the rest stay enforced.
+ */
+export interface TenantConfig {
+  /** Credential this tenant presents (X-Llm-Fw-Key or bearer). Required. */
+  token: string;
+  name?: string;
+  /** Provider slugs this tenant may reach. Omit or leave empty for all. */
+  providers?: string[];
+  /**
+   * Requests per minute, sliding window, per gateway process. With several
+   * replicas each enforces its own share — see the Helm chart's notes.
+   */
+  quotaPerMinute?: number;
+  /** Overrides the deployment's enforcement setting for this tenant only. */
+  enforcement?: 'enforce' | 'observe';
+}
+
 export interface GatewayConfig {
   // Off by default: enabling it opens a second listener, which should be a
   // deliberate act rather than something a package upgrade does silently.
@@ -402,6 +426,10 @@ export interface GatewayConfig {
   // Serve HTTPS directly from these PEM files. Omit when a load balancer or
   // ingress terminates TLS in front of the gateway, which is the common case.
   tls?: { certFile: string; keyFile: string };
+  // Per-tenant tokens, policy and quotas, keyed by tenant id. When present, a
+  // caller's token must resolve to a tenant; the deployment-wide `authToken`
+  // keeps working alongside them for operators and health tooling.
+  tenants?: Record<string, TenantConfig>;
   // Add a private endpoint (self-hosted vLLM, an Azure resource) or override a
   // built-in provider's host. `apiKey` puts the gateway in key-custody mode for
   // that provider: the client's credential is replaced with this one, so
@@ -537,6 +565,9 @@ export interface BlockEvent {
   // operator count "requests we would have blocked" without having to infer it
   // from the deployment's configuration at the time.
   enforced?: boolean;
+  // Which tenant's traffic this was, when the gateway resolved one. Absent for
+  // the forward proxy and for single-token gateway deployments.
+  tenant?: string;
 }
 
 // An event an operator marked as a false positive, persisted to

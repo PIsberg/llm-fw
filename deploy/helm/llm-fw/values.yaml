@@ -4,10 +4,12 @@ image:
   pullPolicy: IfNotPresent
 
 # More than one replica is safe: the gateway holds no cross-request state that
-# a second pod would need. The two features that DO keep per-client state
-# (cross-request crescendo memory, DoS quotas) are per-process, so with several
-# replicas they see only the share of traffic that lands on their own pod —
-# enable sessionAffinity below if you rely on them.
+# a second pod would need. The features that DO keep per-client state
+# (cross-request crescendo memory, DoS quotas, per-tenant quotas) are
+# per-process, so each pod enforces its own share of the limit: three replicas
+# with a 60/min tenant quota admit up to 180/min in the worst case. Enable
+# sessionAffinity below if you rely on them, or keep this at 1 until there is a
+# shared quota store.
 replicaCount: 1
 
 gateway:
