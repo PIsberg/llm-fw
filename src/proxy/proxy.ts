@@ -26,6 +26,7 @@ import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 import { MetricsRegistry } from '../dashboard/metrics.js'
+import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -162,6 +163,10 @@ export class ProxyServer {
   // pipeline.run() call boundary below; block/warn/event counters are
   // recorded centrally by EventBus.emit() instead.
   private metrics?: MetricsRegistry
+  // Resolved client-credential policy (see src/auth.ts). Enforced at the very
+  // top of handleConnect, BEFORE the bypass tunnel, so the fail-safe switch
+  // can never turn the proxy into an anonymous open relay.
+  private authPolicy: AuthPolicy
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -191,8 +196,23 @@ export class ProxyServer {
     // responseScan.classifier.enabled is set, so the default config never
     // downloads the model.
     this.outputClassifier = new OutputModerationClassifier(config.responseScan)
+    // Client credential policy. Resolved once at construction so the generated
+    // token is stable for the process lifetime and can be printed at startup.
+    // A proxy reachable off-host without this is an open forward relay.
+    this.authPolicy = resolveAuthPolicy({
+      requireAuth: config.proxy.requireAuth,
+      authToken: config.proxy.authToken,
+      bindHost: config.proxy.bindHost,
+    })
     this.server = http.createServer()
   }
+
+  /**
+   * The credential remote clients must present, and whether one is demanded at
+   * all. `cli/start.ts` prints this so an operator who did not configure a
+   * token still gets a usable one.
+   */
+  get auth(): AuthPolicy { return this.authPolicy }
 
   private sinkholeServer: tls.Server | null = null
 
@@ -260,6 +280,24 @@ export class ProxyServer {
 
   private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _head: Buffer): Promise<void> {
     const { hostname, port } = parseConnectTarget(req.url ?? '')
+
+    // Client authentication FIRST — before the bypass tunnel, before taint,
+    // before any interception decision. An unauthenticated CONNECT is refused
+    // outright: a proxy bound to 0.0.0.0 would otherwise relay arbitrary
+    // traffic for anyone who can reach the port, including to hosts that are
+    // never inspected (non-targets are tunneled) and regardless of `bypass`.
+    if (!authorizeClient(this.authPolicy, clientSocket.remoteAddress, presentedProxyToken(req.headers))) {
+      const body = JSON.stringify({ error: 'proxy authentication required' })
+      clientSocket.write(
+        'HTTP/1.1 407 Proxy Authentication Required\r\n' +
+        'Proxy-Authenticate: Basic realm="llm-fw", charset="UTF-8"\r\n' +
+        'Content-Type: application/json\r\n' +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+        'Connection: close\r\n\r\n' + body
+      )
+      clientSocket.destroy()
+      return
+    }
     const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
 
     // Tenant/regional hosts (Azure OpenAI resources, regional Vertex

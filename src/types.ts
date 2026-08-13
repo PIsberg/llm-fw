@@ -30,6 +30,18 @@ export interface ProxyConfig {
   // only — suffixes are never written to the hosts-file sinkhole. Also
   // settable via LLM_FW_INTERCEPT_DOMAINS (comma-separated, replaces).
   interceptDomains?: string[];
+  // Shared secret a CLIENT must present as `Proxy-Authorization` to use the
+  // proxy. Without one, a proxy bound off-host is an open forward relay: any
+  // machine that can reach the port can tunnel arbitrary CONNECT traffic
+  // through it, including to hosts the firewall never inspects. Also settable
+  // via LLM_FW_PROXY_TOKEN; if the proxy is bound non-locally and no token is
+  // configured, one is generated and printed at startup.
+  authToken?: string;
+  // Force the credential check on or off instead of inferring it from bindHost.
+  // `true` requires it from every client including loopback (what the tests
+  // pin, and what an operator sharing a host with untrusted local processes
+  // wants); `false` disables it entirely. Also LLM_FW_PROXY_REQUIRE_AUTH.
+  requireAuth?: boolean;
 }
 
 export interface DetectionConfig {

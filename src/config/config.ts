@@ -364,6 +364,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
   LLM_FW_BYPASS: (c, v) => { c.proxy.bypass = v === 'true'; },
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
+  LLM_FW_PROXY_TOKEN: (c, v) => { c.proxy.authToken = v; },
+  LLM_FW_PROXY_REQUIRE_AUTH: (c, v) => { c.proxy.requireAuth = v === 'true'; },
   LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = parseInt(v, 10); },
   LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = parseInt(v, 10); },
   LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },

@@ -323,14 +323,24 @@ export async function run(args: string[] = []): Promise<void> {
     console.log('  Configure each client machine:');
     console.log(`    1. Download & trust the CA cert:  http://${ip}:${config.dashboard.port}/ca.crt?download`);
     console.log(`       (install into the OS / browser "Trusted Root" store)`);
+    const cred = proxy.auth.required ? `llm-fw:${proxy.auth.token}@` : '';
     console.log(`    2. Point tools at the proxy:`);
-    console.log(`         export HTTPS_PROXY=http://${ip}:${config.proxy.port}`);
-    console.log(`         export HTTP_PROXY=http://${ip}:${config.proxy.port}`);
+    console.log(`         export HTTPS_PROXY=http://${cred}${ip}:${config.proxy.port}`);
+    console.log(`         export HTTP_PROXY=http://${cred}${ip}:${config.proxy.port}`);
     console.log('');
-    console.log('  ⚠ Security: the proxy is reachable by any host that can route to this');
-    console.log('    machine. Run it only on a trusted network, or restrict access with a');
-    console.log('    firewall rule. To keep the dashboard local-only while still exposing the');
-    console.log('    proxy, set LLM_FW_DASHBOARD_BIND=127.0.0.1.');
+    if (proxy.auth.required) {
+      console.log('  Proxy authentication is ON. Clients must present the token above as');
+      console.log('  Proxy-Authorization (Basic with the token as the password, or Bearer).');
+      if (proxy.auth.generated) {
+        console.log('  This token was GENERATED for this run and changes on restart — set');
+        console.log('  LLM_FW_PROXY_TOKEN to pin it.');
+      }
+    } else {
+      console.log('  ⚠ Proxy authentication is DISABLED (proxy.requireAuth=false). Any host');
+      console.log('    that can route to this machine can relay traffic through it.');
+    }
+    console.log('    To keep the dashboard local-only while still exposing the proxy, set');
+    console.log('    LLM_FW_DASHBOARD_BIND=127.0.0.1.');
   } else {
     console.log(`llm-fw running.`);
     console.log(`  Proxy port:  ${config.proxy.port}`);
