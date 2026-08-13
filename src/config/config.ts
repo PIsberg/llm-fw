@@ -405,6 +405,24 @@ function splitList(value: string): string[] {
  *   - Client authentication. "Observe" is about what the firewall thinks of the
  *     traffic, never about who is allowed to send it.
  */
+/**
+ * Whether a request must not be acted on: either the deployment is observing,
+ * or a per-request override (a gateway tenant) is.
+ *
+ * OR, never "override". Observation is the safe direction, so whichever layer
+ * asks for it wins. `TenantConfig.enforcement` defaults to `'enforce'`, so
+ * treating the per-request value as an override would mean that merely
+ * CONFIGURING a tenant silently re-armed the firewall for that tenant under a
+ * deployment-wide `--observe` — turning a safety promise into its opposite by
+ * adding an unrelated block of config.
+ */
+export function isObserving(
+  deployment: 'enforce' | 'observe' | undefined,
+  perRequest: 'enforce' | 'observe' | undefined,
+): boolean {
+  return deployment === 'observe' || perRequest === 'observe';
+}
+
 export function applyObserveMode(config: Config): void {
   config.enforcement = 'observe';
   // 'redact' would still alter the request body; observation must not.

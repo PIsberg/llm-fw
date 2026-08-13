@@ -537,7 +537,7 @@ Writes newline-delimited JSON to `<LLM_FW_DIR>/audit.jsonl` — point Vector, Fl
 
 Prompt text is **not** written unless you ask for it: payloads carry customer data and secrets, so `LLM_FW_AUDIT_PAYLOADS=true` is a deliberate opt-in. `LLM_FW_AUDIT_WEBHOOK=<url>` additionally POSTs batches to a collector; the file stays the durable record, and the shipper drops rather than backlogs when the collector is down.
 
-**Ruleset version.** Detection carries an identifier separate from the npm version (`2026.08.3` at the time of writing), because a patch release can move a threshold and a feature release can leave detection untouched. It appears in every block response and every audit record. A CI gate hashes every file that can change a verdict and fails until the version is cut, so the identifier cannot drift from the rules it names.
+**Ruleset version.** Detection carries an identifier separate from the npm version — the current value is `RULESET_VERSION` in [`src/detection/ruleset.ts`](src/detection/ruleset.ts), deliberately not repeated here so it cannot go stale — because a patch release can move a threshold and a feature release can leave detection untouched. It appears in every block response and every audit record. A CI gate hashes every file that can change a verdict and fails until the version is cut, so the identifier cannot drift from the rules it names.
 
 ## Running in development (from source)
 

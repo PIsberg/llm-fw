@@ -76,10 +76,16 @@ spec:
             - secretRef:
                 name: {{ include "llm-fw.secretName" . }}
                 optional: true
+          {{- if .Values.gateway.enabled }}
           # The embedding model loads before the first scan, so a pod is not
           # ready the moment the process starts. startupProbe owns that window;
           # without it the liveness probe would restart a pod that is merely
           # still loading, forever.
+          #
+          # Gated on gateway.enabled: /healthz and /readyz are served ONLY by
+          # the gateway, so with it off these would probe a closed port and the
+          # kubelet would restart the pod forever — a crash loop caused entirely
+          # by the health check.
           startupProbe:
             httpGet:
               path: /readyz
@@ -96,6 +102,7 @@ spec:
               path: /healthz
               port: {{ .Values.gateway.port }}
             periodSeconds: 20
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:

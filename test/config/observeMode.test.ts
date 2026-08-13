@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_CONFIG, applyObserveMode } from '../../src/config/config.js'
+import { DEFAULT_CONFIG, applyObserveMode, isObserving } from '../../src/config/config.js'
 import { isObserve } from '../../src/cli/start.js'
 import { Pipeline } from '../../src/detection/pipeline.js'
 import type { BlockEvent, Config } from '../../src/types.js'
@@ -80,6 +80,28 @@ describe('applyObserveMode — every content gate relaxed', () => {
 // embedding model. That comfortably exceeds the 5 s default when several suites
 // are loading it at once in the parallel run, so these carry the same 120 s
 // timeout the repo's other model-loading tests use (inferenceIsolation.test.ts).
+describe('isObserving — which layer wins', () => {
+  it('observes when either the deployment or the request says so', () => {
+    expect(isObserving('observe', undefined)).toBe(true)
+    expect(isObserving('enforce', 'observe')).toBe(true)
+    expect(isObserving('observe', 'observe')).toBe(true)
+  })
+
+  it('does NOT let a per-request enforce re-arm a deployment that is observing', () => {
+    // TenantConfig.enforcement defaults to 'enforce', so if the per-request
+    // value overrode the deployment, merely CONFIGURING a tenant would silently
+    // re-arm the firewall for them under `--observe` — a safety promise turned
+    // into its opposite by adding an unrelated block of config.
+    expect(isObserving('observe', 'enforce')).toBe(true)
+  })
+
+  it('enforces when nothing asks for observation', () => {
+    expect(isObserving('enforce', 'enforce')).toBe(false)
+    expect(isObserving(undefined, undefined)).toBe(false)
+    expect(isObserving('enforce', undefined)).toBe(false)
+  })
+})
+
 describe('pipeline under observe mode', () => {
   it('never returns a blocking verdict', async () => {
     const events: Omit<BlockEvent, 'id' | 'timestamp'>[] = []

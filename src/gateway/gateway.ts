@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
-import { Config } from '../types.js';
+import { Config, PipelineResult } from '../types.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { EventBus } from '../dashboard/eventBus.js';
@@ -12,6 +12,7 @@ import { explainBlock, explainGate } from '../detection/explain.js';
 import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, type AuthPolicy } from '../auth.js';
 import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, type GatewayProvider, type GatewayRoute } from './routes.js';
 import { TenantRegistry, type Tenant } from './tenants.js';
+import { isObserving } from '../config/config.js';
 
 /**
  * Reverse-proxy ("gateway") deployment.
@@ -145,8 +146,15 @@ export class GatewayServer {
       // Client credential: a dedicated header first so it never collides with
       // the provider key, falling back to bearer for clients whose SDK only
       // exposes the standard auth header (the key-custody case).
-      const presented = (req.headers['x-llm-fw-key'] as string | undefined)?.trim()
-        || credentialFromAuthHeader(req.headers.authorization);
+      const dedicated = (req.headers['x-llm-fw-key'] as string | undefined)?.trim();
+      const presented = dedicated || credentialFromAuthHeader(req.headers.authorization);
+      // Remember WHERE the gateway's own credential arrived. When it came in
+      // `Authorization` — which the docs allow, for SDKs that expose no other
+      // header — that header carries an internal firewall secret, not a
+      // provider key, and must not be forwarded upstream. Key custody replaces
+      // it anyway; with custody OFF nothing else would strip it, and the
+      // operator's token would land in a third party's access logs.
+      const authIsInternal = !dedicated && presented !== '';
       // A tenant token authenticates on its own. The deployment-wide token
       // keeps working alongside tenants, so adding tenants to an existing
       // gateway never locks out the credential already in use.
@@ -211,7 +219,7 @@ export class GatewayServer {
         return;
       }
 
-      await this.forward(req, res, route, decision.body);
+      await this.forward(req, res, route, decision.body, authIsInternal);
     } catch (err) {
       console.error(`[gateway] ${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
@@ -260,19 +268,31 @@ export class GatewayServer {
     let bodyBuf = original;
     let text = bodyBuf.toString('utf-8');
 
+    // Whether THIS request is only being observed. The deployment-wide setting
+    // is not enough: a tenant can observe while the rest of the deployment
+    // enforces, and every gate below has to honour that or the guarantee is
+    // per-detector rather than total.
+    const observing = isObserving(this.config.enforcement, tenant?.enforcement);
+    const tenantTag = tenant ? { tenant: tenant.id } : {};
+    const observedTag = observing ? { enforced: false } : {};
+
     // DLP — same scoping as the proxy: only requests a parser recognises, so
     // binary uploads are not scanned as if they were prompts.
     if (this.config.dlp.enabled && getParser(path) !== null) {
       const findings = this.dlp.scan(text);
       if (findings.length) {
         const types = Array.from(new Set(findings.map(f => f.type)));
-        const mode = this.config.dlp.mode;
+        // Observation must not refuse the request and must not rewrite it
+        // either: 'redact' alters the body the client sent, which is exactly
+        // what an observing tenant is promised will not happen.
+        const mode = observing ? 'audit' : this.config.dlp.mode;
         const event = this.eventBus.emit({
           stage: 'dlp', score: 100, similarity: 0,
           target, method, path,
           payload_preview: types.join(', '), payload_full: types.join(', '),
-          action: mode === 'block' ? 'blocked' : 'warned',
+          action: this.config.dlp.mode === 'block' ? 'blocked' : 'warned',
           kind: 'dlp', dlpType: findings[0].type,
+          ...observedTag, ...tenantTag,
         });
         if (mode === 'block') {
           return {
@@ -296,15 +316,47 @@ export class GatewayServer {
     // event from the shared ring would attribute the wrong id under concurrent
     // traffic — exactly when someone is trying to trace a block.
     let eventId = 'unknown';
-    const result = await this.pipeline.run(path, text, {
-      target, method, path, sessionKey,
-      onEvent: e => { eventId = e.id; },
-      // Per-tenant enforcement: one team can run in observation while the rest
-      // of the deployment enforces — how a team gets onboarded without either
-      // eating day-one false positives or the firewall being turned down for
-      // everyone. Also stamps tenant attribution onto every event this emits.
-      ...(tenant ? { enforcement: tenant.enforcement, tenant: tenant.id } : {}),
-    });
+    let result: PipelineResult;
+    try {
+      result = await this.pipeline.run(path, text, {
+        target, method, path, sessionKey,
+        onEvent: e => { eventId = e.id; },
+        // Per-tenant enforcement: one team can run in observation while the rest
+        // of the deployment enforces — how a team gets onboarded without either
+        // eating day-one false positives or the firewall being turned down for
+        // everyone. Also stamps tenant attribution onto every event this emits.
+        ...(tenant ? { enforcement: tenant.enforcement, tenant: tenant.id } : {}),
+      });
+    } catch (err) {
+      // detection.failMode, honoured here rather than left to the outer catch.
+      // A throw inside the pipeline is a BUG in detection, not a verdict about
+      // the request, and the operator has already said which way they want that
+      // resolved — the forward proxy reads the same setting. Letting it fall
+      // through to a blanket 502 would ignore an availability decision the Helm
+      // chart explicitly documents, on the deployment that chart ships.
+      this.metrics?.recordScan('gateway', Date.now() - started);
+      const message = (err as Error)?.message ?? String(err);
+      const failOpen = this.config.detection.failMode === 'open';
+      const event = this.eventBus.emit({
+        stage: 'none', score: 0, similarity: 0,
+        target, method, path,
+        payload_preview: `Detection pipeline error — failing ${failOpen ? 'OPEN, forwarded' : 'CLOSED, blocked'}: ${message}`.slice(0, 220),
+        payload_full: (err as Error)?.stack ?? message,
+        action: failOpen ? 'warned' : 'blocked',
+        kind: 'error',
+        ...tenantTag,
+      });
+      console.error(`[gateway] pipeline error on ${method} ${path}: ${message}`);
+      if (failOpen) return { blocked: false, body: bodyBuf };
+      return {
+        blocked: true, status: 403,
+        body: explainGate({
+          eventId: event.id, error: 'detection unavailable',
+          stage: 'none', kind: 'error', detail: message, dashboardUrl,
+          remediation: 'The firewall could not scan this request and is configured to fail closed. Set detection.failMode="open" to forward unscanned instead.',
+        }),
+      };
+    }
     this.metrics?.recordScan('gateway', Date.now() - started);
 
     if (result.action === 'block') {
@@ -337,6 +389,8 @@ export class GatewayServer {
     res: http.ServerResponse,
     route: GatewayRoute,
     body: Buffer,
+    /** True when the gateway consumed `Authorization` as its OWN credential. */
+    authIsInternal: boolean,
   ): Promise<void> {
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(req.headers)) {
@@ -345,6 +399,11 @@ export class GatewayServer {
     }
     headers['host'] = route.provider.host;
     if (body.length) headers['content-length'] = String(body.length);
+    // Drop the internal credential before it can leave the building. Only when
+    // the gateway actually consumed this header itself: a client that
+    // authenticated with X-Llm-Fw-Key and sent its OWN provider key in
+    // Authorization still needs that key forwarded in custody-off mode.
+    if (authIsInternal) delete headers['authorization'];
 
     const outbound = applyUpstreamAuth(headers, route, this.apiKeys[route.slug]);
 

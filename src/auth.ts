@@ -23,12 +23,21 @@ export function isLocalBind(bindHost: string | undefined): boolean {
   return bindHost === undefined || isLoopbackAddr(bindHost);
 }
 
-/** Constant-time token comparison that tolerates differing lengths. */
+/**
+ * Constant-time token comparison that tolerates differing lengths.
+ *
+ * Both sides are hashed to a fixed 32 bytes before comparison. Comparing the
+ * raw buffers would need a length check first — `timingSafeEqual` throws on a
+ * length mismatch — and that check returns before any crypto runs, so the time
+ * taken would depend on whether the presented token happened to be the right
+ * length. Hashing makes every comparison cost the same regardless of input
+ * length, which matters where several candidate tokens are checked in a loop
+ * (see TenantRegistry.resolve).
+ */
 export function tokenMatches(presented: string, expected: string): boolean {
   if (!presented || !expected) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
+  const a = crypto.createHash('sha256').update(presented, 'utf8').digest();
+  const b = crypto.createHash('sha256').update(expected, 'utf8').digest();
   return crypto.timingSafeEqual(a, b);
 }
 

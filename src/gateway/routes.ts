@@ -68,12 +68,32 @@ export interface GatewayRoute {
 
 /**
  * Bare paths that identify exactly one provider regardless of the configured
- * default. `/v1/messages` is Anthropic's Messages API; the Gemini paths carry
- * the model in the path and are unmistakable.
+ * default.
+ *
+ * `/v1/messages` is Anthropic's Messages API. For Gemini it is the `/v1beta/`
+ * prefix, or a `/v1/models/…` path that carries the `:generateContent`-style
+ * method suffix.
+ *
+ * The suffix is what makes a `/v1/models/` path Gemini's, NOT the prefix:
+ * `/v1/models/{id}` is OpenAI's model-retrieval endpoint, cloned by Groq,
+ * OpenRouter, Together, Fireworks, DeepSeek, Perplexity and every
+ * OpenAI-compatible self-hosted endpoint. Claiming the whole prefix sent an
+ * ordinary `GET /v1/models/gpt-4o` to generativelanguage.googleapis.com — and
+ * with key custody off for that route, the caller's own provider credential
+ * went with it.
  */
+/** The `:method` suffixes Gemini's generative endpoints use. */
+const GEMINI_METHOD_RE =
+  /:(generateContent|streamGenerateContent|countTokens|embedContent|batchEmbedContents|generateAnswer|predict|generateMessage)$/;
+
 function bareProviderFor(pathname: string): string | null {
   if (pathname === '/v1/messages' || pathname.startsWith('/v1/messages/')) return 'anthropic';
-  if (pathname.startsWith('/v1beta/') || pathname.startsWith('/v1/models/')) return 'gemini';
+  if (pathname.startsWith('/v1beta/')) return 'gemini';
+  // Gemini's v1 shape is /v1/models/<model>:<method>. Match the method names
+  // rather than "ends with :something": OpenAI fine-tune ids are themselves
+  // colon-delimited (ft:gpt-4o:acme:abcdef), so a generic suffix test would
+  // misroute those straight back to Gemini.
+  if (pathname.startsWith('/v1/models/') && GEMINI_METHOD_RE.test(pathname)) return 'gemini';
   return null;
 }
 

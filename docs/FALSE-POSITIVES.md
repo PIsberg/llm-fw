@@ -28,9 +28,11 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.08.4
+## Result, ruleset 2026.08.6
 
 **13.38% overall (19 of 142), 95% CI 8.74–19.95%.**
+
+First measured against ruleset 2026.08.4 and re-measured unchanged at 2026.08.6; the rulesets between them moved observability and per-tenant routing, not verdicts. The pairing of a rate with the ruleset that produced it is enforced by `test/detection/ruleset-version.test.ts`, so this label cannot silently fall behind the code again.
 
 | Category | Blocked | Stage that fired |
 |---|---|---|

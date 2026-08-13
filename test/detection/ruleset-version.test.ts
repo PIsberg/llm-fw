@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { RULESET_VERSION, RULESET_DIGEST, computeRulesetDigest, rulesetFiles } from '../../src/detection/ruleset.js'
 
 /**
@@ -30,6 +33,23 @@ describe('detection ruleset identity', () => {
 
   it('uses a calendar version', () => {
     expect(RULESET_VERSION).toMatch(/^\d{4}\.\d{2}\.\d+$/)
+  })
+
+  it('is the version the published measurements claim to describe', () => {
+    // Doc drift found in review: the ruleset was bumped while
+    // docs/FALSE-POSITIVES.md still said its 13.38% was measured against an
+    // older one, so a reader could not tell whether the number described the
+    // shipped code. Rates are only meaningful next to the ruleset that
+    // produced them, so the pairing is enforced rather than remembered:
+    // after a bump, re-run `npm run fpr` and update the label.
+    const root = fileURLToPath(new URL('../../', import.meta.url))
+    for (const rel of ['docs/FALSE-POSITIVES.md', 'test/eval/fpr.ts']) {
+      const text = readFileSync(join(root, rel), 'utf8')
+      expect(
+        text,
+        `${rel} does not mention ruleset ${RULESET_VERSION}. Re-run the measurement it reports and update the label.`,
+      ).toContain(RULESET_VERSION)
+    }
   })
 
   it('matches the pinned digest', () => {

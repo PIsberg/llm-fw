@@ -106,12 +106,16 @@ fetched copy with `--file=` to reproduce the gate as CI evaluates it.
 Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
-**Provenance.** The **cheap (default)** column was re-measured on 2026-08-13
+**Provenance.** The **cheap (default)** column was measured on 2026-08-13
 against ruleset `2026.08.4` by `node --import tsx/esm scripts/run-benchmark.ts
-cheap --json`; the counts below are that run's. The **classifier** column has
-NOT been re-measured since; it dates from the Round 6 run recorded in
-[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) and predates this
-ruleset, so it is marked accordingly rather than presented as current.
+cheap --json`; the counts below are that run's. The ruleset has since moved to
+`2026.08.6` for observability and per-tenant routing changes; the scorecard
+(100% / 0%) and the false-positive gate (13.38%) were both re-run at
+`2026.08.6` and came back unchanged, but this full benchmark has NOT been
+re-run, so read the column as describing `2026.08.4` until it is. The
+**classifier** column is older still: it dates from the Round 6 run recorded in
+[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and is marked
+accordingly rather than presented as current.
 
 This table previously carried figures from an earlier ruleset that had drifted
 on every row — understating jbb-behaviors by 74 points and harmbench by 23,

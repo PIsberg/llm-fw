@@ -59,9 +59,11 @@ const OUTPUT_FILE = process.env.FPR_OUTPUT_FILE;
  * ZERO, so a new false positive in security questions, code review, multilingual
  * business text or benign tool data fails the build on the first occurrence.
  *
- * The listed ceilings are the counts measured against ruleset 2026.08.4 — a
+ * The listed ceilings are the counts measured against ruleset 2026.08.6 — a
  * record of known-bad behaviour, not an endorsement of it. Lower them as
- * detection improves; raising one requires saying why in the commit.
+ * detection improves; raising one requires saying why in the commit. Re-run
+ * `npm run fpr` after any ruleset bump so these stay a measurement rather than
+ * a memory.
  */
 const CATEGORY_CEILINGS: Record<string, number> = {
   // Embedding stage: "Ignore the typos in my draft" is the documented

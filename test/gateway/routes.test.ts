@@ -29,6 +29,22 @@ describe('resolveRoute — bare provider-shaped paths', () => {
 
   it('routes Gemini model paths to Google', () => {
     expect(resolveRoute('/v1beta/models/gemini-pro:generateContent', opts)?.slug).toBe('gemini')
+    expect(resolveRoute('/v1/models/gemini-pro:streamGenerateContent', opts)?.slug).toBe('gemini')
+  })
+
+  it('leaves OpenAI-shaped /v1/models/{id} with the default provider', () => {
+    // `/v1/models/{id}` is OpenAI's model-retrieval endpoint, cloned by Groq,
+    // OpenRouter, Together and every OpenAI-compatible self-hosted endpoint.
+    // Claiming the whole `/v1/models/` prefix for Gemini sent an ordinary
+    // `GET /v1/models/gpt-4o` to generativelanguage.googleapis.com — and with
+    // key custody off for that route, the caller's own provider credential
+    // went with it. Only the `:method` suffix marks a /v1/models path as
+    // Gemini's.
+    expect(resolveRoute('/v1/models/gpt-4o', opts)?.slug).toBe('openai')
+    expect(resolveRoute('/v1/models', opts)?.slug).toBe('openai')
+    // Fine-tune ids are colon-delimited too, so the discriminator has to be
+    // Gemini's actual method names, not "ends with a colon-word".
+    expect(resolveRoute('/v1/models/ft:gpt-4o:acme:abcdef', { ...opts, defaultProvider: 'groq' })?.slug).toBe('groq')
   })
 
   it('sends OpenAI-compatible paths to the configured default', () => {

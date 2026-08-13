@@ -116,6 +116,15 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
             auth: 'x-api-key',
             apiKey: 'operator-secret-key',
           },
+          // The same upstream with NO operator key, so custody-off passthrough
+          // (and what must NOT pass through) can be exercised.
+          nocustody: {
+            name: 'No custody',
+            host: '127.0.0.1',
+            port: upstreamPort,
+            protocol: 'http',
+            auth: 'bearer',
+          },
         },
       },
     }
@@ -270,6 +279,36 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     // And the shared credential still enforces on the identical request.
     const enforced = await request({ path: '/v1/chat/completions', body: injection, headers: authed })
     expect(enforced.status).toBe(403)
+  })
+
+  it('never forwards its own credential when the client sent it as a bearer', async () => {
+    // With key custody OFF the client's Authorization is passed through, which
+    // is right for a client's own provider key — but when the gateway consumed
+    // that header as ITS OWN credential, the value is an internal firewall
+    // secret and must not reach a third-party provider's access logs.
+    calls = []
+    const res = await request({
+      path: '/nocustody/v1/chat/completions',
+      body: benign,
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.headers['authorization']).toBeUndefined()
+  })
+
+  it('still forwards the client own provider key when it authenticated separately', async () => {
+    // The other half: X-Llm-Fw-Key carried the gateway credential, so
+    // Authorization is the caller's provider key and custody-off passthrough
+    // has to keep it.
+    calls = []
+    const res = await request({
+      path: '/nocustody/v1/chat/completions',
+      body: benign,
+      headers: { ...authed, authorization: 'Bearer sk-caller-own-key' },
+    })
+    expect(res.status).toBe(200)
+    expect(calls[0]!.headers['authorization']).toBe('Bearer sk-caller-own-key')
   })
 
   it('404s an unroutable path instead of guessing an upstream', async () => {

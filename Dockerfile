@@ -76,7 +76,7 @@ EXPOSE 8081 8080 7731
 # The kubelet/compose probe. /readyz reports 503 until the embedding model is
 # loaded, so traffic is never routed to an instance that cannot scan yet.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8081/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const p=process.env.LLM_FW_GATEWAY_PORT||8081;fetch('http://127.0.0.1:'+p+'/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["node", "dist/cli/index.js"]
 CMD ["start", "--gateway"]

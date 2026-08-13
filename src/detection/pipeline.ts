@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { Config, PipelineResult, BlockEvent } from '../types.js'
+import { isObserving } from '../config/config.js'
 import { getParser, extractPartialPrompts, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
@@ -141,7 +142,7 @@ export class Pipeline {
     // meta.enforcement lets ONE request observe while the deployment enforces:
     // the gateway passes it per tenant, so a newly onboarded team can watch its
     // own false positives without the firewall being turned down for everyone.
-    if ((meta.enforcement ?? this.config.enforcement) === 'observe' && result.action === 'block') {
+    if (isObserving(this.config.enforcement, meta.enforcement) && result.action === 'block') {
       return { ...result, action: 'warn' }
     }
     return result
@@ -716,7 +717,7 @@ export class Pipeline {
           // request. The early-abort path must honour it too, or a streaming
           // request would still be cut off mid-body while the buffered path
           // let everything through.
-          return this.config.enforcement === 'observe'
+          return isObserving(this.config.enforcement, meta.enforcement)
             ? { ...result, action: 'warn' }
             : result
         }
@@ -815,7 +816,7 @@ export class Pipeline {
       // the request was forwarded anyway. Keeping the verdict truthful is what
       // makes the observation period usable: an operator needs to count what
       // WOULD have been blocked, not read a log of warnings.
-      ...((meta.enforcement ?? this.config.enforcement) === 'observe' ? { enforced: false } : {}),
+      ...(isObserving(this.config.enforcement, meta.enforcement) ? { enforced: false } : {}),
       ...(meta.tenant ? { tenant: meta.tenant } : {}),
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
