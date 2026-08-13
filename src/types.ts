@@ -425,6 +425,13 @@ export interface Config {
   dashboard: DashboardConfig;
   gateway?: GatewayConfig;
   audit?: AuditConfig;
+  // Whether verdicts are acted on. 'observe' runs every detector and records
+  // every would-be block as an event, but blocks nothing — the "what would this
+  // have done to my traffic?" pass a team runs before turning enforcement on.
+  // Default 'enforce'. Also `llm-fw start --observe` and LLM_FW_ENFORCEMENT.
+  // applyObserveMode() in src/config/config.ts documents exactly which gates it
+  // relaxes and which (resource limits) it deliberately does not.
+  enforcement?: 'enforce' | 'observe';
   dlp: DLPConfig;
   dos: DosConfig;
   rag: RagConfig;
@@ -524,6 +531,12 @@ export interface BlockEvent {
   sandboxClient?: string;
   isSandboxed?: boolean;
   sandboxConfidence?: number;
+  // False when the firewall recorded this decision without acting on it
+  // (enforcement: 'observe'). Absent means enforced, so existing records and
+  // every enforcing deployment read exactly as before. This is what lets an
+  // operator count "requests we would have blocked" without having to infer it
+  // from the deployment's configuration at the time.
+  enforced?: boolean;
 }
 
 // An event an operator marked as a false positive, persisted to

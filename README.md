@@ -47,6 +47,7 @@
 - [Quick Start](#quick-start)
 - [Sinkhole mode — for Node.js tools and native binaries](#sinkhole-mode--for-nodejs-tools-and-native-binaries)
 - [Standalone server mode — one firewall for many clients](#standalone-server-mode--one-firewall-for-many-clients)
+- [Observe mode — see what it would block before it blocks anything](#observe-mode--see-what-it-would-block-before-it-blocks-anything)
 - [Gateway mode — point base_url at the firewall (no CA install)](#gateway-mode--point-base_url-at-the-firewall-no-ca-install)
 - [Docker and Kubernetes](#docker-and-kubernetes)
 - [Audit log and SIEM export](#audit-log-and-siem-export)
@@ -386,6 +387,27 @@ All clients' traffic now appears in the server dashboard's **Live Traffic** tab,
 **Dashboard authentication.** The dashboard shows captured request payloads and exposes the live defense toggles, so non-local access is gated by a shared token. The operator on the **same machine (loopback) always has access with no token**. Any **remote** client must present the token as `Authorization: Bearer <token>` (or HTTP Basic with the token as the password — browsers are prompted natively). Set it via `LLM_FW_DASHBOARD_TOKEN`; if the dashboard is bound non-locally and no token is configured, one is **auto-generated and printed at startup** so a standalone dashboard is never left open. The CA-download endpoints (`/ca.crt`, `/crl`) stay public so clients can bootstrap trust.
 
 **Prometheus metrics.** `GET /metrics` on the dashboard port serves a hand-rolled Prometheus text exposition (no extra runtime dependency) — same auth gate as every other dashboard route. Counters: `llmfw_requests_total{surface}` (proxy live traffic vs. dashboard playground), `llmfw_blocks_total{stage}`, `llmfw_warns_total{stage}`, `llmfw_events_total{kind}`. A histogram `llmfw_scan_duration_ms` (buckets 5–2500ms) tracks overall pipeline scan latency. Gauges `llmfw_model_loaded{model="embedding"|"classifier"}` reflect whether each lazy-loaded model has finished initializing. On by default; disable with `dashboard.metrics: false` or `LLM_FW_METRICS_ENABLED=false`.
+
+---
+
+## Observe mode — see what it would block before it blocks anything
+
+A firewall that refuses something surprising on day one gets switched off, and then it protects nothing. So run it in observation first:
+
+```bash
+llm-fw start --observe
+```
+
+Every detector runs and every would-be block is recorded as an event with `enforced: false`, but **no request is refused**. Watch the dashboard for a few days, mark the false positives (they stay suppressed), then restart without `--observe`.
+
+The guarantee is total, not per-detector: `applyObserveMode()` puts DLP, taint tracking, MCP filtering, many-shot, crescendo, indirect-instruction, harmful-request and every response-side scan into audit, downgrades the detection pipeline's own verdict at a single choke point that the proxy, the gateway and the library API all read, and relaxes the URL filter. It is applied **after** every config layer, so a detector you had set to `block` in a config file or env var does not slip through.
+
+Two things are deliberately still enforced, because neither is a detection verdict with a false-positive story:
+
+- **Resource limits** — the DoS quota and loop breaker, which protect your upstream bill from a runaway agent.
+- **Client authentication** — observation is about what the firewall thinks of the traffic, never about who may send it.
+
+Pair it with `LLM_FW_AUDIT_ENABLED=true` so the observation survives a restart. Also settable as `LLM_FW_ENFORCEMENT=observe`; `--dry-run` and `--monitor` are accepted spellings.
 
 ---
 

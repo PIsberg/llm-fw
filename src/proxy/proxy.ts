@@ -374,11 +374,16 @@ export class ProxyServer {
       if (!bypass && this.config.proxy.urlFilter.enabled) {
         const urlResult = this.urlClassifier.classify(hostname)
         if (urlResult.action === 'block') {
-          const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })
-          clientSocket.write(
-            `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
-          )
-          clientSocket.destroy()
+          // The URL filter is the one gate with no audit mode of its own, so
+          // observe mode is applied here: record the verdict, tunnel anyway.
+          const observing = this.config.enforcement === 'observe'
+          if (!observing) {
+            const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })
+            clientSocket.write(
+              `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
+            )
+            clientSocket.destroy()
+          }
           this.eventBus.emit({
             stage: 'url-filter',
             score: 100,
@@ -393,9 +398,10 @@ export class ProxyServer {
             urlBlockReason: urlResult.reason,
             sandboxClient: sb.client,
             isSandboxed: sb.sandboxed,
-            sandboxConfidence: sb.confidence
+            sandboxConfidence: sb.confidence,
+            ...(observing ? { enforced: false } : {}),
           })
-          return
+          if (!observing) return
         }
       }
 
@@ -531,8 +537,13 @@ export class ProxyServer {
       if (this.config.proxy.urlFilter.enabled) {
         const pathResult = this.urlClassifier.classifyPath(dosPath)
         if (pathResult.action === 'block') {
-          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-          innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+          // Observe mode: record the verdict, forward the request (see the
+          // CONNECT-side URL filter above for why this gate is handled here).
+          const observingUrl = this.config.enforcement === 'observe'
+          if (!observingUrl) {
+            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+          }
           emitEvent({
             stage: 'url-filter',
             score: 100,
@@ -545,9 +556,12 @@ export class ProxyServer {
             action: 'blocked',
             kind: 'url',
             urlBlockReason: pathResult.reason,
+            ...(observingUrl ? { enforced: false } : {}),
           })
-          innerReq.destroy()
-          return
+          if (!observingUrl) {
+            innerReq.destroy()
+            return
+          }
         }
       }
 

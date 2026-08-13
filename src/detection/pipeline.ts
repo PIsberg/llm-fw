@@ -127,6 +127,27 @@ export class Pipeline {
       onEvent?: (event: BlockEvent) => void;
     }
   ): Promise<PipelineResult> {
+    const result = await this.scan(requestPath, body, meta)
+    // THE choke point for observe mode. Every caller — proxy, gateway, the
+    // library API — takes its verdict from here, so downgrading once makes
+    // "observe blocks nothing" a property of the system rather than a promise
+    // each call site has to remember to keep. The event emitted during the scan
+    // still records the block verdict, with enforced: false.
+    if (this.config.enforcement === 'observe' && result.action === 'block') {
+      return { ...result, action: 'warn' }
+    }
+    return result
+  }
+
+  private async scan(
+    requestPath: string,
+    body: string,
+    meta: {
+      target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
+      sessionKey?: string;
+      onEvent?: (event: BlockEvent) => void;
+    }
+  ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
 
@@ -683,7 +704,13 @@ export class Pipeline {
             heuristicMatches: h.matches
           }
           this.emit(result, meta, prompt, source)
-          return result
+          // Same rule as run(): observe records the verdict and forwards the
+          // request. The early-abort path must honour it too, or a streaming
+          // request would still be cut off mid-body while the buffered path
+          // let everything through.
+          return this.config.enforcement === 'observe'
+            ? { ...result, action: 'warn' }
+            : result
         }
       }
     }
@@ -775,6 +802,12 @@ export class Pipeline {
       payload_preview: label + prompt.slice(0, 120 - label.length),
       payload_full: prompt,
       action: result.action === 'block' ? 'blocked' : 'warned',
+      // In observe mode the event still records what the detector decided —
+      // 'blocked' is the verdict, not the outcome — and this flag records that
+      // the request was forwarded anyway. Keeping the verdict truthful is what
+      // makes the observation period usable: an operator needs to count what
+      // WOULD have been blocked, not read a log of warnings.
+      ...(this.config.enforcement === 'observe' ? { enforced: false } : {}),
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
       verdict: result.verdict,

@@ -366,6 +366,12 @@ export async function loadConfig(): Promise<Config> {
     config.targets = [...new Set([...config.targets, ...config.extraTargets])];
   }
 
+  // Applied last, over every other layer. Observe mode is a promise that
+  // nothing gets refused, so it has to win against a project file or env var
+  // that set some detector to 'block' — otherwise the one gate that slipped
+  // through is the one that breaks a developer's agent on day one.
+  if (config.enforcement === 'observe') applyObserveMode(config);
+
   return config;
 }
 
@@ -380,6 +386,46 @@ function splitList(value: string): string[] {
  * config sections guard against the section having been nulled out by a file
  * config, and enum-valued settings ignore values outside their domain.
  */
+/**
+ * Relax every gate that can refuse a request, so the firewall records what it
+ * would have done without doing it.
+ *
+ * This is the seven-day pass a team runs before enforcement: turn it on, watch
+ * the Events tab, suppress the false positives, then enforce. A firewall that
+ * blocks something surprising on day one gets switched off, and a partial
+ * observe mode — where most detectors are quiet but one still refuses traffic —
+ * would destroy that trust just as effectively as no observe mode at all. So
+ * every content gate is flipped here rather than at each call site.
+ *
+ * Deliberately NOT relaxed:
+ *   - `dos` request/token quotas and the loop breaker. These protect the
+ *     firewall and the upstream bill from a runaway agent; they are resource
+ *     limits, not detection verdicts, and have no false-positive story to
+ *     evaluate.
+ *   - Client authentication. "Observe" is about what the firewall thinks of the
+ *     traffic, never about who is allowed to send it.
+ */
+export function applyObserveMode(config: Config): void {
+  config.enforcement = 'observe';
+  // 'redact' would still alter the request body; observation must not.
+  config.dlp.mode = 'audit';
+  config.mcp.auditOnly = true;
+  if (config.taint) config.taint.mode = 'audit';
+  if (config.nonText) config.nonText.mode = 'audit';
+  if (config.manyShot) config.manyShot.mode = 'audit';
+  if (config.crescendo) config.crescendo.mode = 'audit';
+  if (config.indirectInstruction) config.indirectInstruction.mode = 'audit';
+  if (config.harmfulRequest) config.harmfulRequest.mode = 'audit';
+  if (config.responseScan) {
+    config.responseScan.mode = 'audit';
+    if (config.responseScan.toolUse) config.responseScan.toolUse.mode = 'audit';
+  }
+  // The detection pipeline's own verdict is downgraded inside Pipeline.run()
+  // (one choke point, so every caller — proxy, gateway, library — observes
+  // consistently); the URL filter is handled in the proxy, which is the only
+  // place it can refuse a connection.
+}
+
 const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = parseInt(v, 10); },
   LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
@@ -423,6 +469,9 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   // deliberately NOT here: they are read straight from LLM_FW_GATEWAY_KEY_<SLUG>
   // in the gateway itself, so a secret never lands in the merged config object
   // that the dashboard's settings view can read back.
+  // Applied AFTER every other override (see loadConfig), because it relaxes
+  // modes that those overrides may themselves have set.
+  LLM_FW_ENFORCEMENT: (c, v) => { if (v === 'observe' || v === 'enforce') c.enforcement = v; },
   LLM_FW_AUDIT_ENABLED: (c, v) => { if (c.audit) c.audit.enabled = v === 'true'; },
   LLM_FW_AUDIT_FILE: (c, v) => { if (c.audit) c.audit.file = v; },
   LLM_FW_AUDIT_PAYLOADS: (c, v) => { if (c.audit) c.audit.includePayloads = v === 'true'; },

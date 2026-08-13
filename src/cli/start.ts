@@ -1,4 +1,4 @@
-import { loadConfig } from '../config/config.js';
+import { loadConfig, applyObserveMode } from '../config/config.js';
 import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
 import { GatewayServer } from '../gateway/gateway.js';
@@ -28,6 +28,15 @@ export function isStandalone(args: string[]): boolean {
 /** True when the `start` args ask for the gateway (reverse-proxy) listener. */
 export function isGateway(args: string[]): boolean {
   return args.includes('--gateway');
+}
+
+/**
+ * True when the `start` args ask for observation instead of enforcement.
+ * `--observe` is the canonical spelling; `--dry-run` and `--monitor` are
+ * accepted because those are the words operators reach for.
+ */
+export function isObserve(args: string[]): boolean {
+  return args.includes('--observe') || args.includes('--dry-run') || args.includes('--monitor');
 }
 
 /**
@@ -116,6 +125,9 @@ export async function run(args: string[] = []): Promise<void> {
   // Order matters: --gateway turns the listener on, then --standalone decides
   // that every enabled listener binds off-host.
   if (isGateway(args)) applyGatewayOverrides(config);
+  // Observation is applied after the listener flags and before anything reads
+  // the config, so every gate is relaxed before the first request arrives.
+  if (isObserve(args)) applyObserveMode(config);
   if (standalone) applyStandaloneOverrides(config);
 
   const llmfwDir = getLlmFwDir();
@@ -391,6 +403,20 @@ export async function run(args: string[] = []): Promise<void> {
     console.log('  runs the full request-side pipeline and streams responses through.');
   }
 
+  if (config.enforcement === 'observe') {
+    console.log('');
+    console.log('  ◉ OBSERVE MODE — recording verdicts, blocking nothing.');
+    console.log('    Every detector runs and every would-be block is recorded as an event');
+    console.log('    with enforced=false, but no request is refused. Watch the dashboard');
+    console.log(`    (http://127.0.0.1:${config.dashboard.port}) for a few days, mark the false positives, then`);
+    console.log('    restart without --observe to enforce.');
+    console.log('    Resource limits (DoS quota, loop breaker) and client authentication');
+    console.log('    still apply — they are not detection verdicts.');
+    if (!config.audit?.enabled) {
+      console.log('    Tip: LLM_FW_AUDIT_ENABLED=true keeps the observation across restarts.');
+    }
+    console.log('');
+  }
   if (config.proxy.bypass) {
     console.log('');
     console.log('  ⚠⚠⚠ FAIL-SAFE BYPASS ACTIVE (LLM_FW_BYPASS=true) ⚠⚠⚠');
