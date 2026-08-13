@@ -1,0 +1,15 @@
+apiVersion: v2
+name: llm-fw
+description: Prompt-injection firewall for LLM traffic, deployed as a gateway clients point base_url at
+type: application
+# Chart version, bumped for chart changes. appVersion tracks the llm-fw release.
+version: 0.1.0
+appVersion: "0.4.1"
+keywords:
+  - llm
+  - security
+  - prompt-injection
+  - gateway
+home: https://github.com/PIsberg/llm-fw
+sources:
+  - https://github.com/PIsberg/llm-fw

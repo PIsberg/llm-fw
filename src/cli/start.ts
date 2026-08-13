@@ -1,6 +1,8 @@
-import { loadConfig } from '../config/config.js';
+import { loadConfig, applyObserveMode } from '../config/config.js';
 import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
+import { GatewayServer } from '../gateway/gateway.js';
+import { AuditLog, AuditWebhook } from '../dashboard/auditLog.js';
 import { CertFactory } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
@@ -23,10 +25,27 @@ export function isStandalone(args: string[]): boolean {
   return args.includes('--standalone') || args.includes('--stand-alone');
 }
 
+/** True when the `start` args ask for the gateway (reverse-proxy) listener. */
+export function isGateway(args: string[]): boolean {
+  return args.includes('--gateway');
+}
+
+/**
+ * True when the `start` args ask for observation instead of enforcement.
+ * `--observe` is the canonical spelling; `--dry-run` and `--monitor` are
+ * accepted because those are the words operators reach for.
+ */
+export function isObserve(args: string[]): boolean {
+  return args.includes('--observe') || args.includes('--dry-run') || args.includes('--monitor');
+}
+
 /**
  * Apply standalone-server overrides in place: force forward-proxy mode and bind
  * the proxy + dashboard to all interfaces so remote clients can reach them.
  * Explicit LLM_FW_*_BIND env vars take precedence over the 0.0.0.0 default.
+ *
+ * Binding off-host is exactly what turns the credential checks on (see
+ * src/auth.ts), so this also decides that clients will need a token.
  */
 export function applyStandaloneOverrides(
   config: Config,
@@ -35,6 +54,15 @@ export function applyStandaloneOverrides(
   config.proxy.mode = 'proxy';
   if (!env['LLM_FW_PROXY_BIND']) config.proxy.bindHost = '0.0.0.0';
   if (!env['LLM_FW_DASHBOARD_BIND']) config.dashboard.bindHost = '0.0.0.0';
+  if (config.gateway?.enabled && !env['LLM_FW_GATEWAY_BIND']) config.gateway.bindHost = '0.0.0.0';
+}
+
+/**
+ * Turn the gateway on from the command line. Kept separate from the config
+ * default (which is off) so `--gateway` is the single obvious way to try it.
+ */
+export function applyGatewayOverrides(config: Config): void {
+  if (config.gateway) config.gateway.enabled = true;
 }
 
 /** Best-effort primary non-internal IPv4 address, for printing client setup hints. */
@@ -94,6 +122,12 @@ export async function run(args: string[] = []): Promise<void> {
   // through this host. The sinkhole (local hosts-file redirect) is irrelevant
   // here — remote clients reach us purely as a forward HTTPS proxy — so it is
   // force-disabled below.
+  // Order matters: --gateway turns the listener on, then --standalone decides
+  // that every enabled listener binds off-host.
+  if (isGateway(args)) applyGatewayOverrides(config);
+  // Observation is applied after the listener flags and before anything reads
+  // the config, so every gate is relaxed before the first request arrives.
+  if (isObserve(args)) applyObserveMode(config);
   if (standalone) applyStandaloneOverrides(config);
 
   const llmfwDir = getLlmFwDir();
@@ -225,13 +259,30 @@ export async function run(args: string[] = []): Promise<void> {
     } catch { }
   }
 
+  // Declared here, assigned further below once the config is known: the
+  // shutdown handlers close over them, and they are registered before any IO,
+  // so they must not reference bindings still in their dead zone.
+  let gateway: GatewayServer | null = null;
+  let auditLog: AuditLog | null = null;
+  let auditWebhook: AuditWebhook | null = null;
+  // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
+  // the record of the last seconds before a rollout — exactly the window
+  // someone goes looking for afterwards.
+  const shutdown = (): Promise<unknown> =>
+    Promise.all([
+      pipeline.close(),
+      gateway ? gateway.stop() : Promise.resolve(),
+      auditWebhook ? auditWebhook.stop() : Promise.resolve(),
+      auditLog ? auditLog.close() : Promise.resolve(),
+    ]);
+
   // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
   // paths, so they also terminate the shared inference worker thread (Task
   // C3, detection.workerInference) if one was ever spawned — a no-op
   // otherwise. uncaughtException exits immediately without waiting on it;
   // the worker thread dies with the process either way.
-  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
-  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void pipeline.close().finally(() => process.exit(0)); });
+  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); });
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();
@@ -248,6 +299,23 @@ export async function run(args: string[] = []): Promise<void> {
   // dashboard playground), so GET /metrics reports on the whole process.
   const metrics = new MetricsRegistry();
   const eventBus = new EventBus(config.dashboard, metrics);
+
+  // Durable audit trail. Attached to the EventBus because that is the single
+  // funnel every block/warn/audit event already passes through, so nothing can
+  // appear on the dashboard and be missing from the record.
+  auditLog = config.audit?.enabled ? new AuditLog(config.audit) : null;
+  auditWebhook = config.audit?.enabled && config.audit.webhookUrl
+    ? new AuditWebhook(config.audit.webhookUrl)
+    : null;
+  if (auditLog) {
+    auditLog.open();
+    console.log(`Audit log: ${auditLog.filePath}${config.audit?.includePayloads ? ' (including payloads)' : ' (metadata only — set LLM_FW_AUDIT_PAYLOADS=true to include prompt text)'}`);
+  }
+  if (auditWebhook) {
+    auditWebhook.start();
+    console.log(`Audit webhook: ${config.audit?.webhookUrl}`);
+  }
+  eventBus.setAuditSinks(auditLog ?? undefined, auditWebhook ?? undefined);
   // Shared across the dashboard's playground pipeline and the proxy's live-
   // traffic pipeline (constructed below) so an operator marking a false
   // positive from the dashboard actually suppresses future real traffic —
@@ -300,6 +368,61 @@ export async function run(args: string[] = []): Promise<void> {
   await proxy.init();
   proxy.start();
 
+  // Gateway (reverse-proxy) listener — opt-in, and additive: it runs alongside
+  // the forward proxy rather than replacing it, so a team can migrate clients
+  // to base_url one at a time instead of in a flag day.
+  if (config.gateway?.enabled) {
+    gateway = new GatewayServer(config, eventBus, suppressions, metrics);
+    await gateway.init();
+    gateway.start();
+    const gwHost = config.gateway.bindHost === '0.0.0.0' ? lanIPv4() : config.gateway.bindHost;
+    const scheme = config.gateway.tls ? 'https' : 'http';
+    console.log('');
+    console.log(`llm-fw GATEWAY listening on ${scheme}://${gwHost}:${config.gateway.port}`);
+    console.log('  Clients need no CA and no HTTPS_PROXY — point the SDK base_url here:');
+    console.log(`    Anthropic:  ${scheme}://${gwHost}:${config.gateway.port}/anthropic`);
+    console.log(`    OpenAI:     ${scheme}://${gwHost}:${config.gateway.port}/openai/v1`);
+    console.log(`    Default (bare /v1/... paths): ${config.gateway.defaultProvider}`);
+    if (gateway.auth.required) {
+      console.log(`  Client token (X-Llm-Fw-Key or Authorization: Bearer): ${gateway.auth.token}`);
+      if (gateway.auth.generated) {
+        console.log('    GENERATED for this run — set LLM_FW_GATEWAY_TOKEN to pin it.');
+      }
+    } else {
+      console.log('  ⚠ No client authentication (local-only bind).');
+    }
+    const tenantIds = gateway.tenantIds;
+    if (tenantIds.length) {
+      console.log(`  Tenants (${tenantIds.length}): ${tenantIds.join(', ')} — each has its own token, provider`);
+      console.log('    allowlist, per-minute quota and enforcement mode. Quotas are per process,');
+      console.log('    so with several replicas each enforces its own share.');
+    }
+    const custody = gateway.custodySlugs;
+    console.log(custody.length
+      ? `  Upstream key custody ON for: ${custody.join(', ')} — clients never see the provider key.`
+      : '  Upstream key custody OFF — clients send their own provider key (set LLM_FW_GATEWAY_KEY_<SLUG> to take custody).');
+    if (!config.gateway.tls) {
+      console.log('  Serving plain HTTP. Terminate TLS at a load balancer/ingress, or set');
+      console.log('  LLM_FW_GATEWAY_TLS_CERT / LLM_FW_GATEWAY_TLS_KEY to serve HTTPS directly.');
+    }
+    console.log('  Response-side scans (exfil/harm/tool-use) are proxy-only; the gateway');
+    console.log('  runs the full request-side pipeline and streams responses through.');
+  }
+
+  if (config.enforcement === 'observe') {
+    console.log('');
+    console.log('  ◉ OBSERVE MODE — recording verdicts, blocking nothing.');
+    console.log('    Every detector runs and every would-be block is recorded as an event');
+    console.log('    with enforced=false, but no request is refused. Watch the dashboard');
+    console.log(`    (http://127.0.0.1:${config.dashboard.port}) for a few days, mark the false positives, then`);
+    console.log('    restart without --observe to enforce.');
+    console.log('    Resource limits (DoS quota, loop breaker) and client authentication');
+    console.log('    still apply — they are not detection verdicts.');
+    if (!config.audit?.enabled) {
+      console.log('    Tip: LLM_FW_AUDIT_ENABLED=true keeps the observation across restarts.');
+    }
+    console.log('');
+  }
   if (config.proxy.bypass) {
     console.log('');
     console.log('  ⚠⚠⚠ FAIL-SAFE BYPASS ACTIVE (LLM_FW_BYPASS=true) ⚠⚠⚠');
@@ -323,14 +446,24 @@ export async function run(args: string[] = []): Promise<void> {
     console.log('  Configure each client machine:');
     console.log(`    1. Download & trust the CA cert:  http://${ip}:${config.dashboard.port}/ca.crt?download`);
     console.log(`       (install into the OS / browser "Trusted Root" store)`);
+    const cred = proxy.auth.required ? `llm-fw:${proxy.auth.token}@` : '';
     console.log(`    2. Point tools at the proxy:`);
-    console.log(`         export HTTPS_PROXY=http://${ip}:${config.proxy.port}`);
-    console.log(`         export HTTP_PROXY=http://${ip}:${config.proxy.port}`);
+    console.log(`         export HTTPS_PROXY=http://${cred}${ip}:${config.proxy.port}`);
+    console.log(`         export HTTP_PROXY=http://${cred}${ip}:${config.proxy.port}`);
     console.log('');
-    console.log('  ⚠ Security: the proxy is reachable by any host that can route to this');
-    console.log('    machine. Run it only on a trusted network, or restrict access with a');
-    console.log('    firewall rule. To keep the dashboard local-only while still exposing the');
-    console.log('    proxy, set LLM_FW_DASHBOARD_BIND=127.0.0.1.');
+    if (proxy.auth.required) {
+      console.log('  Proxy authentication is ON. Clients must present the token above as');
+      console.log('  Proxy-Authorization (Basic with the token as the password, or Bearer).');
+      if (proxy.auth.generated) {
+        console.log('  This token was GENERATED for this run and changes on restart — set');
+        console.log('  LLM_FW_PROXY_TOKEN to pin it.');
+      }
+    } else {
+      console.log('  ⚠ Proxy authentication is DISABLED (proxy.requireAuth=false). Any host');
+      console.log('    that can route to this machine can relay traffic through it.');
+    }
+    console.log('    To keep the dashboard local-only while still exposing the proxy, set');
+    console.log('    LLM_FW_DASHBOARD_BIND=127.0.0.1.');
   } else {
     console.log(`llm-fw running.`);
     console.log(`  Proxy port:  ${config.proxy.port}`);

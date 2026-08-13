@@ -26,6 +26,8 @@ import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 import { MetricsRegistry } from '../dashboard/metrics.js'
+import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
+import { explainBlock } from '../detection/explain.js'
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -162,6 +164,10 @@ export class ProxyServer {
   // pipeline.run() call boundary below; block/warn/event counters are
   // recorded centrally by EventBus.emit() instead.
   private metrics?: MetricsRegistry
+  // Resolved client-credential policy (see src/auth.ts). Enforced at the very
+  // top of handleConnect, BEFORE the bypass tunnel, so the fail-safe switch
+  // can never turn the proxy into an anonymous open relay.
+  private authPolicy: AuthPolicy
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -191,7 +197,35 @@ export class ProxyServer {
     // responseScan.classifier.enabled is set, so the default config never
     // downloads the model.
     this.outputClassifier = new OutputModerationClassifier(config.responseScan)
+    // Client credential policy. Resolved once at construction so the generated
+    // token is stable for the process lifetime and can be printed at startup.
+    // A proxy reachable off-host without this is an open forward relay.
+    this.authPolicy = resolveAuthPolicy({
+      requireAuth: config.proxy.requireAuth,
+      authToken: config.proxy.authToken,
+      bindHost: config.proxy.bindHost,
+    })
     this.server = http.createServer()
+  }
+
+  /**
+   * The credential remote clients must present, and whether one is demanded at
+   * all. `cli/start.ts` prints this so an operator who did not configure a
+   * token still gets a usable one.
+   */
+  get auth(): AuthPolicy { return this.authPolicy }
+
+  /**
+   * Dashboard base URL quoted in block responses, so a developer whose request
+   * was refused is told where to go rather than left to guess. Falls back to
+   * loopback when the dashboard is bound to every interface, since the wildcard
+   * address is not a usable link.
+   */
+  private dashboardUrl(): string | undefined {
+    const d = this.config.dashboard
+    if (!d) return undefined
+    const host = d.bindHost && d.bindHost !== '0.0.0.0' ? d.bindHost : '127.0.0.1'
+    return `http://${host}:${d.port}`
   }
 
   private sinkholeServer: tls.Server | null = null
@@ -260,6 +294,24 @@ export class ProxyServer {
 
   private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _head: Buffer): Promise<void> {
     const { hostname, port } = parseConnectTarget(req.url ?? '')
+
+    // Client authentication FIRST — before the bypass tunnel, before taint,
+    // before any interception decision. An unauthenticated CONNECT is refused
+    // outright: a proxy bound to 0.0.0.0 would otherwise relay arbitrary
+    // traffic for anyone who can reach the port, including to hosts that are
+    // never inspected (non-targets are tunneled) and regardless of `bypass`.
+    if (!authorizeClient(this.authPolicy, clientSocket.remoteAddress, presentedProxyToken(req.headers))) {
+      const body = JSON.stringify({ error: 'proxy authentication required' })
+      clientSocket.write(
+        'HTTP/1.1 407 Proxy Authentication Required\r\n' +
+        'Proxy-Authenticate: Basic realm="llm-fw", charset="UTF-8"\r\n' +
+        'Content-Type: application/json\r\n' +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+        'Connection: close\r\n\r\n' + body
+      )
+      clientSocket.destroy()
+      return
+    }
     const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
 
     // Tenant/regional hosts (Azure OpenAI resources, regional Vertex
@@ -322,11 +374,16 @@ export class ProxyServer {
       if (!bypass && this.config.proxy.urlFilter.enabled) {
         const urlResult = this.urlClassifier.classify(hostname)
         if (urlResult.action === 'block') {
-          const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })
-          clientSocket.write(
-            `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
-          )
-          clientSocket.destroy()
+          // The URL filter is the one gate with no audit mode of its own, so
+          // observe mode is applied here: record the verdict, tunnel anyway.
+          const observing = this.config.enforcement === 'observe'
+          if (!observing) {
+            const body = JSON.stringify({ error: 'url blocked', reason: urlResult.reason })
+            clientSocket.write(
+              `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
+            )
+            clientSocket.destroy()
+          }
           this.eventBus.emit({
             stage: 'url-filter',
             score: 100,
@@ -341,9 +398,10 @@ export class ProxyServer {
             urlBlockReason: urlResult.reason,
             sandboxClient: sb.client,
             isSandboxed: sb.sandboxed,
-            sandboxConfidence: sb.confidence
+            sandboxConfidence: sb.confidence,
+            ...(observing ? { enforced: false } : {}),
           })
-          return
+          if (!observing) return
         }
       }
 
@@ -479,8 +537,13 @@ export class ProxyServer {
       if (this.config.proxy.urlFilter.enabled) {
         const pathResult = this.urlClassifier.classifyPath(dosPath)
         if (pathResult.action === 'block') {
-          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-          innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+          // Observe mode: record the verdict, forward the request (see the
+          // CONNECT-side URL filter above for why this gate is handled here).
+          const observingUrl = this.config.enforcement === 'observe'
+          if (!observingUrl) {
+            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
+          }
           emitEvent({
             stage: 'url-filter',
             score: 100,
@@ -493,9 +556,12 @@ export class ProxyServer {
             action: 'blocked',
             kind: 'url',
             urlBlockReason: pathResult.reason,
+            ...(observingUrl ? { enforced: false } : {}),
           })
-          innerReq.destroy()
-          return
+          if (!observingUrl) {
+            innerReq.destroy()
+            return
+          }
         }
       }
 
@@ -523,15 +589,23 @@ export class ProxyServer {
         chunks.push(Buffer.from(chunk))
         accumulatedBody += chunk.toString('utf-8')
 
+        let partialEventId = 'unknown'
         void this.pipeline.checkPartial(
           innerReq.url ?? '/',
           accumulatedBody,
-          { target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/' }
+          {
+            target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
+            onEvent: (e) => { partialEventId = e.id },
+          }
         ).then((partialResult) => {
           if (partialResult && partialResult.action === 'block' && !blocked) {
             blocked = true
             innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify({ error: 'prompt injection detected', stage: partialResult.stage, score: partialResult.score }))
+            innerRes.end(JSON.stringify(explainBlock({
+              eventId: partialEventId,
+              result: partialResult,
+              dashboardUrl: this.dashboardUrl(),
+            })))
             innerReq.destroy()
           }
         }).catch(() => { })
@@ -708,6 +782,9 @@ export class ProxyServer {
       // behavior) blocks with the standard 403 response; 'open' forwards the
       // request upstream unscanned and only emits an audit event.
       let result: PipelineResult
+      // Set by the pipeline's per-run event hook below; quoted back to the
+      // client when this scan blocks so the block is traceable to one record.
+      let scanEventId = 'unknown'
       // Task C4 — timed at this call boundary (non-invasive: Pipeline.run()
       // itself is untouched) to feed llmfw_requests_total{surface="proxy"} +
       // the overall llmfw_scan_duration_ms histogram.
@@ -724,6 +801,9 @@ export class ProxyServer {
             isSandboxed: sb.sandboxed,
             sandboxConfidence: sb.confidence,
             sessionKey,
+            // Quote the exact event this scan stored, so a blocked client can be
+            // traced to one dashboard record instead of "whatever was last".
+            onEvent: (e) => { scanEventId = e.id },
           }
         )
         this.metrics?.recordScan('proxy', Date.now() - scanStart)
@@ -768,7 +848,11 @@ export class ProxyServer {
 
       if (result.action === 'block') {
         innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-        innerRes.end(JSON.stringify({ error: 'prompt injection detected', stage: result.stage, score: result.score }))
+        innerRes.end(JSON.stringify(explainBlock({
+          eventId: scanEventId,
+          result,
+          dashboardUrl: this.dashboardUrl(),
+        })))
         return
       }
 

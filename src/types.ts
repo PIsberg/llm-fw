@@ -30,6 +30,18 @@ export interface ProxyConfig {
   // only — suffixes are never written to the hosts-file sinkhole. Also
   // settable via LLM_FW_INTERCEPT_DOMAINS (comma-separated, replaces).
   interceptDomains?: string[];
+  // Shared secret a CLIENT must present as `Proxy-Authorization` to use the
+  // proxy. Without one, a proxy bound off-host is an open forward relay: any
+  // machine that can reach the port can tunnel arbitrary CONNECT traffic
+  // through it, including to hosts the firewall never inspects. Also settable
+  // via LLM_FW_PROXY_TOKEN; if the proxy is bound non-locally and no token is
+  // configured, one is generated and printed at startup.
+  authToken?: string;
+  // Force the credential check on or off instead of inferring it from bindHost.
+  // `true` requires it from every client including loopback (what the tests
+  // pin, and what an operator sharing a host with untrusted local processes
+  // wants); `false` disables it entirely. Also LLM_FW_PROXY_REQUIRE_AUTH.
+  requireAuth?: boolean;
 }
 
 export interface DetectionConfig {
@@ -339,10 +351,115 @@ export interface McpConfig {
   };
 }
 
+/**
+ * Durable audit trail. Without it, events live only in the dashboard's
+ * in-memory ring (100 by default) and are lost on restart, which answers
+ * neither "show me every block last quarter" nor any retention requirement.
+ */
+export interface AuditConfig {
+  // Off by default so a package upgrade never starts writing to disk on its
+  // own. The container image and Helm chart turn it on. Also
+  // LLM_FW_AUDIT_ENABLED.
+  enabled: boolean;
+  // Newline-delimited JSON. Defaults to <LLM_FW_DIR>/audit.jsonl. Also
+  // LLM_FW_AUDIT_FILE.
+  file?: string;
+  // Rotate to <file>.1 past this size, keeping one previous generation.
+  maxFileBytes?: number;
+  // Whether the prompt text itself is written. OFF by default: payloads carry
+  // customer data and secrets, and turning on an audit log should not silently
+  // start persisting them. Also LLM_FW_AUDIT_PAYLOADS.
+  includePayloads?: boolean;
+  // Also POST batches to a collector (SIEM, webhook receiver). The file remains
+  // the durable record; this shipper drops rather than backlogs when the
+  // collector is unavailable. Also LLM_FW_AUDIT_WEBHOOK.
+  webhookUrl?: string;
+}
+/**
+ * Reverse-proxy ("gateway") deployment — clients point their SDK `base_url` at
+ * the firewall instead of installing its CA and setting HTTPS_PROXY. See
+ * src/gateway/gateway.ts for why this is the deployment companies can actually
+ * roll out.
+ */
+/**
+ * One tenant of a shared gateway — typically a team or a service.
+ *
+ * A single shared token says a caller is authorised and nothing else. Tenants
+ * add the three things a company running one gateway for several teams needs:
+ * attribution on every event, a per-team quota so one runaway agent cannot
+ * spend everyone's budget, and per-team enforcement so a new team can be
+ * onboarded in observation while the rest stay enforced.
+ */
+export interface TenantConfig {
+  /** Credential this tenant presents (X-Llm-Fw-Key or bearer). Required. */
+  token: string;
+  name?: string;
+  /** Provider slugs this tenant may reach. Omit or leave empty for all. */
+  providers?: string[];
+  /**
+   * Requests per minute, sliding window, per gateway process. With several
+   * replicas each enforces its own share — see the Helm chart's notes.
+   */
+  quotaPerMinute?: number;
+  /** Overrides the deployment's enforcement setting for this tenant only. */
+  enforcement?: 'enforce' | 'observe';
+}
+
+export interface GatewayConfig {
+  // Off by default: enabling it opens a second listener, which should be a
+  // deliberate act rather than something a package upgrade does silently.
+  enabled: boolean;
+  port: number;
+  // Local-only by default, like the proxy. Container images and the Helm chart
+  // set 0.0.0.0 explicitly.
+  bindHost: string;
+  // Client credential, and whether to demand one. Same semantics as the proxy's
+  // (see ProxyConfig.authToken / requireAuth and src/auth.ts): required
+  // automatically once the listener is bound off-host. Also
+  // LLM_FW_GATEWAY_TOKEN / LLM_FW_GATEWAY_REQUIRE_AUTH.
+  authToken?: string;
+  requireAuth?: boolean;
+  // Provider slug serving bare OpenAI-compatible paths (`/v1/chat/completions`
+  // with no `/<provider>/` prefix), so a company standardised on one provider
+  // needs no path rewriting. Also LLM_FW_GATEWAY_DEFAULT_PROVIDER.
+  defaultProvider: string;
+  // Serve HTTPS directly from these PEM files. Omit when a load balancer or
+  // ingress terminates TLS in front of the gateway, which is the common case.
+  tls?: { certFile: string; keyFile: string };
+  // Per-tenant tokens, policy and quotas, keyed by tenant id. When present, a
+  // caller's token must resolve to a tenant; the deployment-wide `authToken`
+  // keeps working alongside them for operators and health tooling.
+  tenants?: Record<string, TenantConfig>;
+  // Add a private endpoint (self-hosted vLLM, an Azure resource) or override a
+  // built-in provider's host. `apiKey` puts the gateway in key-custody mode for
+  // that provider: the client's credential is replaced with this one, so
+  // callers never hold the provider key. Prefer the environment
+  // (LLM_FW_GATEWAY_KEY_<SLUG>) over a config file for the key itself.
+  providers?: Record<string, {
+    host?: string;
+    name?: string;
+    auth?: 'bearer' | 'x-api-key' | 'x-goog-api-key';
+    apiKey?: string;
+    // For in-cluster endpoints reached over a private network: a non-standard
+    // port, and 'http' when TLS is terminated elsewhere.
+    port?: number;
+    protocol?: 'https' | 'http';
+  }>;
+}
+
 export interface Config {
   proxy: ProxyConfig;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
+  gateway?: GatewayConfig;
+  audit?: AuditConfig;
+  // Whether verdicts are acted on. 'observe' runs every detector and records
+  // every would-be block as an event, but blocks nothing — the "what would this
+  // have done to my traffic?" pass a team runs before turning enforcement on.
+  // Default 'enforce'. Also `llm-fw start --observe` and LLM_FW_ENFORCEMENT.
+  // applyObserveMode() in src/config/config.ts documents exactly which gates it
+  // relaxes and which (resource limits) it deliberately does not.
+  enforcement?: 'enforce' | 'observe';
   dlp: DLPConfig;
   dos: DosConfig;
   rag: RagConfig;
@@ -442,6 +559,15 @@ export interface BlockEvent {
   sandboxClient?: string;
   isSandboxed?: boolean;
   sandboxConfidence?: number;
+  // False when the firewall recorded this decision without acting on it
+  // (enforcement: 'observe'). Absent means enforced, so existing records and
+  // every enforcing deployment read exactly as before. This is what lets an
+  // operator count "requests we would have blocked" without having to infer it
+  // from the deployment's configuration at the time.
+  enforced?: boolean;
+  // Which tenant's traffic this was, when the gateway resolved one. Absent for
+  // the forward proxy and for single-token gateway deployments.
+  tenant?: string;
 }
 
 // An event an operator marked as a false positive, persisted to

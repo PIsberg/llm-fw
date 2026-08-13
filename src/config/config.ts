@@ -125,6 +125,27 @@ export const DEFAULT_CONFIG: Config = {
     // LLM_FW_METRICS_ENABLED.
     metrics: true,
   },
+  // Durable audit trail (src/dashboard/auditLog.ts). OFF by default so an
+  // upgrade never silently starts writing to disk; the container image and the
+  // Helm chart turn it on, because an in-memory ring answers no retention
+  // question. Prompt text stays out of the file unless includePayloads is set.
+  audit: {
+    enabled: false,
+    maxFileBytes: 64 * 1024 * 1024,
+    includePayloads: false,
+  },
+  // Reverse-proxy deployment. OFF by default — a package upgrade must never
+  // start opening listeners on its own. `llm-fw start --gateway` (or
+  // LLM_FW_GATEWAY_ENABLED=true) turns it on; see src/gateway/gateway.ts.
+  gateway: {
+    enabled: false,
+    port: 8081,
+    bindHost: '127.0.0.1',
+    // Bare `/v1/chat/completions` with no provider prefix goes here. OpenAI is
+    // the wire format almost every provider clones, so it is the safe default;
+    // point it at 'groq' or a private slug to standardise on another.
+    defaultProvider: 'openai',
+  },
   dlp: {
     enabled: true,
     mode: 'redact',
@@ -345,6 +366,12 @@ export async function loadConfig(): Promise<Config> {
     config.targets = [...new Set([...config.targets, ...config.extraTargets])];
   }
 
+  // Applied last, over every other layer. Observe mode is a promise that
+  // nothing gets refused, so it has to win against a project file or env var
+  // that set some detector to 'block' — otherwise the one gate that slipped
+  // through is the one that breaks a developer's agent on day one.
+  if (config.enforcement === 'observe') applyObserveMode(config);
+
   return config;
 }
 
@@ -359,11 +386,71 @@ function splitList(value: string): string[] {
  * config sections guard against the section having been nulled out by a file
  * config, and enum-valued settings ignore values outside their domain.
  */
+/**
+ * Relax every gate that can refuse a request, so the firewall records what it
+ * would have done without doing it.
+ *
+ * This is the seven-day pass a team runs before enforcement: turn it on, watch
+ * the Events tab, suppress the false positives, then enforce. A firewall that
+ * blocks something surprising on day one gets switched off, and a partial
+ * observe mode — where most detectors are quiet but one still refuses traffic —
+ * would destroy that trust just as effectively as no observe mode at all. So
+ * every content gate is flipped here rather than at each call site.
+ *
+ * Deliberately NOT relaxed:
+ *   - `dos` request/token quotas and the loop breaker. These protect the
+ *     firewall and the upstream bill from a runaway agent; they are resource
+ *     limits, not detection verdicts, and have no false-positive story to
+ *     evaluate.
+ *   - Client authentication. "Observe" is about what the firewall thinks of the
+ *     traffic, never about who is allowed to send it.
+ */
+/**
+ * Whether a request must not be acted on: either the deployment is observing,
+ * or a per-request override (a gateway tenant) is.
+ *
+ * OR, never "override". Observation is the safe direction, so whichever layer
+ * asks for it wins. `TenantConfig.enforcement` defaults to `'enforce'`, so
+ * treating the per-request value as an override would mean that merely
+ * CONFIGURING a tenant silently re-armed the firewall for that tenant under a
+ * deployment-wide `--observe` — turning a safety promise into its opposite by
+ * adding an unrelated block of config.
+ */
+export function isObserving(
+  deployment: 'enforce' | 'observe' | undefined,
+  perRequest: 'enforce' | 'observe' | undefined,
+): boolean {
+  return deployment === 'observe' || perRequest === 'observe';
+}
+
+export function applyObserveMode(config: Config): void {
+  config.enforcement = 'observe';
+  // 'redact' would still alter the request body; observation must not.
+  config.dlp.mode = 'audit';
+  config.mcp.auditOnly = true;
+  if (config.taint) config.taint.mode = 'audit';
+  if (config.nonText) config.nonText.mode = 'audit';
+  if (config.manyShot) config.manyShot.mode = 'audit';
+  if (config.crescendo) config.crescendo.mode = 'audit';
+  if (config.indirectInstruction) config.indirectInstruction.mode = 'audit';
+  if (config.harmfulRequest) config.harmfulRequest.mode = 'audit';
+  if (config.responseScan) {
+    config.responseScan.mode = 'audit';
+    if (config.responseScan.toolUse) config.responseScan.toolUse.mode = 'audit';
+  }
+  // The detection pipeline's own verdict is downgraded inside Pipeline.run()
+  // (one choke point, so every caller — proxy, gateway, library — observes
+  // consistently); the URL filter is handled in the proxy, which is the only
+  // place it can refuse a connection.
+}
+
 const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = parseInt(v, 10); },
   LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
   LLM_FW_BYPASS: (c, v) => { c.proxy.bypass = v === 'true'; },
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
+  LLM_FW_PROXY_TOKEN: (c, v) => { c.proxy.authToken = v; },
+  LLM_FW_PROXY_REQUIRE_AUTH: (c, v) => { c.proxy.requireAuth = v === 'true'; },
   LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = parseInt(v, 10); },
   LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = parseInt(v, 10); },
   LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },
@@ -396,6 +483,29 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
   LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
   LLM_FW_METRICS_ENABLED: (c, v) => { c.dashboard.metrics = v === 'true'; },
+  // Gateway (reverse-proxy) listener. The per-provider upstream API keys are
+  // deliberately NOT here: they are read straight from LLM_FW_GATEWAY_KEY_<SLUG>
+  // in the gateway itself, so a secret never lands in the merged config object
+  // that the dashboard's settings view can read back.
+  // Applied AFTER every other override (see loadConfig), because it relaxes
+  // modes that those overrides may themselves have set.
+  LLM_FW_ENFORCEMENT: (c, v) => { if (v === 'observe' || v === 'enforce') c.enforcement = v; },
+  LLM_FW_AUDIT_ENABLED: (c, v) => { if (c.audit) c.audit.enabled = v === 'true'; },
+  LLM_FW_AUDIT_FILE: (c, v) => { if (c.audit) c.audit.file = v; },
+  LLM_FW_AUDIT_PAYLOADS: (c, v) => { if (c.audit) c.audit.includePayloads = v === 'true'; },
+  LLM_FW_AUDIT_WEBHOOK: (c, v) => { if (c.audit) c.audit.webhookUrl = v; },
+  LLM_FW_GATEWAY_ENABLED: (c, v) => { if (c.gateway) c.gateway.enabled = v === 'true'; },
+  LLM_FW_GATEWAY_PORT: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && c.gateway) c.gateway.port = n; },
+  LLM_FW_GATEWAY_BIND: (c, v) => { if (c.gateway) c.gateway.bindHost = v; },
+  LLM_FW_GATEWAY_TOKEN: (c, v) => { if (c.gateway) c.gateway.authToken = v; },
+  LLM_FW_GATEWAY_REQUIRE_AUTH: (c, v) => { if (c.gateway) c.gateway.requireAuth = v === 'true'; },
+  LLM_FW_GATEWAY_DEFAULT_PROVIDER: (c, v) => { if (c.gateway) c.gateway.defaultProvider = v; },
+  LLM_FW_GATEWAY_TLS_CERT: (c, v) => {
+    if (c.gateway) c.gateway.tls = { certFile: v, keyFile: c.gateway.tls?.keyFile ?? '' };
+  },
+  LLM_FW_GATEWAY_TLS_KEY: (c, v) => {
+    if (c.gateway) c.gateway.tls = { certFile: c.gateway.tls?.certFile ?? '', keyFile: v };
+  },
   LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
   LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
   LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },

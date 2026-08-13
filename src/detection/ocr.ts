@@ -1,4 +1,4 @@
-import { homedir } from 'node:os'
+import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 
 /**
@@ -29,8 +29,17 @@ const OCR_MIME_RE = /^image\/(png|jpe?g|webp|bmp|x-bmp|pnm|x-portable-bitmap|x-p
 // 4/3, so this bounds decoded pixels too.
 const MAX_OCR_BASE64 = 16 * 1024 * 1024 // ~12 MiB decoded
 
-/** Lang data + WASM cache lives beside the CA material, not in the cwd. */
-const CACHE_DIR = join(homedir(), '.llm-fw', 'ocr-cache')
+/**
+ * Lang data + WASM cache lives beside the CA material, not in the cwd.
+ *
+ * Resolved per call through getLlmFwDir(), never from homedir() directly: in a
+ * container the state directory is LLM_FW_DIR=/data on a mounted volume while
+ * HOME is somewhere ephemeral, so a hard-coded home path would re-download the
+ * ~12 MB language data on every restart and write it outside the volume.
+ */
+function cacheDir(): string {
+  return join(getLlmFwDir(), 'ocr-cache')
+}
 
 async function getWorker(): Promise<Worker | null> {
   if (!workerPromise) {
@@ -38,7 +47,7 @@ async function getWorker(): Promise<Worker | null> {
       try {
         const { createWorker } = await import('tesseract.js')
         return (await createWorker('eng', undefined, {
-          cachePath: CACHE_DIR,
+          cachePath: cacheDir(),
           // tesseract.js logs progress to console by default — silence it.
           logger: () => {},
         })) as unknown as Worker

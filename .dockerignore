@@ -1,0 +1,19 @@
+# Keep the build context small and reproducible. node_modules in particular
+# must not be copied in: the image installs its own, and a host copy can carry
+# platform-specific native binaries that do not run in the container.
+node_modules
+dist
+.git
+.github
+test
+docs
+reports
+scripts
+examples
+integrations
+coverage
+*.log
+*.jpg
+*.png
+.env
+.env.*

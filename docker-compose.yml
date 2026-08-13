@@ -1,0 +1,53 @@
+# Single-host llm-fw deployment.
+#
+# Brings up the gateway on :8081 (clients set base_url to it — no CA, no
+# HTTPS_PROXY), the forward proxy on :8080 for clients that prefer it, and the
+# dashboard on :7731.
+#
+# Before starting, put your secrets in a .env file beside this one:
+#
+#   LLM_FW_GATEWAY_TOKEN=<a long random string clients must present>
+#   LLM_FW_DASHBOARD_TOKEN=<a different long random string>
+#   # Optional: take custody of the provider keys so clients never hold them.
+#   LLM_FW_GATEWAY_KEY_ANTHROPIC=sk-ant-...
+#   LLM_FW_GATEWAY_KEY_OPENAI=sk-...
+#
+# Without the tokens the service still refuses anonymous clients — it generates
+# a token and prints it at startup — but it will change on every restart.
+
+services:
+  llm-fw:
+    build: .
+    image: llm-fw:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8081"   # gateway (the one clients point base_url at)
+      - "8080:8080"   # forward proxy (CA + HTTPS_PROXY clients)
+      - "127.0.0.1:7731:7731"  # dashboard — loopback-only by default; it shows
+                               # captured payloads, so publish it deliberately
+    environment:
+      LLM_FW_GATEWAY_ENABLED: "true"
+      # Bare /v1/... paths with no provider prefix land here.
+      LLM_FW_GATEWAY_DEFAULT_PROVIDER: "openai"
+      LLM_FW_GATEWAY_TOKEN: "${LLM_FW_GATEWAY_TOKEN:-}"
+      LLM_FW_DASHBOARD_TOKEN: "${LLM_FW_DASHBOARD_TOKEN:-}"
+      LLM_FW_PROXY_TOKEN: "${LLM_FW_PROXY_TOKEN:-}"
+      LLM_FW_GATEWAY_KEY_ANTHROPIC: "${LLM_FW_GATEWAY_KEY_ANTHROPIC:-}"
+      LLM_FW_GATEWAY_KEY_OPENAI: "${LLM_FW_GATEWAY_KEY_OPENAI:-}"
+      # Durable audit trail on the volume, so blocks survive a restart.
+      LLM_FW_AUDIT_ENABLED: "true"
+    volumes:
+      # CA key, config, suppressions, whitelist, audit log. Losing this means
+      # regenerating the CA and losing every false-positive suppression an
+      # operator has recorded.
+      - llm-fw-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "const p=process.env.LLM_FW_GATEWAY_PORT||8081;fetch('http://127.0.0.1:'+p+'/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # The embedding model loads at startup; /readyz is 503 until it has.
+      start_period: 60s
+
+volumes:
+  llm-fw-data:

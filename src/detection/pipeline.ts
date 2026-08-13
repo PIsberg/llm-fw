@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { Config, PipelineResult, BlockEvent } from '../types.js'
+import { isObserving } from '../config/config.js'
 import { getParser, extractPartialPrompts, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
@@ -53,7 +54,12 @@ export class Pipeline {
   private classifier: InjectionClassifier
   private judge: JudgeClient
   private config: Config
-  private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void
+  // Returns the stored event when the sink assigns one (EventBus.emit does), so
+  // a caller can quote the exact event id back to the client that was blocked.
+  // Reading "the most recent event" from the ring instead would attribute the
+  // wrong id under concurrent traffic, which is precisely when someone is
+  // trying to trace a block.
+  private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => BlockEvent | void
   private suppressions: SuppressionStore
   // Opt-in cross-request crescendo memory (Task B4, crescendo.crossRequest).
   // Lives for the lifetime of this Pipeline instance — the same lifetime as
@@ -62,7 +68,7 @@ export class Pipeline {
 
   constructor(
     config: Config,
-    onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => void,
+    onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => BlockEvent | void,
     // Shared across the process's Pipeline instances (e.g. ProxyServer's live
     // pipeline and the dashboard's playground pipeline) so a suppression added
     // via the dashboard takes effect on real traffic too, not just the
@@ -116,6 +122,39 @@ export class Pipeline {
       // that don't pass one (e.g. the dashboard playground, most tests) simply
       // never build cross-request memory.
       sessionKey?: string;
+      // Called with each event this run stores. Lets the caller quote the exact
+      // event id back to the blocked client instead of guessing it from the
+      // shared event ring, which two concurrent requests would race on.
+      onEvent?: (event: BlockEvent) => void;
+      // Per-request override of the deployment's enforcement setting, used by
+      // the gateway so one tenant can observe while the rest enforce.
+      enforcement?: 'enforce' | 'observe';
+      // Tenant attribution, carried onto every event this run emits.
+      tenant?: string;
+    }
+  ): Promise<PipelineResult> {
+    const result = await this.scan(requestPath, body, meta)
+    // THE choke point for observe mode. Every caller — proxy, gateway, the
+    // library API — takes its verdict from here, so downgrading once makes
+    // "observe blocks nothing" a property of the system rather than a promise
+    // each call site has to remember to keep. The event emitted during the scan
+    // still records the block verdict, with enforced: false.
+    // meta.enforcement lets ONE request observe while the deployment enforces:
+    // the gateway passes it per tenant, so a newly onboarded team can watch its
+    // own false positives without the firewall being turned down for everyone.
+    if (isObserving(this.config.enforcement, meta.enforcement) && result.action === 'block') {
+      return { ...result, action: 'warn' }
+    }
+    return result
+  }
+
+  private async scan(
+    requestPath: string,
+    body: string,
+    meta: {
+      target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
+      sessionKey?: string;
+      onEvent?: (event: BlockEvent) => void;
     }
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
@@ -651,7 +690,7 @@ export class Pipeline {
   async checkPartial(
     requestPath: string,
     partialBody: string,
-    meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }
+    meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; }
   ): Promise<PipelineResult | null> {
     const parser = getParser(requestPath)
     if (!parser) return null
@@ -674,7 +713,13 @@ export class Pipeline {
             heuristicMatches: h.matches
           }
           this.emit(result, meta, prompt, source)
-          return result
+          // Same rule as run(): observe records the verdict and forwards the
+          // request. The early-abort path must honour it too, or a streaming
+          // request would still be cut off mid-body while the buffered path
+          // let everything through.
+          return isObserving(this.config.enforcement, meta.enforcement)
+            ? { ...result, action: 'warn' }
+            : result
         }
       }
     }
@@ -750,13 +795,13 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }, prompt: string, source: ScanSource = 'prompt'): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; }, prompt: string, source: ScanSource = 'prompt'): void {
     if (!this.onBlock) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
     // existing Live Traffic UI without a schema change.
     const label = source === 'tool_result' ? '[tool-result] ' : source === 'tool_definition' ? '[tool-def] ' : source === 'document' ? '[document] ' : source === 'system' ? '[system] ' : ''
-    this.onBlock({
+    const stored = this.onBlock({
       stage: result.stage,
       score: result.score,
       similarity: result.similarity,
@@ -766,6 +811,13 @@ export class Pipeline {
       payload_preview: label + prompt.slice(0, 120 - label.length),
       payload_full: prompt,
       action: result.action === 'block' ? 'blocked' : 'warned',
+      // In observe mode the event still records what the detector decided —
+      // 'blocked' is the verdict, not the outcome — and this flag records that
+      // the request was forwarded anyway. Keeping the verdict truthful is what
+      // makes the observation period usable: an operator needs to count what
+      // WOULD have been blocked, not read a log of warnings.
+      ...(isObserving(this.config.enforcement, meta.enforcement) ? { enforced: false } : {}),
+      ...(meta.tenant ? { tenant: meta.tenant } : {}),
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
       verdict: result.verdict,
@@ -777,5 +829,9 @@ export class Pipeline {
       smuggleRanges: result.smuggleRanges,
       mediaSummary: result.mediaSummary,
     })
+    // Per-REQUEST hook (not per-instance state): one Pipeline serves every
+    // concurrent request, so the id has to reach the caller through the meta it
+    // passed in rather than through a field two requests would race on.
+    if (stored) meta.onEvent?.(stored)
   }
 }

@@ -47,6 +47,10 @@
 - [Quick Start](#quick-start)
 - [Sinkhole mode — for Node.js tools and native binaries](#sinkhole-mode--for-nodejs-tools-and-native-binaries)
 - [Standalone server mode — one firewall for many clients](#standalone-server-mode--one-firewall-for-many-clients)
+- [Observe mode — see what it would block before it blocks anything](#observe-mode--see-what-it-would-block-before-it-blocks-anything)
+- [Gateway mode — point base_url at the firewall (no CA install)](#gateway-mode--point-base_url-at-the-firewall-no-ca-install)
+- [Docker and Kubernetes](#docker-and-kubernetes)
+- [Audit log and SIEM export](#audit-log-and-siem-export)
 - [Running in development (from source)](#running-in-development-from-source)
 - [Uninstall](#uninstall)
 - [Run on startup (auto-start service)](#run-on-startup-auto-start-service)
@@ -386,6 +390,155 @@ All clients' traffic now appears in the server dashboard's **Live Traffic** tab,
 
 ---
 
+## Observe mode — see what it would block before it blocks anything
+
+A firewall that refuses something surprising on day one gets switched off, and then it protects nothing. So run it in observation first:
+
+```bash
+llm-fw start --observe
+```
+
+Every detector runs and every would-be block is recorded as an event with `enforced: false`, but **no request is refused**. Watch the dashboard for a few days, mark the false positives (they stay suppressed), then restart without `--observe`.
+
+The guarantee is total, not per-detector: `applyObserveMode()` puts DLP, taint tracking, MCP filtering, many-shot, crescendo, indirect-instruction, harmful-request and every response-side scan into audit, downgrades the detection pipeline's own verdict at a single choke point that the proxy, the gateway and the library API all read, and relaxes the URL filter. It is applied **after** every config layer, so a detector you had set to `block` in a config file or env var does not slip through.
+
+Two things are deliberately still enforced, because neither is a detection verdict with a false-positive story:
+
+- **Resource limits** — the DoS quota and loop breaker, which protect your upstream bill from a runaway agent.
+- **Client authentication** — observation is about what the firewall thinks of the traffic, never about who may send it.
+
+Pair it with `LLM_FW_AUDIT_ENABLED=true` so the observation survives a restart. Also settable as `LLM_FW_ENFORCEMENT=observe`; `--dry-run` and `--monitor` are accepted spellings.
+
+---
+
+## Gateway mode — point base_url at the firewall (no CA install)
+
+Standalone mode above is a **forward proxy**: it inspects traffic by intercepting TLS to the provider, so every client machine has to trust the llm-fw CA and set `HTTPS_PROXY`. That is fine on a dev box you control and a hard sell everywhere else — managed laptops, CI containers, serverless runtimes.
+
+Gateway mode inverts it. The firewall **is** the endpoint: clients set their SDK's `base_url` and speak ordinary HTTPS to a certificate you already own. No CA to distribute, nothing to configure per machine.
+
+```bash
+llm-fw start --gateway
+```
+
+Clients then point at it:
+
+```bash
+export ANTHROPIC_BASE_URL=https://fw.example.com/anthropic
+export OPENAI_BASE_URL=https://fw.example.com/openai/v1
+```
+
+Two path shapes are accepted:
+
+| Request path | Routed to |
+|---|---|
+| `/anthropic/v1/messages`, `/groq/v1/chat/completions`, … | that provider, prefix stripped |
+| `/v1/messages` | Anthropic (its own API shape) |
+| `/v1beta/models/...:generateContent` | Gemini |
+| `/v1/chat/completions` and other bare `/v1/…` | `gateway.defaultProvider` (default `openai`) |
+
+Anything else is a 404 — the gateway never guesses an upstream.
+
+**Client authentication.** Clients present a token as `X-Llm-Fw-Key` (or `Authorization: Bearer`). It is required automatically as soon as the listener is bound off-host; set `LLM_FW_GATEWAY_TOKEN` to pin it, or read the generated one from the startup log.
+
+**Key custody.** Set `LLM_FW_GATEWAY_KEY_<SLUG>` and the gateway holds the provider credential: it replaces whatever the client sent and strips every other credential header, so callers never hold the provider key and cannot route around your attribution.
+
+```bash
+export LLM_FW_GATEWAY_KEY_ANTHROPIC=sk-ant-...
+export LLM_FW_GATEWAY_KEY_OPENAI=sk-...
+```
+
+**TLS.** Run behind a load balancer or ingress that terminates TLS (the common case), or serve it directly with `LLM_FW_GATEWAY_TLS_CERT` / `LLM_FW_GATEWAY_TLS_KEY`.
+
+**Tenants.** One shared token says a caller is authorised and nothing else. Give each team its own:
+
+```json
+{
+  "gateway": {
+    "tenants": {
+      "platform":  { "token": "...", "quotaPerMinute": 600 },
+      "research":  { "token": "...", "providers": ["anthropic"] },
+      "new-team":  { "token": "...", "enforcement": "observe" }
+    }
+  }
+}
+```
+
+That buys three things a single token cannot. Every event carries the tenant, so "why did our agent break?" has an answer. Each team gets a per-minute quota, so one runaway loop cannot spend everyone's budget — the refusal is a 429 with `Retry-After`, and it never reaches the provider. And `enforcement: "observe"` puts one team in observation while the rest stay enforced, which is how you onboard a team without either exposing them to day-one false positives or turning the firewall down for everybody.
+
+A tenant token authenticates on its own; the deployment-wide token keeps working alongside them, so adding tenants never locks out the credential already in use. Quotas are per gateway process: with several replicas each enforces its own share, which the Helm chart's `replicaCount` comment spells out.
+
+**Private endpoints.** A self-hosted vLLM or Ollama is a config entry, including a non-standard port and plain HTTP for in-cluster traffic:
+
+```json
+{
+  "gateway": {
+    "providers": {
+      "internal": { "host": "vllm.svc.cluster.local", "port": 8000, "protocol": "http", "auth": "bearer" }
+    }
+  }
+}
+```
+
+**Health endpoints.** `/healthz` and `/livez` answer immediately; `/readyz` returns 503 until the embedding model is loaded, so a rollout never routes traffic to an instance that cannot scan yet. All three answer before authentication, because a kubelet cannot present a token.
+
+**What differs from the proxy.** The gateway runs the full **request-side** pipeline (DLP + every injection stage). Response-side scanning — exfil URLs, harmful compliance, tool-use argument scanning — currently runs on the forward proxy only; the gateway streams responses through untouched.
+
+| | Forward proxy | Gateway |
+|---|---|---|
+| Client setup | CA install + `HTTPS_PROXY` | `base_url` only |
+| Works in CI / serverless | No | Yes |
+| Provider key custody | No | Yes |
+| Request-side detection | Yes | Yes |
+| Response-side detection | Yes | Not yet |
+| Covers non-LLM traffic (URL filter, taint) | Yes | No |
+
+---
+
+## Docker and Kubernetes
+
+The image bakes the embedding model in at build time, so the first request after a rollout is not a 30 MB download and the container works on an air-gapped network.
+
+```bash
+docker compose up -d
+```
+
+Put your secrets in a `.env` file next to `docker-compose.yml` first:
+
+```
+LLM_FW_GATEWAY_TOKEN=<long random string clients present>
+LLM_FW_DASHBOARD_TOKEN=<a different one>
+LLM_FW_GATEWAY_KEY_ANTHROPIC=sk-ant-...
+```
+
+For Kubernetes:
+
+```bash
+helm install llm-fw deploy/helm/llm-fw \
+  --set secrets.gatewayToken=<token> \
+  --set secrets.providerKeys.anthropic=sk-ant-...
+```
+
+The chart wires `startupProbe`/`readinessProbe` to `/readyz` so a pod that is still loading its model is never sent traffic, and mounts a PVC for the CA key, the false-positive suppression list, and the audit log. The dashboard is deliberately **not** exposed through the ingress — it renders captured request payloads; reach it with `kubectl port-forward`.
+
+Set a `secrets.gatewayToken`. Without one each pod generates its own at startup, so every rollout invalidates your clients' token.
+
+---
+
+## Audit log and SIEM export
+
+Events otherwise live only in an in-memory ring (100 by default) and are lost on restart, which answers no retention question.
+
+```bash
+LLM_FW_AUDIT_ENABLED=true llm-fw start
+```
+
+Writes newline-delimited JSON to `<LLM_FW_DIR>/audit.jsonl` — point Vector, Fluent Bit, or any log shipper at it. Every record carries the **ruleset version** that produced the verdict, so an audit read months later does not depend on knowing which build was deployed.
+
+Prompt text is **not** written unless you ask for it: payloads carry customer data and secrets, so `LLM_FW_AUDIT_PAYLOADS=true` is a deliberate opt-in. `LLM_FW_AUDIT_WEBHOOK=<url>` additionally POSTs batches to a collector; the file stays the durable record, and the shipper drops rather than backlogs when the collector is down.
+
+**Ruleset version.** Detection carries an identifier separate from the npm version — the current value is `RULESET_VERSION` in [`src/detection/ruleset.ts`](src/detection/ruleset.ts), deliberately not repeated here so it cannot go stale — because a patch release can move a threshold and a feature release can leave detection untouched. It appears in every block response and every audit record. A CI gate hashes every file that can change a verdict and fails until the version is cut, so the identifier cannot drift from the rules it names.
+
 ## Running in development (from source)
 
 ```bash
@@ -689,6 +842,8 @@ Both events appear in `GET http://localhost:7731/api/events`:
 ## Detection Scorecard
 
 Measured, not promised. The table below is regenerated from the labelled corpus by `npm run scorecard` and verified on every CI run (`docs/SCORECARD.md` carries the standalone copy).
+
+> **Read the false-positive page too.** This corpus was co-tuned with the heuristics it grades, so its 0% FPR cannot tell you what the firewall does to *your* traffic. [docs/FALSE-POSITIVES.md](docs/FALSE-POSITIVES.md) measures that against a held-out benign corpus and reports **13.38% (95% CI 8.7–20.0%)** on deliberately hard legitimate traffic, with a per-category breakdown of exactly what gets blocked and why. `npm run fpr` runs it; CI fails on the first false positive in any category that currently has none.
 
 <!-- scorecard:start -->
 Deterministic full sweep over the labelled corpus (110 attacks, 78 benign prompts incl. security-themed hard negatives) through the real proxy.

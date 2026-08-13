@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llm-fw.fullname" . }}
+  labels:
+    {{- include "llm-fw.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "llm-fw.selectorLabels" . | nindent 6 }}
+  {{- if .Values.persistence.enabled }}
+  # The volume holds the CA key and the operator's false-positive suppressions,
+  # and a ReadWriteOnce claim cannot be mounted by an old and a new pod at once.
+  strategy:
+    type: Recreate
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "llm-fw.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pods when the token or provider keys change, so a rotated
+        # secret takes effect without a manual restart.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: llm-fw
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["start"{{ if .Values.gateway.enabled }}, "--gateway"{{ end }}]
+          ports:
+            {{- if .Values.gateway.enabled }}
+            - name: gateway
+              containerPort: {{ .Values.gateway.port }}
+            {{- end }}
+            {{- if .Values.proxy.enabled }}
+            - name: proxy
+              containerPort: {{ .Values.proxy.port }}
+            {{- end }}
+            {{- if .Values.dashboard.enabled }}
+            - name: dashboard
+              containerPort: {{ .Values.dashboard.port }}
+            {{- end }}
+          env:
+            - name: LLM_FW_DIR
+              value: /data
+            - name: LLM_FW_GATEWAY_ENABLED
+              value: {{ .Values.gateway.enabled | quote }}
+            - name: LLM_FW_GATEWAY_PORT
+              value: {{ .Values.gateway.port | quote }}
+            - name: LLM_FW_GATEWAY_BIND
+              value: "0.0.0.0"
+            - name: LLM_FW_GATEWAY_DEFAULT_PROVIDER
+              value: {{ .Values.gateway.defaultProvider | quote }}
+            - name: LLM_FW_DASHBOARD_BIND
+              value: "0.0.0.0"
+            - name: LLM_FW_CLASSIFIER_ENABLED
+              value: {{ .Values.detection.classifierEnabled | quote }}
+            - name: LLM_FW_FAIL_MODE
+              value: {{ .Values.detection.failMode | quote }}
+            - name: LLM_FW_AUDIT_ENABLED
+              value: {{ .Values.audit.enabled | quote }}
+            {{- if .Values.audit.webhookUrl }}
+            - name: LLM_FW_AUDIT_WEBHOOK
+              value: {{ .Values.audit.webhookUrl | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "llm-fw.secretName" . }}
+                optional: true
+          {{- if .Values.gateway.enabled }}
+          # The embedding model loads before the first scan, so a pod is not
+          # ready the moment the process starts. startupProbe owns that window;
+          # without it the liveness probe would restart a pod that is merely
+          # still loading, forever.
+          #
+          # Gated on gateway.enabled: /healthz and /readyz are served ONLY by
+          # the gateway, so with it off these would probe a closed port and the
+          # kubelet would restart the pod forever — a crash loop caused entirely
+          # by the health check.
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.gateway.port }}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.gateway.port }}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.gateway.port }}
+            periodSeconds: 20
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "llm-fw.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

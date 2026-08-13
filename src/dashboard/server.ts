@@ -1,6 +1,5 @@
 import http from 'node:http'
 import fs from 'node:fs'
-import crypto from 'node:crypto'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config } from '../types.js'
@@ -17,6 +16,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
+import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
 
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -1807,33 +1807,14 @@ function checkSameOrigin(req: http.IncomingMessage): { ok: true } | { ok: false;
 // always open (a client needs the CA before it can trust anything).
 const AUTH_EXEMPT_PATHS = new Set(['/ca.crt', '/ca.pem', '/crl'])
 
-export function isLoopbackAddr(addr: string | undefined): boolean {
-  if (!addr) return false
-  const a = addr.replace(/^::ffff:/, '')
-  return a === '127.0.0.1' || a === '::1' || a.startsWith('127.')
-}
+// Credential primitives live in src/auth.ts so the dashboard, the forward
+// proxy and the gateway share one implementation. Re-exported here because
+// they were part of this module's surface before the move.
+export { isLoopbackAddr, tokenMatches } from '../auth.js'
 
 /** Pull a presented token from Authorization (Bearer/Basic), ?token=, in that order. */
 export function presentedToken(req: http.IncomingMessage, url: URL): string {
-  const auth = req.headers.authorization ?? ''
-  if (auth.startsWith('Bearer ')) return auth.slice(7).trim()
-  if (auth.startsWith('Basic ')) {
-    try {
-      const decoded = Buffer.from(auth.slice(6).trim(), 'base64').toString('utf8')
-      // "user:token" — the token is the password half (the username is ignored).
-      return decoded.slice(decoded.indexOf(':') + 1)
-    } catch { /* malformed */ }
-  }
-  return url.searchParams.get('token') ?? ''
-}
-
-/** Constant-time token comparison that tolerates differing lengths. */
-export function tokenMatches(presented: string, expected: string): boolean {
-  if (!presented || !expected) return false
-  const a = Buffer.from(presented)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
-  return crypto.timingSafeEqual(a, b)
+  return credentialFromAuthHeader(req.headers.authorization) || (url.searchParams.get('token') ?? '')
 }
 
 export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline, suppressions?: SuppressionStore, metrics?: MetricsRegistry): http.Server {
@@ -1852,8 +1833,8 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   // Effective auth token: configured value, else a generated one so a
   // remotely-reachable dashboard is never left open. Loopback callers bypass auth
   // entirely, so a purely local dashboard never needs the token.
-  const bindLocal = isLoopbackAddr(config.dashboard.bindHost) || config.dashboard.bindHost === undefined
-  const authToken = config.dashboard.authToken || crypto.randomBytes(24).toString('hex')
+  const bindLocal = isLoopback(config.dashboard.bindHost) || config.dashboard.bindHost === undefined
+  const authToken = config.dashboard.authToken || generateToken()
   if (!bindLocal) {
     if (config.dashboard.authToken) {
       console.log('[dashboard] remote access requires the configured auth token (Authorization: Bearer <token>, or Basic with the token as the password).')
@@ -1863,9 +1844,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   }
 
   const isAuthorized = (req: http.IncomingMessage, url: URL, path: string): boolean => {
-    if (isLoopbackAddr(req.socket.remoteAddress)) return true
+    if (isLoopback(req.socket.remoteAddress)) return true
     if (AUTH_EXEMPT_PATHS.has(path)) return true
-    return tokenMatches(presentedToken(req, url), authToken)
+    return matchesToken(presentedToken(req, url), authToken)
   }
 
   const urlClassifier = config.proxy.urlFilter.enabled
