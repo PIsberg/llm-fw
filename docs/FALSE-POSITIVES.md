@@ -28,31 +28,41 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.08.6
+## Result, ruleset 2026.08.7
 
-**13.38% overall (19 of 142), 95% CI 8.74–19.95%.**
+**7.75% overall (11 of 142), 95% CI 4.38–13.34%.**
+
+Down from 13.38% (19 of 142) at ruleset 2026.08.6. The whole of that improvement is one change: the contrastive benign anchors used to be sixteen coding commands ("Run the tests", "Commit the changes") with nothing representing a legitimate `ignore`/`disregard`/`forget` aimed at the user's **own content** rather than at the model's instructions. Ten anchors for that family were added in 2026.08.7.
+
+Threshold tuning could not have produced this. The blocked benign rows sat at contrastive margins of +0.022 to +0.046 while genuine attacks ran +0.029 to +0.113 — overlapping ranges, so any margin high enough to clear the false positives also drops a real exfiltration attempt. Raising the benign side separates them; moving the line does not. Measured recall was unaffected: TPR stayed at 100% and scorecard FPR at 0%.
 
 First measured against ruleset 2026.08.4 and re-measured unchanged at 2026.08.6; the rulesets between them moved observability and per-tenant routing, not verdicts. The pairing of a rate with the ruleset that produced it is enforced by `test/detection/ruleset-version.test.ts`, so this label cannot silently fall behind the code again.
 
-| Category | Blocked | Stage that fired |
-|---|---|---|
-| instruction-management | 5 / 10 | embedding ×4, heuristic ×1 |
-| agent-imperative | 5 / 18 | embedding ×5 |
-| rag-document | 3 / 8 | indirect-instruction ×3 |
-| about-injection | 3 / 10 | heuristic ×2, embedding ×1 |
-| benign-tool-result | 2 / 12 | indirect-instruction ×2 |
-| agent-tool-definition | 1 / 8 | heuristic ×1 |
-| agent-system-prompt | 0 / 12 | — |
-| security-qa | 0 / 14 | — |
-| code-review | 0 / 10 | — |
-| business-multilingual | 0 / 10 | — |
-| data-transform | 0 / 8 | — |
-| analysis-writing | 0 / 8 | — |
-| support-ticket | 0 / 7 | — |
-| fiction-roleplay | 0 / 7 | — |
+| Category | Blocked | Stage that fired | Was (2026.08.6) |
+|---|---|---|---|
+| rag-document | 3 / 8 | indirect-instruction ×3 | 3 / 8 |
+| agent-imperative | 2 / 18 | embedding ×2 | 5 / 18 |
+| about-injection | 2 / 10 | heuristic ×2 | 3 / 10 |
+| benign-tool-result | 2 / 12 | indirect-instruction ×2 | 2 / 12 |
+| instruction-management | 1 / 10 | heuristic ×1 | 5 / 10 |
+| agent-tool-definition | 1 / 8 | heuristic ×1 | 1 / 8 |
+| agent-system-prompt | 0 / 12 | — | 0 / 12 |
+| security-qa | 0 / 14 | — | 0 / 14 |
+| code-review | 0 / 10 | — | 0 / 10 |
+| business-multilingual | 0 / 10 | — | 0 / 10 |
+| data-transform | 0 / 8 | — | 0 / 8 |
+| analysis-writing | 0 / 8 | — | 0 / 8 |
+| support-ticket | 0 / 7 | — | 0 / 7 |
+| fiction-roleplay | 0 / 7 | — | 0 / 7 |
+
+The embedding stage no longer contributes a single false positive in
+`instruction-management`, and five of the remaining eleven blocks are now
+`indirect-instruction` firing on ordinary imperative prose in documents and
+tool output. That detector is the largest remaining source and is discussed
+below.
 
 Read this correctly in both directions. The corpus is **deliberately adversarial
-benign**: it over-samples the shapes known to be hard, so 13.38% is the rate on
+benign**: it over-samples the shapes known to be hard, so 7.75% is the rate on
 difficult legitimate traffic, not on a typical request mix. But every row is
 something a real user would plausibly send, and half the categories are entirely
 clean — including security questions, code review, and multilingual business

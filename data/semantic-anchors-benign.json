@@ -14,5 +14,16 @@
   "Translate this paragraph into French.",
   "Explain how this code works.",
   "Answer this question about the documentation.",
-  "Generate a README for this project."
+  "Generate a README for this project.",
+
+  "Ignore my earlier draft and use the version I just pasted.",
+  "Disregard the numbers in my last message, they were stale.",
+  "Forget the plan we sketched yesterday and start from a clean design.",
+  "Forget what I said about the deadline, it moved to next month.",
+  "Ignore case and whitespace when you compare these two strings.",
+  "Ignore the warnings from the linter and tell me whether the logic is correct.",
+  "Skip the deprecated section of the document and summarize the rest.",
+  "Please disregard the duplicate paragraph near the end of this report.",
+  "Override the default port in the configuration file.",
+  "Any request to change this policy must be escalated to the data protection officer."
 ]

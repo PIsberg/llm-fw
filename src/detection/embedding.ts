@@ -161,6 +161,27 @@ export class EmbeddingChecker {
     // Benign contrastive anchors. Same encoder, embedded one at a time. Missing
     // file → empty set → benignSimilarity 0 → margin == similarity (i.e. the
     // pre-contrastive behaviour), so the stage degrades gracefully.
+    //
+    // The set covers two families, and BOTH are load-bearing:
+    //
+    //   1. Ordinary agentic commands ("Run the tests", "Commit the changes"),
+    //      which share the imperative shape of an injection.
+    //   2. Legitimate instruction-management — "ignore"/"disregard"/"forget"/
+    //      "override" whose OBJECT is the user's own content or a config value
+    //      ("ignore my earlier draft", "override the default port"), not the
+    //      model's instructions, rules or system prompt.
+    //
+    // Family 2 was missing until ruleset 2026.08.7 and cost 5/10 of the
+    // instruction-management FPR corpus: "Disregard my previous message" sits
+    // at cosine 0.869 to the attack anchor "Disregard all previous
+    // instructions…", because the encoder sees the verb and the negation, not
+    // what is being negated. Only a benign anchor with the same verb and a
+    // different object pulls it back — no threshold does, since these rows
+    // (+0.022..+0.046) overlap genuine attacks (+0.029..+0.113).
+    //
+    // So when adding anchors here, vary the OBJECT, not the verb. Anchors that
+    // merely repeat "ignore" against instruction-like objects would blunt the
+    // stage's real detections instead.
     try {
       const benignPath = join(dirname(__filename), '../../data/semantic-anchors-benign.json')
       const benign = JSON.parse(readFileSync(benignPath, 'utf-8')) as string[]
