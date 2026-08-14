@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`tesseract.js` is now an optional peer dependency, not a runtime one.** OCR ships off (`nonText.ocr: false`) and `src/detection/ocr.ts` has always reached it through a dynamic import, but as a hard dependency it cost every `npm i llm-fw` about 50 MB and 13 packages: `tesseract.js-core` alone is 44 MB, and the subtree brought `zlibjs`, `bmp-js`, `node-fetch`, `whatwg-url`/`tr46`/`webidl-conversions`, `regenerator-runtime` and `is-url` with it. Socket reported most of that as unmaintained, minified or obfuscated, and `tesseract.js`'s postinstall ran `opencollective-postinstall` on every install.
+
+  Measured with `npm install <tarball> --omit=dev --dry-run` against the published 0.4.1: 67 packages → 54, with nothing added. An *optional peer* is the form that achieves this; `optionalDependencies` are installed by default and only skipped on failure or with `--omit=optional`.
+
+  To use OCR, install `tesseract.js` alongside llm-fw. With `nonText.ocr` on and the package absent, images fall back to opaque handling rather than failing the request, and `test/detection/ocr.test.ts` pins that by mocking the module as missing.
+
+### Added
+
+- **`NOTICE.md`**, recording the third-party components whose licences sit outside the usual permissive set, and llm-fw's position on them. The one with real obligations is libvips (`LGPL-3.0-or-later`), which arrives through `sharp` under `@huggingface/transformers`: as its own `@img/sharp-libvips-*` package on Linux and macOS, and statically bundled into `@img/sharp-win32-*` on Windows. llm-fw imports only the text pipelines, so sharp is never on a path it executes. `node-forge` (`BSD-3-Clause OR GPL-2.0`, taken under BSD) and `argparse` (`Python-2.0`) are listed only because scanners flag them.
+
+### Security
+
+- `global-agent` pinned to `^4.1.3` via `overrides`, dropping the deprecated `boolean@3.2.0` ("Package no longer supported") that reached the tree through `@huggingface/transformers` → `onnxruntime-node` → `global-agent@3`. It also drops `roarr`, `es6-error`, `json-stringify-safe`, `semver-compare`, `sprintf-js` and `type-fest@0.13.1`.
+
+  This clears our own tree and CI only. npm honours `overrides` from the root project alone, so it does **not** reach anyone installing llm-fw as a dependency; verified by dry-run install of the tarball, where `boolean` is still present. A consumer-visible fix has to land upstream in `onnxruntime-node`. `global-agent` is used only by that package's install script, so the blast radius of the pin is install-time proxy support.
+
+- **Correction to 0.4.1: the `overrides` block never protected anyone installing llm-fw.** 0.4.1's Security note said the `sharp` 0.34.5 → 0.35.3 pin "stops the vulnerable copy from shipping". It does not. npm applies `overrides` only when the declaring package is the root project, so the pins cleaned this repo's `node_modules` and made `npm audit` report 0 here, while a dependency install resolved the parent ranges unchanged.
+
+  Measured with `npm install llm-fw@0.4.1 --omit=dev --dry-run`, users of the published 0.4.1 receive `sharp@0.34.5` (GHSA-f88m-g3jw-g9cj, four libvips CVEs) and `adm-zip@0.5.18` (GHSA-xcpc-8h2w-3j85), not the pinned versions. Only the `qs` entry was ever accurate about its scope, because it is dev-only by nature.
+
+  Both come from `@huggingface/transformers` → its own pins, and `^0.34.5` cannot resolve to 0.35.3, so no range change on our side reaches them. Adding `sharp` as a direct dependency does not help either: npm would hoist our copy and leave transformers nested on its own. The fix has to land upstream in `@huggingface/transformers`. Tracking it is left open rather than papered over; the `//overrides` note in `package.json` now states the root-only limitation so the next reader does not draw the same wrong conclusion from a green `npm audit`.
+
 ## [0.4.1] - 2026-08-12
 
 ### Added

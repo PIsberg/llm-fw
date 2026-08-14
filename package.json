@@ -18,7 +18,8 @@
   },
   "files": [
     "dist",
-    "data"
+    "data",
+    "NOTICE.md"
   ],
   "engines": {
     "node": ">=22"
@@ -69,8 +70,16 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "cosmiconfig": "^10.0.0",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.0"
+  },
+  "//peerDependencies": "OCR is off by default (nonText.ocr), loaded through a dynamic import in src/detection/ocr.ts, and already degrades to opaque handling when the import fails. As a hard dependency it cost every install ~50 MB and 13 packages for a feature most installs never switch on. An OPTIONAL peer is the only form npm does not install by default: optionalDependencies are installed unless the user passes --omit=optional.",
+  "peerDependencies": {
     "tesseract.js": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "tesseract.js": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
@@ -84,14 +93,16 @@
     "eslint": "^10.8.1",
     "fast-check": "^4.9.0",
     "knip": "^6.32.1",
+    "tesseract.js": "^7.0.0",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
-  "//overrides": "Transitive advisories whose direct parent still pins the vulnerable range. Drop an entry once the parent's own range covers the fix.",
+  "//overrides": "READ THIS BEFORE TRUSTING AN ENTRY HERE. npm honours `overrides` only from the ROOT project, so every entry below cleans this repo's own node_modules and CI and nothing else. Anyone who installs llm-fw as a dependency still resolves the parent's original pin. Verified with `npm install <tarball> --omit=dev --dry-run`, which still yields sharp 0.34.5, adm-zip 0.5.18 and global-agent 3.0.0. A consumer-visible fix has to come from the parent's own range, so treat a cleared `npm audit` here as a statement about this repo, not about what users install. Drop an entry once the parent's range covers the fix.",
   "overrides": {
     "qs": "^6.15.3",
     "adm-zip": "^0.6.0",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "global-agent": "^4.1.3"
   }
 }
