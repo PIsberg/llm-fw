@@ -472,6 +472,8 @@ export interface Config {
   nonText?: NonTextConfig;
   manyShot?: ManyShotConfig;
   crescendo?: CrescendoConfig;
+  /** Memory-poisoning detection over recalled agent memory (see memoryPoisoning.ts). */
+  memoryPoisoning?: { enabled: boolean; mode: 'audit' | 'block' };
   indirectInstruction?: IndirectInstructionConfig;
   harmfulRequest?: HarmfulRequestConfig;
   targets: string[];
@@ -518,7 +520,7 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
-  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'indirect-instruction' | 'harmful-request' | 'none';
+  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'indirect-instruction' | 'harmful-request' | 'memory-poisoning' | 'none';
   score: number;
   similarity: number;
   verdict?: string;
@@ -541,7 +543,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'error';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'memory-poisoning' | 'error';
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string;
   urlBlockReason?: string;

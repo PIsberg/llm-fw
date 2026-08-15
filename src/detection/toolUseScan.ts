@@ -28,6 +28,7 @@
 // streamed functionCall arrives whole in a single event (no fragmentation), so
 // it needs no accumulator.
 
+import { detectMemoryPoisoning, type MemoryPoisoningFinding } from './memoryPoisoning.js'
 import type { PayloadParser, DlpFinding } from '../types.js'
 import type { DlpScanner } from './dlp/scanner.js'
 
@@ -222,6 +223,58 @@ export function scanToolCallsForExfil(
     }
     if (dlpFindings.length > 0 || urlFindings.length > 0) {
       findings.push({ toolName: call.toolName, args: call.args, dlpFindings, urlFindings })
+    }
+  }
+  return findings
+}
+
+/**
+ * Does this tool name look like it WRITES to long-term memory?
+ *
+ * Name-based, because the proxy sees the wire protocol and not the semantics
+ * of whatever MCP server is behind it. Requires both a memory-ish and a
+ * write-ish token so `memory_recall` (a read) does not gate, while
+ * `memory_save`, `store_knowledge` and `add_note` do. `remember` is accepted
+ * alone because it is a write on its own terms.
+ */
+export function isMemoryWriteTool(name: string): boolean {
+  if (!name) return false
+  if (/^(?:remember|memorize|memorise)$/i.test(name)) return true
+  const memoryish = /memor|knowledge|recall|note|context|observation/i.test(name)
+  const writeish = /save|write|store|add|create|update|upsert|put|insert|append|record|remember/i.test(name)
+  return memoryish && writeish
+}
+
+export interface ToolUseMemoryFinding {
+  toolName: string
+  args: unknown
+  /** Which memory-poisoning family fired. */
+  kind: MemoryPoisoningFinding['kind']
+  snippet: string
+}
+
+/**
+ * Gate what the agent is about to PERSIST.
+ *
+ * This is the highest-leverage point in the whole memory story. Everywhere
+ * else llm-fw re-checks a poisoned memory on every replay; here it stops the
+ * memory being written at all, so one block prevents an unbounded number of
+ * future recalls. It is also the only place the firewall can act before the
+ * damage becomes persistent state outside its view.
+ *
+ * The obvious limitation, stated so nobody over-trusts this: it only sees
+ * writes the MODEL requests as a tool call. A harness that captures memory out
+ * of band — a session hook writing observations directly to a local store —
+ * never crosses the proxy, and such a memory can only be caught later, on
+ * replay. That is containment, not prevention.
+ */
+export function scanToolCallsForMemoryPoisoning(calls: ScannedToolCall[]): ToolUseMemoryFinding[] {
+  const findings: ToolUseMemoryFinding[] = []
+  for (const call of calls) {
+    if (!call.toolName || !isMemoryWriteTool(call.toolName)) continue
+    const finding = detectMemoryPoisoning(serializeToolArgs(call.args))
+    if (finding) {
+      findings.push({ toolName: call.toolName, args: call.args, kind: finding.kind, snippet: finding.snippet })
     }
   }
   return findings
