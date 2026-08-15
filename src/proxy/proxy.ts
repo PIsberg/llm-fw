@@ -24,7 +24,7 @@ import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/provid
 import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
-import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
+import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, scanToolCallsForMemoryPoisoning, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { explainBlock } from '../detection/explain.js'
@@ -1098,8 +1098,34 @@ export class ProxyServer {
     const cfg = this.config.responseScan.toolUse
     if (cfg?.enabled === false) return false
 
+    // Memory WRITES are gated before the exfil scan, because this is the only
+    // point at which the firewall can stop a poisoned memory from becoming
+    // persistent state it will otherwise re-inspect on every future recall.
+    // Blocking one write prevents an unbounded number of replays.
+    let memoryBlock = false
+    if (this.config.memoryPoisoning?.enabled) {
+      const memFindings = scanToolCallsForMemoryPoisoning(calls)
+      const memBlockMode = this.config.memoryPoisoning.mode === 'block' && canBlock
+      for (const f of memFindings) {
+        this.eventBus.emit({
+          stage: 'memory-poisoning',
+          score: 100,
+          similarity: 0,
+          target: hostname,
+          method: req.method ?? 'GET',
+          path: req.url ?? '/',
+          payload_preview: `${memBlockMode ? 'Blocked' : 'Flagged'} memory write '${f.toolName}' (${f.kind}): ${f.snippet}`.slice(0, 220),
+          payload_full: serializeToolArgs(f.args).slice(0, 2000),
+          action: memBlockMode ? 'blocked' : 'warned',
+          kind: 'memory-poisoning',
+          mcpTool: f.toolName,
+        })
+      }
+      if (memFindings.length > 0 && memBlockMode) memoryBlock = true
+    }
+
     const findings = scanToolCallsForExfil(calls, this.dlp, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
-    if (findings.length === 0) return false
+    if (findings.length === 0) return memoryBlock
 
     const block = (cfg?.mode ?? 'audit') === 'block' && canBlock
     for (const f of findings) {
@@ -1122,7 +1148,7 @@ export class ProxyServer {
         ...(f.urlFindings[0] ? { exfilUrl: f.urlFindings[0].url } : {}),
       })
     }
-    return block
+    return block || memoryBlock
   }
 
   // One-line, context-rich console output for failed requests. Expected

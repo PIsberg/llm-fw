@@ -28,7 +28,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.08.8
+## Result, ruleset 2026.08.9
 
 **5.63% overall (8 of 142), 95% CI 2.88–10.72%.**
 

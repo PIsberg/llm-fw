@@ -30,13 +30,13 @@ import { fileURLToPath } from 'node:url';
  *   2. bump RULESET_VERSION, paste the new digest into RULESET_DIGEST
  *   3. record the measured recall/FPR delta in CHANGELOG.md
  */
-export const RULESET_VERSION = '2026.08.8';
+export const RULESET_VERSION = '2026.08.9';
 
 /**
  * sha256 over RULESET_FILES (path + content, sorted, newlines normalised).
  * Regenerate with `npm run ruleset:digest`.
  */
-export const RULESET_DIGEST = '85a2c635f5a20bba6a0f95afd3f285f6f9922719135075b574cbc4c24e6bbaad';
+export const RULESET_DIGEST = '19983d4ab07eaf1b5721eda4d93e4cb27e8d2534ac01b4700bf9cf402a71b481';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Repository root, from either src/detection or dist/detection. */

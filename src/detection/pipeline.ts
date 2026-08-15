@@ -10,6 +10,7 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
+import { detectMemoryPoisoning, extractMemoryBlocks } from './memoryPoisoning.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
@@ -24,7 +25,7 @@ import { closeInferenceWorker } from './inferenceWorker.js'
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
 // Exported (Task C6) so the programmatic API (src/api.ts) can tag a raw-text
 // scan with the same provenance the proxy derives from a real request shape.
-export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document'
+export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document' | 'memory'
 
 // Per-surface sensitivity overrides (Task B3). Resolves the effective Stage 1
 // (heuristic) / Stage 2 (embedding contrastive margin) threshold for a given
@@ -244,12 +245,34 @@ export class Pipeline {
     const systemSet = new Set(systemTexts)
     const userPrompts = parser.extractPrompts(body).filter(t => !systemSet.has(t))
 
+    // Recalled agent memory, wherever it was spliced in.
+    //
+    // This is the one surface that has to be carved OUT of a trusted one. A
+    // harness that injects long-term memory into the system prompt has put
+    // attacker-reachable text on the surface the block above deliberately
+    // trusts — measured 0/7 detection on seven representative poisoned
+    // memories. Turning on scanSystemPrompt wholesale is not the fix, because
+    // that reintroduces exactly the false positives it was disabled for.
+    // Extracting the memory envelope scans the untrusted part and leaves the
+    // developer's own instructions alone. Also applied to user prompts, since
+    // some harnesses prepend recalled context there instead.
+    const memoryTexts = this.config.memoryPoisoning?.enabled
+      ? [...systemTexts, ...userPrompts].flatMap(extractMemoryBlocks)
+      : []
+    const memorySet = new Set(memoryTexts)
+
     const scanItems: { text: string; source: ScanSource }[] = [
       ...userPrompts.map(text => ({ text, source: 'prompt' as const })),
       ...(this.config.detection.scanSystemPrompt
         ? systemTexts.map(text => ({ text, source: 'system' as const }))
         : []),
-      ...parser.extractToolResults(body).map(tr => ({ text: tr.result, source: 'tool_result' as const })),
+      ...memoryTexts.map(text => ({ text, source: 'memory' as const })),
+      ...parser.extractToolResults(body)
+        // A memory server's results are already covered as 'memory' when the
+        // harness wraps them; don't scan the same span twice and emit two
+        // events for one payload.
+        .filter(tr => !memorySet.has(tr.result))
+        .map(tr => ({ text: tr.result, source: 'tool_result' as const })),
       ...extractToolDescriptions(parser.extractTools(body)).map(text => ({ text, source: 'tool_definition' as const })),
     ].filter(item => item.text && item.text.length > 0)
 
@@ -379,6 +402,30 @@ export class Pipeline {
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
             prompt: `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`,
+            source,
+          }
+        }
+      }
+
+      // Stage M — Memory poisoning. Injection that was WRITTEN once and is now
+      // being replayed as trusted context. Runs on recalled memory and on the
+      // untrusted-data surfaces memory arrives through, never on the user's own
+      // prompt: a person may legitimately tell the agent "you have my approval",
+      // but a stored memory asserting it was never granted by anyone.
+      if (
+        this.config.memoryPoisoning?.enabled &&
+        (source === 'memory' || source === 'tool_result' || source === 'document')
+      ) {
+        const mem = detectMemoryPoisoning(prompt)
+        if (mem) {
+          if (this.config.memoryPoisoning.mode === 'block') {
+            const result: PipelineResult = { action: 'block', stage: 'memory-poisoning', score: 100, similarity: 0, prompt }
+            this.emit(result, meta, `[memory: ${mem.kind}] ${mem.snippet}`, source)
+            return result
+          }
+          if (!pendingWarn) pendingWarn = {
+            result: { action: 'warn', stage: 'memory-poisoning', score: 0, similarity: 0, prompt },
+            prompt: `[memory: ${mem.kind}] ${mem.snippet}`,
             source,
           }
         }

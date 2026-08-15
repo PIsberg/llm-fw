@@ -263,6 +263,18 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     mode: 'block',
   },
+  // Memory poisoning — injection written once and replayed as trusted context
+  // in every later session. Blocks by default because the payloads it looks
+  // for (standing permission the agent was never granted, a safety rule
+  // asserted to be retired, redaction asserted off, a trigger armed for a
+  // future session) have no legitimate origin in agent-authored memory, and
+  // because the blast radius is unusually large: unlike a one-shot prompt, a
+  // poisoned memory replays until someone notices. Measured 0 false positives
+  // over the benign memory corpus in memoryPoisoning.test.ts.
+  memoryPoisoning: {
+    enabled: true,
+    mode: 'block',
+  },
   // Harmful-request content moderation — requests for weapon/drug synthesis,
   // intrusion how-tos, fraud, or hateful/defamatory content. The firewall is
   // injection-first (harmful content is a secondary threat model), but these
@@ -465,6 +477,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },
   LLM_FW_JUDGE_BLOCK: (c, v) => { c.detection.judgeBlock = v === 'true'; },
   LLM_FW_JUDGE_UNLESS_BENIGN: (c, v) => { c.detection.judgeUnlessBenign = v === 'true'; },
+  LLM_FW_MEMORY_POISONING: (c, v) => { if (c.memoryPoisoning) c.memoryPoisoning.enabled = v === 'true'; },
+  LLM_FW_MEMORY_POISONING_MODE: (c, v) => { if (c.memoryPoisoning && (v === 'audit' || v === 'block')) c.memoryPoisoning.mode = v; },
   LLM_FW_SCAN_SYSTEM_PROMPT: (c, v) => { c.detection.scanSystemPrompt = v === 'true'; },
   LLM_FW_EMBEDDING_MARGIN: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n)) c.detection.embeddingMarginThreshold = n; },
   LLM_FW_MODEL_LOAD_TIMEOUT_MS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n)) c.detection.modelLoadTimeoutMs = n; },
