@@ -28,15 +28,27 @@ import { fileURLToPath } from 'node:url';
  * To update after an intended detection change:
  *   1. npm run ruleset:digest
  *   2. bump RULESET_VERSION, paste the new digest into RULESET_DIGEST
- *   3. record the measured recall/FPR delta in CHANGELOG.md
+ *   3. run the HELD-OUT benchmarks and record the delta in CHANGELOG.md:
+ *        node --import tsx/esm scripts/run-benchmark.ts cheap --json \
+ *          --only=heldout,injecagent,safeguard-prompt-injection
+ *   4. run `npm run fpr` and record that delta too
+ *
+ * Step 3 is not optional, and it is not covered by `npm test`. Rulesets
+ * 2026.08.7 and 2026.08.8 were both merged on a green suite — scorecard TPR
+ * 100%, accuracy.eval passing, FPR improved — and the nightly drift gate then
+ * reported injecagent recall 100% -> 85.5%, heldout 61.3% -> 54.8% and
+ * safeguard 43.5% -> 39.1%. The scorecard and accuracy corpora are CO-TUNED:
+ * they cannot see a regression in the attack families they do not contain, so
+ * a green run there is evidence about those corpora and nothing else. Only the
+ * held-out splits answer "did this cost recall".
  */
-export const RULESET_VERSION = '2026.08.9';
+export const RULESET_VERSION = '2026.08.10';
 
 /**
  * sha256 over RULESET_FILES (path + content, sorted, newlines normalised).
  * Regenerate with `npm run ruleset:digest`.
  */
-export const RULESET_DIGEST = '19983d4ab07eaf1b5721eda4d93e4cb27e8d2534ac01b4700bf9cf402a71b481';
+export const RULESET_DIGEST = '5fdcda6c32a3e8d973fa5422dff4a627aef8233c3bc492bc08e36efbbe61a23a';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Repository root, from either src/detection or dist/detection. */
