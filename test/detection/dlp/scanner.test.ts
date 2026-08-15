@@ -19,7 +19,8 @@ function makeScanner(detectors: string[] = ALL_DETECTORS, mode: DLPConfig['mode'
 }
 
 // Real, well-formed sample values (synthetic — not live secrets).
-const AWS_KEY = 'AKIAIOSFODNN7EXAMPLE'
+import { SYNTHETIC_AWS_KEY, SYNTHETIC_AWS_STS_KEY, SYNTHETIC_AWS_SECRET, SYNTHETIC_AWS_KEY_EXAMPLE_MIDDLE } from '../../fixtures/syntheticSecrets.js'
+const AWS_KEY = SYNTHETIC_AWS_KEY
 const GH_TOKEN = 'ghp_' + 'a'.repeat(36)
 const GHO_TOKEN = 'gho_' + 'b'.repeat(36)
 const SLACK_TOKEN = 'xoxb-' + '1234567890-abcdefghijklmnop'
@@ -322,7 +323,7 @@ describe('DlpScanner.scan — AI service / cloud provider API keys', () => {
     { type: 'LANGSMITH_API_KEY', key: 'lsv2_pt_' + 'a'.repeat(32) },
     { type: 'GOOGLE_API_KEY', key: 'AIza' + 'a'.repeat(35) },
     { type: 'GOOGLE_OAUTH_TOKEN', key: 'ya29.' + 'a'.repeat(40) },
-    { type: 'AWS_ACCESS_KEY', key: 'ASIAIOSFODNN7EXAMPLE' }, // temporary/STS id
+    { type: 'AWS_ACCESS_KEY', key: SYNTHETIC_AWS_STS_KEY }, // temporary/STS id
     { type: 'AWS_MWS_KEY', key: 'amzn.mws.4ea38b7b-f563-4709-4bae-87aea1234567' },
   ]
 
@@ -336,7 +337,7 @@ describe('DlpScanner.scan — AI service / cloud provider API keys', () => {
   }
 
   it('detects a keyword-adjacent AWS secret access key', () => {
-    const secret = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' // canonical 40-char example
+    const secret = SYNTHETIC_AWS_SECRET // synthetic 40-char secret (AWS's own example ends in EXAMPLEKEY and is exempt)
     const f = scanner.scan('AWS_SECRET_ACCESS_KEY=' + secret)
     expect(f.some(x => x.type === 'AWS_SECRET_KEY')).toBe(true)
   })
@@ -463,5 +464,58 @@ describe('DlpScanner.redact — exact-location replacement', () => {
     const redacted = scanner.redact(text, scanner.scan(text))
     expect(redacted).not.toContain(AWS_KEY)
     expect(redacted.match(/\[REDACTED_AWS_KEY\]/g)!).toHaveLength(2)
+  })
+})
+
+describe('vendor-documented example credentials', () => {
+  // Published BY the vendor as examples, so not credentials. Redacting them is
+  // the worst-shaped false positive this stage has, because it is silent: in
+  // the default `redact` mode nothing blocks and nothing warns, the prompt is
+  // just rewritten, and the user only sees that the model stopped making
+  // sense. It never appears in the FPR gate either, which counts blocks.
+  //
+  // The suite's own AWS_KEY fixture used to BE AWS's documented example key.
+  // It is now a synthetic key, precisely so that "detected" and "exempt" are
+  // testable as different things.
+  const AWS_DOC_KEY = 'AKIAIOSFODNN7EXAMPLE'
+  const AWS_DOC_KEY_2 = 'AKIAI44QH8DHBEXAMPLE'
+  const AWS_DOC_SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+
+  it('leaves the AWS documentation key alone', () => {
+    const scanner = makeScanner()
+    const text = `The AWS docs use ${AWS_DOC_KEY} as the sample access key id. Should our fixtures use that, or a random string?`
+
+    expect(scanner.scan(text)).toHaveLength(0)
+  })
+
+  it('passes the question through to the model unchanged', () => {
+    // The whole point: the model has to see the actual string to answer it.
+    const scanner = makeScanner()
+    const text = `Is it safe to commit ${AWS_DOC_KEY} in a test fixture?`
+
+    expect(scanner.redact(text, scanner.scan(text))).toBe(text)
+  })
+
+  it('covers the other documented key and the paired secret', () => {
+    const scanner = makeScanner()
+
+    expect(scanner.scan(`key ${AWS_DOC_KEY_2}`)).toHaveLength(0)
+    expect(scanner.scan(`secret ${AWS_DOC_SECRET}`)).toHaveLength(0)
+  })
+
+  it('still redacts a real key in a sentence that talks about examples', () => {
+    // The exemption is the EXAMPLE suffix, not the word appearing nearby.
+    const scanner = makeScanner()
+    const text = `For example, deploy with ${AWS_KEY} and restart.`
+    const findings = scanner.scan(text)
+
+    expect(findings).toHaveLength(1)
+    expect(scanner.redact(text, findings)).not.toContain(AWS_KEY)
+  })
+
+  it('does not exempt a key that merely contains EXAMPLE mid-string', () => {
+    const scanner = makeScanner()
+
+    expect(scanner.scan(SYNTHETIC_AWS_KEY_EXAMPLE_MIDDLE)).toHaveLength(1)
   })
 })

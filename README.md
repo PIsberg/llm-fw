@@ -113,7 +113,7 @@ Test **every detector** from one place — pick a category and paste your own in
 
 - **Prompt Injection** — jailbreaks, encoded/obfuscated payloads, multilingual overrides (Stages 1–3)
 - **ASCII Smuggling** — instructions hidden in invisible Unicode characters (Tags block, bidi overrides, variation selectors); the example encodes a hidden override you cannot see but the LLM would read
-- **Image / Document** — prompt injection carried by non-text content; text-bearing files (text/*, PDFs) are decoded and scanned, opaque images are surfaced (audit) or refused (block). Optional OCR (`nonText.ocr` / `LLM_FW_NONTEXT_OCR=true`) reads injection text rendered as pixels in raster images (e.g. a pasted screenshot) and scans it like any prompt — a pure-WASM path, no Python
+- **Image / Document** — prompt injection carried by non-text content; text-bearing files (text/*, PDFs) are decoded and scanned, opaque images are surfaced (audit) or refused (block). Optional OCR (`nonText.ocr` / `LLM_FW_NONTEXT_OCR=true`) reads injection text rendered as pixels in raster images (e.g. a pasted screenshot) and scans it like any prompt — a pure-WASM path, no Python. OCR needs one extra install, `npm i tesseract.js`, because it is an optional peer dependency rather than a runtime one: it and its tree weigh ~50 MB, and the feature ships off. With the flag on but the package missing, images fall back to opaque handling instead of failing the request
 - **RAG Poisoning** — instructions smuggled inside `<document>`/`<context>`/code-fence data blocks
 - **Data Loss (DLP)** — API keys, tokens, private keys, credit cards, with a redacted-payload preview
 - **MCP Tools** — check tool names against the allow/deny policy
@@ -1524,6 +1524,23 @@ LLM_FW_PROXY_PORT=9090
 LLM_FW_EMBEDDING_BLOCK_THRESHOLD=0.80
 LLM_FW_JUDGE_ENABLED=true
 ```
+
+**Model cache and first start.** The first run downloads the ONNX weights from
+HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
+while. Point `LLM_FW_MODEL_DIR` at a persistent path to download once and reuse
+it across restarts, containers and CI:
+
+```bash
+LLM_FW_MODEL_DIR=/var/lib/llm-fw/models
+LLM_FW_MODEL_LOAD_TIMEOUT_MS=600000   # 0 waits indefinitely
+```
+
+Without a shared cache each fresh state directory re-downloads. While a load is
+in flight llm-fw logs a heartbeat every 30s; if it exceeds the timeout the ML
+stage is disabled and the firewall starts anyway, with the heuristic, DLP, MCP,
+URL and DoS stages still running — the same outcome as any other model-load
+failure, so an unreachable HuggingFace degrades detection rather than blocking
+startup.
 
 ---
 

@@ -56,6 +56,8 @@ export interface DetectionConfig {
   // closer to the injection anchors than to the benign ones. Optional; absent ⇒
   // 0 (pure absolute-threshold behaviour). Also LLM_FW_EMBEDDING_MARGIN.
   embeddingMarginThreshold?: number;
+  /** Bound in ms on loading either ML stage's weights; the stage is disabled if exceeded. 0 waits indefinitely. */
+  modelLoadTimeoutMs?: number;
   chunkTokenLimit: number;
   chunkSize: number;
   chunkOverlap: number;

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { SYNTHETIC_AWS_KEY } from '../../fixtures/syntheticSecrets.js'
 import { McpScanner } from '../../../src/detection/mcp/scanner.js'
 import { DlpScanner } from '../../../src/detection/dlp/scanner.js'
 import { DEFAULT_CONFIG } from '../../../src/config/config.js'
@@ -184,7 +185,7 @@ describe('McpScanner.checkToolResult — DLP in block mode with findings', () =>
     // AWS key is detected by the 'aws' detector (high-confidence regex).
     const dlp = new DlpScanner({ enabled: true, mode: 'block', detectors: ['aws'] })
     const scanner = new McpScanner(makeConfig({ enabled: true }), dlp)
-    const awsKey = 'AKIAIOSFODNN7EXAMPLE'
+    const awsKey = SYNTHETIC_AWS_KEY
     const result = scanner.checkToolResult('get_secret', awsKey)
     expect(result.action).toBe('block')
     expect(result.reason).toMatch(/AWS_ACCESS_KEY/)

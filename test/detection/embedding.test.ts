@@ -244,3 +244,32 @@ describe('EmbeddingChecker worker isolation (Task C3)', () => {
     await expect(checker.check('trigger the crash')).rejects.toThrow('inference worker exited with code 1')
   })
 })
+
+describe('a hung model download does not hang the firewall', () => {
+  // The firewall already survived a model load that FAILS. It did not survive
+  // one that never answers: init() awaited the load with no bound, so
+  // `llm-fw start` sat behind "Loading embedding model..." indefinitely on a
+  // captive portal or a black-holing proxy. A hang must reach the same place a
+  // failure does — stage off, firewall up.
+  it('comes up with the stage disabled instead of never returning', async () => {
+    vi.useFakeTimers()
+    ;(pipeline as MockFn).mockImplementation(() => new Promise(() => {}))
+
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, modelLoadTimeoutMs: 1000 })
+    const init = checker.init()
+    await vi.advanceTimersByTimeAsync(1500)
+    await init
+
+    expect(checker.isInitialized()).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('leaves the stage running when the load beats the bound', async () => {
+    ;(pipeline as MockFn).mockResolvedValue(makeExtractor(EMBED_X))
+
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, modelLoadTimeoutMs: 60_000 })
+    await checker.init()
+
+    expect(checker.isInitialized()).toBe(true)
+  })
+})

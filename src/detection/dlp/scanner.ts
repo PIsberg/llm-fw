@@ -50,7 +50,9 @@ export class DlpScanner {
       rule.regex.lastIndex = 0
       let m: RegExpExecArray | null
       while ((m = rule.regex.exec(text)) !== null) {
-        findings.push({ type: rule.type, label: rule.label, match: m[0], index: m.index })
+        if (!isDocumentedExample(m[0])) {
+          findings.push({ type: rule.type, label: rule.label, match: m[0], index: m.index })
+        }
         if (m.index === rule.regex.lastIndex) rule.regex.lastIndex++
       }
     }
@@ -145,6 +147,37 @@ export class DlpScanner {
     }
     return result
   }
+}
+
+/**
+ * Credentials that vendors publish AS examples, and which are therefore not
+ * credentials at all.
+ *
+ * Redacting these is a false positive with a peculiarly bad shape: it is
+ * silent. In the default `redact` mode nothing blocks and nothing warns — the
+ * text is simply rewritten before the model sees it, so "should our fixtures
+ * use AKIAIOSFODNN7EXAMPLE, or a random string?" arrives as "should our
+ * fixtures use [REDACTED_AWS_KEY], or a random string?". The model cannot
+ * answer, and the user has no way to see why it became unhelpful. It never
+ * showed up in the false-positive rate either, because that gate counts blocks.
+ *
+ * AWS reserves the `EXAMPLE` suffix for documentation keys, which is what
+ * makes this a rule rather than a hardcoded list: the access key ids in their
+ * docs all end in it, and a live 20-character key ending in exactly `EXAMPLE`
+ * is not something AWS issues. The paired secret key uses the same convention
+ * (`...bPxRfiCYEXAMPLEKEY`).
+ *
+ * Deliberately narrow: the documented-example convention and nothing else. No
+ * "looks like a placeholder" heuristics, which would start trading real leaks
+ * for convenience. A `sk-xxxxxxxx` README placeholder already passes, because
+ * it fails the entropy check on its own.
+ *
+ * Note for anyone writing tests here: do NOT reach for AWS's example key as a
+ * fixture, it is exempt by design now. Use a synthetic key assembled at
+ * runtime — see test/fixtures/syntheticSecrets.ts for why it cannot be a literal.
+ */
+function isDocumentedExample(match: string): boolean {
+  return /EXAMPLE(?:KEY)?$/.test(match)
 }
 
 function markerFor(type: string): string {
