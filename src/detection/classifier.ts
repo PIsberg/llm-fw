@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
+import { loadWithVisibility } from './modelLoad.js'
 
 // Trained prompt-injection classifier stage (a learned generalization layer).
 //
@@ -82,7 +83,7 @@ export class InjectionClassifier {
       } catch (err) {
         if (err instanceof WorkerUnavailableError) {
           try {
-            this.classifier = await loadInjectionClassifier()
+            this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
           } catch (loadErr) {
             this.classifier = null
             console.warn('[classifier] could not load injection classifier — stage disabled:', (loadErr as Error).message)
@@ -95,7 +96,7 @@ export class InjectionClassifier {
     }
 
     try {
-      this.classifier = await loadInjectionClassifier()
+      this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
     } catch (err) {
       // Best-effort, exactly like the embedding stage: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.
@@ -120,7 +121,7 @@ export class InjectionClassifier {
         // Permanent fallback: load the in-process classifier lazily below.
       }
     }
-    if (!this.classifier) this.classifier = await loadInjectionClassifier()
+    if (!this.classifier) this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
     return this.classifier(text)
   }
 

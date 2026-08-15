@@ -45,12 +45,14 @@ export const DEFAULT_CONFIG: Config = {
     // Tuned for multilingual-e5-small against the canonical anchor set
     // (data/semantic-anchors.json). E5 runs a higher baseline cosine than the
     // previous model but separates cleanly: across 20+ languages, injections
-    // land ~0.85–0.89 to an anchor while benign tops out ~0.85 (the lone
-    // exception being injection-ADJACENT benign like "ignore the typos in my
-    // draft", which no cosine threshold can distinguish from "ignore your
-    // instructions"). 0.86 blocks confident cross-lingual injections while
-    // keeping benign false positives to the irreducible adjacent cases; the
-    // 0.80–0.86 warn band routes ambiguous prompts to the judge when enabled.
+    // land ~0.85–0.89 to an anchor while benign tops out ~0.85. Injection-
+    // ADJACENT benign ("ignore the typos in my draft") overlaps that range and
+    // no cosine threshold separates it — which is why the decision is not a
+    // threshold on cosine alone but the CONTRASTIVE MARGIN below, against the
+    // benign anchors. Ruleset 2026.08.7 added the missing benign family and
+    // those rows now land at a negative margin. 0.86 blocks confident
+    // cross-lingual injections; the 0.80–0.86 warn band routes ambiguous
+    // prompts to the judge when enabled.
     // The hand-coded heuristics (now covering CJK/Cyrillic/Arabic correctly)
     // catch the common languages at Stage 1; this anchor stage generalizes to
     // the long tail of languages with no hand-written rules.
@@ -62,6 +64,13 @@ export const DEFAULT_CONFIG: Config = {
     // are heuristic-covered anyway). 0.02 clears the benign cluster with room to
     // spare while keeping the cross-lingual recall the embedding stage exists for.
     embeddingMarginThreshold: 0.02,
+    // Bound on how long either ML stage may spend loading its weights before
+    // the stage is disabled and the firewall comes up without it. A load
+    // FAILURE already degraded this way; before this existed a load HANG did
+    // not, and `llm-fw start` waited forever after one line of output.
+    // Generous on purpose: a first run pulls hundreds of MB, and cutting off a
+    // working download would quietly weaken detection. 0 waits indefinitely.
+    modelLoadTimeoutMs: 600_000,
     chunkTokenLimit: 300,
     chunkSize: 200,
     chunkOverlap: 50,
@@ -458,6 +467,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_JUDGE_UNLESS_BENIGN: (c, v) => { c.detection.judgeUnlessBenign = v === 'true'; },
   LLM_FW_SCAN_SYSTEM_PROMPT: (c, v) => { c.detection.scanSystemPrompt = v === 'true'; },
   LLM_FW_EMBEDDING_MARGIN: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n)) c.detection.embeddingMarginThreshold = n; },
+  LLM_FW_MODEL_LOAD_TIMEOUT_MS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n)) c.detection.modelLoadTimeoutMs = n; },
   LLM_FW_JUDGE_MODEL: (c, v) => { c.detection.judgeModel = v; },
   LLM_FW_OLLAMA_URL: (c, v) => { c.detection.ollamaUrl = v; },
   LLM_FW_CLASSIFIER_ENABLED: (c, v) => { if (c.detection.classifier) c.detection.classifier.enabled = v === 'true'; },

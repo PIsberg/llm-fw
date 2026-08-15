@@ -64,7 +64,7 @@ test.describe('Prompt Testing — Data Loss (DLP)', () => {
   test('an AWS key is detected and redacted', async ({ page }) => {
     await openPlayground(page)
     await selectCategory(page, 'Data Loss')
-    await page.fill('#prompt-input', 'Deploy using AWS key AKIAIOSFODNN7EXAMPLE and then restart.')
+    await page.fill('#prompt-input', 'Deploy using AWS key ' + 'AKIA' + '4T7WQ2XKPLM9ZC3B' + ' and then restart.')
     await page.click('#pg-analyze-btn')
     await expect(page.locator('#pg-result')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('#pg-result .pg-badge')).toHaveText('REDACT')

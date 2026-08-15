@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
+import { loadWithVisibility } from './modelLoad.js'
 
 // Minimal shape of the @huggingface/transformers feature-extraction output we use.
 export interface FeatureTensor {
@@ -127,7 +128,10 @@ export class EmbeddingChecker {
       }
     } else {
       try {
-        this.extractor = await loadEmbeddingExtractor()
+        this.extractor = await loadWithVisibility(loadEmbeddingExtractor, {
+          label: 'embedding model',
+          timeoutMs: this.config.modelLoadTimeoutMs ?? 0,
+        })
       } catch (err) {
         // The semantic-similarity stage is best-effort. If the model can't be
         // fetched (offline, or HuggingFace rate-limits the download with a 429),
