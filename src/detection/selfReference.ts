@@ -68,3 +68,20 @@ export function referencesModelInstructions(text: string): boolean {
   if (!text) return false
   return SELF_INSTRUCTION_PATTERNS.some(re => re.test(text))
 }
+
+/**
+ * A note on the alternative that was measured and not taken.
+ *
+ * Lowering `detection.embeddingMarginThreshold` also recovers the lost recall,
+ * and on the benchmarks it recovers MORE of it: at 0.01 the held-out splits
+ * reach heldout 64.5% and safeguard 43.7%, both above the pre-2026.08.7
+ * baseline. It was not taken because the same runs put a false positive into
+ * `support-ticket` — a category with no known false positives — which
+ * test/eval/fpr.ts treats as a regression on its own, and pushed the corpus
+ * rate to 9.86% (0.015) and 10.56% (0.01) against 8.45% here.
+ *
+ * The guard at the shipped 0.02 is the only combination measured that passes
+ * the nightly drift gate and the false-positive gate together. If the
+ * benchmark recall is later judged worth the support-ticket regression, the
+ * threshold is the lever — but move it with both gates in view, not one.
+ */
