@@ -1,7 +1,7 @@
 # Express middleware example
 
 Illustrative only — not shipped or compiled as part of the package. Wires
-`createFirewall()` (see the README's ["Use as a library"](../README.md#use-as-a-library)
+`createFirewall()` (see the README's ["Use as a library"](../docs/guides/library.md)
 section) into an Express app so any request body containing a `prompt` field
 is scanned before your route handler runs.
 

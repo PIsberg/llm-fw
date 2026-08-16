@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Two deployment guides written from the code rather than from the README.**
+  [docs/guides/deployment-server.md](docs/guides/deployment-server.md) covers
+  running one firewall for many clients end to end: choosing a mode, pinning
+  tokens, a systemd unit, Docker, Kubernetes, ports and firewall rules,
+  persistence and backup, health checks, upgrades, a hardening checklist and
+  troubleshooting. [docs/guides/client-setup.md](docs/guides/client-setup.md)
+  covers the other end: certificate trust per OS **and per runtime** (Node,
+  Python httpx and requests, Go, Java, .NET, Ruby, curl, Firefox), per-tool
+  recipes, and gateway `base_url` values for all 14 provider slugs rather than
+  the two that were documented.
+
+  Both guides state behaviour the README did not, each verified against the
+  source: a non-loopback proxy requires a credential and answers `407` without
+  one, so the previous standalone client recipe could not have worked;
+  `HTTP_PROXY` cannot work at all because the proxy registers a `connect`
+  handler and no `request` handler; `NO_PROXY` is not implemented anywhere, so
+  `HTTPS_PROXY` sends every HTTPS connection through the server; `--gateway`
+  alone binds loopback; the gateway serves plain HTTP by default; and the CRL
+  distribution point in every issued certificate is hardcoded to
+  `127.0.0.1:7731`.
+
+- **`npm run docs:links`** (`scripts/check-links.mjs`) walks every Markdown
+  file, resolves relative links and verifies that `#anchor` targets exist as
+  headings in the file they point at. It found five dangling links on its first
+  run, including `README.md` pointing at a `spec.md` and a `PLAN.md` that have
+  never existed in this repository.
+
+### Changed
+
+- **README split from 1761 lines to 505.** It keeps the pitch, screenshots,
+  install, quick start, deployment-mode overview, comparison, scorecard and
+  licence. Every per-defense reference section moved into a guide under
+  `docs/guides/`, indexed from a new [docs/README.md](docs/README.md). The
+  prose was moved verbatim; only links and anchors were repointed.
+
+- **Absolute `file:///` links replaced with relative ones** in `docs/TESTING.md`
+  and the roadmap. Nine of them resolved only on the author's machine.
+
+- **Stray root files moved into the tree they belong to:**
+  `DESIGN-mcp-response.md` to `docs/`, `future_improvements_plan.md` to
+  `docs/plans/PLAN-next-improvements.md`, `infographics-llm-fw.jpg` to
+  `docs/images/`, and the manual smoke test `test-sinkhole.js` to `scripts/`.
+  Sibling documents referencing them by name were updated.
+
+- **Agent working rules split out of prose into `.claude/rules/`**, indexed from
+  a new slim `CLAUDE.md`: `testing.md`, `detection.md`, `config.md`,
+  `proxy-gateway.md`, `docs.md` and `release.md`. `CONTRIBUTING.md` now
+  describes where a new document goes and points at the link check.
+
+### Removed
+
+- `query`, a 10-byte file containing the string `iphlpsvc`, committed by
+  accident.
+
+
 ## [0.5.0] - 2026-08-16
 
 ### Added

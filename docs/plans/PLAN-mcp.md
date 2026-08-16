@@ -56,6 +56,6 @@ Implements SPEC-mcp §6 — scanning the *arguments* of execution tools for cata
    - Add `guardrailsEnabled` and `guardrailsCategories` to `McpConfig`; add the `mcpRule` field to `BlockEvent`.
    - Support the `LLM_FW_MCP_GUARDRAILS_ENABLED` env override.
 4. **Response-side enforcement** (`src/detection/mcp/responseGate.ts`):
-   - Run the invocation check on every `tool_use` parsed from non-streaming JSON and both SSE gates, stripping/gating blocked calls (see DESIGN-mcp-response.md).
+   - Run the invocation check on every `tool_use` parsed from non-streaming JSON and both SSE gates, stripping/gating blocked calls (see docs/DESIGN-mcp-response.md).
 5. **Playground** (`src/dashboard/server.ts`):
    - Add a "Security Guardrails" tab: a simulated-tool selector, per-category toggles, and a command input that posts to the `guardrails` analyze endpoint.

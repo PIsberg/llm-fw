@@ -95,9 +95,9 @@ Setup, running from source, sinkhole mode, and standalone server mode are all
 covered in the README:
 
 - [Prerequisites](README.md#prerequisites)
-- [Running in development (from source)](README.md#running-in-development-from-source)
-- [Sinkhole mode — for Node.js tools and native binaries](README.md#sinkhole-mode--for-nodejs-tools-and-native-binaries)
-- [Standalone server mode](README.md#standalone-server-mode--one-firewall-for-many-clients)
+- [Running in development (from source)](docs/guides/development.md)
+- [Sinkhole mode — for Node.js tools and native binaries](docs/guides/client-setup.md#sinkhole-mode--for-nodejs-tools-and-native-binaries)
+- [Standalone server mode](docs/guides/deployment-server.md)
 
 Stage 3 (the local Ollama judge) is optional for most contributions — the
 heuristic and embedding stages run without it, and the accuracy regression
@@ -159,20 +159,33 @@ Full details are in [`docs/TESTING.md`](docs/TESTING.md). In short:
 
 ## Documentation expectations
 
-Update whatever the change makes wrong, in the same PR — not as a follow-up:
+Update whatever the change makes wrong, in the same PR, not as a follow-up.
 
-- **README.md** — if you add a config key, CLI flag, or defense, document it
-  where its siblings already are (the README is organized stage-by-stage and
-  feature-by-feature; find the matching section rather than appending to the
-  end).
-- **CHANGELOG.md** — add an entry under `## [Unreleased]`, in [Keep a
-  Changelog](https://keepachangelog.com/en/1.1.0/) format. Describe the
-  change for a user (the failure it prevents, the flag that's now available),
-  not the diff.
-- **docs/*.md** — `docs/ARCHITECTURE.md`, `docs/TESTING.md`,
-  `docs/BENCHMARK*.md`, etc. Update the one that describes what you changed;
-  don't leave a stale example or a workaround comment for code that no longer
-  exists.
+Documentation is indexed in [docs/README.md](docs/README.md). Where things go:
+
+- **README.md** is a landing page: pitch, screenshots, install, quick start,
+  deployment-mode overview, evidence, licence. It is not the manual. Do not
+  append reference material to it.
+- **docs/guides/*.md** is the reference material: one guide per defense, plus
+  [client setup](docs/guides/client-setup.md),
+  [server deployment](docs/guides/deployment-server.md),
+  [configuration](docs/guides/configuration.md) and
+  [CLI](docs/guides/cli.md). If you add a config key, CLI flag or defense,
+  document it next to its siblings in the matching guide.
+- **A new document under docs/ needs a row in [docs/README.md](docs/README.md).**
+  An unindexed document is one nobody finds.
+- **docs/ARCHITECTURE.md, docs/TESTING.md, docs/BENCHMARK*.md** describe how it
+  is built and how well it works. Update the one that describes what you
+  changed; do not leave a stale example, or a comment justifying a workaround
+  for code that no longer exists.
+- **CHANGELOG.md** gets an entry under `## [Unreleased]`, in [Keep a
+  Changelog](https://keepachangelog.com/en/1.1.0/) format. Describe the change
+  for a user (the failure it prevents, the flag that is now available), not the
+  diff.
+
+Run `npm run docs:links` before opening the PR. It walks every Markdown file,
+resolves relative links and verifies that heading anchors exist in the target.
+Use relative links only; `file:///` paths break for everyone but their author.
 
 ## Pull request process
 

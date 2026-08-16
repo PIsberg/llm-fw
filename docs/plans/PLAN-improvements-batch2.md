@@ -26,9 +26,9 @@ No src changes. Run the test/eval runner (see run-benchmark.ts): heldout +
 safeguard + injecagent splits, cheap preset AND classifier preset (classifier
 preset downloads DeBERTa — attempt, skip gracefully offline; judge-dependent
 paths: skip if Ollama unreachable, note it). Compare against the baselines in
-future_improvements_plan.md (heldout classifier 77.4%/23.8%). Write results
+docs/plans/PLAN-next-improvements.md (heldout classifier 77.4%/23.8%). Write results
 into docs/BENCHMARK-IMPROVEMENTS.md ("After intent-mention + two-tier" section)
-and refresh the table in future_improvements_plan.md.
+and refresh the table in docs/plans/PLAN-next-improvements.md.
 Commit: `docs(benchmark): re-measure heldout/safeguard after intent-mention + two-tier`
 
 ## Task B2 — Dashboard false-positive feedback loop (suppression list)

@@ -49,21 +49,21 @@ Our test suite is divided into three logical layers, all orchestrated via [Vites
 
 ### 1. Unit & Parser Tests (`test/detection/`)
 These verify individual functions and localized components for speed and functional correctness.
-*   **[normalize.test.ts](file:///c:/dev/private/llm-fw/test/detection/normalize.test.ts)**: Verifies the normalizer's Unicode decomposition (`NFD`), homoglyph translations, base64/hex/binary/Morse/ROT13/Caesar/Pig Latin decoders, leetspeak translations, and reversed-text reconstructions.
-*   **[parsers.test.ts](file:///c:/dev/private/llm-fw/test/detection/parsers.test.ts)**: Tests standard HTTP request/response parsing, focusing on header extraction and prompt body detection.
-*   **[heuristic.test.ts](file:///c:/dev/private/llm-fw/test/detection/heuristic.test.ts)**: Validates regex scoring rules, typo-tolerance regular expressions, social engineering indicators, and multi-lingual prompt blocks.
+*   **[normalize.test.ts](../test/detection/normalize.test.ts)**: Verifies the normalizer's Unicode decomposition (`NFD`), homoglyph translations, base64/hex/binary/Morse/ROT13/Caesar/Pig Latin decoders, leetspeak translations, and reversed-text reconstructions.
+*   **[parsers.test.ts](../test/detection/parsers.test.ts)**: Tests standard HTTP request/response parsing, focusing on header extraction and prompt body detection.
+*   **[heuristic.test.ts](../test/detection/heuristic.test.ts)**: Validates regex scoring rules, typo-tolerance regular expressions, social engineering indicators, and multi-lingual prompt blocks.
 
 ### 2. Integration Tests
 These verify how multiple components communicate and pass data within the firewall engine.
-*   **[pipeline.test.ts](file:///c:/dev/private/llm-fw/test/detection/pipeline.test.ts)**: Evaluates the integration of parser, candidate extractor, heuristic scoring, and embedding modules.
-*   **[evasion.test.ts](file:///c:/dev/private/llm-fw/test/detection/evasion.test.ts)**: A rigorous evaluation utilizing 38 real-world prompt evasion payloads (including base64 overlays, multi-lingual translations, homoglyphs, and sandboxed overrides) to confirm they are blocked.
-*   **[dashboard.integration.test.ts](file:///c:/dev/private/llm-fw/test/dashboard/dashboard.integration.test.ts)**: Boots up a mock server to test event storage, retrieval, statistics generation, and REST endpoints.
+*   **[pipeline.test.ts](../test/detection/pipeline.test.ts)**: Evaluates the integration of parser, candidate extractor, heuristic scoring, and embedding modules.
+*   **[evasion.test.ts](../test/detection/evasion.test.ts)**: A rigorous evaluation utilizing 38 real-world prompt evasion payloads (including base64 overlays, multi-lingual translations, homoglyphs, and sandboxed overrides) to confirm they are blocked.
+*   **[dashboard.integration.test.ts](../test/dashboard/dashboard.integration.test.ts)**: Boots up a mock server to test event storage, retrieval, statistics generation, and REST endpoints.
 
 ---
 
 ## 🌐 End-to-End (E2E) Proxy Tests
 
-The E2E test suite resides in **[proxy.e2e.test.ts](file:///c:/dev/private/llm-fw/test/proxy/proxy.e2e.test.ts)**. It evaluates a complete network-level round-trip under a fully sandboxed, zero-dependency local simulation.
+The E2E test suite resides in **[proxy.e2e.test.ts](../test/proxy/proxy.e2e.test.ts)**. It evaluates a complete network-level round-trip under a fully sandboxed, zero-dependency local simulation.
 
 ### How E2E Isolation Works
 To guarantee E2E tests run reliably on both local developer machines and offline CI runners (like GitHub Actions) without modifying host certificate stores or requiring internet access:
@@ -88,7 +88,7 @@ To guarantee E2E tests run reliably on both local developer machines and offline
 
 ## 🛠️ CI/CD Workflow Integration
 
-Every pull request and merge to `main`, `feat/**`, `fix/**`, and `chore/**` automatically triggers our GitHub Actions pipeline defined in **[.github/workflows/ci.yml](file:///c:/dev/private/llm-fw/.github/workflows/ci.yml)**.
+Every pull request and merge to `main`, `feat/**`, `fix/**`, and `chore/**` automatically triggers our GitHub Actions pipeline defined in **[.github/workflows/ci.yml](../.github/workflows/ci.yml)**.
 
 *   **Offline Guarantee**: Our E2E tests do not access the public internet, meaning they run safely and deterministically inside GitHub runners.
 *   **Node.js Matrix**: Tests are verified across active LTS Node.js releases (**Node 22** and **Node 24**).
