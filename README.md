@@ -29,7 +29,7 @@
 > purpose** — personal, hobby, study, research, education, charity, and government —
 > with no key and no signup. **Commercial use is not granted by that licence.** Running
 > llm-fw inside a for-profit company, including on one developer's machine or in CI,
-> needs a commercial licence: **[deversity.se/llmfw](https://deversity.se/llmfw)**.
+> needs a commercial licence: **[deversity.se/llmfw](https://deversity.se/llmfw/)**.
 > See [License](#license) for the full boundary, or run `llm-fw license`.
 
 ![llm-fw infographic](infographics-llm-fw.jpg)
@@ -1669,6 +1669,14 @@ Only `dist/` and `data/` ship (the `files` whitelist); `npm pack --dry-run` show
 
 ---
 
+## Mentioned publications
+
+llm-fw is discussed in:
+
+- [Zero Trust AI - Architecting Defenses in the Age of LLMs](https://leanpub.com/zero-trust-ai) (Leanpub)
+
+---
+
 ## Contributing
 
 Bug reports, detection false-positive/negative reports, feature suggestions,
@@ -1709,7 +1717,7 @@ for-profit organization's work, you need a commercial licence. That includes:
 Licences are annual and priced by the number of developers whose work llm-fw protects.
 One licence covers your whole team: you get a single key, not one per seat.
 
-**[deversity.se/llmfw](https://deversity.se/llmfw)** — prices, checkout, and invoices.
+**[deversity.se/llmfw](https://deversity.se/llmfw/)** — prices, checkout, and invoices.
 Purchases are handled by a merchant of record, which handles VAT and sales tax. Prefer a
 purchase order, or have a question first? <peter.isberg@deversity.se>.
 

@@ -91,6 +91,19 @@ describe('unlicensed notice', () => {
     expect(UNLICENSED_NOTICE).toContain(COMMERCIAL_URL)
   })
 
+  // `llm-fw status` prints the banner WITHOUT the short notice above it, so the
+  // block has to stand alone: which licence applies, that it is noncommercial
+  // only, and that a commercial one can be bought.
+  it('stands alone: names the licence, says noncommercial, and offers to sell one', () => {
+    expect(UNLICENSED_NOTICE).toContain(LICENSE_NAME)
+    expect(UNLICENSED_NOTICE).toMatch(/noncommercial/i)
+    expect(UNLICENSED_NOTICE).toMatch(/\bbuy\b/i)
+  })
+
+  it('points at the canonical shop URL, trailing slash included', () => {
+    expect(COMMERCIAL_URL).toBe('https://deversity.se/llmfw/')
+  })
+
   it('is repeated in the full notice, so `llm-fw license` is a complete answer', () => {
     expect(NOTICE).toContain(CONTACT_EMAIL)
     expect(NOTICE).toContain(COMMERCIAL_URL)

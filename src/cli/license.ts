@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs'
 
 export const LICENSE_NAME = 'PolyForm Noncommercial License 1.0.0'
 export const LICENSE_URL = 'https://polyformproject.org/licenses/noncommercial/1.0.0'
-export const COMMERCIAL_URL = 'https://deversity.se/llmfw'
+export const COMMERCIAL_URL = 'https://deversity.se/llmfw/'
 export const CONTACT_EMAIL = 'peter.isberg@deversity.se'
 
 export const SHORT_NOTICE =
@@ -35,14 +35,16 @@ export const SHORT_NOTICE =
   `Commercial use requires a licence: ${COMMERCIAL_URL}`
 
 /**
- * The two-line block printed wherever an unlicensed machine is noticed: on
- * `start`, in `status`, and as a `doctor` check. Both channels the buyer might
- * prefer are on it, because a licence prompt that offers no way to pay is just
- * noise.
+ * The block printed wherever an unlicensed machine is noticed: on `start`, in
+ * `status`, and as a `doctor` check. It has to stand on its own — `status`
+ * prints it without SHORT_NOTICE above — so it names the licence, says what
+ * that licence does not cover, and gives both channels a buyer might prefer.
+ * A licence prompt that offers no way to pay is just noise.
  */
 export const UNLICENSED_NOTICE =
-  `No licence key found — llm-fw is running unlicensed on this machine.\n` +
-  `Contact ${CONTACT_EMAIL} or go to ${COMMERCIAL_URL} to get one.`
+  `No licence key found — llm-fw is running unlicensed on this machine, under the\n` +
+  `${LICENSE_NAME}: noncommercial use only.\n` +
+  `Commercial use needs a licence. Buy one at ${COMMERCIAL_URL} or contact ${CONTACT_EMAIL}.`
 
 export const NOTICE = `llm-fw — Copyright 2026 Peter Isberg
 Licensed under the ${LICENSE_NAME}
