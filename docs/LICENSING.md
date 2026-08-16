@@ -21,7 +21,7 @@ If both are present on a machine, the offline file wins — see
 Paddle takes the money; it has no licence engine, so Keygen mints and validates the key.
 Fulfilment is a person: Paddle emails you, you issue the key.
 
-1. Customer buys at <https://deversity.se/llmfw>. Paddle's webhook notifies you.
+1. Customer buys at <https://deversity.se/llmfw/>. Paddle's webhook notifies you.
 2. Issue an `ED25519_SIGN` key under the Keygen policy for the account in
    `src/license/account.ts` (`keygenAccountId()`).
 3. Send it: `llm-fw license --activate <key>`.
