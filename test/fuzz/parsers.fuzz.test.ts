@@ -273,8 +273,17 @@ describe.each(FIXTURES)('%s fuzzing (mutated real fixtures)', (_name, parser, fi
 // — every evasion-normalization stage must survive arbitrary unicode input,
 // including surrogate pairs, combining marks, control characters, and the
 // invisible-character smuggling ranges these functions specifically target.
+//
+// These three carry an explicit timeout because the default 5s is too thin for
+// what they do: 200 fast-check runs over the full normalization chain take ~2s
+// alone but 6-7s inside the 87-file parallel run, so the suite failed on a
+// contended machine while the code under test was fine. Same reasoning as
+// `hookTimeout` in vitest.config.ts. Note that what these assert is "never
+// throws", never "runs fast" — there is no duration assertion here, so the
+// timeout is a liveness guard and not a performance budget. A real hang still
+// fails, just later.
 // ---------------------------------------------------------------------------
-describe('normalize / normalizeSemantic / decoder chain fuzzing', () => {
+describe('normalize / normalizeSemantic / decoder chain fuzzing', { timeout: 30000 }, () => {
   it('normalize() never throws on arbitrary unicode strings', () => {
     fc.assert(
       fc.property(fc.string({ unit: 'binary', maxLength: 500 }), (s) => {

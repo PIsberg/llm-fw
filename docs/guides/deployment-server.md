@@ -401,11 +401,12 @@ sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp
 ssh -L 7731:127.0.0.1:7731 user@server
 ```
 
-> **Do not change `LLM_FW_DASHBOARD_PORT` on a forward-proxy server.** The CRL
-> distribution point embedded in the CA and in every leaf certificate is
-> hardcoded to `http://127.0.0.1:7731/crl`. Moving the dashboard port silently
-> breaks revocation checking for certificates the firewall issues, which Windows
-> clients in particular depend on.
+> **Changing `LLM_FW_DASHBOARD_PORT` after `setup`?** The CRL distribution point
+> embedded in every certificate follows the configured dashboard address, so new
+> certificates are correct as soon as you restart. The **CA** carries the URL it
+> was generated with, though, so a CA minted under the old port keeps pointing
+> there. Set the port before running `setup`, or re-run `setup` and re-trust the
+> CA on every client. Windows clients in particular depend on that URL resolving.
 
 ---
 
@@ -576,18 +577,23 @@ client's trust store in one step.
 These are properties of the current implementation, verified in the source. They
 are the things that surprise operators after the fact.
 
-**Plain HTTP through the proxy does not work.** The proxy server registers a
-`connect` handler and no `request` handler, so it answers `CONNECT` only. A
-client that sets `HTTP_PROXY` and then fetches an `http://` URL gets no response
-until its own timeout fires. Set `HTTPS_PROXY` only.
+**Plain HTTP through the proxy is not supported.** The proxy answers `CONNECT`
+only, which is all an LLM provider needs. A client that sets `HTTP_PROXY` and
+fetches an `http://` URL gets an immediate `501` naming `HTTPS_PROXY` as the fix.
+Set `HTTPS_PROXY` only. Earlier versions accepted such a request and never
+answered it, which looked like a network fault rather than a misconfiguration.
 
-**`NO_PROXY` is not implemented.** It is not read anywhere in the product. A
-client that sets `HTTPS_PROXY` sends **all** of its HTTPS traffic across the
-network to your server, including internal services and package registries.
+**`NO_PROXY` is enforced by the client, never by the firewall.** Nothing in
+llm-fw reads it, and nothing can: the variable tells the client's own HTTP stack
+which hosts to skip. `llm-fw setup` now writes a default
+(`localhost,127.0.0.1,::1`) alongside `HTTPS_PROXY` so loopback is excluded from
+the start, but **your internal hosts are not in that list**. Without them, a
+client sends all of its HTTPS traffic across the network to your server.
 Non-provider hosts are tunneled without decryption, but they still transit the
 box and still pass the URL filter, which blocks on high-entropy hostname labels
-and can therefore refuse some legitimate hashed CDN hosts. Tell clients to scope
-the variable to the shells that need it rather than exporting it globally.
+and can therefore refuse some legitimate hashed CDN hosts. Give clients an
+exclusion list, and prefer scoping the proxy variable to the shells that need it
+over exporting it globally.
 
 **Sinkhole mode is loopback-only by construction** and is disabled under
 `--standalone`. It cannot serve remote clients. That matters because the sinkhole
@@ -595,19 +601,14 @@ is the documented answer for Node.js tools using `fetch`/`undici`, which ignore
 proxy variables. Those tools have no remote answer in proxy mode; route them
 through the gateway instead.
 
-**The CRL distribution point in every issued certificate is
-`http://127.0.0.1:7731/crl`,** hardcoded. On a remote client that address is the
-client's own machine.
+**The CRL distribution point follows the dashboard's configured address**, and a
+wildcard bind resolves to this host's LAN address rather than `0.0.0.0`. A CA
+generated before you moved the dashboard still carries the old URL; see the note
+under [Ports and firewall rules](#ports-and-firewall-rules).
 
 **Quotas and stateful detection are per-process.** DoS quotas, per-tenant quotas
 and cross-request crescendo tracking are in-memory. They do not aggregate across
 replicas.
-
-**`--gateway` and `--observe` do not appear in `llm-fw --help`.** They work. The
-usage text documents only `--standalone`.
-
-**`llm-fw setup --sinkhole` is a silent no-op.** Only `--proxy-only` is
-implemented.
 
 **Nothing gates the firewall on a licence.** No mode, including a shared
 commercial server, is stopped or degraded by licence state. The obligation is

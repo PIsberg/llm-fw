@@ -58,6 +58,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `proxy-gateway.md`, `docs.md` and `release.md`. `CONTRIBUTING.md` now
   describes where a new document goes and points at the link check.
 
+### Fixed
+
+- **A client that set `HTTP_PROXY` used to hang instead of being told why.** The
+  proxy listener registers a `connect` handler and forwards CONNECT only, but it
+  had no `request` handler at all, so a plain proxied `http://` request was
+  accepted onto the socket and never answered: the client sat there until its own
+  timeout fired. Both the README and the standalone startup banner told clients
+  to set `HTTP_PROXY`, so following the documentation was enough to reach it, and
+  the symptom looked like a network fault rather than a misconfiguration. Such a
+  request now gets an immediate `501` whose body names `HTTPS_PROXY` as the fix.
+  The banner no longer advertises `HTTP_PROXY`.
+
+- **`llm-fw setup` now persists a `NO_PROXY` alongside `HTTPS_PROXY`.** A proxy
+  variable with no exclusion list routes *every* HTTPS connection the machine
+  makes through the firewall, loopback included. `NO_PROXY` is honoured by the
+  client's HTTP stack rather than by the proxy, so writing a default
+  (`localhost,127.0.0.1,::1`) next to the variable that creates the problem is
+  the only place llm-fw can address it. `uninstall` removes the pair it wrote,
+  from shell profiles and from the Windows registry, and leaves an exclusion list
+  the user authored themselves alone. Both deployment guides explain how to
+  extend it, and that Node's global `fetch` honours neither variable.
+
+- **The CRL distribution point in issued certificates follows the configured
+  dashboard address** (`crlUrlFor` in `src/proxy/certs.ts`) instead of being
+  hardcoded to `http://127.0.0.1:7731/crl`. Two silent failures came from that
+  constant: moving `LLM_FW_DASHBOARD_PORT` broke revocation checking for every
+  certificate the firewall issued, which `docs/ARCHITECTURE.md` records Windows
+  Schannel depending on; and a remote client was handed a URL pointing at port
+  7731 on *its own* machine. A wildcard bind now resolves to this host's LAN
+  address, because `0.0.0.0` is not fetchable. A CA generated under an older port
+  keeps the URL it was minted with, which the deployment guide now says.
+
+- **`llm-fw setup --sinkhole` is honoured rather than silently ignored.** The
+  flag was described in a code comment as "an explicit synonym for the default"
+  but was never read, so asking for the sinkhole by name in an unprivileged shell
+  produced proxy-only mode and said nothing about it. It now requires elevation
+  and fails with an explanation instead of degrading, and `--proxy-only
+  --sinkhole` together is refused rather than resolved by argument order.
+
+- **`llm-fw --help` documents `--gateway`, `--observe` and `--sinkhole`.** All
+  three were real, tested and described in the README while being absent from the
+  usage text, so the only way to discover them was to read the source. The text
+  moved to `src/cli/usage.ts` and `test/cli/usage.test.ts` asserts that every
+  dispatched subcommand and flag appears in it, so the next flag cannot ship
+  undocumented. It also now states that `install-service` registers a bare
+  `start` with no flags, and that server mode is configured with `LLM_FW_*`
+  variables instead.
+
 ### Removed
 
 - `query`, a 10-byte file containing the string `iphlpsvc`, committed by

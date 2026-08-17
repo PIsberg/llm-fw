@@ -46,12 +46,18 @@ that needs a changelog entry, not a cleanup.
 - **Health endpoints exist only on the gateway.** Nothing answers on the proxy
   or the dashboard.
 - **The dashboard exempts loopback unconditionally** and has no `requireAuth`.
-- **The proxy has no `request` handler**, only `connect`. Plain proxied HTTP
-  hangs. Documented as a limitation in
-  [docs/guides/deployment-server.md](../../docs/guides/deployment-server.md).
-- **`NO_PROXY` is not implemented** anywhere in the product.
-- **The CRL distribution point is hardcoded** to `http://127.0.0.1:7731/crl` in
-  `src/proxy/certs.ts`, in the CA and in every leaf, ignoring `dashboard.port`.
+- **The proxy forwards CONNECT only.** Its `request` handler exists solely to
+  answer `501` with an explanation, so a client that set `HTTP_PROXY` fails fast
+  instead of hanging. Do not grow it into a plain-HTTP forward path without
+  deciding what that means for the URL filter and for open-relay exposure.
+  Pinned by `test/proxy/proxy-plain-http.e2e.test.ts`.
+- **`NO_PROXY` is a client-side variable.** Nothing in llm-fw reads it and
+  nothing should: it instructs the caller's HTTP stack. The only lever here is
+  the default `setup` persists (`DEFAULT_NO_PROXY` in `src/cli/setup.ts`).
+- **The CRL distribution point follows `dashboard.bindHost`/`port`** via
+  `crlUrlFor` in `src/proxy/certs.ts`. Keep it reachable by the *client*: a
+  wildcard bind resolves to the LAN address, never `0.0.0.0`, and never assume
+  loopback. Pinned by `test/proxy/certs-crl.test.ts`.
 - **Quotas and crescendo state are per-process**, so they do not aggregate
   across replicas.
 

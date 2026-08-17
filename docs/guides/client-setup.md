@@ -282,26 +282,48 @@ set NODE_EXTRA_CA_CERTS=%USERPROFILE%\.llm-fw\ca.crt
 
 The username half (`llm-fw`) is ignored; only the password half is checked.
 
-> **Set `HTTPS_PROXY`, not `HTTP_PROXY`.** The proxy answers `CONNECT` only. It
-> has no handler for plain proxied HTTP requests, so a client that sets
-> `HTTP_PROXY` and then fetches an `http://` URL will hang until its own timeout
-> fires. LLM provider traffic is all HTTPS, so nothing is lost.
+> **Set `HTTPS_PROXY`, not `HTTP_PROXY`.** The proxy answers `CONNECT` only, so a
+> client that sets `HTTP_PROXY` and fetches an `http://` URL gets a `501` naming
+> `HTTPS_PROXY` as the fix. LLM provider traffic is all HTTPS, so nothing is lost.
+> (Earlier versions accepted that request and never answered it, so it looked
+> like a network fault rather than a misconfiguration.)
 
 ### Scope the proxy variable
 
-`HTTPS_PROXY` is not selective, and **llm-fw does not implement `NO_PROXY`**.
-Exporting it globally sends every HTTPS connection this machine makes to the
-firewall: internal services, package registries, your intranet, everything.
+`HTTPS_PROXY` is not selective. Exporting it globally sends every HTTPS
+connection this machine makes to the firewall: internal services, package
+registries, your intranet, everything.
 
-Non-provider hosts are tunneled without being decrypted, so the firewall does
-not read them. But they still travel to the firewall host and back, they still
-pass its URL filter (which refuses high-entropy hostnames and can therefore trip
-on some hashed CDN hosts), and they inherit the firewall's availability.
-
-Set it in the shell that runs your LLM tooling, not in your login profile:
+`NO_PROXY` is the exclusion list, and it is honoured by **your** HTTP client, not
+by the firewall. `llm-fw setup` writes a default for a local install:
 
 ```bash
-# good: scoped to one command
+export NO_PROXY=localhost,127.0.0.1,::1
+```
+
+That covers loopback and nothing else, so **add your own hosts**. A leading dot
+matches subdomains; entries are comma-separated:
+
+```bash
+export NO_PROXY=localhost,127.0.0.1,::1,.corp.internal,.svc.cluster.local,registry.npmjs.org
+```
+
+Support is not universal. Go, Python (requests, httpx), curl and the Node proxy
+agents all honour it; Node's global `fetch` ignores proxy variables altogether,
+and some runtimes do not implement CIDR ranges, only hostnames and suffixes. When
+in doubt, scope the proxy variable instead of relying on the exclusion list.
+
+Anything not excluded still reaches the firewall. Non-provider hosts are tunneled
+without being decrypted, so the firewall does not read them, but they still
+travel to it and back, they still pass its URL filter (which refuses
+high-entropy hostnames and can therefore trip on some hashed CDN hosts), and
+they inherit the firewall's availability.
+
+The narrowest option is to set the variable per command rather than in your
+login profile:
+
+```bash
+# scoped to one process
 HTTPS_PROXY=http://llm-fw:TOKEN@192.168.1.50:8080 python app.py
 ```
 
@@ -649,9 +671,9 @@ environment variables. Set a `ProxyAgent` dispatcher, use sinkhole mode locally,
 or use gateway mode.
 
 **Everything on the machine got slow, or an unrelated internal service broke.**
-You exported `HTTPS_PROXY` globally and `NO_PROXY` is not implemented, so all
-HTTPS traffic is going through the firewall. Scope the variable to the shell
-that runs your LLM tooling.
+You exported `HTTPS_PROXY` globally and the host is not in `NO_PROXY`, so its
+traffic is going through the firewall. Add it to `NO_PROXY`, or scope the proxy
+variable to the shell that runs your LLM tooling.
 
 **Gateway returns `404`.** The path did not match a provider route. Check the
 slug and the version prefix: Anthropic is `/anthropic` with the SDK appending

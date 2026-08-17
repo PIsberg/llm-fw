@@ -3,7 +3,7 @@ import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
 import { GatewayServer } from '../gateway/gateway.js';
 import { AuditLog, AuditWebhook } from '../dashboard/auditLog.js';
-import { CertFactory } from '../proxy/certs.js';
+import { CertFactory, crlUrlFor } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
@@ -13,8 +13,9 @@ import { startConfigHotReload } from '../config/hotReload.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
-import { platform, networkInterfaces } from 'node:os';
+import { platform } from 'node:os';
 import { getLlmFwDir } from '../config/paths.js';
+import { lanIPv4 } from '../config/net.js';
 import { execSync, execFileSync } from 'node:child_process';
 
 /**
@@ -65,15 +66,14 @@ export function applyGatewayOverrides(config: Config): void {
   if (config.gateway) config.gateway.enabled = true;
 }
 
-/** Best-effort primary non-internal IPv4 address, for printing client setup hints. */
-export function lanIPv4(): string {
-  for (const addrs of Object.values(networkInterfaces())) {
-    for (const a of addrs ?? []) {
-      if (a.family === 'IPv4' && !a.internal) return a.address;
-    }
-  }
-  return '<this-server-ip>';
-}
+/**
+ * Best-effort primary non-internal IPv4 address, for printing client setup hints.
+ *
+ * Re-exported from `config/net.ts`, where it now lives because the certificate
+ * factory needs it too: the CRL distribution point baked into every issued
+ * certificate has to be an address the client can actually reach.
+ */
+export { lanIPv4 };
 
 async function waitForPortFree(port: number, timeoutMs = 5000): Promise<boolean> {
   const { createServer } = await import('node:net');
@@ -332,6 +332,10 @@ export async function run(args: string[] = []): Promise<void> {
   // env LLM_FW_HOT_RELOAD); stopped on graceful shutdown below.
   const hotReload = startConfigHotReload(config);
 
+  // A regenerated CA must carry a CRL distribution point this deployment can
+  // actually serve: the URL follows the configured dashboard address rather
+  // than assuming loopback on the default port.
+  const caCrlUrl = crlUrlFor(config.dashboard?.bindHost, config.dashboard?.port);
   // Auto-upgrade CA cert if it lacks a CRL Distribution Point (fixes Windows Schannel).
   const caCertPath = join(llmfwDir, 'ca.crt');
   if (fs.existsSync(caCertPath)) {
@@ -340,7 +344,7 @@ export async function run(args: string[] = []): Promise<void> {
     const hasCdp = (caCert.extensions as { id?: string }[]).some(e => e.id === '2.5.29.31');
     if (!hasCdp) {
       console.log('Upgrading CA cert (adding CRL distribution point)...');
-      const cf = new CertFactory();
+      const cf = new CertFactory(caCrlUrl);
       cf.generateCA();
       cf.generateAndSaveCRL();
       if (platform() === 'win32') {
@@ -351,7 +355,7 @@ export async function run(args: string[] = []): Promise<void> {
       }
     } else {
       const crlPath = join(llmfwDir, 'ca.crl');
-      if (!fs.existsSync(crlPath)) new CertFactory().generateAndSaveCRL();
+      if (!fs.existsSync(crlPath)) new CertFactory(caCrlUrl).generateAndSaveCRL();
     }
   }
 
@@ -445,11 +449,18 @@ export async function run(args: string[] = []): Promise<void> {
     console.log('');
     console.log('  Configure each client machine:');
     console.log(`    1. Download & trust the CA cert:  http://${ip}:${config.dashboard.port}/ca.crt?download`);
-    console.log(`       (install into the OS / browser "Trusted Root" store)`);
+    console.log(`       (install into the OS / browser "Trusted Root" store — and note that`);
+    console.log(`        Node, Python and Java each ignore it and need their own variable)`);
     const cred = proxy.auth.required ? `llm-fw:${proxy.auth.token}@` : '';
     console.log(`    2. Point tools at the proxy:`);
+    // HTTPS_PROXY only: this listener answers CONNECT and has no plain-HTTP
+    // forward path, so advertising HTTP_PROXY sent clients down a route that
+    // now returns 501 (and used to hang).
     console.log(`         export HTTPS_PROXY=http://${cred}${ip}:${config.proxy.port}`);
-    console.log(`         export HTTP_PROXY=http://${cred}${ip}:${config.proxy.port}`);
+    console.log(`         export NO_PROXY=localhost,127.0.0.1,::1`);
+    console.log(`       HTTPS_PROXY is not selective and NO_PROXY is honoured only by the`);
+    console.log(`       client, so add your internal hosts to it — otherwise every HTTPS`);
+    console.log(`       connection that client makes is routed through this server.`);
     console.log('');
     if (proxy.auth.required) {
       console.log('  Proxy authentication is ON. Clients must present the token above as');

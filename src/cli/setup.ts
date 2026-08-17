@@ -1,4 +1,4 @@
-import { CertFactory } from '../proxy/certs.js';
+import { CertFactory, crlUrlFor } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
 import { stripSinkholeBlock } from './hosts.js';
@@ -98,31 +98,92 @@ function configureIdeProxies(proxyUrl: string): void {
 }
 
 /**
- * Idempotently add the llm-fw `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` exports to a
- * shell-profile's text. Any previous llm-fw block (marker + loopback proxy /
- * `.llm-fw/ca.crt` exports) is stripped first, so re-running setup never stacks
- * duplicates. Pure (no I/O) so it can be unit-tested; the inverse lives in
+ * Hosts excluded from the proxy by default.
+ *
+ * `HTTPS_PROXY` is not selective, and llm-fw cannot make it so: `NO_PROXY` is
+ * honoured by the client's HTTP stack, never by the proxy. So the one place the
+ * exclusion can be set is here, next to the variable that creates the problem.
+ * Without it, setting a proxy sends every HTTPS connection the machine makes
+ * through the firewall, loopback included, which for a remote firewall means
+ * internal services and package registries leaving the network to reach it.
+ */
+export const DEFAULT_NO_PROXY = 'localhost,127.0.0.1,::1';
+
+/**
+ * Idempotently add the llm-fw `HTTPS_PROXY` / `NO_PROXY` / `NODE_EXTRA_CA_CERTS`
+ * exports to a shell-profile's text. Any previous llm-fw block (marker + loopback
+ * proxy / `.llm-fw/ca.crt` exports) is stripped first, so re-running setup never
+ * stacks duplicates. Pure (no I/O) so it can be unit-tested; the inverse lives in
  * `uninstall.stripProfileEnvVars`.
  */
-export function addProfileEnvVars(profileContent: string, proxyUrl: string): string {
+export function addProfileEnvVars(
+  profileContent: string,
+  proxyUrl: string,
+  noProxy: string = DEFAULT_NO_PROXY,
+): string {
   const kept = profileContent.split(/\r?\n/).filter(line => {
     const t = line.trim();
     if (t === '# llm-fw env') return false;
     if (t.startsWith('export HTTPS_PROXY=') && (t.includes('127.0.0.1:') || t.includes('localhost:'))) return false;
     if (t.startsWith('export NODE_EXTRA_CA_CERTS=') && t.includes('.llm-fw/ca.crt')) return false;
+    // Only ours: a user's own exclusion list is theirs to keep. Same
+    // content-based discrimination as the HTTPS_PROXY line above.
+    if (t.startsWith('export NO_PROXY=') && t.includes('127.0.0.1')) return false;
     return true;
   }).join('\n').replace(/\n+$/, '');
 
-  const block = `# llm-fw env\nexport HTTPS_PROXY=${proxyUrl}\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n`;
+  const block = `# llm-fw env\nexport HTTPS_PROXY=${proxyUrl}\nexport NO_PROXY=${noProxy}\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n`;
   return (kept ? kept + '\n\n' : '') + block;
 }
 
 /**
- * Persist `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` so every new shell points at
- * the firewall without the user exporting anything by hand. Windows writes them
- * to the user environment (HKCU) via `setx`; POSIX appends to the shell profile.
- * `uninstall` reverses both (`removeEnvVars` / `stripProfileEnvVars`). Best-effort:
- * a failure prints a warning rather than aborting setup.
+ * Which coverage modes this invocation should end up with.
+ *
+ * Split out and pure so the flag handling is testable. `--sinkhole` used to be
+ * described in a comment as "an explicit synonym for the default" but was never
+ * read, so asking for it by name on an unprivileged shell silently produced
+ * proxy-only mode. A flag that is ignored is worse than one that does not exist,
+ * because the user believes they configured something.
+ */
+export function resolveSetupMode(
+  args: string[],
+  elevated: boolean,
+): { sinkhole: boolean; sinkholeWanted: boolean; error?: string } {
+  const proxyOnly = args.includes('--proxy-only');
+  const sinkholeAsked = args.includes('--sinkhole');
+
+  if (proxyOnly && sinkholeAsked) {
+    return {
+      sinkhole: false,
+      sinkholeWanted: false,
+      error: '--proxy-only and --sinkhole ask for opposite things. Pass one.',
+    };
+  }
+  if (sinkholeAsked && !elevated) {
+    return {
+      sinkhole: false,
+      sinkholeWanted: true,
+      error: '--sinkhole needs an elevated shell (admin on Windows, sudo on macOS/Linux). '
+        + 'Re-run elevated, or drop the flag to set up proxy mode only.',
+    };
+  }
+  if (proxyOnly) return { sinkhole: false, sinkholeWanted: false };
+  // Default: want the sinkhole, take it when we can, degrade with an
+  // explanation when we cannot.
+  return { sinkhole: elevated, sinkholeWanted: true };
+}
+
+/**
+ * Persist `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` so every new shell
+ * points at the firewall without the user exporting anything by hand. Windows
+ * writes them to the user environment (HKCU) via `setx`; POSIX appends to the
+ * shell profile. `uninstall` reverses both (`removeEnvVars` /
+ * `stripProfileEnvVars`). Best-effort: a failure prints a warning rather than
+ * aborting setup.
+ *
+ * `NO_PROXY` ships alongside deliberately. A proxy variable with no exclusion
+ * list routes every HTTPS connection on the machine through the firewall, and
+ * the client's HTTP stack is the only layer that can be told otherwise.
  */
 function configureEnvVars(proxyUrl: string, caCertPath: string): void {
   const os = platform();
@@ -132,8 +193,9 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
       // terminals inherit the values (the current one must be reopened). Store
       // the resolved CA path — setx creates REG_SZ, which does not expand %VARS%.
       execFileSync('setx', ['HTTPS_PROXY', proxyUrl], { stdio: 'ignore' });
+      execFileSync('setx', ['NO_PROXY', DEFAULT_NO_PROXY], { stdio: 'ignore' });
       execFileSync('setx', ['NODE_EXTRA_CA_CERTS', caCertPath], { stdio: 'ignore' });
-      console.log('  ✓ Set HTTPS_PROXY + NODE_EXTRA_CA_CERTS in your user environment (open a new terminal to load them).');
+      console.log('  ✓ Set HTTPS_PROXY + NO_PROXY + NODE_EXTRA_CA_CERTS in your user environment (open a new terminal to load them).');
     } else {
       const shell = process.env.SHELL || '';
       const profile = shell.includes('zsh') ? join(homedir(), '.zshrc')
@@ -142,8 +204,10 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
             .map(p => join(homedir(), p)).find(p => fs.existsSync(p)) || join(homedir(), '.profile'));
       const prev = fs.existsSync(profile) ? fs.readFileSync(profile, 'utf8') : '';
       fs.writeFileSync(profile, addProfileEnvVars(prev, proxyUrl), 'utf8');
-      console.log(`  ✓ Added HTTPS_PROXY + NODE_EXTRA_CA_CERTS to ${profile} (run "source ${profile}" or open a new shell).`);
+      console.log(`  ✓ Added HTTPS_PROXY + NO_PROXY + NODE_EXTRA_CA_CERTS to ${profile} (run "source ${profile}" or open a new shell).`);
     }
+    console.log(`    NO_PROXY excludes ${DEFAULT_NO_PROXY}. Add your own internal hosts to it:`);
+    console.log('    the proxy variable is not selective, so every other HTTPS host goes through llm-fw.');
   } catch (err) {
     console.warn('  ⚠ Could not set environment variables automatically: ' + (err as Error).message);
   }
@@ -175,19 +239,26 @@ export async function run(args: string[]): Promise<void> {
   // HTTPS_PROXY) is enabled by DEFAULT alongside the proxy so the firewall just
   // works with every tool — the user never has to pick a mode. It needs
   // admin/root; without it we set up proxy mode and explain how to enable the
-  // sinkhole. `--proxy-only` opts out; `--sinkhole` is an explicit synonym for
-  // the default.
-  const proxyOnly = args.includes('--proxy-only');
+  // sinkhole. `--proxy-only` opts out; `--sinkhole` asks for it explicitly and
+  // fails rather than degrading silently.
   const elevated = isElevated();
-  const sinkhole = !proxyOnly && elevated;
-  const sinkholeWanted = !proxyOnly;
+  const mode = resolveSetupMode(args, elevated);
+  if (mode.error) {
+    console.error('llm-fw setup: ' + mode.error);
+    process.exitCode = 1;
+    return;
+  }
+  const { sinkhole, sinkholeWanted } = mode;
   const llmfwDir = getLlmFwDir();
   const caCertPath = join(llmfwDir, 'ca.crt');
 
   console.log('Setting up llm-fw...');
 
   // Step 1 - Generate CA
-  const certFactory = new CertFactory();
+  // The CRL distribution point is baked into the CA, so it has to match the
+  // dashboard this install will actually serve the CRL from.
+  const setupConfig = await loadConfig();
+  const certFactory = new CertFactory(crlUrlFor(setupConfig.dashboard?.bindHost, setupConfig.dashboard?.port));
   certFactory.generateCA();
   console.log('CA certificate generated.');
   certFactory.generateAndSaveCRL();

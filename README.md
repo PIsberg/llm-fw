@@ -201,7 +201,7 @@ npx llm-fw <command>
 llm-fw setup
 ```
 
-Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, **sets the `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` environment variables for you** (Windows user environment via `setx`; macOS/Linux shell profile), auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
+Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, **sets the `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` environment variables for you** (Windows user environment via `setx`; macOS/Linux shell profile), auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
 
 > **Windows:** run the terminal as Administrator to enable the sinkhole.  
 > **macOS/Linux:** `sudo llm-fw setup` to enable the sinkhole.  
@@ -217,25 +217,30 @@ Running a second time automatically stops the previous instance first.
 
 **Step 3 — Point your tools at the proxy:**
 
-`setup` already set `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` persistently, so **new
+`setup` already set `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` persistently, so **new
 terminals are covered automatically** — just open a fresh one. To load them into
 a shell that was already open (without reopening it), run:
 
 ```bash
 # macOS / Linux
 export HTTPS_PROXY=http://127.0.0.1:8080
+export NO_PROXY=localhost,127.0.0.1,::1
 export NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"
 
 # PowerShell
 $env:HTTPS_PROXY="http://127.0.0.1:8080"
+$env:NO_PROXY="localhost,127.0.0.1,::1"
 $env:NODE_EXTRA_CA_CERTS="$env:USERPROFILE\.llm-fw\ca.crt"
 
 # Windows cmd
 set HTTPS_PROXY=http://127.0.0.1:8080
+set NO_PROXY=localhost,127.0.0.1,::1
 set NODE_EXTRA_CA_CERTS=%USERPROFILE%\.llm-fw\ca.crt
 ```
 
 > `NODE_EXTRA_CA_CERTS` is needed because Node.js uses its own CA bundle and ignores the OS trust store — even after the CA is installed system-wide. (In sinkhole mode `HTTPS_PROXY` isn't strictly required, but setup sets it anyway so proxy-aware tools are covered too.)
+>
+> `NO_PROXY` is the exclusion list, and it is honoured by your HTTP client rather than by the firewall. The default covers loopback only, so add your own internal hosts — `HTTPS_PROXY` is not selective, and everything not excluded goes through llm-fw. Set `HTTPS_PROXY`, never `HTTP_PROXY`: the proxy forwards CONNECT only and answers a plain proxied request with a `501`. See [Client setup](docs/guides/client-setup.md#scope-the-proxy-variable).
 
 **Step 4 — Open the dashboard:**
 
