@@ -1,6 +1,6 @@
 # 🚀 Next Improvement Roadmap — llm-fw
 
-This document outlines the next logical improvement steps for the [llm-fw](file:///C:/dev/private/llm-fw) project, derived from the active [PLAN-future.md](file:///C:/dev/private/llm-fw/docs/plans/PLAN-future.md) and the latest measurements from [BENCHMARK.md](file:///C:/dev/private/llm-fw/docs/BENCHMARK.md).
+This document outlines the next logical improvement steps for the [llm-fw](../..) project, derived from the active [PLAN-future.md](./PLAN-future.md) and the latest measurements from [BENCHMARK.md](../BENCHMARK.md).
 
 ---
 
@@ -10,7 +10,7 @@ This document outlines the next logical improvement steps for the [llm-fw](file:
 set surfaced several novel rephrasings of *known* attack classes that slipped
 past a Stage-1 heuristic by a single regex gap (a too-tight gap quantifier, a
 missing config key, a noun the rule didn't list). These were closed additively
-in [heuristic.ts](file:///C:/dev/private/llm-fw/src/detection/heuristic.ts) —
+in [heuristic.ts](../../src/detection/heuristic.ts) —
 no embedding/threshold recalibration, so the calibrated e5 cosine gate is
 untouched:
 
@@ -24,7 +24,7 @@ Result: held-out `cheap` preset recall **38.7% → 61.3%** (persona, prefix-inje
 skeleton-key, policy-puppetry, system-exfil all → 100% on that set), held-out
 **FPR unchanged at 9.5%**, local scorecard still **100% TPR / 0% FPR**, full
 detection suite green. New unit cases + benign fences in
-[heuristic.test.ts](file:///C:/dev/private/llm-fw/test/detection/heuristic.test.ts).
+[heuristic.test.ts](../../test/detection/heuristic.test.ts).
 
 > The remaining held-out misses (`semantic-hard`, `many-shot`, two `direct-override`
 > rephrasings, the base32 `encoding` row, indirect-on-prompt) are *not*
@@ -36,7 +36,7 @@ detection suite green. New unit cases + benign fences in
 
 ## ✅ Shipped — branch `feat/intent-mention-and-blending` (Options C + B)
 
-**Option C — intent-vs-mention gate** ([intentMention.ts](file:///C:/dev/private/llm-fw/src/detection/intentMention.ts)):
+**Option C — intent-vs-mention gate** ([intentMention.ts](../../src/detection/intentMention.ts)):
 a false-positive suppressor for the trained classifier stage. When a prompt only
 QUOTES / translates / documents / fictionalizes injection phrasing (rather than
 issuing it as a live instruction), a classifier block is downgraded to a warn.
@@ -80,7 +80,7 @@ The prompt injection firewall is already highly optimized on its deterministic a
 | **harmbench** | Harmful Requests | 400 | **41.0% Recall / —** | 41.0% Recall / — | **Euphemism tail.** Heuristic misses novel or indirect phrasing. |
 
 > [!NOTE]
-> The benchmark suite runs on full splits (no sampling) and registers a perfect **100% Recall / 0.0% FPR** on the local regression [SCORECARD.md](file:///C:/dev/private/llm-fw/docs/SCORECARD.md).
+> The benchmark suite runs on full splits (no sampling) and registers a perfect **100% Recall / 0.0% FPR** on the local regression [SCORECARD.md](../SCORECARD.md).
 > The "+ Trained Classifier" column is measured with the benchmark's `classifier` preset, which hard-codes the Ollama judge OFF — the two-tier gray-zone escalation (Option B) is therefore not exercised in these numbers.
 
 ---
@@ -104,7 +104,7 @@ To establish a credible "state-of-the-art" claim, we need to compare `llm-fw` ag
 ### Option B: Classifier Ensembling & Signal Blending (Phase 3) — ✅ SHIPPED (two-tier policy; see above)
 Currently, the DeBERTa classifier operates on a static threshold. We want to ensemble it with embedding similarity and heuristics scores to catch novel semantic-only attacks.
 *   **What to do**:
-    1.  Introduce a blending function in [pipeline.ts](file:///C:/dev/private/llm-fw/src/detection/pipeline.ts) (such as a logistic regression blend or a calibrated decision rule).
+    1.  Introduce a blending function in [pipeline.ts](../../src/detection/pipeline.ts) (such as a logistic regression blend or a calibrated decision rule).
     2.  Implement a **two-tier policy**:
         *   **Block** directly at high classifier confidence ($\ge 0.9$).
         *   **Escalate** to the local Ollama Judge in the gray zone ($0.5 \le \text{score} < 0.9$).
@@ -121,7 +121,7 @@ The primary driver of false positives (23.8% on the held-out set) is benign text
 ### Option D: Trained Output-Side Moderation Classifier (Phase 5)
 Input-side blocking is only half the battle. If a jailbreak succeeds, we want to block the generated completion before it reaches the user.
 *   **What to do**:
-    1.  Upgrade the response scanning in [upstream.ts](file:///C:/dev/private/llm-fw/src/proxy/upstream.ts) to intercept stream chunks.
+    1.  Upgrade the response scanning in [upstream.ts](../../src/proxy/upstream.ts) to intercept stream chunks.
     2.  Integrate a fast output classifier (e.g., Llama-Guard-style model or a distilled lightweight model).
     3.  Run output-side benchmarks and record metrics.
 *   **Why**: Defense-in-depth on the output stream catches leaking secrets or harmful completions from jailbreaks that bypassed input detection.

@@ -65,7 +65,8 @@
     "mutation": "stryker run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "knip": "knip"
+    "knip": "knip",
+    "docs:links": "node scripts/check-links.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

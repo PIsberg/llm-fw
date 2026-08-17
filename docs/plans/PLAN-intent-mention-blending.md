@@ -4,7 +4,7 @@ Branch: `feat/intent-mention-and-blending`. Tasks are implemented **sequentially
 one commit each**, by separate agents. Each task ends with: `npx tsc --noEmit`,
 `npx eslint .`, the listed tests green, then a commit on THIS branch (no push).
 
-Context: `future_improvements_plan.md` (Options B/C), memory of heldout
+Context: `docs/plans/PLAN-next-improvements.md` (Options B/C), memory of heldout
 measurements — classifier preset on heldout: 77.4% recall / 23.8% FPR. FPR is
 driven by benign prompts that QUOTE/discuss injection phrasing; recall gap is
 semantic-only attacks below the 0.9 classifier threshold.
@@ -115,7 +115,7 @@ Commit: `feat(detection): two-tier classifier policy — gray-zone escalation to
 3. If feasible offline, `LOAD_SWEEP` / `node --loader` benchmark heldout run
    with `--only=heldout` cheap preset (classifier preset needs the DeBERTa
    download — attempt, skip gracefully if no network). Record numbers.
-4. Update `future_improvements_plan.md`: mark Option C shipped + Option B
+4. Update `docs/plans/PLAN-next-improvements.md`: mark Option C shipped + Option B
    shipped (with measured numbers or "pending classifier-preset re-run"), and
    `docs/BENCHMARK-IMPROVEMENTS.md` with a short section.
 

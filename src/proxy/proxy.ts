@@ -3,7 +3,7 @@ import http from 'node:http'
 import net from 'node:net'
 import tls from 'node:tls'
 import { Config, PipelineResult } from '../types.js'
-import { CertFactory } from './certs.js'
+import { CertFactory, crlUrlFor } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { SuppressionStore } from '../detection/suppressions.js'
@@ -179,7 +179,10 @@ export class ProxyServer {
     this.config = config
     this.eventBus = eventBus
     this.metrics = metrics
-    this.certFactory = new CertFactory()
+    // The CRL distribution point baked into every certificate has to be
+    // fetchable by the client that receives it, so it follows the dashboard's
+    // configured address rather than assuming loopback on the default port.
+    this.certFactory = new CertFactory(crlUrlFor(config.dashboard?.bindHost, config.dashboard?.port))
     this.resolver = new UpstreamResolver(config.proxy)
     this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions)
     this.urlClassifier = new UrlClassifier(config.proxy.urlFilter)
@@ -241,6 +244,25 @@ export class ProxyServer {
   start(): void {
     this.server.on('connect', (req, socket, head) => {
       void this.handleConnect(req, socket as net.Socket, head)
+    })
+    // Plain proxied HTTP is not supported: this listener answers CONNECT only,
+    // which is all an LLM provider ever needs. Without a handler here such a
+    // request was accepted and then never answered, so a client that set
+    // HTTP_PROXY hung until its own timeout — a configuration error wearing the
+    // costume of a network fault. Answer immediately and name the fix instead.
+    this.server.on('request', (req, res) => {
+      const body = JSON.stringify({
+        error: 'plain HTTP proxying is not supported',
+        detail: 'llm-fw intercepts HTTPS via CONNECT. Set HTTPS_PROXY (not HTTP_PROXY) and use https:// URLs.',
+        method: req.method,
+        url: req.url,
+      })
+      res.writeHead(501, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Connection: 'close',
+      })
+      res.end(body)
     })
     // bindHost defaults to local-only; standalone mode sets it to 0.0.0.0 so
     // remote clients can reach the proxy.

@@ -1,6 +1,7 @@
 import forge from 'node-forge';
 import { platform } from 'node:os';
 import { getLlmFwDir } from '../config/paths.js';
+import { reachableHost, urlHost } from '../config/net.js';
 import { join } from 'node:path';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -10,7 +11,25 @@ const LLMFW_DIR = getLlmFwDir();
 const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
 const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
 const CRL_PATH = join(LLMFW_DIR, 'ca.crl');
-const DASHBOARD_PORT = 7731
+
+/** The dashboard port, which is where the CRL is served from. */
+export const DEFAULT_DASHBOARD_PORT = 7731;
+
+/**
+ * Where a client should fetch the CRL for certificates this factory issues.
+ *
+ * This URL is baked into the CA and into every leaf, and it is load-bearing:
+ * docs/ARCHITECTURE.md records that Windows Schannel rejects a leaf whose
+ * revocation status it cannot determine. It used to be hardcoded to
+ * `http://127.0.0.1:7731/crl`, which broke silently for anyone who moved the
+ * dashboard port, and pointed a remote client at its own machine.
+ *
+ * A wildcard bind resolves to a reachable address rather than `0.0.0.0`, which
+ * no client can fetch from.
+ */
+export function crlUrlFor(bindHost: string | undefined, port: number = DEFAULT_DASHBOARD_PORT): string {
+  return `http://${urlHost(reachableHost(bindHost))}:${port}/crl`;
+}
 
 export interface TLSCredentials { cert: string; key: string }
 
@@ -74,6 +93,14 @@ export class CertFactory {
   // Generating a 2048-bit RSA pair per hostname blocks the event loop for 100-2000ms.
   private hostKeyPair: forge.pki.rsa.KeyPair | null = null;
 
+  /**
+   * @param crlUrl CRL distribution point embedded in the CA and in every leaf.
+   *   Defaults to loopback on the default dashboard port, which is what a
+   *   single-machine install wants. A server whose dashboard moved, or one
+   *   serving remote clients, passes its own reachable URL (see `crlUrlFor`).
+   */
+  constructor(private readonly crlUrl: string = crlUrlFor(undefined)) {}
+
   /** Pre-generate the shared host key during setup so getHostCert never blocks mid-request. */
   warmHostKey(): void {
     if (!this.hostKeyPair) {
@@ -112,7 +139,7 @@ export class CertFactory {
       // are trusted at once a validator selects the right one by key id rather
       // than picking one by name and failing the signature check.
       { name: 'subjectKeyIdentifier' },
-      makeCdpExtension(`http://127.0.0.1:${DASHBOARD_PORT}/crl`),
+      makeCdpExtension(this.crlUrl),
     ]);
 
     cert.sign(keys.privateKey, forge.md.sha256.create());
@@ -240,7 +267,7 @@ export class CertFactory {
         authorityCertIssuer: true,
         serialNumber: ca.cert.serialNumber,
       },
-      makeCdpExtension(`http://127.0.0.1:${DASHBOARD_PORT}/crl`),
+      makeCdpExtension(this.crlUrl),
     ]);
 
     cert.sign(ca.key, forge.md.sha256.create());

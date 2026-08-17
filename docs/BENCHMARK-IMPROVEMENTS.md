@@ -247,7 +247,7 @@ Scorecard (load corpus, default config): **100% recall / 0% FPR — unchanged.**
 Full-split re-run of the two remaining big sets, cheap AND classifier presets.
 The benchmark's `classifier` preset hard-codes the judge off, so Option B
 gray-zone escalation is NOT exercised in any of these numbers. "Before" = the
-baselines recorded in `future_improvements_plan.md` (2026-06-13).
+baselines recorded in `docs/plans/PLAN-next-improvements.md` (2026-06-13).
 
 | Dataset | Preset | n | Recall before → after | FPR before → after |
 |---|---|---|---|---|

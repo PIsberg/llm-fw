@@ -65,9 +65,10 @@ export function stripJudgeConfig(parsed: Record<string, unknown>): Record<string
 /**
  * Strip the env-var exports `setup` (`addProfileEnvVars`) wrote into a shell
  * profile: the `# llm-fw env` marker, an HTTPS_PROXY export pointing at a
- * loopback proxy (any port), and a NODE_EXTRA_CA_CERTS export pointing at
- * `~/.llm-fw/ca.crt`. A user's own corporate-proxy or unrelated CA export is
- * left untouched. Returns the cleaned text.
+ * loopback proxy (any port), the NO_PROXY exclusion list setup wrote, and a
+ * NODE_EXTRA_CA_CERTS export pointing at `~/.llm-fw/ca.crt`. A user's own
+ * corporate-proxy, exclusion list, or unrelated CA export is left untouched.
+ * Returns the cleaned text.
  */
 export function stripProfileEnvVars(profileContent: string): string {
   const lines = profileContent.split(/\r?\n/);
@@ -75,6 +76,10 @@ export function stripProfileEnvVars(profileContent: string): string {
     const trimmed = line.trim();
     if (trimmed === '# llm-fw env') return false;
     if (trimmed.startsWith('export HTTPS_PROXY=') && (trimmed.includes('127.0.0.1:') || trimmed.includes('localhost:'))) {
+      return false;
+    }
+    // Ours contains loopback; a user's own list (".mycompany.com") does not.
+    if (trimmed.startsWith('export NO_PROXY=') && trimmed.includes('127.0.0.1')) {
       return false;
     }
     if (trimmed.startsWith('export NODE_EXTRA_CA_CERTS=') && trimmed.includes('.llm-fw/ca.crt')) {
@@ -231,31 +236,31 @@ function removeEnvVars(): void {
   try {
     if (os === 'win32') {
       let clearedUser = false;
-      // Clear User environment variables
-      try {
-        execSync('reg delete HKCU\\Environment /v HTTPS_PROXY /f', { stdio: 'ignore' });
-        clearedUser = true;
-      } catch { /* may not exist */ }
-      try {
-        execSync('reg delete HKCU\\Environment /v NODE_EXTRA_CA_CERTS /f', { stdio: 'ignore' });
-        clearedUser = true;
-      } catch { /* may not exist */ }
-      
+      // Clear User environment variables. NO_PROXY is removed alongside the
+      // proxy variable it accompanies: setup writes the pair, so uninstall
+      // takes the pair, or the machine is left excluding hosts from a proxy
+      // that no longer exists.
+      const userVars = ['HTTPS_PROXY', 'NO_PROXY', 'NODE_EXTRA_CA_CERTS'];
+      for (const name of userVars) {
+        try {
+          execSync(`reg delete HKCU\\Environment /v ${name} /f`, { stdio: 'ignore' });
+          clearedUser = true;
+        } catch { /* may not exist */ }
+      }
+
       let clearedSystem = false;
       // Clear System environment variables (if elevated)
       if (isElevated()) {
-        try {
-          execSync('reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v HTTPS_PROXY /f', { stdio: 'ignore' });
-          clearedSystem = true;
-        } catch { /* may not exist */ }
-        try {
-          execSync('reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v NODE_EXTRA_CA_CERTS /f', { stdio: 'ignore' });
-          clearedSystem = true;
-        } catch { /* may not exist */ }
+        for (const name of userVars) {
+          try {
+            execSync(`reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v ${name} /f`, { stdio: 'ignore' });
+            clearedSystem = true;
+          } catch { /* may not exist */ }
+        }
       }
-      
+
       if (clearedUser || clearedSystem) {
-        ok('Removed environment variables (HTTPS_PROXY, NODE_EXTRA_CA_CERTS) from registry');
+        ok('Removed environment variables (HTTPS_PROXY, NO_PROXY, NODE_EXTRA_CA_CERTS) from registry');
       } else {
         skip('No llm-fw environment variables found in registry');
       }
