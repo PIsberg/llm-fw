@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > MCP (Model Context Protocol) Monitoring & Security Spec
+
 # MCP (Model Context Protocol) Monitoring & Security Spec
 
 ## 1. Overview

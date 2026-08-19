@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Live Traffic Monitoring
+
 # Specification: Live Traffic Monitoring (SPEC-livetraffic.md)
 
 This specification details how `llm-fw` will provide visibility into the proxy's activity, demonstrating to users that the firewall is actively intercepting, monitoring, and analyzing their AI traffic.

@@ -30,21 +30,29 @@ The [README](../README.md) is the pitch and the quick start; this is the rest.
 | [MCP tool firewall](guides/mcp.md) | Tool definitions, invocations, arguments and results |
 | [Tuning detection](guides/tuning.md) | Live toggles, false-positive suppression, per-surface sensitivity |
 
-## How it is built, and how well it works
+## How it is built
 
 | Document | Covers |
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System context, components, sequence and class diagrams |
 | [DESIGN-mcp-response.md](DESIGN-mcp-response.md) | Design for correct inbound MCP response interception |
-| [BENCHMARK.md](BENCHMARK.md) | Held-out generalization methodology and results |
-| [BENCHMARK-COMPETITORS.md](BENCHMARK-COMPETITORS.md) | Head-to-head recall and FPR against third-party guardrails |
-| [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) | Before and after accuracy across every tuning round |
-| [BENCHMARK-AGENTDOJO.md](BENCHMARK-AGENTDOJO.md) | AgentDojo agentic-benchmark results |
-| [SCORECARD.md](SCORECARD.md) | The generated detection scorecard |
-| [FALSE-POSITIVES.md](FALSE-POSITIVES.md) | The false-positive corpus and what it measures |
-| [ML-INDIRECT-STUDY.md](ML-INDIRECT-STUDY.md) | Multilingual indirect-injection embedding feasibility study |
-| [LOADTESTS.md](LOADTESTS.md) | Load-test harness, throughput and latency results |
 | [TESTING.md](TESTING.md) | Unit, integration, E2E and mutation testing |
+
+## Measurements
+
+Every number here was produced by a command in this repository, named in the
+document that reports it, so it can be re-run rather than taken on trust.
+
+| Document | Covers | Re-run with |
+| --- | --- | --- |
+| [SCORECARD.md](SCORECARD.md) | The generated detection scorecard | `npm run scorecard` |
+| [FALSE-POSITIVES.md](FALSE-POSITIVES.md) | The false-positive corpus and what it measures | `npm run fpr` |
+| [BENCHMARK.md](BENCHMARK.md) | Held-out generalization methodology and results | `node --import tsx/esm scripts/run-benchmark.ts <preset>` |
+| [BENCHMARK-COMPETITORS.md](BENCHMARK-COMPETITORS.md) | Head-to-head recall and FPR against third-party guardrails | `npm run bench:competitors` |
+| [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) | Before and after accuracy across every tuning round | |
+| [BENCHMARK-AGENTDOJO.md](BENCHMARK-AGENTDOJO.md) | AgentDojo agentic-benchmark results | see the doc (needs the Python harness) |
+| [ML-INDIRECT-STUDY.md](ML-INDIRECT-STUDY.md) | Multilingual indirect-injection embedding feasibility study | |
+| [LOADTESTS.md](LOADTESTS.md) | Load-test harness, throughput and latency results | `npm run test:load` |
 
 ## Specifications and plans
 

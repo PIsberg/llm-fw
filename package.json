@@ -66,7 +66,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip",
-    "docs:links": "node scripts/check-links.mjs"
+    "docs:links": "node scripts/check-links.mjs",
+    "config:reference": "node --import tsx/esm scripts/gen-config-reference.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Project and process > Licensing llm-fw to a customer
+
 # Licensing llm-fw to a customer
 
 How a commercial licence gets to a paying customer, and — separately — how to hand out a

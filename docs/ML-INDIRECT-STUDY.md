@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Measurements > Multilingual indirect-injection embedding feasibility study (Task B7)
+
 # Multilingual indirect-injection embedding feasibility study (Task B7)
 
 Status: **research only — no pipeline changes**. This document and

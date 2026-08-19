@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Intent-vs-Mention gate (Option C) + Classifier two-tier policy (Option B)
+
 # PLAN — Intent-vs-Mention gate (Option C) + Classifier two-tier policy (Option B)
 
 Branch: `feat/intent-mention-and-blending`. Tasks are implemented **sequentially,
