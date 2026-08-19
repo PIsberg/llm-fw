@@ -64,6 +64,7 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
   let gateway: GatewayServer
   let upstream: http.Server
   let calls: UpstreamCall[] = []
+  let upstreamPort = 0
 
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-gateway-e2e-'))
@@ -81,7 +82,7 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
       })
     })
     await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', () => resolve()))
-    const upstreamPort = (upstream.address() as { port: number }).port
+    upstreamPort = (upstream.address() as { port: number }).port
 
     const config: Config = {
       ...DEFAULT_CONFIG,
@@ -309,6 +310,42 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     })
     expect(res.status).toBe(200)
     expect(calls[0]!.headers['authorization']).toBe('Bearer sk-caller-own-key')
+  })
+
+  it('sends the upstream port in the Host header', async () => {
+    // A private endpoint is documented as `{ host, port: 8000, protocol: 'http' }`.
+    // Anything that routes or validates on Host — an ingress, a vhost, a
+    // self-hosted vLLM behind a reverse proxy — sees the wrong virtual host
+    // when the port is dropped, and answers 404 for traffic that is correct.
+    calls = []
+    await request({ path: '/v1/chat/completions', body: benign, headers: authed })
+    expect(calls[0]!.headers['host']).toBe(`127.0.0.1:${upstreamPort}`)
+  })
+
+  it('strips a caller credential from the query string when it holds the key', async () => {
+    // Custody is total for headers but the URL was untouched, so a caller using
+    // Google's documented `?key=` form (or Azure's `?api-key=`) reached the
+    // provider on their own credential and out of the operator's attribution.
+    calls = []
+    const res = await request({ path: '/testprovider/v1/messages?key=sk-caller-own&alt=sse', body: benign, headers: authed })
+    expect(res.status).toBe(200)
+    expect(calls[0]!.path).toBe('/v1/messages?alt=sse')
+    expect(calls[0]!.headers['x-api-key']).toBe('operator-secret-key')
+  })
+
+  it('keeps the caller query credential when it holds no key', async () => {
+    // The other half of the custody contract: with no operator key the client's
+    // own credential is what reaches the provider, in the URL as in the header.
+    calls = []
+    const res = await request({ path: '/nocustody/v1/messages?key=sk-caller-own', body: benign, headers: authed })
+    expect(res.status).toBe(200)
+    expect(calls[0]!.path).toBe('/v1/messages?key=sk-caller-own')
+  })
+
+  it('leaves a query with no credential in it untouched', async () => {
+    calls = []
+    await request({ path: '/testprovider/v1/messages?model=ft:gpt-4o:acme&stream=true', body: benign, headers: authed })
+    expect(calls[0]!.path).toBe('/v1/messages?model=ft:gpt-4o:acme&stream=true')
   })
 
   it('404s an unroutable path instead of guessing an upstream', async () => {

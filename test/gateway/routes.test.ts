@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, type GatewayRoute } from '../../src/gateway/routes.js'
+import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuery, upstreamHostHeader, type GatewayRoute } from '../../src/gateway/routes.js'
 
 const opts = { defaultProvider: 'openai', providers: BUILTIN_PROVIDERS }
 
@@ -111,5 +111,54 @@ describe('applyUpstreamAuth', () => {
     const headers = { authorization: 'Bearer sk-client' }
     applyUpstreamAuth(headers, route('openai'), 'sk-operator')
     expect(headers.authorization).toBe('Bearer sk-client')
+  })
+})
+
+describe('stripCredentialQuery', () => {
+  it('removes the credential parameters a provider accepts in the URL', () => {
+    // Google's REST API takes its key as `?key=` and Azure OpenAI accepts
+    // `?api-key=`, so header-only custody leaves the caller a way to reach the
+    // provider on their own credential.
+    expect(stripCredentialQuery('?key=sk-caller')).toBe('')
+    expect(stripCredentialQuery('?api-key=sk-caller')).toBe('')
+    expect(stripCredentialQuery('?api_key=sk-caller')).toBe('')
+    expect(stripCredentialQuery('?access_token=sk-caller')).toBe('')
+  })
+
+  it('keeps the parameters that are not credentials', () => {
+    expect(stripCredentialQuery('?alt=sse&key=sk-caller')).toBe('?alt=sse')
+    expect(stripCredentialQuery('?key=sk-caller&alt=sse')).toBe('?alt=sse')
+  })
+
+  it('leaves a query with no credential byte-for-byte alone', () => {
+    // Rebuilding through URLSearchParams would re-encode ':' and '+', which an
+    // upstream may treat as a different value.
+    const q = '?model=ft:gpt-4o:acme&filter=a+b%3Ac'
+    expect(stripCredentialQuery(q)).toBe(q)
+    expect(stripCredentialQuery('')).toBe('')
+  })
+
+  it('matches the parameter name case-insensitively', () => {
+    expect(stripCredentialQuery('?KEY=sk-caller&alt=sse')).toBe('?alt=sse')
+  })
+})
+
+describe('upstreamHostHeader', () => {
+  it('omits the port when it is the scheme default', () => {
+    expect(upstreamHostHeader({ name: 'x', host: 'api.openai.com', auth: 'bearer' })).toBe('api.openai.com')
+    expect(upstreamHostHeader({ name: 'x', host: 'h', auth: 'bearer', port: 443 })).toBe('h')
+    expect(upstreamHostHeader({ name: 'x', host: 'h', auth: 'bearer', protocol: 'http', port: 80 })).toBe('h')
+  })
+
+  it('carries a non-default port', () => {
+    // The documented private-endpoint case: a self-hosted vLLM on :8000 behind
+    // anything that routes on Host sees the wrong virtual host without it.
+    expect(upstreamHostHeader({ name: 'x', host: 'vllm.svc.cluster.local', auth: 'bearer', protocol: 'http', port: 8000 }))
+      .toBe('vllm.svc.cluster.local:8000')
+  })
+
+  it('brackets an IPv6 literal', () => {
+    expect(upstreamHostHeader({ name: 'x', host: '::1', auth: 'bearer', protocol: 'http', port: 8000 })).toBe('[::1]:8000')
+    expect(upstreamHostHeader({ name: 'x', host: '[::1]', auth: 'bearer', protocol: 'http', port: 8000 })).toBe('[::1]:8000')
   })
 })

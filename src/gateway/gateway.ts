@@ -10,7 +10,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js';
 import { getParser } from '../detection/parsers.js';
 import { explainBlock, explainGate } from '../detection/explain.js';
 import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, type AuthPolicy } from '../auth.js';
-import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, type GatewayProvider, type GatewayRoute } from './routes.js';
+import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuery, upstreamHostHeader, type GatewayProvider, type GatewayRoute } from './routes.js';
 import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
 
@@ -397,7 +397,7 @@ export class GatewayServer {
       if (GatewayServer.STRIPPED_HEADERS.has(name) || value === undefined) continue;
       headers[name] = Array.isArray(value) ? value.join(', ') : value;
     }
-    headers['host'] = route.provider.host;
+    headers['host'] = upstreamHostHeader(route.provider);
     if (body.length) headers['content-length'] = String(body.length);
     // Drop the internal credential before it can leave the building. Only when
     // the gateway actually consumed this header itself: a client that
@@ -405,7 +405,17 @@ export class GatewayServer {
     // Authorization still needs that key forwarded in custody-off mode.
     if (authIsInternal) delete headers['authorization'];
 
-    const outbound = applyUpstreamAuth(headers, route, this.apiKeys[route.slug]);
+    const operatorKey = this.apiKeys[route.slug];
+    const outbound = applyUpstreamAuth(headers, route, operatorKey);
+
+    // Custody has to cover the URL as well as the headers. Google documents its
+    // credential as `?key=`, Azure OpenAI accepts `?api-key=`: a caller who put
+    // their own key there reached the provider on it, with the operator's key
+    // sitting unused in a header beside it. Only when the operator actually
+    // holds the key — with custody off, the client's own credential is exactly
+    // what should be forwarded, in the URL as in the header.
+    const rawQuery = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    const query = operatorKey ? stripCredentialQuery(rawQuery) : rawQuery;
 
     const transport = route.provider.protocol === 'http' ? http : https;
     const port = route.provider.port ?? (route.provider.protocol === 'http' ? 80 : 443);
@@ -416,7 +426,7 @@ export class GatewayServer {
           host: route.provider.host,
           port,
           method: req.method,
-          path: route.upstreamPath + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''),
+          path: route.upstreamPath + query,
           headers: outbound,
           timeout: this.config.proxy.upstreamTimeoutMs,
         },
