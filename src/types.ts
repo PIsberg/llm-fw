@@ -59,6 +59,18 @@ export interface DetectionConfig {
   /** Bound in ms on loading either ML stage's weights; the stage is disabled if exceeded. 0 waits indefinitely. */
   modelLoadTimeoutMs?: number;
   chunkTokenLimit: number;
+  /**
+   * Most chunks the embedding stage will encode for one piece of text.
+   *
+   * Chunking was uncapped, so cost scaled with the prompt: a 1 MB pasted
+   * document or RAG context took over seven minutes to scan. Above the cap the
+   * chunks are SAMPLED evenly across the whole text rather than truncated to
+   * the head, so a payload buried deep in a long document is still reachable,
+   * and the heuristic stage still reads every byte either way. 0 disables the
+   * cap and restores the old unbounded behaviour.
+   * Also LLM_FW_EMBEDDING_MAX_CHUNKS.
+   */
+  embeddingMaxChunks?: number;
   chunkSize: number;
   chunkOverlap: number;
   judgeEnabled: boolean;
@@ -503,6 +515,11 @@ export interface EmbeddingResult {
   similarity: number;
   nearest: string;
   chunkCount: number;
+  /**
+   * Chunks the text produced before sampling. Greater than chunkCount when the
+   * embeddingMaxChunks cap sampled instead of encoding every chunk.
+   */
+  chunksTotal?: number;
   // Nearest-BENIGN-anchor cosine for the most-injection-like chunk. The pipeline
   // blocks on the contrastive margin (similarity − benignSimilarity), not the raw
   // similarity: e5 scores every imperative command to the assistant high, so a

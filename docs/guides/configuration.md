@@ -34,8 +34,16 @@ All fields are optional — defaults are shown above. Full key reference below a
 ```bash
 LLM_FW_PROXY_PORT=9090
 LLM_FW_EMBEDDING_BLOCK_THRESHOLD=0.80
+LLM_FW_EMBEDDING_MAX_CHUNKS=24
 LLM_FW_JUDGE_ENABLED=true
 ```
+
+**Scan cost on long prompts.** `detection.embeddingMaxChunks` (default `24`)
+bounds how much of one piece of text the embedding stage encodes. Above it the
+text is sampled evenly rather than truncated, and the heuristic stage still
+reads every byte. Raising it costs latency roughly linearly; `0` removes the
+bound entirely, which is how a 1 MB prompt used to take 423 s. See
+[detection-stages.md](detection-stages.md#cost-on-long-prompts).
 
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
