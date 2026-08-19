@@ -86,6 +86,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   different backend for traffic that is otherwise correct. IPv6 literal hosts
   are bracketed before the port is appended.
 
+- **Scanning a long prompt no longer costs minutes.** The embedding stage
+  chunked without limit and encoded every chunk, so scan cost grew with the
+  prompt: measured end to end through a running gateway, 64 KB of prompt text
+  took 20.0 s, 256 KB took 92.1 s and 1 MB took 423.5 s. The request body cap
+  did not help, because a multi-megabyte body is usually a base64 image and
+  image bytes never reach that stage. Two bounds now keep it flat:
+  `detection.embeddingMaxChunks` (default 24, `LLM_FW_EMBEDDING_MAX_CHUNKS`,
+  0 to disable) samples evenly across the whole text above the cap rather than
+  truncating to the head, and the two order-scrambled candidates that
+  normalization emits for every input (`reversed-full`, `reversed-words`) are
+  no longer encoded. The same measurements after: 5.6 s, 6.6 s and 6.5 s.
+
+  No verdict moved. Precision stays 100% and recall 97.8% on the accuracy gate
+  with the same single miss, and the false-positive rate stays 8.45% on the
+  same twelve rows in the same categories at the same stages. A payload that
+  the embedding stage blocks on its own (cosine 0.934, margin 0.086) is already
+  not blocked by it once buried in a document of 512 bytes or more, capped or
+  uncapped, because the surrounding text dilutes the chunk it lands in; the
+  heuristic stage, which reads every byte, is what catches a buried injection
+  block, and it is unchanged. Ruleset 2026.08.11.
+
 - **A client that set `HTTP_PROXY` used to hang instead of being told why.** The
   proxy listener registers a `connect` handler and forwards CONNECT only, but it
   had no `request` handler at all, so a plain proxied `http://` request was

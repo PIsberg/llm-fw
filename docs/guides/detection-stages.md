@@ -100,6 +100,27 @@ Stage 2 leverages a local, high-performance multilingual ONNX embedding model (`
     *   **Warn (0.80 – 0.86)**: high-risk but non-definitive matches log a warn event and are forwarded, or evaluated by the Stage 3 judge if enabled.
 *   **Intent-Based**: Because embeddings model semantic meaning rather than literal strings, they naturally catch novel restructurings of jailbreaks and prompt injections — in any language.
 
+### Cost on long prompts
+
+Stage 2 is the expensive stage: every chunk of text costs one transformer forward pass, and a long prompt chunks into many. A pasted document, a RAG context or a long agent conversation is where that bites. It is not bounded by the request body cap, because a multi-megabyte body is usually a base64 image and image bytes never reach this stage as prompt text.
+
+Two bounds keep it flat, both introduced in ruleset 2026.08.11 and neither of which moved a verdict:
+
+*   **`detection.embeddingMaxChunks`** (default `24`, `LLM_FW_EMBEDDING_MAX_CHUNKS`, `0` disables). Above the cap the chunks are **sampled evenly across the whole text**, keeping the first and last, rather than truncated to the head. Truncating would make "bury the payload past the cap" a reliable bypass. Stage 1 is unaffected either way: it reads every byte of every candidate, at roughly a thirtieth of the cost per byte, and it is the stage that actually catches an injection block buried in a long document.
+*   **Order-scrambled candidates are not embedded.** Normalization emits `reversed-full` and `reversed-words` for every input with no gate. For ordinary text they are character- and word-order scrambles that the encoder was never trained on. Stage 1 still scores both, which is where a backwards-written injection is caught: reversing restores the literal text the regexes are written against.
+
+Measured end to end through a running gateway, one request at a time, judge and DLP off:
+
+| Prompt text | Before | After |
+|---|---|---|
+| 4 KB | 1.2 s | 0.8 s |
+| 16 KB | 4.7 s | 2.9 s |
+| 64 KB | 20.0 s | 5.6 s |
+| 256 KB | 92.1 s | 6.6 s |
+| 1024 KB | 423.5 s | 6.5 s |
+
+Detection was measured across the change and did not move: 100% precision and 97.8% recall on the accuracy gate with the same single miss, and 8.45% FPR on the same twelve rows. A payload that Stage 2 blocks on its own (cosine 0.934, margin 0.086) is already **not** blocked by Stage 2 once buried in a document of 512 bytes or more, capped or uncapped, because the surrounding text dilutes the chunk it lands in. The chunks the cap removes were not producing detections.
+
 ## Stage 3: Judge LLM (Ollama)
 
 The judge is an optional third detection stage that uses a local LLM to classify prompts that passed heuristics and embedding. It requires [Ollama](https://ollama.com) running locally.

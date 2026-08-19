@@ -247,6 +247,36 @@ export class EmbeddingChecker {
     return chunks
   }
 
+  /**
+   * Reduce a chunk list to at most `embeddingMaxChunks`, sampled evenly across
+   * the whole text.
+   *
+   * Chunking was uncapped and every chunk cost a transformer forward pass, so a
+   * long prompt scaled linearly and without limit: measured on a running
+   * gateway, a 1 MB pasted document or RAG context took 423 s to scan. The
+   * request body cap does not help, because a multi-megabyte body is usually a
+   * base64 image, which never reaches this stage.
+   *
+   * Sampled rather than truncated on purpose. Taking the first N chunks would
+   * make "bury the injection past 45 KB" a reliable bypass; an even stride
+   * across the document keeps every region reachable, and always keeps the
+   * first and last chunk because that is where an instruction override is most
+   * often placed. The heuristic stage is unaffected either way: it reads every
+   * byte of every candidate, at roughly a thirtieth of the cost per byte.
+   */
+  private sampleChunks(chunks: string[]): string[] {
+    const max = this.config.embeddingMaxChunks ?? 0
+    if (max <= 0 || chunks.length <= max) return chunks
+    if (max === 1) return [chunks[0]]
+
+    // Even stride over the closed interval, so index 0 and the final chunk are
+    // both always taken and the rest are spread between them.
+    const stride = (chunks.length - 1) / (max - 1)
+    const sampled: string[] = []
+    for (let i = 0; i < max; i++) sampled.push(chunks[Math.round(i * stride)])
+    return sampled
+  }
+
   async check(input: string): Promise<EmbeddingResult> {
     // Semantic normalization PRESERVES diacritics/script (see normalizeSemantic):
     // the multilingual encoder needs natural text. Note the pipeline already
@@ -274,7 +304,8 @@ export class EmbeddingChecker {
       return cached
     }
 
-    const chunks = this.chunk(norm)
+    const allChunks = this.chunk(norm)
+    const chunks = this.sampleChunks(allChunks)
     let maxSim = 0
     let nearestIdx = 0
     let benignAtMax = 0 // nearest-benign cosine for the chunk that maximised maxSim
@@ -310,6 +341,7 @@ export class EmbeddingChecker {
       benignSimilarity: benignAtMax,
       nearest: this.templateStrings[nearestIdx] ?? '',
       chunkCount: chunks.length,
+      ...(allChunks.length !== chunks.length ? { chunksTotal: allChunks.length } : {}),
     }
     this.cache.set(key, result)
     if (this.cache.size > CACHE_MAX_ENTRIES) {

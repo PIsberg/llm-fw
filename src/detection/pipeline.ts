@@ -7,6 +7,21 @@ import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
 import { InjectionClassifier } from './classifier.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
+
+/**
+ * Candidate sources the EMBEDDING stage skips.
+ *
+ * extractCandidates emits `reversed-full` and `reversed-words` for every input
+ * unconditionally, with no gate: for ordinary text they are character- and
+ * word-order scrambles, which the multilingual encoder was never trained on and
+ * which sit at no meaningful cosine to any anchor. Encoding them tripled the
+ * embedding cost of every request in the product and scaled with prompt length.
+ *
+ * The heuristic stage still scores both, and that is where a backwards-written
+ * injection is actually caught: reversing restores the literal text the regexes
+ * are written against.
+ */
+const SCRAMBLED_CANDIDATES = new Set(['reversed-full', 'reversed-words'])
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
@@ -626,7 +641,7 @@ export class Pipeline {
         // at ~0.87 to the injection anchors) from blocking, while keeping the
         // cross-lingual injections (margin ≥ +0.05) the embedding stage exists for.
         let eMargin = 0
-        if (this.embedding.isInitialized() && source !== 'tool_definition') {
+        if (this.embedding.isInitialized() && source !== 'tool_definition' && !SCRAMBLED_CANDIDATES.has(candidate.source)) {
           const e = await this.embedding.check(candidate.text)
           eSim = e.similarity
           // Suppress the contrastive subtraction when the text is talking
