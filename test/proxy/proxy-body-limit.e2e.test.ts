@@ -86,6 +86,64 @@ async function sendBody(
   })
 }
 
+/**
+ * Two requests over ONE tunnelled TLS connection, keep-alive.
+ *
+ * sendBody above sets `Connection: close` and so cannot see what happens to a
+ * connection the client intends to reuse, which is where the 413 teardown bug
+ * lived: destroying the request stream the moment the 413 was written killed
+ * the socket, and the client's NEXT request died with it.
+ */
+async function sendTwoOnOneConnection(
+  proxyPort: number,
+  targetHost: string,
+  caPem: string,
+  first: Buffer,
+  second: Buffer,
+): Promise<{ statusCodes: number[]; raw: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort }, () => {
+      socket.write(`CONNECT ${targetHost}:443 HTTP/1.1\r\nHost: ${targetHost}:443\r\n\r\n`)
+    })
+    let buffer = ''
+    socket.on('error', reject)
+    socket.on('data', function onConnect(chunk: Buffer) {
+      buffer += chunk.toString('binary')
+      if (buffer.indexOf('\r\n\r\n') === -1) return
+      socket.removeListener('data', onConnect)
+
+      const write = (body: Buffer) => tlsSocket.write(
+        `POST /v1/messages HTTP/1.1\r\nHost: ${targetHost}\r\n` +
+        `Content-Type: application/octet-stream\r\nContent-Length: ${body.length}\r\n\r\n`,
+      ) && tlsSocket.write(body)
+
+      let resData = ''
+      let sentSecond = false
+      let done = false
+      const statuses = () => [...resData.matchAll(/HTTP\/1\.[01] (\d{3})/g)].map(m => parseInt(m[1], 10))
+      const finish = () => {
+        if (done) return
+        done = true
+        resolve({ statusCodes: statuses(), raw: resData })
+      }
+
+      const tlsSocket = tls.connect({ socket, servername: targetHost, ca: [caPem] }, () => write(first))
+      tlsSocket.on('data', (d) => {
+        resData += d.toString('binary')
+        // As soon as the first response has fully arrived, reuse the connection.
+        if (!sentSecond && statuses().length >= 1 && /\r\n\r\n/.test(resData)) {
+          sentSecond = true
+          setTimeout(() => { if (!tlsSocket.destroyed) write(second) }, 50)
+          setTimeout(finish, 1500)
+        }
+      })
+      tlsSocket.on('end', finish)
+      tlsSocket.on('close', finish)
+      tlsSocket.on('error', () => finish())
+    })
+  })
+}
+
 describe('Proxy body-size limit (E2E)', { timeout: 20000 }, () => {
   let tempDir: string
   let caPem: string
@@ -142,5 +200,22 @@ describe('Proxy body-size limit (E2E)', { timeout: 20000 }, () => {
 
     expect(res.statusCode).toBe(200)
     expect(forwardCount).toBe(before + 1)
+  })
+  it('a refused oversized body does not kill the next request on the same tunnel', async () => {
+    // Before the fix the proxy destroyed the request stream the instant the 413
+    // was written: the client's pooled connection went with it, so the next,
+    // unrelated request through the same tunnel got nothing back at all.
+    const { statusCodes, raw } = await sendTwoOnOneConnection(
+      18097, 'api.anthropic.com', caPem,
+      Buffer.alloc(4096, 0x61),   // over the 1024-byte cap
+      Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] })),
+    )
+    expect(statusCodes[0]).toBe(413)
+    // The refusal announces that the connection is finished. That is the whole
+    // difference: a keep-alive client reads this and opens a new connection
+    // instead of pooling a socket the server is about to destroy under it.
+    expect(raw.toLowerCase()).toContain('connection: close')
+    // And the refusal arrived whole rather than being cut off mid-flush.
+    expect(raw).toContain('request body too large')
   })
 })

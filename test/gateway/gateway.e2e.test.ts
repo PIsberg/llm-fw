@@ -28,13 +28,15 @@ async function request(opts: {
   headers?: Record<string, string>
   body?: unknown
   method?: string
-}): Promise<{ status: number; body: string; json: Record<string, unknown> | null }> {
+  agent?: http.Agent
+}): Promise<{ status: number; body: string; json: Record<string, unknown> | null; headers?: http.IncomingHttpHeaders }> {
   const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body)
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         host: '127.0.0.1',
         port: GATEWAY_PORT,
+        ...(opts.agent ? { agent: opts.agent } : {}),
         method: opts.method ?? (payload ? 'POST' : 'GET'),
         path: opts.path,
         headers: {
@@ -49,7 +51,7 @@ async function request(opts: {
         res.on('end', () => {
           let json: Record<string, unknown> | null = null
           try { json = JSON.parse(body) as Record<string, unknown> } catch { /* not JSON */ }
-          resolve({ status: res.statusCode ?? 0, body, json })
+          resolve({ status: res.statusCode ?? 0, body, json, headers: res.headers })
         })
       },
     )
@@ -116,6 +118,15 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
             protocol: 'http',
             auth: 'x-api-key',
             apiKey: 'operator-secret-key',
+          },
+          // Points at a port nothing listens on, so the upstream-failure path
+          // can be exercised without leaving the host.
+          deadprovider: {
+            name: 'Dead',
+            host: '127.0.0.1',
+            port: 1,
+            protocol: 'http',
+            auth: 'bearer',
           },
           // The same upstream with NO operator key, so custody-off passthrough
           // (and what must NOT pass through) can be exercised.
@@ -346,6 +357,48 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     calls = []
     await request({ path: '/testprovider/v1/messages?model=ft:gpt-4o:acme&stream=true', body: benign, headers: authed })
     expect(calls[0]!.path).toBe('/v1/messages?model=ft:gpt-4o:acme&stream=true')
+  })
+
+  it('refuses a body over the cap and does not forward it', async () => {
+    // The 413 and its limit are documented in guides/client-setup.md; nothing
+    // pinned that the oversized body stops here rather than reaching the
+    // provider on the operator's key.
+    calls = []
+    const oversized = { model: 'test', messages: [{ role: 'user', content: 'a'.repeat(DEFAULT_CONFIG.proxy.maxBodyBytes + 1024) }] }
+    const res = await request({ path: '/v1/chat/completions', body: oversized, headers: authed })
+    expect(res.status).toBe(413)
+    expect(res.json?.limit_bytes).toBe(DEFAULT_CONFIG.proxy.maxBodyBytes)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('a refused oversized body does not break the next request on the same connection', async () => {
+    // The 413 used to destroy the request socket the instant it was written,
+    // which on a keep-alive client left a dead socket in the pool: the next,
+    // unrelated request failed with ECONNRESET instead of being served.
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 })
+    try {
+      const oversized = { model: 'test', messages: [{ role: 'user', content: 'a'.repeat(DEFAULT_CONFIG.proxy.maxBodyBytes + 1024) }] }
+      const refused = await request({ path: '/v1/chat/completions', body: oversized, headers: authed, agent })
+      expect(refused.status).toBe(413)
+      // The client is told the connection is finished, so it does not pool it.
+      expect(refused.headers?.connection).toBe('close')
+
+      calls = []
+      const next = await request({ path: '/v1/chat/completions', body: benign, headers: authed, agent })
+      expect(next.status).toBe(200)
+      expect(calls).toHaveLength(1)
+    } finally {
+      agent.destroy()
+    }
+  })
+
+  it('answers 502 when the upstream cannot be reached', async () => {
+    // Not a 200 with an empty body, and not a hang: a client has to be able to
+    // tell "the provider is down" from "the firewall refused you".
+    const res = await request({ path: '/deadprovider/v1/messages', body: benign, headers: authed })
+    expect(res.status).toBe(502)
+    expect(res.json?.error).toBe('upstream request failed')
+    expect(res.json?.upstream).toBe('127.0.0.1')
   })
 
   it('404s an unroutable path instead of guessing an upstream', async () => {

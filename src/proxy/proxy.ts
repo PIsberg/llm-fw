@@ -602,9 +602,17 @@ export class ProxyServer {
         totalBytes += chunk.length
         if (maxBodyBytes > 0 && totalBytes > maxBodyBytes) {
           blocked = true
+          // Announce the close, answer, and only then tear down. Destroying the
+          // request stream the instant the 413 was written could cut the answer
+          // off before it flushed, and on a keep-alive client it poisoned the
+          // pooled connection: the NEXT, unrelated request through the same
+          // tunnel failed with ECONNRESET instead of being served. The gateway
+          // had the identical bug; see readBody in src/gateway/gateway.ts.
+          innerRes.setHeader('Connection', 'close')
           innerRes.writeHead(413, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'request body too large', limit: maxBodyBytes }))
-          innerReq.destroy()
+          innerReq.pause()
+          innerRes.on('finish', () => innerReq.destroy())
           return
         }
 
