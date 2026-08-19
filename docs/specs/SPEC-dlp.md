@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Data Loss Prevention & Secret Redaction
+
 # Specification: Data Loss Prevention & Secret Redaction (SPEC-dlp.md)
 
 This specification describes how `llm-fw` can be extended to inspect inbound prompts for sensitive local data (PII, API keys, credentials) before they are forwarded to upstream LLM APIs, mitigating accidental data exposure.

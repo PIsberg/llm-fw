@@ -38,6 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The configuration guide now contains the key reference it promised.** It
+  said "the full key reference" and listed four environment variables while
+  `ENV_OVERRIDES` held 81. All 81 are now documented with the config key each
+  writes and its default, generated from the code by `npm run config:reference`
+  and pinned by `test/config/config-reference.test.ts`, so adding a variable
+  without documenting it fails the build. A table that size maintained by hand
+  is a table that is wrong within a release.
+
+- **Every document under `docs/` carries the same breadcrumb.** Only the guides
+  had one; the 33 documents at the root and under `specs/` and `plans/` did not,
+  so there was no way back to the index from any of them. The index sections
+  were also split so the trail and the index agree on where a document lives,
+  and the measurement table now names the command that reproduces each set of
+  numbers.
+
 - **README split from 1761 lines to 505.** It keeps the pitch, screenshots,
   install, quick start, deployment-mode overview, comparison, scorecard and
   licence. Every per-defense reference section moved into a guide under
@@ -59,6 +74,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describes where a new document goes and points at the link check.
 
 ### Fixed
+
+- **A refused oversized body no longer breaks the client's next request.** Both
+  the gateway and the forward proxy wrote the `413` and then destroyed the
+  request stream in the same tick. On a keep-alive client that left a dead
+  socket in the connection pool, so the next, unrelated request failed with
+  `ECONNRESET` instead of being served, and the refusal itself could be cut off
+  before it flushed. Both now send `Connection: close` with the `413` and tear
+  the connection down after the response has been written.
+
+- **The gateway honours `detection.failMode` under test, not just in intent.**
+  The behaviour was implemented and commented but had no coverage, so nothing
+  stopped a refactor from letting a pipeline throw fall through to the blanket
+  `502` and quietly ignore an availability decision the Helm chart documents.
+  `test/gateway/gateway-failmode.e2e.test.ts` now pins both modes, and the
+  gateway suite also pins the body cap and the upstream-failure `502`.
 
 - **Gateway key custody no longer stops at the headers.** The gateway replaced
   every credential *header* when the operator held the provider key, but

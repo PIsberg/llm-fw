@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Measurements > Detection Scorecard
+
 # Detection Scorecard
 
 Deterministic full sweep over the labelled corpus (110 attacks, 78 benign prompts incl. security-themed hard negatives) through the real proxy.

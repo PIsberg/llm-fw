@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Measurements > Generalization Benchmark
+
 # Generalization Benchmark
 
 The [Detection Scorecard](SCORECARD.md) reports 100% recall / 0% FPR — but that

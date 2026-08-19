@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Measurements > Load Testing — Performance & Accuracy Validation
+
 # Load Testing — Performance & Accuracy Validation
 
 This document covers the full load-testing infrastructure for `llm-fw`: why it exists, how it works under the hood, how to run it, how to interpret the results, and how to extend it.
