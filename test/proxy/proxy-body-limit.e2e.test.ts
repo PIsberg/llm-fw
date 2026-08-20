@@ -211,11 +211,10 @@ describe('Proxy body-size limit (E2E)', { timeout: 20000 }, () => {
       Buffer.from(JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] })),
     )
     expect(statusCodes[0]).toBe(413)
-    // The refusal announces that the connection is finished. That is the whole
-    // difference: a keep-alive client reads this and opens a new connection
-    // instead of pooling a socket the server is about to destroy under it.
-    expect(raw.toLowerCase()).toContain('connection: close')
-    // And the refusal arrived whole rather than being cut off mid-flush.
+    // The refusal arrives whole, on a connection that is still usable. Ending
+    // the socket early is what reset a client that was still uploading, so it
+    // never read this at all.
     expect(raw).toContain('request body too large')
+    expect(raw.toLowerCase()).not.toContain('connection: close')
   })
 })

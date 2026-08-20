@@ -248,9 +248,15 @@ export class GatewayServer {
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
       let size = 0;
+      // Latch. Draining means more 'data' events arrive AFTER the refusal, and
+      // without this every one of them re-entered the branch below and called
+      // setHeader on a response already sent, which throws.
+      let refused = false;
       req.on('data', (chunk: Buffer) => {
+        if (refused) return;
         size += chunk.length;
         if (size > cap) {
+          refused = true;
           // Announce the close, answer, and only then tear down. Destroying the
           // request socket the instant the 413 was written could cut the answer
           // off before it flushed, and on a keep-alive client it poisoned the
@@ -258,10 +264,26 @@ export class GatewayServer {
           // with ECONNRESET instead of being served. `Connection: close` tells
           // the client not to reuse it, and pausing stops us reading the rest of
           // the upload without killing the response in flight.
-          res.setHeader('Connection', 'close');
           this.json(res, 413, { error: 'request body too large', limit_bytes: cap });
-          req.pause();
-          res.on('finish', () => req.destroy());
+          // Drain the rest and keep the connection. Two earlier attempts failed
+          // for the same underlying reason: the client is still uploading when
+          // we refuse, so anything that ends the socket early resets it before
+          // it can read the answer, and it sees a transport error instead of
+          // the 413 this is documented to return. Pausing and destroying did
+          // that; so did `Connection: close`, because Node closes the socket
+          // once the response is written no matter how patiently we drain.
+          //
+          // So: read and discard, and let the connection live. The client
+          // finishes its write, reads the status, and the socket stays usable.
+          // Nothing is buffered, so the memory bound the cap exists for is
+          // intact, and the timer bounds the other half of that same DoS: an
+          // upload that never ends.
+          req.resume();
+          const cutoff = setTimeout(() => req.destroy(), GatewayServer.DRAIN_TIMEOUT_MS);
+          cutoff.unref();
+          const stopDraining = (): void => { clearTimeout(cutoff); };
+          req.once('end', stopDraining);
+          req.once('error', stopDraining);
           resolve(null);
           return;
         }
@@ -402,6 +424,12 @@ export class GatewayServer {
     const host = d.bindHost && d.bindHost !== '0.0.0.0' ? d.bindHost : '127.0.0.1';
     return `http://${host}:${d.port}`;
   }
+
+  /**
+   * How long to keep discarding a body we have already refused, so the
+   * client can finish writing and read the 413 rather than being reset.
+   */
+  private static readonly DRAIN_TIMEOUT_MS = 10_000;
 
   /** Hop-by-hop headers, plus the ones we recompute for the upstream call. */
   private static readonly STRIPPED_HEADERS = new Set([

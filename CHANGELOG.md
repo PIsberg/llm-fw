@@ -133,6 +133,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A refused oversized body now actually delivers its `413`.** The cap is
+  documented as returning `413`, and on Linux a client often never saw it: it was
+  still uploading when the refusal arrived, and the server ended the socket, so
+  the client got a transport error instead of a status. Two earlier attempts
+  failed for the same underlying reason. Pausing the request and destroying it
+  reset the client mid-write; `Connection: close` did the same, because Node
+  closes the socket once the response is written no matter how patiently the
+  body is drained. The rest of the body is now read and discarded on a
+  connection that stays usable, so the client finishes its write and reads the
+  status. Nothing is buffered, so the memory bound the cap exists for is intact,
+  and a 10 s ceiling bounds the other half of that DoS: an upload that never
+  ends.
+
 - **Teardown and diagnostics no longer abandon their remaining work on the
   first failure.** `shutdown()` closed the detection pipeline, the gateway, the
   audit webhook and the audit log with `Promise.all`, so a pipeline that failed

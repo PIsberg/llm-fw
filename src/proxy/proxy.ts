@@ -142,6 +142,12 @@ export function sanitizeHeaders(headers: http.IncomingHttpHeaders): Record<strin
   return out
 }
 
+/**
+ * How long to keep discarding a request body already refused with a 413, so
+ * the client can finish writing and read the answer rather than being reset.
+ */
+const BODY_DRAIN_TIMEOUT_MS = 10_000
+
 export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
@@ -611,11 +617,20 @@ export class ProxyServer {
           // pooled connection: the NEXT, unrelated request through the same
           // tunnel failed with ECONNRESET instead of being served. The gateway
           // had the identical bug; see readBody in src/gateway/gateway.ts.
-          innerRes.setHeader('Connection', 'close')
           innerRes.writeHead(413, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'request body too large', limit: maxBodyBytes }))
-          innerReq.pause()
-          innerRes.on('finish', () => innerReq.destroy())
+          // Drain the rest and keep the connection: the client is still
+          // uploading, so anything that ends the socket early resets it before
+          // it can read the answer. `Connection: close` had the same effect as
+          // destroying, because Node closes once the response is written. See
+          // readBody in src/gateway/gateway.ts. Nothing is buffered, so the
+          // memory bound holds; the timer bounds an upload that never ends.
+          innerReq.resume()
+          const drainCutoff = setTimeout(() => innerReq.destroy(), BODY_DRAIN_TIMEOUT_MS)
+          drainCutoff.unref()
+          const stopDraining = (): void => { clearTimeout(drainCutoff) }
+          innerReq.once('end', stopDraining)
+          innerReq.once('error', stopDraining)
           return
         }
 
