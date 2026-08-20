@@ -28,13 +28,13 @@ export interface GatewayProvider {
   host: string;
   auth: UpstreamAuthStyle;
   /** Upstream port. Defaults to 443 (or 80 when protocol is http). */
-  port?: number;
+  port?: number | undefined;
   /**
    * Upstream scheme. 'https' for every public provider. 'http' exists for
    * in-cluster endpoints — a self-hosted vLLM or Ollama reached over a private
    * network where TLS is terminated elsewhere.
    */
-  protocol?: 'https' | 'http';
+  protocol?: 'https' | 'http' | undefined;
 }
 
 /**

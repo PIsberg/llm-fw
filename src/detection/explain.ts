@@ -24,10 +24,10 @@ export interface BlockExplanation {
   /** Which class of check: prompt injection, DLP, quota, and so on. */
   kind: string;
   ruleset: string;
-  score?: number;
-  similarity?: number;
+  score?: number | undefined;
+  similarity?: number | undefined;
   /** Rule identifiers or matched phrases, capped. */
-  matched?: string[];
+  matched?: string[] | undefined;
   /** What the operator should do if this is a false positive. */
   remediation: string;
   docs: string;
@@ -64,9 +64,9 @@ function trimMatches(matches: string[] | undefined): string[] | undefined {
 export function explainBlock(opts: {
   eventId: string;
   result: PipelineResult;
-  kind?: string;
+  kind?: string | undefined;
   /** Base URL of this deployment's dashboard, so the hint is clickable. */
-  dashboardUrl?: string;
+  dashboardUrl?: string | undefined;
 }): BlockExplanation {
   const { eventId, result } = opts;
   return {
@@ -92,9 +92,9 @@ export function explainGate(opts: {
   error: string;
   stage: string;
   kind: string;
-  detail?: string;
-  remediation?: string;
-  dashboardUrl?: string;
+  detail?: string | undefined;
+  remediation?: string | undefined;
+  dashboardUrl?: string | undefined;
 }): BlockExplanation {
   return {
     error: opts.error,

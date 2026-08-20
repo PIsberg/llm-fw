@@ -47,9 +47,9 @@ export interface LicenseStatus {
   state: LicenseState
   /** Where the licence came from, for `llm-fw doctor` to name. */
   source?: 'env' | 'file' | 'offline-env' | 'offline-file'
-  holder?: string
-  plan?: string
-  expiry?: string
+  holder?: string | undefined
+  plan?: string | undefined
+  expiry?: string | undefined
   details?: KeyDetails
   offlineDetails?: OfflineLicenseDetails
 }
