@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A `dependencies` skill, and Dependabot pull requests that arrive grouped.**
+  Eight separate bump pull requests were opened on 2026-08-11 and all eight were
+  closed in the same second, unread. Dependabot now proposes weekly rather than
+  daily and groups github-actions bumps into one pull request and dev-tooling
+  patch/minor into another. What stays ungrouped is deliberate: the three
+  runtime dependencies and every major get their own pull request, because
+  `@huggingface/transformers` produces every embedding this firewall makes and a
+  bump there can move cosine similarities, change verdicts and require a
+  `RULESET_VERSION` cut. The new skill in `.claude/skills/dependencies/` carries
+  that distinction, the re-measurement steps for a bump that can move detection,
+  and the reminder that an unchanged false-positive *rate* with a changed set of
+  blocked rows is a moved verdict wearing the same number.
+
 - **Two deployment guides written from the code rather than from the README.**
   [docs/guides/deployment-server.md](docs/guides/deployment-server.md) covers
   running one firewall for many clients end to end: choosing a mode, pinning
