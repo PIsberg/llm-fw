@@ -10,6 +10,7 @@
     // them, so they are pure ratchet: they can only catch something new.
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "declaration": true,

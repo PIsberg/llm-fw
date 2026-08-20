@@ -38,7 +38,7 @@ export class GatewayServer {
   private pipeline: Pipeline;
   private dlp: DlpScanner;
   private eventBus: EventBus;
-  private metrics?: MetricsRegistry;
+  private metrics?: MetricsRegistry | undefined;
   private config: Config;
   private authPolicy: AuthPolicy;
   private providers: Record<string, GatewayProvider>;

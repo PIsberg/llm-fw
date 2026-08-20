@@ -25,7 +25,7 @@ export type CheckLevel = 'ok' | 'fail' | 'warn' | 'info'
 export interface CheckResult {
   level: CheckLevel
   title: string
-  detail?: string
+  detail?: string | undefined
   /** Commands / instructions to remediate, shown indented under the check. */
   fix?: string[]
 }

@@ -288,7 +288,7 @@ export interface NonTextConfig {
 // it like any prompt); blocks without `text` are opaque to local inspection.
 export interface MediaBlock {
   kind: 'image' | 'document' | 'audio' | 'video' | 'file';
-  mimeType?: string;
+  mimeType?: string | undefined;
   sizeBytes?: number;
   text?: string;
   // Raw base64 payload, retained ONLY for opaque raster images so the optional
@@ -560,35 +560,35 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'memory-poisoning' | 'error';
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'memory-poisoning' | 'error' | undefined;
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
-  mediaSummary?: string;
-  urlBlockReason?: string;
+  mediaSummary?: string | undefined;
+  urlBlockReason?: string | undefined;
   // Exfil URL found in the model's response by the response-side scanner.
-  exfilUrl?: string;
+  exfilUrl?: string | undefined;
   // Invisible-character channels found by the ASCII-smuggling detector
   // (e.g. ['unicode-tags']), shown in the event detail.
-  smuggleRanges?: string[];
-  dlpType?: string;
-  dosReason?: string;
-  ragTag?: string;
-  mcpTool?: string;
-  mcpRule?: string;
-  heuristicMatches?: string[];
-  nearestTemplate?: string;
-  verdict?: string;
-  sandboxClient?: string;
-  isSandboxed?: boolean;
-  sandboxConfidence?: number;
+  smuggleRanges?: string[] | undefined;
+  dlpType?: string | undefined;
+  dosReason?: string | undefined;
+  ragTag?: string | undefined;
+  mcpTool?: string | undefined;
+  mcpRule?: string | undefined;
+  heuristicMatches?: string[] | undefined;
+  nearestTemplate?: string | undefined;
+  verdict?: string | undefined;
+  sandboxClient?: string | undefined;
+  isSandboxed?: boolean | undefined;
+  sandboxConfidence?: number | undefined;
   // False when the firewall recorded this decision without acting on it
   // (enforcement: 'observe'). Absent means enforced, so existing records and
   // every enforcing deployment read exactly as before. This is what lets an
   // operator count "requests we would have blocked" without having to infer it
   // from the deployment's configuration at the time.
-  enforced?: boolean;
+  enforced?: boolean | undefined;
   // Which tenant's traffic this was, when the gateway resolved one. Absent for
   // the forward proxy and for single-token gateway deployments.
-  tenant?: string;
+  tenant?: string | undefined;
 }
 
 // An event an operator marked as a false positive, persisted to
@@ -599,7 +599,7 @@ export interface WhitelistEntry {
   stage: string;
   target: string;
   whitelistedAt: string;
-  reason?: string;
+  reason?: string | undefined;
 }
 
 /** One ordered turn of a conversation, for multi-turn (crescendo) analysis. */
