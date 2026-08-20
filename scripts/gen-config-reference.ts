@@ -68,6 +68,17 @@ function defaultFor(dotted: string): string {
   return '`' + String(cursor) + '`';
 }
 
+/**
+ * Compare and render on LF regardless of what is on disk.
+ *
+ * git checks this file out with CRLF on Windows while the generator emits LF,
+ * so a byte comparison failed for every Windows contributor and passed on CI.
+ * A gate that only fires on other people's machines is worse than no gate.
+ */
+export function normalizeEol(text: string): string {
+  return text.replace(/\r\n/g, '\n');
+}
+
 export function renderTable(source: string): string {
   const rows = parseEnvOverrides(source)
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -91,9 +102,13 @@ function main(): void {
     process.exitCode = 1;
     return;
   }
-  const next = doc.slice(0, from + START.length) + '\n\n' + renderTable(source) + '\n\n' + doc.slice(to);
+  const usesCrlf = doc.includes('\r\n');
+  const region = '\n\n' + renderTable(source) + '\n\n';
+  // Match the file's existing convention so regenerating never rewrites
+  // every line ending as a side effect.
+  const next = doc.slice(0, from + START.length) + (usesCrlf ? region.replace(/\n/g, '\r\n') : region) + doc.slice(to);
   if (process.argv.includes('--check')) {
-    if (next !== doc) {
+    if (normalizeEol(next) !== normalizeEol(doc)) {
       console.error('docs/guides/configuration.md is stale. Run: npm run config:reference');
       process.exitCode = 1;
       return;
