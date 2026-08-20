@@ -212,7 +212,7 @@ export class CrescendoSessionMemory {
     }
     if (this.sessions.size > MAX_SESSIONS) {
       const ordered = Array.from(this.sessions.entries()).sort((a, b) => a[1].lastSeen - b[1].lastSeen)
-      for (let i = 0; i < ordered.length - MAX_SESSIONS; i++) this.sessions.delete(ordered[i][0])
+      for (const [key] of ordered.slice(0, ordered.length - MAX_SESSIONS)) this.sessions.delete(key)
     }
   }
 }

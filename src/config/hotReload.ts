@@ -53,7 +53,10 @@ function setPath(obj: object, path: Path, value: unknown): void {
   let cur = obj as Record<string, unknown>
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i]
-    if (UNSAFE_KEYS.has(key)) return
+    // A path element cannot be undefined for i < path.length. Refusing anyway
+    // keeps the posture of the line below: when we do not know which key to
+    // walk, we do not walk one.
+    if (key === undefined || UNSAFE_KEYS.has(key)) return
     const next = cur[key]
     // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop -- keys are the static HOT_PATHS allowlist and __proto__/constructor/prototype are rejected above; creates missing intermediate config objects only.
     if (next === null || typeof next !== 'object') cur[key] = {}
@@ -61,7 +64,7 @@ function setPath(obj: object, path: Path, value: unknown): void {
     cur = cur[key] as Record<string, unknown>
   }
   const last = path[path.length - 1]
-  if (UNSAFE_KEYS.has(last)) return
+  if (last === undefined || UNSAFE_KEYS.has(last)) return
   cur[last] = value
 }
 

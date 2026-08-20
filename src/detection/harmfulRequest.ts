@@ -196,7 +196,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   const obj = HARM_OBJECT_RE.exec(text)
   if (obj) {
     if (hasHowto || HARM_ACTION_RE.test(text) || hasProduce) {
-      return { kind: 'operational', anchor: obj[1].toLowerCase(), snippet: snippetAround(text, obj.index, obj[1].length) }
+      return { kind: 'operational', anchor: (obj[1] ?? '').toLowerCase(), snippet: snippetAround(text, obj.index, (obj[1] ?? '').length) }
     }
   }
 
@@ -211,7 +211,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, intr.index - 70), Math.min(text.length, intr.index + 70))
       if (/\b(into|someone'?s?|a\s+(?:government|bank|corporate|private|secure)|(?:an?|the|our|their|your|my|someone'?s?|government|bank|hospital|corporate|private|secure|criminal|voting|monitoring)\s+(?:\w+\s+)?(?:database|system|network|account|server|records?|files?)|identit\w+|accounts?|credentials?|passwords?|security\s+measures?|sensitive\s+(?:information|data)|money|funds|shipment\w*|cargo\w*|deliver\w*|goods|packages?|stores?|shops?|supermarket\w*|documents?|papers?|passports?|visas?|immigration|electronic\s+health\s+records?|medical\s+records?|health\s+records?|loophole\w*|regulatory\s+loophole\w*)\b/i.test(window)) {
-        return { kind: 'operational', anchor: intr[1].toLowerCase(), snippet: snippetAround(text, intr.index, intr[1].length) }
+        return { kind: 'operational', anchor: (intr[1] ?? '').toLowerCase(), snippet: snippetAround(text, intr.index, (intr[1] ?? '').length) }
       }
     }
   }
@@ -229,7 +229,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, viol.index - 80), Math.min(text.length, viol.index + 80))
       if (/\b(person|people|someone|some\s?one|others?|victim|colleague|individual|baby|infant|toddler|man|woman|human|humans|child(?!\s+(?:process|node|element|class|component)\b)|children|girl|boy|guy|lady|gentleman|gentlemen|adult|senior|elder|grandmother|grandfather|parent|mother|father|brother|sister|wife|husband|spouse|friend|colleague)\b/i.test(window)) {
-        return { kind: 'operational', anchor: viol[1].toLowerCase(), snippet: snippetAround(text, viol.index, viol[1].length) }
+        return { kind: 'operational', anchor: (viol[1] ?? '').toLowerCase(), snippet: snippetAround(text, viol.index, (viol[1] ?? '').length) }
       }
     }
   }
@@ -242,7 +242,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, cheat.index - 80), Math.min(text.length, cheat.index + 80))
       if (/\b(exam\w*|tests?|grades?|documents?|records?|smog|emission\w*|officials?|authorit\w+|identity|passwords?|credentials?|income|tax\w*|audit\w*|plagiarism\s+detection|plagiarism|copyright\w*|pirac\w*|pirat\w*)\b/i.test(window)) {
-        return { kind: 'operational', anchor: cheat[1].toLowerCase(), snippet: snippetAround(text, cheat.index, cheat[1].length) }
+        return { kind: 'operational', anchor: (cheat[1] ?? '').toLowerCase(), snippet: snippetAround(text, cheat.index, (cheat[1] ?? '').length) }
       }
     }
   }
@@ -253,19 +253,19 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   if (hasProduce || hasHowto) {
     const gr = GRAPHIC_RE.exec(text)
     if (gr && VIOLENCE_NOUN_RE.test(text)) {
-      return { kind: 'operational', anchor: gr[1].toLowerCase(), snippet: snippetAround(text, gr.index, gr[1].length) }
+      return { kind: 'operational', anchor: (gr[1] ?? '').toLowerCase(), snippet: snippetAround(text, gr.index, (gr[1] ?? '').length) }
     }
   }
 
   // Rule 2 — hateful / harmful-intent content production.
   const qual = HATEFUL_QUALIFIER_RE.exec(text)
   if (qual && (hasProduce || hasHowto)) {
-    return { kind: 'hateful', anchor: qual[1].toLowerCase(), snippet: snippetAround(text, qual.index, qual[1].length) }
+    return { kind: 'hateful', anchor: (qual[1] ?? '').toLowerCase(), snippet: snippetAround(text, qual.index, (qual[1] ?? '').length) }
   }
   // Incite-topic only with explicit incitement framing.
   const topic = INCITE_TOPIC_RE.exec(text)
   if (topic && (hasProduce || hasHowto) && INCITE_FRAME_RE.test(text)) {
-    return { kind: 'hateful', anchor: topic[1].toLowerCase(), snippet: snippetAround(text, topic.index, topic[1].length) }
+    return { kind: 'hateful', anchor: (topic[1] ?? '').toLowerCase(), snippet: snippetAround(text, topic.index, (topic[1] ?? '').length) }
   }
 
   // Rule 2b — Hate speech targeting protected classes with offensive adjectives.
@@ -277,7 +277,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     while ((off = OFFENSIVE_RE.exec(text)) !== null) {
       const window = text.slice(Math.max(0, off.index - 80), Math.min(text.length, off.index + 80))
       if (PROTECTED_RE.test(window)) {
-        return { kind: 'hateful', anchor: off[1].toLowerCase(), snippet: snippetAround(text, off.index, off[1].length) }
+        return { kind: 'hateful', anchor: (off[1] ?? '').toLowerCase(), snippet: snippetAround(text, off.index, (off[1] ?? '').length) }
       }
     }
   }

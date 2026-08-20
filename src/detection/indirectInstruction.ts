@@ -519,8 +519,10 @@ function mlIndices(haystack: string, needle: string): number[] {
     if (noBoundary) {
       out.push(i)
     } else {
-      const before = i > 0 ? haystack[i - 1] : ''
-      const after = i + needle.length < haystack.length ? haystack[i + needle.length] : ''
+      // Both indices are inside the ternary guards above; `?? ''` restates
+      // that for the compiler and can never fire.
+      const before = i > 0 ? haystack[i - 1] ?? '' : ''
+      const after = i + needle.length < haystack.length ? haystack[i + needle.length] ?? '' : ''
       if (!ML_LETTER_RE.test(before) && !ML_LETTER_RE.test(after)) out.push(i)
     }
     i = haystack.indexOf(needle, i + 1)

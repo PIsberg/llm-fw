@@ -75,7 +75,9 @@ export function extractTaintTokens(text: string): TaintFinding[] {
     if (host && host.includes('.')) found.set(host, 'host')
   }
   for (const m of lower.matchAll(BARE_DOMAIN_RE)) {
+    // Group 1 is not optional in BARE_DOMAIN_RE, so a match always has it.
     const domain = m[1]
+    if (!domain) continue
     const tld = domain.slice(domain.lastIndexOf('.') + 1)
     if (!FILE_EXT_TLDS.has(tld)) found.set(domain, 'host')
   }
@@ -171,8 +173,10 @@ export class TaintTracker {
     // Cap size — drop the oldest tokens first.
     if (session.tokens.size > MAX_TOKENS_PER_SESSION) {
       const ordered = Array.from(session.tokens.entries()).sort((a, b) => a[1].ts - b[1].ts)
-      for (let i = 0; i < ordered.length - MAX_TOKENS_PER_SESSION; i++) {
-        session.tokens.delete(ordered[i][0])
+      // slice carries the bound with the values, so the entries need no
+      // per-iteration guard the loop condition already gives them.
+      for (const [token] of ordered.slice(0, ordered.length - MAX_TOKENS_PER_SESSION)) {
+        session.tokens.delete(token)
       }
     }
   }
@@ -185,8 +189,8 @@ export class TaintTracker {
     }
     if (this.sessions.size > MAX_SESSIONS) {
       const ordered = Array.from(this.sessions.entries()).sort((a, b) => a[1].lastSeen - b[1].lastSeen)
-      for (let i = 0; i < ordered.length - MAX_SESSIONS; i++) {
-        this.sessions.delete(ordered[i][0])
+      for (const [key] of ordered.slice(0, ordered.length - MAX_SESSIONS)) {
+        this.sessions.delete(key)
       }
     }
   }

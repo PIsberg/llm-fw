@@ -11,7 +11,7 @@ import { loadConfig } from '../config/config.js'
 // strongly multilingual — the judge is the only language-general detection stage,
 // so a foreign-language jailbreak is only caught if the judge model speaks it.
 // phi3/mistral remain for English-only setups that want a smaller footprint.
-const RECOMMENDED = ['qwen2.5:3b', 'qwen2.5', 'llama3.2', 'phi3', 'mistral']
+const RECOMMENDED = ['qwen2.5:3b', 'qwen2.5', 'llama3.2', 'phi3', 'mistral'] as const
 
 function step(n: number, msg: string) { console.log(`\n[${n}] ${msg}`) }
 function ok(msg: string)   { console.log(`    ✓ ${msg}`) }

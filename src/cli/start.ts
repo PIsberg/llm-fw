@@ -97,8 +97,11 @@ function killPortOwner(port: number): void {
       for (const line of out.split('\n')) {
         if (!line.includes('LISTENING')) continue;
         const m = line.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
-        if (m && parseInt(m[1], 10) === port) {
-          const pid = parseInt(m[2], 10);
+        // Neither group is optional, so a successful match always has both; the
+        // fallbacks parse to NaN, which fails the port comparison and the pid
+        // truthiness check, so the unreachable branch is also the inert one.
+        if (m && parseInt(m[1] ?? '', 10) === port) {
+          const pid = parseInt(m[2] ?? '', 10);
           if (pid && pid !== process.pid) try { process.kill(pid) } catch { }
         }
       }

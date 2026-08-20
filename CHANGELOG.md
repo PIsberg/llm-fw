@@ -51,6 +51,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`noUncheckedIndexedAccess` is on.** It makes every `arr[i]` and `obj[key]`
+  read yield `T | undefined`, which is the check that catches the off-by-one and
+  the missing-key read. All 90 resulting errors were fixed by decision rather
+  than by assertion: no `!` was added anywhere. Where an index was provably in
+  bounds the loop was rewritten to carry the bound with the value (`entries()`,
+  `slice()`, iterating the collection); where a value was genuinely optional it
+  was guarded. Detection was re-measured because this change does alter the
+  emitted JavaScript: precision 100%, recall 97.8% (45/46), `encoding` 5/5,
+  `multilingual` 5/5, `rag` 3/3, and 8.45% FPR on the same twelve rows in the
+  same categories at the same stages. Closes
+  [#205](https://github.com/PIsberg/llm-fw/issues/205).
+
 - **`exactOptionalPropertyTypes` is on.** TypeScript otherwise conflates
   "property absent" with "property present and undefined". All 35 resulting
   errors were declarations saying `foo?: T` receiving `T | undefined`, and were

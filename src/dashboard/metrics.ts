@@ -56,8 +56,10 @@ export class MetricsRegistry {
     MetricsRegistry.bump(this.requestsTotal, surface)
     this.durationSum += durationMs
     this.durationCount += 1
-    for (let i = 0; i < DURATION_BUCKETS_MS.length; i++) {
-      if (durationMs <= DURATION_BUCKETS_MS[i]) this.durationBucketCounts[i] += 1
+    // entries() carries the bound with the value, so neither index needs a
+    // guard the loop condition already provides.
+    for (const [i, bucket] of DURATION_BUCKETS_MS.entries()) {
+      if (durationMs <= bucket) this.durationBucketCounts[i] = (this.durationBucketCounts[i] ?? 0) + 1
     }
   }
 
