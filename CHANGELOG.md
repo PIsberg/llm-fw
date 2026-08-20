@@ -75,6 +75,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CI ran on no branch prefix it did not already know about.** `ci.yml`
+  triggered on pushes to `main`, `feat/**`, `fix/**`, `chore/**` and
+  `release/**`, and on pull requests targeting `main` only. Anything else got no
+  CI at all and said so nowhere: a `perf/**` branch was pushed, opened as a pull
+  request, and ran nothing but the dependency review. The same trap the file
+  already carried a comment about, on its second visit. Both triggers are now
+  allow-everything with an ignore list, and `pull_request` is no longer
+  restricted to `main`, so a stacked pull request runs the suite instead of
+  showing a green tick inherited from its base.
+
 - **Retrieved documents are now scanned in isolation, not only in place.** A
   `<document>`, `<context>` or `<search_results>` block is untrusted data, but
   the embedding stage only ever saw it wrapped in the surrounding prompt, and
