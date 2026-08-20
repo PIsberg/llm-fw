@@ -11,17 +11,27 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
 /**
  * Candidate sources the EMBEDDING stage skips.
  *
- * extractCandidates emits `reversed-full` and `reversed-words` for every input
- * unconditionally, with no gate: for ordinary text they are character- and
- * word-order scrambles, which the multilingual encoder was never trained on and
- * which sit at no meaningful cosine to any anchor. Encoding them tripled the
- * embedding cost of every request in the product and scaled with prompt length.
+ * extractCandidates emits these for every input with no gate worth the name:
+ * measured over the corpus, `reversed-full` fired on 97 texts of 97,
+ * `reversed-words` on 95, `rot13` on 92. For ordinary text they are
+ * character-, word- and alphabet-order scrambles, which the multilingual
+ * encoder was never trained on and which sit at no meaningful cosine to any
+ * anchor. Encoding them was most of the embedding cost of every request in the
+ * product, and it scaled with prompt length.
  *
- * The heuristic stage still scores both, and that is where a backwards-written
- * injection is actually caught: reversing restores the literal text the regexes
- * are written against.
+ * The heuristic stage still scores all of them, and that is where an injection
+ * written backwards or in ROT13 is actually caught: the transform restores the
+ * literal text the regexes are written against.
+ *
+ * Deliberately NOT skipped: `leetspeak`, `piglatin`, `caesar` and the real
+ * decoders (base64, base32, hex, url, morse, binary, ascii85). Those produce
+ * natural language when they undo an actual obfuscation, so their embedding
+ * carries signal. `caesar` is additionally gated on override keywords already
+ * appearing in the shifted text, and fired on 0 of the 97 corpus texts.
  */
-const SCRAMBLED_CANDIDATES = new Set(['reversed-full', 'reversed-words'])
+function skipsEmbedding(source: string): boolean {
+  return source === 'rot13' || source.startsWith('reversed-')
+}
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
@@ -641,7 +651,7 @@ export class Pipeline {
         // at ~0.87 to the injection anchors) from blocking, while keeping the
         // cross-lingual injections (margin ≥ +0.05) the embedding stage exists for.
         let eMargin = 0
-        if (this.embedding.isInitialized() && source !== 'tool_definition' && !SCRAMBLED_CANDIDATES.has(candidate.source)) {
+        if (this.embedding.isInitialized() && source !== 'tool_definition' && !skipsEmbedding(candidate.source)) {
           const e = await this.embedding.check(candidate.text)
           eSim = e.similarity
           // Suppress the contrastive subtraction when the text is talking

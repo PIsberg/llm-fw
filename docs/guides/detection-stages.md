@@ -102,24 +102,28 @@ Stage 2 leverages a local, high-performance multilingual ONNX embedding model (`
 
 ### Cost on long prompts
 
-Stage 2 is the expensive stage: every chunk of text costs one transformer forward pass, and a long prompt chunks into many. A pasted document, a RAG context or a long agent conversation is where that bites. It is not bounded by the request body cap, because a multi-megabyte body is usually a base64 image and image bytes never reach this stage as prompt text.
+Stage 2 is the expensive stage: every chunk of text costs one transformer forward pass, and a long prompt chunks into many. A pasted document, a RAG context or a long agent conversation is where that bites. It is not bounded by the request body cap, because a multi-megabyte body is usually a base64 image and image bytes never reach this stage as prompt text (a 3 MB image request scans in 0.1 s).
 
-Two bounds keep it flat, both introduced in ruleset 2026.08.11 and neither of which moved a verdict:
+Two bounds keep it flat, both introduced in ruleset 2026.08.11, neither of which moved a verdict:
 
-*   **`detection.embeddingMaxChunks`** (default `24`, `LLM_FW_EMBEDDING_MAX_CHUNKS`, `0` disables). Above the cap the chunks are **sampled evenly across the whole text**, keeping the first and last, rather than truncated to the head. Truncating would make "bury the payload past the cap" a reliable bypass. Stage 1 is unaffected either way: it reads every byte of every candidate, at roughly a thirtieth of the cost per byte, and it is the stage that actually catches an injection block buried in a long document.
-*   **Order-scrambled candidates are not embedded.** Normalization emits `reversed-full` and `reversed-words` for every input with no gate. For ordinary text they are character- and word-order scrambles that the encoder was never trained on. Stage 1 still scores both, which is where a backwards-written injection is caught: reversing restores the literal text the regexes are written against.
+*   **`detection.embeddingMaxChunks`** (default `24`, `LLM_FW_EMBEDDING_MAX_CHUNKS`, `0` disables). Above the cap the chunks are **sampled evenly across the whole text**, keeping the first and last, rather than truncated to the head. Truncating would make "bury the payload past the cap" a reliable bypass. Stage 1 is unaffected either way: it reads every byte of every candidate, at a small fraction of the cost per byte, and it is the stage that actually catches an injection block buried in a long document.
+*   **Order-scrambled candidates are not embedded.** Normalization emits `reversed-full`, `reversed-words` and `rot13` for every input with essentially no gate: measured over the corpus they fired on 97, 95 and 92 of 97 texts. For ordinary text they are character-, word- and alphabet-order scrambles that the encoder was never trained on. Stage 1 still scores all of them, which is where an injection written backwards or in ROT13 is caught: the transform restores the literal text the regexes are written against. `leetspeak`, `piglatin`, `caesar` and the real decoders (base64, base32, hex, url, morse, binary, ascii85) are still embedded, because those produce natural language when they undo an actual obfuscation.
 
-Measured end to end through a running gateway, one request at a time, judge and DLP off:
+Measured on the same machine with the same harness on both sides, cold cache, after warming each input shape (ONNX Runtime re-optimises per shape, so the first request at a given size is not representative):
 
 | Prompt text | Before | After |
 |---|---|---|
-| 4 KB | 1.2 s | 0.8 s |
-| 16 KB | 4.7 s | 2.9 s |
-| 64 KB | 20.0 s | 5.6 s |
-| 256 KB | 92.1 s | 6.6 s |
-| 1024 KB | 423.5 s | 6.5 s |
+| A typical short prompt, median of 60 | 66.2 ms | 10.8 ms |
+| 4 KB | 1.9 s | 0.4 s |
+| 16 KB | 9.5 s | 3.6 s |
+| 64 KB | 51.9 s | 5.3 s |
+| 256 KB | did not finish 3 runs in 10 minutes | 6.5 s |
 
-Detection was measured across the change and did not move: 100% precision and 97.8% recall on the accuracy gate with the same single miss, and 8.45% FPR on the same twelve rows. A payload that Stage 2 blocks on its own (cosine 0.934, margin 0.086) is already **not** blocked by Stage 2 once buried in a document of 512 bytes or more, capped or uncapped, because the surrounding text dilutes the chunk it lands in. The chunks the cap removes were not producing detections.
+Long-prompt figures are medians of 2 to 3 runs and vary by up to 40% run to run on a loaded machine, so read them as the order of the change rather than as precise timings. The short-prompt figure is a median of 60 and is stable. The structural point is the one to keep: above roughly 28 KB of prompt text the embedding stage stops tracking prompt length at all, where before it grew without limit. A single 1 MB request measured end to end through a running gateway went from 423.5 s to 6.5 s.
+
+Detection was measured across the change and did not move: 100% precision and 97.8% recall on the accuracy gate with the same single miss, per-category recall unchanged including `encoding` at 5/5 and `multilingual` at 5/5, and 8.45% FPR on the same twelve rows in the same categories at the same stages.
+
+The reason there is no trade is that the removed work was not producing detections. A payload that Stage 2 blocks on its own (cosine 0.934, margin 0.086) is already **not** blocked by Stage 2 once buried in a document of 512 bytes or more, capped or uncapped, because the surrounding text dilutes the chunk it lands in. An undiluted 125-word injection block buried at five depths in a 128 KB document is likewise missed by Stage 2 either way, and blocked by Stage 1 at every depth either way.
 
 ## Stage 3: Judge LLM (Ollama)
 
