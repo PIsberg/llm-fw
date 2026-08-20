@@ -96,6 +96,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A mistyped numeric environment variable now refuses to start the firewall
+  instead of silently disabling a stage.** `parseInt`/`parseFloat` return `NaN`
+  for anything unparseable, and `NaN` poisons quietly: `server.listen(NaN)`
+  binds a *random* free port, and a `NaN` detection threshold makes every
+  `score >= threshold` comparison false, which turns a detection stage off with
+  nothing in the log. `LLM_FW_EMBEDDING_BLOCK_THRESHOLD=high` produced a
+  firewall that still answered `200` and had simply stopped blocking. Ten of the
+  seventeen numeric overrides had no guard at all; the seven that did silently
+  ignored the bad value, which tells an operator their setting took effect when
+  it did not. All of them now throw a `ConfigError` naming the variable, the
+  value and what was expected, and ranges are enforced (a port is 0-65535, a
+  cosine threshold is 0-1).
+
 - **The false-positive gate can now block a merge.** `Load Tests — Performance
   & Accuracy (Node 22)` was not among `main`'s required status checks, so a pull
   request could merge with it red. That job holds four gates that exist nowhere

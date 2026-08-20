@@ -473,15 +473,64 @@ export function applyObserveMode(config: Config): void {
   // place it can refuse a connection.
 }
 
+/**
+ * A configuration value that could not be parsed.
+ *
+ * Operational: the operator mistyped something and can fix it. Carries the
+ * variable name so the message names the thing to change rather than the
+ * symptom, and is thrown rather than swallowed so a typo cannot start a
+ * firewall that is quietly not enforcing.
+ */
+export class ConfigError extends Error {
+  readonly isOperational = true;
+  readonly errorCode = 'CONFIG_INVALID';
+  constructor(readonly variable: string, readonly value: string, expected: string) {
+    super(`${variable}="${value}" is not ${expected}. Fix the value or unset it.`);
+    this.name = 'ConfigError';
+  }
+}
+
+/**
+ * Parse an integer environment value, or refuse to start.
+ *
+ * `parseInt` returns NaN for anything unparseable and NaN poisons silently:
+ * `server.listen(NaN)` binds a RANDOM port, and a NaN detection threshold makes
+ * every `score >= threshold` comparison false, which turns a stage off without
+ * a word in the log. Ten of the seventeen numeric overrides had no guard at
+ * all, and the seven that did silently ignored the bad value, which tells an
+ * operator their setting took effect when it did not.
+ */
+function envInt(variable: string, value: string, opts: { min?: number; max?: number } = {}): number {
+  const n = Number(value);
+  if (!Number.isInteger(n)) throw new ConfigError(variable, value, 'a whole number');
+  if (opts.min !== undefined && n < opts.min) throw new ConfigError(variable, value, `at least ${opts.min}`);
+  if (opts.max !== undefined && n > opts.max) throw new ConfigError(variable, value, `at most ${opts.max}`);
+  return n;
+}
+
+/** Parse a decimal environment value, or refuse to start. See envInt. */
+function envFloat(variable: string, value: string, opts: { min?: number; max?: number } = {}): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw new ConfigError(variable, value, 'a number');
+  if (opts.min !== undefined && n < opts.min) throw new ConfigError(variable, value, `at least ${opts.min}`);
+  if (opts.max !== undefined && n > opts.max) throw new ConfigError(variable, value, `at most ${opts.max}`);
+  return n;
+}
+
+/** A TCP port. 0 is legal and means "any free port", so the floor is 0. */
+function envPort(variable: string, value: string): number {
+  return envInt(variable, value, { min: 0, max: 65535 });
+}
+
 const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
-  LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = parseInt(v, 10); },
+  LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = envPort('LLM_FW_PROXY_PORT', v); },
   LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
   LLM_FW_BYPASS: (c, v) => { c.proxy.bypass = v === 'true'; },
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
   LLM_FW_PROXY_TOKEN: (c, v) => { c.proxy.authToken = v; },
   LLM_FW_PROXY_REQUIRE_AUTH: (c, v) => { c.proxy.requireAuth = v === 'true'; },
-  LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = parseInt(v, 10); },
-  LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = parseInt(v, 10); },
+  LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = envPort('LLM_FW_HTTPS_PORT', v); },
+  LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = envInt('LLM_FW_MAX_BODY_BYTES', v, { min: 0 }); },
   LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },
   LLM_FW_JUDGE_BLOCK: (c, v) => { c.detection.judgeBlock = v === 'true'; },
   LLM_FW_JUDGE_UNLESS_BENIGN: (c, v) => { c.detection.judgeUnlessBenign = v === 'true'; },
@@ -493,7 +542,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_JUDGE_MODEL: (c, v) => { c.detection.judgeModel = v; },
   LLM_FW_OLLAMA_URL: (c, v) => { c.detection.ollamaUrl = v; },
   LLM_FW_CLASSIFIER_ENABLED: (c, v) => { if (c.detection.classifier) c.detection.classifier.enabled = v === 'true'; },
-  LLM_FW_CLASSIFIER_THRESHOLD: (c, v) => { if (c.detection.classifier) c.detection.classifier.blockThreshold = parseFloat(v); },
+  LLM_FW_CLASSIFIER_THRESHOLD: (c, v) => { const n = envFloat('LLM_FW_CLASSIFIER_THRESHOLD', v, { min: 0, max: 1 }); if (c.detection.classifier) c.detection.classifier.blockThreshold = n; },
   LLM_FW_CLASSIFIER_ESCALATE: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.detection.classifier) c.detection.classifier.escalateThreshold = n; },
   LLM_FW_INTENT_MENTION_ENABLED: (c, v) => { c.detection.intentMention = v === 'true'; },
   LLM_FW_SUPPRESSIONS_ENABLED: (c, v) => { c.detection.suppressions = v === 'true'; },
@@ -508,11 +557,11 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, heuristicBlockThreshold: n };
   },
   LLM_FW_EMBEDDING_MAX_CHUNKS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && n >= 0) c.detection.embeddingMaxChunks = n; },
-  LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = parseFloat(v); },
-  LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = parseFloat(v); },
+  LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = envFloat('LLM_FW_EMBEDDING_BLOCK_THRESHOLD', v, { min: 0, max: 1 }); },
+  LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = envFloat('LLM_FW_EMBEDDING_WARN_THRESHOLD', v, { min: 0, max: 1 }); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },
   LLM_FW_TAINT_MODE: (c, v) => { if (c.taint && (v === 'audit' || v === 'block')) c.taint.mode = v; },
-  LLM_FW_DASHBOARD_PORT: (c, v) => { c.dashboard.port = parseInt(v, 10); },
+  LLM_FW_DASHBOARD_PORT: (c, v) => { c.dashboard.port = envPort('LLM_FW_DASHBOARD_PORT', v); },
   LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
   LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
   LLM_FW_METRICS_ENABLED: (c, v) => { c.dashboard.metrics = v === 'true'; },
@@ -542,9 +591,9 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
   LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
   LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },
-  LLM_FW_DOS_MAX_RPM: (c, v) => { c.dos.maxRequestsPerMinute = parseInt(v, 10); },
-  LLM_FW_DOS_MAX_TOKENS_PER_SESSION: (c, v) => { c.dos.maxTokensPerSession = parseInt(v, 10); },
-  LLM_FW_DOS_TOKEN_WINDOW_MS: (c, v) => { c.dos.tokenBudgetWindowMs = parseInt(v, 10); },
+  LLM_FW_DOS_MAX_RPM: (c, v) => { c.dos.maxRequestsPerMinute = envInt('LLM_FW_DOS_MAX_RPM', v, { min: 0 }); },
+  LLM_FW_DOS_MAX_TOKENS_PER_SESSION: (c, v) => { c.dos.maxTokensPerSession = envInt('LLM_FW_DOS_MAX_TOKENS_PER_SESSION', v, { min: 0 }); },
+  LLM_FW_DOS_TOKEN_WINDOW_MS: (c, v) => { c.dos.tokenBudgetWindowMs = envInt('LLM_FW_DOS_TOKEN_WINDOW_MS', v, { min: 1 }); },
   LLM_FW_RAG_ENABLED: (c, v) => { c.rag.enabled = v === 'true'; },
   LLM_FW_MCP_ENABLED: (c, v) => { c.mcp.enabled = v === 'true'; },
   LLM_FW_MCP_GUARDRAILS_ENABLED: (c, v) => { c.mcp.guardrailsEnabled = v === 'true'; },
