@@ -3,6 +3,9 @@ import { join, dirname } from 'node:path';
 import { BlockEvent, AuditConfig } from '../types.js';
 import { getLlmFwDir } from '../config/paths.js';
 import { RULESET_VERSION } from '../detection/ruleset.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('audit');
 
 /**
  * A durable destination for events. Both sinks below implement it, and
@@ -126,7 +129,7 @@ export class AuditLog {
     this.warned = true;
     // Once, not per event: a full disk would otherwise turn one problem into a
     // second one by flooding the console.
-    console.error(`[audit] write failed (${(err as Error)?.message ?? String(err)}). ` +
+    log.error(`write failed (${(err as Error)?.message ?? String(err)}). ` +
       `Further failures are counted in llmfw_audit_write_failures_total.`);
   }
 

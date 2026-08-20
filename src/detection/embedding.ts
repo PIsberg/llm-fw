@@ -8,6 +8,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
+import { createLogger } from '../logger.js';
+
+const log = createLogger('embedding');
 
 // Minimal shape of the @huggingface/transformers feature-extraction output we use.
 export interface FeatureTensor {
@@ -118,11 +121,11 @@ export class EmbeddingChecker {
             this.extractor = await loadEmbeddingExtractor()
           } catch (loadErr) {
             this.extractor = null
-            console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
+            log.warn(`embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
             return
           }
         } else {
-          console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
+          log.warn(`embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
           return
         }
       }
@@ -140,7 +143,7 @@ export class EmbeddingChecker {
         // MCP, URL filtering and DoS keep working; only embedding similarity is
         // skipped until the model becomes reachable.
         this.extractor = null
-        console.warn(`[llm-fw] embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
+        log.warn(`embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
         return
       }
     }

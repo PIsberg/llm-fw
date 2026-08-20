@@ -5,6 +5,9 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
+import { createLogger } from '../logger.js';
+
+const log = createLogger('classifier');
 
 // Trained prompt-injection classifier stage (a learned generalization layer).
 //
@@ -86,10 +89,10 @@ export class InjectionClassifier {
             this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
           } catch (loadErr) {
             this.classifier = null
-            console.warn('[classifier] could not load injection classifier — stage disabled:', (loadErr as Error).message)
+            log.warn('could not load injection classifier — stage disabled', { err: (loadErr as Error).message })
           }
         } else {
-          console.warn('[classifier] could not load injection classifier — stage disabled:', (err as Error).message)
+          log.warn('could not load injection classifier — stage disabled', { err: (err as Error).message })
         }
       }
       return
@@ -101,7 +104,7 @@ export class InjectionClassifier {
       // Best-effort, exactly like the embedding stage: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.
       this.classifier = null
-      console.warn('[classifier] could not load injection classifier — stage disabled:', (err as Error).message)
+      log.warn('could not load injection classifier — stage disabled', { err: (err as Error).message })
     }
   }
 

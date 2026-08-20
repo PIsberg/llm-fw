@@ -61,6 +61,34 @@ async function request(opts: {
   })
 }
 
+/**
+ * Send a body over the cap in slices, pausing between them, so the server's
+ * refusal arrives mid-upload rather than after the whole body is buffered.
+ */
+function slowOversizedRequest(agent: http.Agent): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+  const slice = 'a'.repeat(512 * 1024)
+  const slices = Math.ceil((DEFAULT_CONFIG.proxy.maxBodyBytes + 1024) / slice.length)
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        agent, host: '127.0.0.1', port: GATEWAY_PORT, method: 'POST',
+        path: '/v1/chat/completions',
+        headers: { 'content-type': 'application/json', 'transfer-encoding': 'chunked', 'x-llm-fw-key': TOKEN },
+      },
+      (res) => { res.resume(); resolve({ status: res.statusCode ?? 0, headers: res.headers }) },
+    )
+    req.on('error', reject)
+    req.write('{"model":"test","messages":[{"role":"user","content":"')
+    let sent = 0
+    const pump = (): void => {
+      if (sent >= slices) { req.end('"}]}'); return }
+      sent++
+      req.write(slice, () => setTimeout(pump, 5))
+    }
+    pump()
+  })
+}
+
 describe('Gateway E2E', { timeout: 60000 }, () => {
   let tempDir: string
   let gateway: GatewayServer
@@ -377,11 +405,16 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     // unrelated request failed with ECONNRESET instead of being served.
     const agent = new http.Agent({ keepAlive: true, maxSockets: 1 })
     try {
-      const oversized = { model: 'test', messages: [{ role: 'user', content: 'a'.repeat(DEFAULT_CONFIG.proxy.maxBodyBytes + 1024) }] }
-      const refused = await request({ path: '/v1/chat/completions', body: oversized, headers: authed, agent })
+      // Written in slices with a gap, so the refusal lands while the client is
+      // still uploading. That is the ordering a large body produces naturally on
+      // Linux and not on Windows, and it is the case that used to reset the
+      // client before it could read the answer: it saw a transport error instead
+      // of the 413 this is documented to return.
+      const refused = await slowOversizedRequest(agent)
       expect(refused.status).toBe(413)
-      // The client is told the connection is finished, so it does not pool it.
-      expect(refused.headers?.connection).toBe('close')
+      // No `Connection: close`: the connection stays usable, which is the point.
+      // Closing it is what reset the client mid-upload before it could read this.
+      expect(refused.headers?.connection).not.toBe('close')
 
       calls = []
       const next = await request({ path: '/v1/chat/completions', body: benign, headers: authed, agent })
@@ -399,6 +432,35 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     expect(res.status).toBe(502)
     expect(res.json?.error).toBe('upstream request failed')
     expect(res.json?.upstream).toBe('127.0.0.1')
+  })
+
+  it('gives every request a correlation id and echoes it back', async () => {
+    // An operator tracing "my request was blocked" needs one token that appears
+    // in the response the caller has and in the log lines the request wrote.
+    const res = await request({ path: '/v1/chat/completions', body: benign, headers: authed })
+    const id = res.headers?.['x-request-id']
+    expect(typeof id).toBe('string')
+    expect(String(id).length).toBeGreaterThan(10)
+  })
+
+  it('honours an inbound x-request-id so the trace joins up with the caller', async () => {
+    const res = await request({
+      path: '/v1/chat/completions', body: benign,
+      headers: { ...authed, 'x-request-id': 'caller-supplied-id' },
+    })
+    expect(res.headers?.['x-request-id']).toBe('caller-supplied-id')
+  })
+
+  it('mints its own id rather than trusting an absurd one', async () => {
+    // The id is echoed into a response header and into every log line, so an
+    // unbounded value from a caller is a log-flooding and header-smuggling
+    // primitive rather than a trace.
+    const res = await request({
+      path: '/v1/chat/completions', body: benign,
+      headers: { ...authed, 'x-request-id': 'x'.repeat(500) },
+    })
+    expect(res.headers?.['x-request-id']).not.toBe('x'.repeat(500))
+    expect(String(res.headers?.['x-request-id']).length).toBeLessThan(100)
   })
 
   it('404s an unroutable path instead of guessing an upstream', async () => {

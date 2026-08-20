@@ -3,6 +3,9 @@ import { ResponseScanConfig } from '../types.js'
 import { createHash } from 'node:crypto'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
+import { createLogger } from '../logger.js';
+
+const log = createLogger('output-classifier');
 
 // Trained output-side moderation classifier (Task B5, Option D).
 //
@@ -81,7 +84,7 @@ export class OutputModerationClassifier {
       // Best-effort, exactly like the input classifier: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.
       this.classifier = null
-      console.warn('[output-classifier] could not load response moderation classifier — stage disabled:', (err as Error).message)
+      log.warn('could not load response moderation classifier — stage disabled', { err: (err as Error).message })
     }
   }
 

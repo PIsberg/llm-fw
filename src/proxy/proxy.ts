@@ -28,6 +28,9 @@ import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfi
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { explainBlock } from '../detection/explain.js'
+import { createLogger } from '../logger.js';
+
+const log = createLogger('proxy');
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -138,6 +141,12 @@ export function sanitizeHeaders(headers: http.IncomingHttpHeaders): Record<strin
   }
   return out
 }
+
+/**
+ * How long to keep discarding a request body already refused with a 413, so
+ * the client can finish writing and read the answer rather than being reset.
+ */
+const BODY_DRAIN_TIMEOUT_MS = 10_000
 
 export class ProxyServer {
   private server: http.Server
@@ -297,7 +306,7 @@ export class ProxyServer {
     })
 
     sinkholeServer.listen(httpsPort, '127.0.0.1')
-    sinkholeServer.on('error', (err) => console.error('[sinkhole] server error:', err))
+    sinkholeServer.on('error', (err) => log.error('server error', { err: err }))
     this.sinkholeServer = sinkholeServer
   }
 
@@ -482,7 +491,7 @@ export class ProxyServer {
         }
       })
     } catch (err) {
-      console.error(`[proxy] CONNECT error for ${hostname}:${port}: ${(err as Error)?.message ?? String(err)}`)
+      log.error(`CONNECT error for ${hostname}:${port}: ${(err as Error)?.message ?? String(err)}`)
       clientSocket.destroy()
     }
   }
@@ -608,11 +617,20 @@ export class ProxyServer {
           // pooled connection: the NEXT, unrelated request through the same
           // tunnel failed with ECONNRESET instead of being served. The gateway
           // had the identical bug; see readBody in src/gateway/gateway.ts.
-          innerRes.setHeader('Connection', 'close')
           innerRes.writeHead(413, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'request body too large', limit: maxBodyBytes }))
-          innerReq.pause()
-          innerRes.on('finish', () => innerReq.destroy())
+          // Drain the rest and keep the connection: the client is still
+          // uploading, so anything that ends the socket early resets it before
+          // it can read the answer. `Connection: close` had the same effect as
+          // destroying, because Node closes once the response is written. See
+          // readBody in src/gateway/gateway.ts. Nothing is buffered, so the
+          // memory bound holds; the timer bounds an upload that never ends.
+          innerReq.resume()
+          const drainCutoff = setTimeout(() => innerReq.destroy(), BODY_DRAIN_TIMEOUT_MS)
+          drainCutoff.unref()
+          const stopDraining = (): void => { clearTimeout(drainCutoff) }
+          innerReq.once('end', stopDraining)
+          innerReq.once('error', stopDraining)
           return
         }
 
@@ -1187,12 +1205,12 @@ export class ProxyServer {
   private logRequestError(scope: string, hostname: string, req: http.IncomingMessage, err: unknown): void {
     const where = `${req.method ?? 'GET'} ${hostname}${req.url ?? '/'}`
     if (err instanceof UpstreamTimeoutError) {
-      console.warn(`[${scope}] ${err.message} (${where}). The provider sent no data within the idle window; raise proxy.upstreamTimeoutMs if long non-streaming completions are expected.`)
+      log.warn(`${err.message} (${where}). The provider sent no data within the idle window; raise proxy.upstreamTimeoutMs if long non-streaming completions are expected.`, { scope })
       return
     }
     const e = err as Error
-    console.error(`[${scope}] request error (${where}): ${e?.message ?? String(err)}`)
-    if (e?.stack) console.error(e.stack)
+    log.error(`request error (${where}): ${e?.message ?? String(err)}`, { scope })
+    if (e?.stack) log.error(e.stack)
   }
 
   private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false): Promise<number> {
@@ -1363,7 +1381,7 @@ export class ProxyServer {
             text = decompressBody(raw, cenc).toString('utf8')
           } catch (err) {
             // Corrupt/truncated compressed body — forward verbatim, uninspected.
-            console.warn(`[proxy] could not decompress ${cenc} response from ${hostname}${req.url ?? '/'}: ${(err as Error)?.message ?? String(err)}`)
+            log.warn(`could not decompress ${cenc} response from ${hostname}${req.url ?? '/'}: ${(err as Error)?.message ?? String(err)}`)
             res.writeHead(status, failoverHeaders())
             res.end(raw)
             respBodyBytes = raw.length

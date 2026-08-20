@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Structured logging, with a correlation id per request.** `console.log` gave
+  an operator no level to filter on, no structure to ship to a collector, and no
+  way to join the lines one request produced. `src/logger.ts` emits JSON with a
+  level, a scope and the request's id, and prose when stderr is a terminal, so
+  a person running `llm-fw start` and a container shipping to a collector each
+  get what they want without configuring it. `LLM_FW_LOG_LEVEL` and
+  `LLM_FW_LOG_FORMAT` control it. The gateway honours an inbound `x-request-id`
+  and echoes the id back, so "my request was blocked" has one token that appears
+  both in the caller's response and in the operator's logs. Prompt text, tool
+  results, retrieved documents and credentials are still never logged; payload
+  capture remains a deliberate, separate decision behind `audit.includePayloads`.
+  No new dependency: the logger is about 100 lines, because this package ships
+  three runtime dependencies on purpose. Closes
+  [#206](https://github.com/PIsberg/llm-fw/issues/206).
+
 - **A `dependencies` skill, and Dependabot pull requests that arrive grouped.**
   Eight separate bump pull requests were opened on 2026-08-11 and all eight were
   closed in the same second, unread. Dependabot now proposes weekly rather than
@@ -117,6 +132,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describes where a new document goes and points at the link check.
 
 ### Fixed
+
+- **A refused oversized body now actually delivers its `413`.** The cap is
+  documented as returning `413`, and on Linux a client often never saw it: it was
+  still uploading when the refusal arrived, and the server ended the socket, so
+  the client got a transport error instead of a status. Two earlier attempts
+  failed for the same underlying reason. Pausing the request and destroying it
+  reset the client mid-write; `Connection: close` did the same, because Node
+  closes the socket once the response is written no matter how patiently the
+  body is drained. The rest of the body is now read and discarded on a
+  connection that stays usable, so the client finishes its write and reads the
+  status. Nothing is buffered, so the memory bound the cap exists for is intact,
+  and a 10 s ceiling bounds the other half of that DoS: an upload that never
+  ends.
 
 - **Teardown and diagnostics no longer abandon their remaining work on the
   first failure.** `shutdown()` closed the detection pipeline, the gateway, the
