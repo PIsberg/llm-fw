@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parseEnvOverrides, renderTable } from '../../scripts/gen-config-reference.js'
+import { parseEnvOverrides, renderTable, normalizeEol } from '../../scripts/gen-config-reference.js'
 
 /**
  * The configuration guide promised "the full key reference" and listed four
@@ -36,7 +36,10 @@ describe('the configuration reference is generated from the code', () => {
   })
 
   it('matches what is published in the guide', () => {
-    expect(guide, 'run: npm run config:reference').toContain(renderTable(source))
+    // Normalised, because git hands this file to a Windows checkout with CRLF
+    // while the generator emits LF. Comparing bytes made the gate fail for
+    // every Windows contributor and pass on CI, which is worse than no gate.
+    expect(normalizeEol(guide), 'run: npm run config:reference').toContain(normalizeEol(renderTable(source)))
   })
 
   it('does not document the provider keys, which are deliberately not in the config', () => {

@@ -503,7 +503,50 @@ export class Pipeline {
             }
           }
 
-          // Signal 2: specialized judge on each isolated data block. Bounded
+          // Signal 2: embedding similarity on each ISOLATED block.
+          //
+          // The structural heuristic above reads the whole prompt, and so does
+          // the Stage 2 pass further down. That dilutes a retrieved document:
+          // the benign wrapper around it ("Summarize this document:") pulls the
+          // BENIGN side of the contrastive margin up, and the margin is what
+          // gates a block. Measured on the Chinese RAG override in
+          // test/detection/multilingual-indirect.test.ts: the block alone sits
+          // at cosine 0.875 with margin 0.039 and blocks cleanly, while the same
+          // block inside its wrapper sits at 0.886 with margin 0.005 and does
+          // not. It was only ever caught because the `rot13` candidate happened
+          // to scramble the English wrapper into gibberish, which dropped the
+          // benign similarity and lifted the margin over the floor. That is a
+          // coincidence, not a detection, and it disappeared the moment rot13
+          // stopped being embedded.
+          //
+          // A retrieved document is untrusted data and belongs on its own
+          // surface, which is exactly how tool_result is already treated.
+          if (this.embedding.isInitialized()) {
+            const seenBlocks = new Set<string>()
+            // Bounded like judgeRagBlocks: a prompt stuffed with blocks must not
+            // turn one request into an unbounded number of forward passes.
+            for (const b of ragBlocks.slice(0, 8)) {
+              const text = b.block.trim()
+              if (text.length < 12 || seenBlocks.has(text)) continue
+              seenBlocks.add(text)
+              const e = await this.embedding.check(text)
+              const margin = referencesModelInstructions(text) ? e.similarity : e.similarity - (e.benignSimilarity ?? 0)
+              if (e.similarity >= embeddingBlockThreshold && margin >= embeddingMarginThreshold) {
+                const result: PipelineResult = {
+                  action: 'block', stage: 'rag', score: 0, similarity: e.similarity,
+                  prompt, nearestTemplate: e.nearest, ragTag: b.tag,
+                }
+                if (this.isSuppressed(prompt, source)) {
+                  if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+                } else {
+                  this.emit(result, meta, prompt, source)
+                  return result
+                }
+              }
+            }
+          }
+
+          // Signal 3: specialized judge on each isolated data block. Bounded
           // concurrency + dedup + short-circuit so a prompt stuffed with many
           // blocks cannot flood the local Ollama instance.
           if (judgeEnabled) {

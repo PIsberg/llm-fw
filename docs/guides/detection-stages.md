@@ -100,6 +100,14 @@ Stage 2 leverages a local, high-performance multilingual ONNX embedding model (`
     *   **Warn (0.80 – 0.86)**: high-risk but non-definitive matches log a warn event and are forwarded, or evaluated by the Stage 3 judge if enabled.
 *   **Intent-Based**: Because embeddings model semantic meaning rather than literal strings, they naturally catch novel restructurings of jailbreaks and prompt injections — in any language.
 
+### Retrieved documents are scanned on their own
+
+A `<document>`, `<context>` or `<search_results>` block is untrusted data, and it is judged in isolation as well as in place. That matters because of how the contrastive margin works: the benign wrapper around a retrieved document ("Summarize this document:") pulls the *benign* side of the margin up, and the margin is what gates a block.
+
+Measured on the Chinese RAG override in `test/detection/multilingual-indirect.test.ts`: the block on its own sits at cosine 0.875 with margin 0.039 and blocks; the same block inside its wrapper sits at 0.886 with margin 0.005 and does not. Before ruleset 2026.08.11 it was caught anyway, but only by accident, because the `rot13` candidate scrambled the English wrapper into gibberish, which dropped the benign similarity and lifted the margin over the floor. That is a coincidence, not a detection, and it vanished as soon as `rot13` stopped being embedded.
+
+The isolated scan is bounded to the first 8 distinct blocks per request, the same bound the RAG judge uses, so a prompt stuffed with blocks cannot turn one request into an unbounded number of forward passes. It added no false positives on the benign corpus: the false-positive rate and the exact set of blocked rows are unchanged.
+
 ### Cost on long prompts
 
 Stage 2 is the expensive stage: every chunk of text costs one transformer forward pass, and a long prompt chunks into many. A pasted document, a RAG context or a long agent conversation is where that bites. It is not bounded by the request body cap, because a multi-megabyte body is usually a base64 image and image bytes never reach this stage as prompt text (a 3 MB image request scans in 0.1 s).

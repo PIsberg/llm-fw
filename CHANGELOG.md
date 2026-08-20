@@ -75,6 +75,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Retrieved documents are now scanned in isolation, not only in place.** A
+  `<document>`, `<context>` or `<search_results>` block is untrusted data, but
+  the embedding stage only ever saw it wrapped in the surrounding prompt, and
+  the benign wrapper ("Summarize this document:") lifts the benign side of the
+  contrastive margin, which is what gates a block. The Chinese RAG override in
+  the multilingual suite sits at cosine 0.875 with margin 0.039 on its own and
+  blocks; inside its wrapper it sits at 0.886 with margin 0.005 and does not.
+  It passed before only because the `rot13` candidate scrambled the English
+  wrapper into gibberish, dropping the benign similarity and lifting the margin
+  over the floor: a coincidence, not a detection, which is why removing rot13
+  from the embedding stage exposed it. Each of the first 8 distinct blocks is
+  now checked on its own, the same bound the RAG judge uses. Corpus recall for
+  `rag` is 3/3 including the non-English case, which is new to the corpus, and
+  the false-positive rate is unchanged at 8.45% on the same twelve rows.
+
 - **A refused oversized body no longer breaks the client's next request.** Both
   the gateway and the forward proxy wrote the `413` and then destroyed the
   request stream in the same tick. On a keep-alive client that left a dead
