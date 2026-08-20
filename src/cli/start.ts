@@ -283,9 +283,14 @@ export async function run(args: string[] = []): Promise<void> {
     ];
     const results = await Promise.allSettled(tasks.map(t => t.done));
     results.forEach((r, i) => {
-      if (r.status === 'rejected') {
-        console.error(`[shutdown] ${tasks[i].what} did not close cleanly:`, r.reason);
-      }
+      const task = tasks[i];
+      if (r.status !== 'rejected' || !task) return;
+      // Constant format string with the name as an ARGUMENT, not interpolated
+      // into it. Every name here is a literal from the array above, so nothing
+      // hostile can reach it, but a template literal in a console.* format
+      // position is a pattern worth not having in the codebase at all: the day
+      // one of those names becomes dynamic, an injected `%s` forges log lines.
+      console.error('[shutdown] %s did not close cleanly:', task.what, r.reason);
     });
   };
 
