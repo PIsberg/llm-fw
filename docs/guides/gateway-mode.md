@@ -30,7 +30,7 @@ Anything else is a 404 — the gateway never guesses an upstream.
 
 **Client authentication.** Clients present a token as `X-Llm-Fw-Key` (or `Authorization: Bearer`). It is required automatically as soon as the listener is bound off-host; set `LLM_FW_GATEWAY_TOKEN` to pin it, or read the generated one from the startup log.
 
-**Key custody.** Set `LLM_FW_GATEWAY_KEY_<SLUG>` and the gateway holds the provider credential: it replaces whatever the client sent and strips every other credential header, so callers never hold the provider key and cannot route around your attribution.
+**Key custody.** Set `LLM_FW_GATEWAY_KEY_<SLUG>` and the gateway holds the provider credential: it replaces whatever the client sent, strips every other credential header, and strips credential *query parameters* (`key`, `api-key`, `api_key`, `access_token`) as well, so callers never hold the provider key and cannot route around your attribution. The query parameters matter because Google documents its credential as `?key=` and Azure OpenAI accepts `?api-key=`; on a route where you hold no key they are forwarded untouched, because there the client's own credential is what should reach the provider.
 
 ```bash
 export LLM_FW_GATEWAY_KEY_ANTHROPIC=sk-ant-...
@@ -68,6 +68,8 @@ A tenant token authenticates on its own; the deployment-wide token keeps working
   }
 }
 ```
+
+The `Host` header sent upstream carries the port whenever it is not the scheme default (`vllm.svc.cluster.local:8000` above), so an ingress or vhost in front of the endpoint routes on the value it expects.
 
 **Health endpoints.** `/healthz` and `/livez` answer immediately; `/readyz` returns 503 until the embedding model is loaded, so a rollout never routes traffic to an instance that cannot scan yet. All three answer before authentication, because a kubelet cannot present a token.
 

@@ -44,6 +44,15 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/**
+ * Every test that calls issuerRun spawns a fresh Node with the tsx ESM loader
+ * to run the real issuing script. That bootstrap alone costs seconds, and under
+ * the full suite's contention it ran past vitest's 5 s default and failed two
+ * tests that pass in isolation. A flaky gate is worse than a slow one: it
+ * teaches everyone to re-run rather than read the failure.
+ */
+const SPAWN_TIMEOUT_MS = 60_000
+
 /** Run the real issuing script, the way an operator does. */
 function issuerRun(args: string[]): string {
   return execFileSync(process.execPath, ['--import', 'tsx/esm', issuer, ...args], {
@@ -66,7 +75,7 @@ function isoDaysFromNow(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
 }
 
-describe('the released build can actually verify an offline licence file', () => {
+describe('the released build can actually verify an offline licence file', { timeout: SPAWN_TIMEOUT_MS }, () => {
   // The regression that matters most: 0.4.0 shipped OFFLINE_LICENSE_VERIFY_KEY
   // empty, so every offline file a customer activated reported `unverified`.
   // Nothing was red, because no test asserted on the shipped constant.
@@ -81,7 +90,7 @@ describe('the released build can actually verify an offline licence file', () =>
   })
 })
 
-describe('offline licence, end to end: issuing script -> CLI -> status', () => {
+describe('offline licence, end to end: issuing script -> CLI -> status', { timeout: SPAWN_TIMEOUT_MS }, () => {
   it('activates a freshly issued file and reports it licensed, with the issued identity', async () => {
     const { dir, hex } = throwawayKeypair()
     process.env.LLM_FW_OFFLINE_LICENSE_KEY = hex
@@ -194,7 +203,7 @@ describe('offline licence, end to end: issuing script -> CLI -> status', () => {
   })
 })
 
-describe('verification cannot be turned off from the environment', () => {
+describe('verification cannot be turned off from the environment', { timeout: SPAWN_TIMEOUT_MS }, () => {
   // offlineLicenseVerifyKey() is `env || COMPILED_IN`, so a blank env var falls
   // through to the shipped key rather than disabling the check. Worth pinning:
   // the obvious way to try to neuter licensing from outside does not work, and
@@ -222,7 +231,7 @@ describe('verification cannot be turned off from the environment', () => {
   // reproduced through the env here, which is the point of the test above.
 })
 
-describe('an offline file takes precedence over a Keygen key', () => {
+describe('an offline file takes precedence over a Keygen key', { timeout: SPAWN_TIMEOUT_MS }, () => {
   it('reports the offline licence as the source when both are present', async () => {
     // licenseStatus returns on the offline file before it reads the Keygen key.
     // Documented in docs/LICENSING.md as "the offline file wins"; pinned here so
@@ -247,7 +256,7 @@ describe('an offline file takes precedence over a Keygen key', () => {
   })
 })
 
-describe('the operator signing key matches what the build trusts', () => {
+describe('the operator signing key matches what the build trusts', { timeout: SPAWN_TIMEOUT_MS }, () => {
   // Only meaningful on the machine holding private.pem. CI has no private key,
   // so this skips there — a skip, not a pass.
   const home = process.env.HOME || process.env.USERPROFILE || ''

@@ -60,6 +60,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gateway key custody no longer stops at the headers.** The gateway replaced
+  every credential *header* when the operator held the provider key, but
+  forwarded the query string untouched. Google documents its credential as
+  `?key=` and Azure OpenAI accepts `?api-key=`, so a caller could reach the
+  provider on their own key with the operator's key sitting unused in a header
+  beside it, outside the operator's attribution and quota. Credential query
+  parameters (`key`, `api-key`, `api_key`, `access_token`) are now stripped on
+  routes where the operator holds the key, and still forwarded untouched where
+  it does not, since there the client's own credential is what should reach the
+  provider. Every other query parameter is passed through byte-for-byte.
+
+- **The offline-licence wiring tests no longer fail the gate under load.** Each
+  one spawns a fresh Node with the tsx loader to run the real issuing script,
+  which ran past vitest's 5 s default under the full suite's contention: two
+  tests that pass in isolation failed `npm run test:run`, and because the unit
+  suite runs first, the proxy e2e suite never ran at all. Those describes now
+  carry a 60 s budget.
+
+- **The gateway now sends the upstream port in the `Host` header.** A private
+  endpoint is documented as `{ host: "vllm.svc.cluster.local", port: 8000,
+  protocol: "http" }`, but the gateway sent `Host: vllm.svc.cluster.local` with
+  no port. Anything that routes or validates on `Host` (an ingress, a vhost, a
+  reverse proxy in front of a self-hosted vLLM) either 404s or serves a
+  different backend for traffic that is otherwise correct. IPv6 literal hosts
+  are bracketed before the port is appended.
+
 - **A client that set `HTTP_PROXY` used to hang instead of being told why.** The
   proxy listener registers a `connect` handler and forwards CONNECT only, but it
   had no `request` handler at all, so a plain proxied `http://` request was

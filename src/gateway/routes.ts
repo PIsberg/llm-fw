@@ -166,3 +166,61 @@ export function applyUpstreamAuth(
   }
   return out;
 }
+
+/**
+ * Query parameters that carry a provider credential.
+ *
+ * Header custody (applyUpstreamAuth) is total, but it is not the whole story:
+ * Google's REST API documents its key as `?key=`, Azure OpenAI accepts
+ * `?api-key=`, and an OAuth-style endpoint takes `?access_token=`. A caller who
+ * puts their own key in the URL therefore reached the provider on that key,
+ * with the operator's key sitting unused in a header beside it — the exact
+ * bypass of attribution and quota that custody exists to close.
+ */
+const CREDENTIAL_QUERY_PARAMS = new Set(['key', 'api-key', 'api_key', 'access_token']);
+
+/**
+ * Remove credential parameters from an upstream query string, preserving every
+ * other parameter byte-for-byte.
+ *
+ * Deliberately NOT rebuilt through URLSearchParams: that re-encodes what it
+ * round-trips, so `?model=ft:gpt-4o:acme` would reach the provider as
+ * `?model=ft%3Agpt-4o%3Aacme` and `a+b` would become `a%2Bb`. A gateway must
+ * not rewrite a request it has no reason to touch.
+ *
+ * Only called when the operator holds the key for the route: with custody off
+ * the client's own credential is what should reach the provider, in the URL
+ * exactly as in the header.
+ */
+export function stripCredentialQuery(query: string): string {
+  if (!query) return query;
+  const raw = query.startsWith('?') ? query.slice(1) : query;
+  if (!raw) return query;
+  const segments = raw.split('&');
+  const kept = segments.filter(segment => {
+    const name = segment.split('=')[0] ?? '';
+    return !CREDENTIAL_QUERY_PARAMS.has(decodeURIComponent(name).toLowerCase());
+  });
+  if (kept.length === segments.length) return query;
+  return kept.length ? '?' + kept.join('&') : '';
+}
+
+/**
+ * The `Host` header for an upstream call.
+ *
+ * The port belongs in it whenever it is not the scheme default. The documented
+ * private-endpoint shape is `{ host: 'vllm.svc.cluster.local', port: 8000,
+ * protocol: 'http' }`, and an ingress, a vhost or any reverse proxy in front of
+ * that endpoint routes on Host: given the bare hostname it either 404s or
+ * serves a different backend entirely.
+ */
+export function upstreamHostHeader(provider: GatewayProvider): string {
+  const defaultPort = provider.protocol === 'http' ? 80 : 443;
+  const port = provider.port ?? defaultPort;
+  // An IPv6 literal has to be bracketed before a port can be appended, or
+  // `::1` + `:8000` parses as a different address entirely.
+  const host = provider.host.includes(':') && !provider.host.startsWith('[')
+    ? `[${provider.host}]`
+    : provider.host;
+  return port === defaultPort ? host : `${host}:${port}`;
+}
