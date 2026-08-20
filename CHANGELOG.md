@@ -96,6 +96,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unhandled promise rejection now runs the cleanup hooks.** Only
+  `uncaughtException` was registered, so a rejected promise nobody awaited took
+  Node's default path and terminated *without* `cleanup()` running. That matters
+  more here than in most programs: `cleanup()` restores the hosts file and
+  removes the `:443` port redirect, and a sinkhole install that outlives the
+  process sends every provider request on the machine to a port with nothing
+  listening on it. Rejections are now rethrown into the same fatal path as any
+  other error.
+
 - **A mistyped numeric environment variable now refuses to start the firewall
   instead of silently disabling a stage.** `parseInt`/`parseFloat` return `NaN`
   for anything unparseable, and `NaN` poisons quietly: `server.listen(NaN)`

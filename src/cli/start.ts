@@ -288,6 +288,19 @@ export async function run(args: string[] = []): Promise<void> {
     cleanup();
     process.exit(1);
   });
+  // A rejected promise nobody awaited was left to Node's default, which on
+  // Node 15+ is to print a warning and terminate — but AFTER this process's
+  // cleanup hooks were skipped entirely. That matters here more than in most
+  // programs: cleanup() restores the hosts file and removes the :443 port
+  // redirect, and a sinkhole install that outlives the process sends every
+  // provider request on the machine to a port with nothing listening on it.
+  //
+  // Rethrowing inside uncaughtException's sibling handler routes it through
+  // the handler above, so an unhandled rejection now takes the same documented
+  // exit path as any other fatal error instead of a different, quieter one.
+  process.on('unhandledRejection', (reason) => {
+    throw reason instanceof Error ? reason : new Error(`Unhandled rejection: ${String(reason)}`);
+  });
 
   // Write PID file
   fs.mkdirSync(llmfwDir, { recursive: true });
