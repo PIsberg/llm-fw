@@ -1,4 +1,6 @@
-# spec: llm-fw — Local LLM Prompt Injection Firewall
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Local LLM prompt-injection firewall
+
+# Specification: Local LLM prompt-injection firewall
 
 ## Overview
 

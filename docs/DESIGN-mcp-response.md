@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > How it is built > Correct MCP Response (Inbound) Interception
+
 # Design: Correct MCP Response (Inbound) Interception
 
 This supersedes Phase 4.2 of `docs/plans/PLAN-mcp.md`. The committed implementation of

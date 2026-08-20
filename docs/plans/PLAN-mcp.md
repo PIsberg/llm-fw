@@ -1,4 +1,6 @@
-# Implementation Plan: MCP Monitoring & Security
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > MCP monitoring and security
+
+# Implementation plan: MCP monitoring and security
 
 ## Phase 1: Configuration & Types
 1. **Update `src/types.ts`**:

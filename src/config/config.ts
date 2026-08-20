@@ -72,6 +72,14 @@ export const DEFAULT_CONFIG: Config = {
     // working download would quietly weaken detection. 0 waits indefinitely.
     modelLoadTimeoutMs: 600_000,
     chunkTokenLimit: 300,
+    // Cost of the embedding stage was linear in prompt length and uncapped:
+    // measured on a running gateway, a 1 MB pasted document or RAG context
+    // took 423 s to scan. Above this many chunks the stage samples evenly
+    // across the whole text instead of encoding every chunk, which bounds it
+    // at roughly 1.7 s while leaving every region reachable. The heuristic
+    // stage still reads every byte. 0 restores the old unbounded behaviour.
+    // Also LLM_FW_EMBEDDING_MAX_CHUNKS.
+    embeddingMaxChunks: 24,
     chunkSize: 200,
     chunkOverlap: 50,
     judgeEnabled: false,
@@ -499,6 +507,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     c.detection.surfaces = c.detection.surfaces ?? {};
     c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, heuristicBlockThreshold: n };
   },
+  LLM_FW_EMBEDDING_MAX_CHUNKS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && n >= 0) c.detection.embeddingMaxChunks = n; },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = parseFloat(v); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = parseFloat(v); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },

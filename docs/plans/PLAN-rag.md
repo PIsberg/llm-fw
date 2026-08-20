@@ -1,4 +1,6 @@
-# Implementation Plan: Context Poisoning Detection (PLAN-rag.md)
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > RAG context-poisoning detection
+
+# Implementation plan: RAG context-poisoning detection
 
 This plan outlines the implementation for the RAG Context Poisoning defenses, utilizing structural parsing and the existing Judge LLM, as specified in `SPEC-rag.md`.
 

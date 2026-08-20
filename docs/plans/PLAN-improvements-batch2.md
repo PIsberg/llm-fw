@@ -1,4 +1,6 @@
-# PLAN — Improvements batch 2 (post intent-mention/two-tier)
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Improvements batch 2 (post intent-mention, two-tier)
+
+# Implementation plan: Improvements batch 2 (post intent-mention, two-tier)
 
 Branch: `feat/improvements-batch2-2026-07`, stacked on
 `feat/intent-mention-and-blending`. Tasks run **sequentially, one commit each**,

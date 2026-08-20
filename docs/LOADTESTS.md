@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Measurements > Load Testing — Performance & Accuracy Validation
+
 # Load Testing — Performance & Accuracy Validation
 
 This document covers the full load-testing infrastructure for `llm-fw`: why it exists, how it works under the hood, how to run it, how to interpret the results, and how to extend it.
@@ -356,6 +358,48 @@ The `load-test` job runs in `.github/workflows/ci.yml` after `build-and-test` su
 The HuggingFace model is cached across runs with `actions/cache` keyed on `package-lock.json`, so model download only occurs on dependency changes.
 
 ---
+
+## Recorded results — 2026-08-20
+
+Run on a local Windows 11 machine (no GPU), ruleset 2026.08.11, at the suite's
+default profile rather than the longer one used in May, so the request counts
+are not comparable with the run below. The latency figures are.
+
+### Scenario A — Performance
+
+| Metric | Value |
+|---|---|
+| Virtual users | 5 |
+| Duration | 20 s |
+| Total requests | **851** |
+| Throughput | **42.55 RPS** |
+| p50 latency | **103 ms** |
+| p95 latency | **236 ms** |
+| p99 latency | **352 ms** (ceiling 5000 ms) |
+| Errors | **0** |
+| Result | **PASSED** |
+
+### Scenario B — Accuracy
+
+| Metric | Value |
+|---|---|
+| Virtual users | 3 |
+| Iterations / VU | 20 (60 total) |
+| Benign mix | 90% |
+| True Negatives (benign → 200) | **54** |
+| False Positives (benign → 403) | **0** |
+| True Positives (attack → 403) | **6** (100%) |
+| False Negatives (attack → 200) | **0** |
+| FPR | **0.00%** (ceiling 2.0%) |
+| TPR | **100.00%** (floor 70.0%) |
+| p50 / p95 / p99 latency | 146 / 400 / 565 ms |
+| Result | **PASSED** |
+
+Per-class detection was 2/2 direct-override, 1/1 exfiltration-markdown, 1/1
+roleplay-fiction and 2/2 social-engineering. The TPR floor has moved from 40%
+to 70% since the May run, and this run cleared it at 100% on a smaller sample:
+6 malicious requests, so read it as "nothing regressed" rather than as a
+precise rate.
 
 ## Recorded results — 2026-05-31
 

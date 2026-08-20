@@ -25,7 +25,10 @@ A new key is not one edit. It is five, and reviewers will look for all of them:
    restart-required. Ports, bind hosts, `proxy.mode`, `bypass`, `targets` and
    `interceptDomains` are cold.
 5. Documentation in [docs/guides/configuration.md](../../docs/guides/configuration.md),
-   next to its siblings, plus a `CHANGELOG.md` entry.
+   plus a `CHANGELOG.md` entry. The environment-variable table there is
+   GENERATED: run `npm run config:reference` rather than editing it, and note
+   that `test/config/config-reference.test.ts` fails until you do. Prose about
+   what the key is for still goes in by hand, next to its siblings.
 
 ## Traps that have bitten before
 
@@ -44,6 +47,10 @@ A new key is not one edit. It is five, and reviewers will look for all of them:
 ## CLI flags
 
 `src/cli/index.ts` is a plain `switch` on `process.argv[2]`, and flags are
-matched with `args.includes(...)`. There is no arg parser. If you add a flag,
-add it to the `usage` text in the same file: `--gateway` and `--observe` are
-both real and both missing from it today.
+matched with `args.includes(...)`. There is no arg parser.
+
+If you add a flag, add it to `USAGE` in `src/cli/usage.ts`. That is enforced,
+not remembered: `test/cli/usage.test.ts` asserts every dispatched subcommand
+and every real flag appears in the help text. `--gateway` and `--observe` were
+shipped, tested and documented in the README while being absent from it, so the
+only way to find them was to read the source.

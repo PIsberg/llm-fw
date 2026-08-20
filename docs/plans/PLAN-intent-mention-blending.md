@@ -1,4 +1,6 @@
-# PLAN — Intent-vs-Mention gate (Option C) + Classifier two-tier policy (Option B)
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Intent-vs-mention gate and two-tier classifier policy
+
+# Implementation plan: Intent-vs-mention gate and two-tier classifier policy
 
 Branch: `feat/intent-mention-and-blending`. Tasks are implemented **sequentially,
 one commit each**, by separate agents. Each task ends with: `npx tsc --noEmit`,

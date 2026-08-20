@@ -34,8 +34,16 @@ All fields are optional — defaults are shown above. Full key reference below a
 ```bash
 LLM_FW_PROXY_PORT=9090
 LLM_FW_EMBEDDING_BLOCK_THRESHOLD=0.80
+LLM_FW_EMBEDDING_MAX_CHUNKS=24
 LLM_FW_JUDGE_ENABLED=true
 ```
+
+**Scan cost on long prompts.** `detection.embeddingMaxChunks` (default `24`)
+bounds how much of one piece of text the embedding stage encodes. Above it the
+text is sampled evenly rather than truncated, and the heuristic stage still
+reads every byte. Raising it costs latency roughly linearly; `0` removes the
+bound entirely, which is how a 1 MB prompt used to take 423 s. See
+[detection-stages.md](detection-stages.md#cost-on-long-prompts).
 
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
@@ -53,6 +61,102 @@ stage is disabled and the firewall starts anyway, with the heuristic, DLP, MCP,
 URL and DoS stages still running — the same outcome as any other model-load
 failure, so an unreachable HuggingFace degrades detection rather than blocking
 startup.
+
+## Environment variable reference
+
+Every `LLM_FW_*` variable, the config key it writes and its default. Applied after the config files, so an environment variable always wins. Two traps worth knowing before you read the table: booleans are strictly the string `true` (`1` and `yes` both mean false), and an empty value is ignored rather than treated as false.
+
+`LLM_FW_GATEWAY_KEY_<SLUG>` is deliberately absent. Provider keys are read straight from the environment and never enter the config object, so the dashboard settings view cannot read them back out.
+
+<!-- CONFIG-REFERENCE-START -->
+
+_81 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+
+| Variable | Sets | Default |
+| --- | --- | --- |
+| `LLM_FW_ASCII_SMUGGLING_ENABLED` | `asciiSmuggling.enabled` | `true` |
+| `LLM_FW_AUDIT_ENABLED` | `audit.enabled` | `false` |
+| `LLM_FW_AUDIT_FILE` | `audit.file` | _unset_ |
+| `LLM_FW_AUDIT_PAYLOADS` | `audit.includePayloads` | `false` |
+| `LLM_FW_AUDIT_WEBHOOK` | `audit.webhookUrl` | _unset_ |
+| `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
+| `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
+| `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
+| `LLM_FW_CLASSIFIER_THRESHOLD` | `detection.classifier.blockThreshold` | `0.9` |
+| `LLM_FW_CRESCENDO_CROSS_REQUEST` | `crescendo.crossRequest` | `false` |
+| `LLM_FW_CRESCENDO_ENABLED` | `crescendo.enabled` | `true` |
+| `LLM_FW_CRESCENDO_MODE` | `crescendo.mode` | `block` |
+| `LLM_FW_DASHBOARD_BIND` | `dashboard.bindHost` | `127.0.0.1` |
+| `LLM_FW_DASHBOARD_PORT` | `dashboard.port` | `7731` |
+| `LLM_FW_DASHBOARD_TOKEN` | `dashboard.authToken` | _unset_ |
+| `LLM_FW_DLP_ENABLED` | `dlp.enabled` | `true` |
+| `LLM_FW_DLP_MODE` | `dlp.mode` | `redact` |
+| `LLM_FW_DOS_ENABLED` | `dos.enabled` | `true` |
+| `LLM_FW_DOS_MAX_RPM` | `dos.maxRequestsPerMinute` | `60` |
+| `LLM_FW_DOS_MAX_TOKENS_PER_SESSION` | `dos.maxTokensPerSession` | `500000` |
+| `LLM_FW_DOS_TOKEN_WINDOW_MS` | `dos.tokenBudgetWindowMs` | `3600000` |
+| `LLM_FW_EMBEDDING_BLOCK_THRESHOLD` | `detection.embeddingBlockThreshold` | `0.86` |
+| `LLM_FW_EMBEDDING_MARGIN` | `detection.embeddingMarginThreshold` | `0.02` |
+| `LLM_FW_EMBEDDING_MAX_CHUNKS` | `detection.embeddingMaxChunks` | `24` |
+| `LLM_FW_EMBEDDING_WARN_THRESHOLD` | `detection.embeddingWarnThreshold` | `0.8` |
+| `LLM_FW_ENFORCEMENT` | `enforcement` | _unset_ |
+| `LLM_FW_EXTRA_TARGETS` | `extraTargets` | `0 entries` |
+| `LLM_FW_FAIL_MODE` | `detection.failMode` | `closed` |
+| `LLM_FW_GATEWAY_BIND` | `gateway.bindHost` | `127.0.0.1` |
+| `LLM_FW_GATEWAY_DEFAULT_PROVIDER` | `gateway.defaultProvider` | `openai` |
+| `LLM_FW_GATEWAY_ENABLED` | `gateway.enabled` | `false` |
+| `LLM_FW_GATEWAY_PORT` | `gateway.port` | `8081` |
+| `LLM_FW_GATEWAY_REQUIRE_AUTH` | `gateway.requireAuth` | _unset_ |
+| `LLM_FW_GATEWAY_TLS_CERT` | `gateway.tls` | _unset_ |
+| `LLM_FW_GATEWAY_TLS_KEY` | `gateway.tls` | _unset_ |
+| `LLM_FW_GATEWAY_TOKEN` | `gateway.authToken` | _unset_ |
+| `LLM_FW_HARMFUL_REQUEST_ENABLED` | `harmfulRequest.enabled` | `true` |
+| `LLM_FW_HARMFUL_REQUEST_MODE` | `harmfulRequest.mode` | `block` |
+| `LLM_FW_HOT_RELOAD` | `hotReload` | `true` |
+| `LLM_FW_HTTPS_PORT` | `proxy.httpsPort` | `8443` |
+| `LLM_FW_INDIRECT_INSTRUCTION_ENABLED` | `indirectInstruction.enabled` | `true` |
+| `LLM_FW_INDIRECT_INSTRUCTION_MODE` | `indirectInstruction.mode` | `block` |
+| `LLM_FW_INTENT_MENTION_ENABLED` | `detection.intentMention` | `true` |
+| `LLM_FW_INTERCEPT_DOMAINS` | `proxy.interceptDomains` | `2 entries` |
+| `LLM_FW_JUDGE_BLOCK` | `detection.judgeBlock` | `false` |
+| `LLM_FW_JUDGE_ENABLED` | `detection.judgeEnabled` | `false` |
+| `LLM_FW_JUDGE_MODEL` | `detection.judgeModel` | `qwen2.5:3b` |
+| `LLM_FW_JUDGE_UNLESS_BENIGN` | `detection.judgeUnlessBenign` | `false` |
+| `LLM_FW_MANYSHOT_ENABLED` | `manyShot.enabled` | `true` |
+| `LLM_FW_MANYSHOT_MODE` | `manyShot.mode` | `block` |
+| `LLM_FW_MAX_BODY_BYTES` | `proxy.maxBodyBytes` | `10485760` |
+| `LLM_FW_MCP_ENABLED` | `mcp.enabled` | `true` |
+| `LLM_FW_MCP_GUARDRAILS_ENABLED` | `mcp.guardrailsEnabled` | `true` |
+| `LLM_FW_MEMORY_POISONING` | `memoryPoisoning.enabled` | `true` |
+| `LLM_FW_MEMORY_POISONING_MODE` | `memoryPoisoning.mode` | `block` |
+| `LLM_FW_METRICS_ENABLED` | `dashboard.metrics` | `true` |
+| `LLM_FW_MODEL_LOAD_TIMEOUT_MS` | `detection.modelLoadTimeoutMs` | `600000` |
+| `LLM_FW_NONTEXT_ENABLED` | `nonText.enabled` | `true` |
+| `LLM_FW_NONTEXT_MODE` | `nonText.mode` | `audit` |
+| `LLM_FW_NONTEXT_OCR` | `nonText.ocr` | `false` |
+| `LLM_FW_OLLAMA_URL` | `detection.ollamaUrl` | `http://localhost:11434` |
+| `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |
+| `LLM_FW_PROXY_MODE` | `proxy.mode` | `proxy` |
+| `LLM_FW_PROXY_PORT` | `proxy.port` | `8080` |
+| `LLM_FW_PROXY_REQUIRE_AUTH` | `proxy.requireAuth` | _unset_ |
+| `LLM_FW_PROXY_TOKEN` | `proxy.authToken` | _unset_ |
+| `LLM_FW_RAG_ENABLED` | `rag.enabled` | `true` |
+| `LLM_FW_RESPONSE_CLASSIFIER_ENABLED` | `responseScan.classifier.enabled` | `false` |
+| `LLM_FW_RESPONSE_CLASSIFIER_MODEL` | `responseScan.classifier.model` | _unset_ |
+| `LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD` | `responseScan.classifier.blockThreshold` | `0.9` |
+| `LLM_FW_RESPONSE_HARM_ENABLED` | `responseScan.harmfulCompliance` | `true` |
+| `LLM_FW_RESPONSE_SCAN_ENABLED` | `responseScan.enabled` | `true` |
+| `LLM_FW_RESPONSE_SCAN_MODE` | `responseScan.mode` | `audit` |
+| `LLM_FW_SCAN_SYSTEM_PROMPT` | `detection.scanSystemPrompt` | `false` |
+| `LLM_FW_SUPPRESSIONS_ENABLED` | `detection.suppressions` | `true` |
+| `LLM_FW_TAINT_ENABLED` | `taint.enabled` | `true` |
+| `LLM_FW_TAINT_MODE` | `taint.mode` | `audit` |
+| `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
+| `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
+| `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
+| `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `false` |
+
+<!-- CONFIG-REFERENCE-END -->
 
 ## Failure Semantics
 

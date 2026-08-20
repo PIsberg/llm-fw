@@ -1,4 +1,6 @@
-# 🚀 Next Improvement Roadmap — llm-fw
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Next improvement roadmap
+
+# Roadmap: next improvements
 
 This document outlines the next logical improvement steps for the [llm-fw](../..) project, derived from the active [PLAN-future.md](./PLAN-future.md) and the latest measurements from [BENCHMARK.md](../BENCHMARK.md).
 

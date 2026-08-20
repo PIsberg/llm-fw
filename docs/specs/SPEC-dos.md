@@ -1,4 +1,6 @@
-# Specification: Cost Control & Agentic DoS Protection (SPEC-dos.md)
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Cost control and agentic DoS protection
+
+# Specification: Cost control and agentic DoS protection
 
 This specification details how `llm-fw` will protect users from run-away autonomous agents, infinite tool-calling loops, and unexpected API billing spikes by implementing robust rate limiting and behavioral heuristic controls.
 

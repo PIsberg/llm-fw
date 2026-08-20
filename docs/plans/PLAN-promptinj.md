@@ -1,4 +1,6 @@
-# plan: llm-fw implementation
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Prompt-injection firewall
+
+# Implementation plan: Prompt-injection firewall
 
 ## Phases
 

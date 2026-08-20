@@ -1,4 +1,6 @@
-# Implementation Plan: Cost Control & Agentic DoS Protection (PLAN-dos.md)
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Cost control and agentic DoS protection
+
+# Implementation plan: Cost control and agentic DoS protection
 
 This plan outlines the implementation roadmap for the Quota Manager and Loop Detector components to prevent agentic loops and billing exhaustion, as specified in `SPEC-dos.md`.
 

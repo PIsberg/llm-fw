@@ -1,4 +1,6 @@
-# Implementation Plan: Live Traffic Monitoring (PLAN-livetraffic.md)
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Live traffic monitoring
+
+# Implementation plan: Live traffic monitoring
 
 This plan outlines the implementation for the Live Traffic Monitoring features, utilizing the proxy interception layer and the existing dashboard, as specified in `SPEC-livetraffic.md`.
 

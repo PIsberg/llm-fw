@@ -6,9 +6,17 @@ on:
     # When 0.4.1's PR was merged early, later pushes to the branch stopped
     # triggering `pull_request` and matched nothing here, so two commits sat
     # unverified while `gh pr checks` kept reporting green from the merged SHA.
-    branches: [main, feat/**, fix/**, chore/**, release/**]
+    #
+    # The same trap, second visit: a branch named with any prefix NOT listed
+    # here gets no CI at all, silently. A perf/** branch was pushed and opened
+    # as a PR and ran nothing. Rather than keep guessing which prefixes people
+    # will use, this now matches every branch and excludes the noisy ones.
+    branches-ignore: [gh-pages, 'dependabot/**']
   pull_request:
-    branches: [main]
+    # Not restricted to main: a stacked PR targets the branch below it, and
+    # `pull_request` only fires for the bases listed here. A stacked PR that
+    # ran nothing still showed a green tick from its own base's run.
+    branches-ignore: [gh-pages]
 
 permissions:
   contents: read
