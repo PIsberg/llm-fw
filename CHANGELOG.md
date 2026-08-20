@@ -96,6 +96,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Teardown and diagnostics no longer abandon their remaining work on the
+  first failure.** `shutdown()` closed the detection pipeline, the gateway, the
+  audit webhook and the audit log with `Promise.all`, so a pipeline that failed
+  to close skipped the audit flush, losing exactly the record its own comment
+  calls "the record of the last seconds before a rollout". `doctor` probed three
+  ports the same way, so one throwing probe replaced the diagnosis with a stack
+  trace. Both use `Promise.allSettled` now, and `shutdown()` reports each
+  component that did not close cleanly rather than swallowing it.
+
+- **`noImplicitReturns` and `noFallthroughCasesInSwitch` are on.** Both were
+  measured at zero errors before being enabled, so they are a pure ratchet.
+
 - **An unhandled promise rejection now runs the cleanup hooks.** Only
   `uncaughtException` was registered, so a rejected promise nobody awaited took
   Node's default path and terminated *without* `cleanup()` running. That matters

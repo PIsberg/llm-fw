@@ -268,13 +268,26 @@ export async function run(args: string[] = []): Promise<void> {
   // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
   // the record of the last seconds before a rollout — exactly the window
   // someone goes looking for afterwards.
-  const shutdown = (): Promise<unknown> =>
-    Promise.all([
-      pipeline.close(),
-      gateway ? gateway.stop() : Promise.resolve(),
-      auditWebhook ? auditWebhook.stop() : Promise.resolve(),
-      auditLog ? auditLog.close() : Promise.resolve(),
-    ]);
+  //
+  // allSettled, not all: these four are independent, and with Promise.all the
+  // FIRST rejection abandons the rest. A pipeline that fails to close would
+  // therefore skip the audit flush, losing precisely the record this comment
+  // says is worth keeping. Each failure is reported rather than swallowed,
+  // because a teardown that half-worked is worth knowing about.
+  const shutdown = async (): Promise<void> => {
+    const tasks: readonly { readonly what: string; readonly done: Promise<unknown> }[] = [
+      { what: 'detection pipeline', done: pipeline.close() },
+      { what: 'gateway', done: gateway ? gateway.stop() : Promise.resolve() },
+      { what: 'audit webhook', done: auditWebhook ? auditWebhook.stop() : Promise.resolve() },
+      { what: 'audit log', done: auditLog ? auditLog.close() : Promise.resolve() },
+    ];
+    const results = await Promise.allSettled(tasks.map(t => t.done));
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(`[shutdown] ${tasks[i].what} did not close cleanly:`, r.reason);
+      }
+    });
+  };
 
   // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
   // paths, so they also terminate the shared inference worker thread (Task
