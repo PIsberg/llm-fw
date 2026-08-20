@@ -96,6 +96,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The false-positive gate can now block a merge.** `Load Tests — Performance
+  & Accuracy (Node 22)` was not among `main`'s required status checks, so a pull
+  request could merge with it red. That job holds four gates that exist nowhere
+  else: the p99 latency ceiling, accuracy under concurrency, the deterministic
+  scorecard sweep, and the false-positive SLO against a held-out benign corpus
+  which fails on the first false positive in any category that currently has
+  none. As `ci.yml` puts it, recall has always been gated and that is the other
+  half. It is now required, along with `dependency-review`.
+
+- **The security scans run on every pull request, not only those targeting
+  `main`.** `Analyze (javascript)`, `Analyze (typescript)` and `Scan` are
+  required checks, but `codeql.yml` and `semgrep.yml` only triggered for a base
+  of `main`, so a stacked pull request could never satisfy them and showed
+  green ticks with the scans never having run on it. That is how three mutable
+  action tags reached a pull request that appeared to be passing.
+
+- **`.claude/rules/testing.md` understated what CI runs.** It listed
+  `npm run test:e2e` and `npm run test:load` and omitted `npm run scorecard`
+  and `npm run fpr` entirely, which are the per-class recall sweep and the
+  false-positive SLO. The rule now names every command, the job it runs in and
+  what it gates.
+
 - **Three high-severity `mcp` advisories closed, and something now watches for
   the next one.** `semgrep` 1.172.0 hard-pinned `mcp==1.23.3`, which carries
   three high-severity advisories. Dependabot could not fix it: the install set

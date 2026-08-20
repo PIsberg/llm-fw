@@ -15,8 +15,13 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: ["main"]
+    # NOT restricted to main. `Analyze (javascript)` and `Analyze (typescript)`
+    # are required status checks, and a required check that cannot run is a
+    # pull request that can never merge: a stacked pull request targeting a
+    # feature branch showed green ticks with these scans never having run on
+    # it at all. Scanning against a base that was not itself analysed loses
+    # the diff baseline and reports every alert rather than only new ones,
+    # which is the right trade against not scanning.
   schedule:
     - cron: "0 0 * * 1"
 
