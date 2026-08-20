@@ -51,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`exactOptionalPropertyTypes` is on.** TypeScript otherwise conflates
+  "property absent" with "property present and undefined". All 35 resulting
+  errors were declarations saying `foo?: T` receiving `T | undefined`, and were
+  fixed by widening the declarations rather than restructuring object literals,
+  so the change is type-level only: the emitted JavaScript is byte-identical
+  across every file in `dist`, verified by hash. `noUncheckedIndexedAccess`
+  remains off and is tracked in
+  [#205](https://github.com/PIsberg/llm-fw/issues/205); its 90 errors are
+  runtime decisions in the detection hot path, not a mechanical pass.
+
 - **Specs and plans have consistent titles.** Their `#` headings carried four
   different conventions (`Implementation Plan: X (PLAN-x.md)`, `PLAN - X`,
   `plan: x`, and one with an emoji) and eleven of them repeated their own
