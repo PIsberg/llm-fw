@@ -26,5 +26,11 @@ updates:
   # Six such PRs appeared within an hour of adding the ecosystem here.
   #
   # Regenerate the whole file with uv instead; the command is in its header.
-  # The Semgrep job fails loudly if the lock is ever unsatisfiable, so a stale
-  # or broken pin cannot pass silently.
+  # The Semgrep job fails loudly if the lock is ever unsatisfiable.
+  #
+  # That is not enough on its own, and it cost three high-severity `mcp`
+  # advisories sitting open with no pull request to fix them: a lock can
+  # resolve perfectly well while pinning a vulnerable transitive dependency,
+  # and nothing failed. `.github/workflows/semgrep-lock-freshness.yml` now
+  # watches the one input that matters, semgrep's own version, and opens a
+  # whole-file regeneration when it moves.
