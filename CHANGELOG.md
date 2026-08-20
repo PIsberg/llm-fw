@@ -38,6 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The configuration guide now contains the key reference it promised.** It
+  said "the full key reference" and listed four environment variables while
+  `ENV_OVERRIDES` held 81. All 81 are now documented with the config key each
+  writes and its default, generated from the code by `npm run config:reference`
+  and pinned by `test/config/config-reference.test.ts`, so adding a variable
+  without documenting it fails the build. A table that size maintained by hand
+  is a table that is wrong within a release.
+
+- **Every document under `docs/` carries the same breadcrumb.** Only the guides
+  had one; the 33 documents at the root and under `specs/` and `plans/` did not,
+  so there was no way back to the index from any of them. The index sections
+  were also split so the trail and the index agree on where a document lives,
+  and the measurement table now names the command that reproduces each set of
+  numbers.
+
 - **README split from 1761 lines to 505.** It keeps the pitch, screenshots,
   install, quick start, deployment-mode overview, comparison, scorecard and
   licence. Every per-defense reference section moved into a guide under
@@ -59,6 +74,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describes where a new document goes and points at the link check.
 
 ### Fixed
+
+- **CI ran on no branch prefix it did not already know about.** `ci.yml`
+  triggered on pushes to `main`, `feat/**`, `fix/**`, `chore/**` and
+  `release/**`, and on pull requests targeting `main` only. Anything else got no
+  CI at all and said so nowhere: a `perf/**` branch was pushed, opened as a pull
+  request, and ran nothing but the dependency review. The same trap the file
+  already carried a comment about, on its second visit. Both triggers are now
+  allow-everything with an ignore list, and `pull_request` is no longer
+  restricted to `main`, so a stacked pull request runs the suite instead of
+  showing a green tick inherited from its base.
+
+- **Retrieved documents are now scanned in isolation, not only in place.** A
+  `<document>`, `<context>` or `<search_results>` block is untrusted data, but
+  the embedding stage only ever saw it wrapped in the surrounding prompt, and
+  the benign wrapper ("Summarize this document:") lifts the benign side of the
+  contrastive margin, which is what gates a block. The Chinese RAG override in
+  the multilingual suite sits at cosine 0.875 with margin 0.039 on its own and
+  blocks; inside its wrapper it sits at 0.886 with margin 0.005 and does not.
+  It passed before only because the `rot13` candidate scrambled the English
+  wrapper into gibberish, dropping the benign similarity and lifting the margin
+  over the floor: a coincidence, not a detection, which is why removing rot13
+  from the embedding stage exposed it. Each of the first 8 distinct blocks is
+  now checked on its own, the same bound the RAG judge uses. Corpus recall for
+  `rag` is 3/3 including the non-English case, which is new to the corpus, and
+  the false-positive rate is unchanged at 8.45% on the same twelve rows.
+
+- **A refused oversized body no longer breaks the client's next request.** Both
+  the gateway and the forward proxy wrote the `413` and then destroyed the
+  request stream in the same tick. On a keep-alive client that left a dead
+  socket in the connection pool, so the next, unrelated request failed with
+  `ECONNRESET` instead of being served, and the refusal itself could be cut off
+  before it flushed. Both now send `Connection: close` with the `413` and tear
+  the connection down after the response has been written.
+
+- **The gateway honours `detection.failMode` under test, not just in intent.**
+  The behaviour was implemented and commented but had no coverage, so nothing
+  stopped a refactor from letting a pipeline throw fall through to the blanket
+  `502` and quietly ignore an availability decision the Helm chart documents.
+  `test/gateway/gateway-failmode.e2e.test.ts` now pins both modes, and the
+  gateway suite also pins the body cap and the upstream-failure `502`.
 
 - **Gateway key custody no longer stops at the headers.** The gateway replaced
   every credential *header* when the operator held the provider key, but
@@ -85,6 +140,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reverse proxy in front of a self-hosted vLLM) either 404s or serves a
   different backend for traffic that is otherwise correct. IPv6 literal hosts
   are bracketed before the port is appended.
+
+- **Scanning a prompt is 2 to 10 times cheaper, and no longer grows without
+  limit with prompt length.** The embedding stage chunked without limit and
+  encoded every chunk, and it encoded candidates that could not carry signal:
+  normalization emits `reversed-full`, `reversed-words` and `rot13` for every
+  input with essentially no gate, and over the corpus those fired on 97, 95 and
+  92 of 97 texts. So most requests paid for three or four full passes over
+  scrambled text, and a long prompt paid without bound. The request body cap did
+  not help, because a multi-megabyte body is usually a base64 image and image
+  bytes never reach that stage as prompt text.
+
+  Two bounds: `detection.embeddingMaxChunks` (default 24,
+  `LLM_FW_EMBEDDING_MAX_CHUNKS`, 0 to disable) samples evenly across the whole
+  text above the cap rather than truncating to the head, so burying a payload
+  past the cap is not a bypass; and the order-scrambled candidates are no longer
+  encoded, while the heuristic stage still scores all of them, which is where an
+  injection written backwards or in ROT13 is actually caught. `leetspeak`,
+  `piglatin`, `caesar` and the real decoders are still embedded.
+
+  Measured on one machine, same harness both sides, cold cache, each input shape
+  warmed first: a typical short prompt went from 66.2 ms to 10.8 ms (median of
+  60), 4 KB from 1.9 s to 0.4 s, 16 KB from 9.5 s to 3.6 s, 64 KB from 51.9 s to
+  5.3 s, and 256 KB from "did not finish three runs in ten minutes" to 6.5 s. A
+  1 MB request through a running gateway went from 423.5 s to 6.5 s.
+
+  No verdict moved. Precision stays 100% and recall 97.8% on the accuracy gate
+  with the same single miss and the same per-category recall, and the
+  false-positive rate stays 8.45% on the same twelve rows, in the same
+  categories, at the same stages. The removed work was not producing detections:
+  a payload the embedding stage blocks standalone (cosine 0.934, margin 0.086)
+  is already not blocked by it once buried in a document of 512 bytes or more,
+  capped or uncapped, because the surrounding text dilutes the chunk it lands
+  in. Ruleset 2026.08.11.
 
 - **A client that set `HTTP_PROXY` used to hang instead of being told why.** The
   proxy listener registers a `connect` handler and forwards CONNECT only, but it

@@ -1,3 +1,5 @@
+[llm-fw](../README.md) > [Documentation](README.md) > Measurements > Competitor guardrail head-to-head (Task B6, Option A)
+
 # Competitor guardrail head-to-head (Task B6, Option A)
 
 Generated 2026-07-05. Independent generalization benchmark (see docs/BENCHMARK.md methodology) run against third-party prompt-injection/jailbreak guardrails on the same held-out splits llm-fw is measured on: recall = attacks blocked, FPR = benign blocked. Different threat models (direct injection vs. indirect injection) are reported separately and never averaged. The llm-fw reference rows are NOT re-run here — they are copied from docs/BENCHMARK-IMPROVEMENTS.md (Round 6) for side-by-side comparison.

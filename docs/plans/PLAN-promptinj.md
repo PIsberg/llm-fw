@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > plan: llm-fw implementation
+
 # plan: llm-fw implementation
 
 ## Phases

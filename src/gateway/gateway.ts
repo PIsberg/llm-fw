@@ -235,8 +235,17 @@ export class GatewayServer {
       req.on('data', (chunk: Buffer) => {
         size += chunk.length;
         if (size > cap) {
+          // Announce the close, answer, and only then tear down. Destroying the
+          // request socket the instant the 413 was written could cut the answer
+          // off before it flushed, and on a keep-alive client it poisoned the
+          // pooled socket: the NEXT, unrelated request on that connection failed
+          // with ECONNRESET instead of being served. `Connection: close` tells
+          // the client not to reuse it, and pausing stops us reading the rest of
+          // the upload without killing the response in flight.
+          res.setHeader('Connection', 'close');
           this.json(res, 413, { error: 'request body too large', limit_bytes: cap });
-          req.destroy();
+          req.pause();
+          res.on('finish', () => req.destroy());
           resolve(null);
           return;
         }

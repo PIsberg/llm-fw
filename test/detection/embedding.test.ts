@@ -273,3 +273,75 @@ describe('a hung model download does not hang the firewall', () => {
     expect(checker.isInitialized()).toBe(true)
   })
 })
+
+describe('the embedding stage caps how much of a long text it encodes', () => {
+  // Chunking was uncapped and every chunk costs a transformer forward pass, so
+  // scan cost scaled with the prompt without limit: measured end to end through
+  // a running gateway, a 1 MB pasted document or RAG context took 423 s. The
+  // request body cap does not help, because a multi-megabyte body is usually a
+  // base64 image, which never reaches this stage as prompt text.
+  let mockExtractor: MockFn
+
+  beforeEach(() => {
+    mockExtractor = makeExtractor(EMBED_X)
+    ;(pipeline as unknown as MockFn).mockResolvedValue(mockExtractor)
+  })
+
+  /** A text long enough to chunk into far more pieces than any cap here. */
+  const longText = (chunks: number) =>
+    Array.from({ length: chunks }, (_, i) => `region ${i} ` + 'the quarterly report covers revenue and headcount '.repeat(6)).join(' ')
+
+  it('encodes at most embeddingMaxChunks pieces and reports what it skipped', async () => {
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 8 })
+    await checker.init()
+    mockExtractor.mockClear()
+
+    const result = await checker.check(longText(60))
+    expect(result.chunkCount).toBe(8)
+    // chunksTotal records the pre-sampling count, so an operator can see that
+    // the text was sampled rather than read whole.
+    expect(result.chunksTotal).toBeGreaterThan(8)
+    expect(mockExtractor).toHaveBeenCalledTimes(8)
+  })
+
+  it('leaves a text that fits under the cap completely alone', async () => {
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 8 })
+    await checker.init()
+    mockExtractor.mockClear()
+
+    const result = await checker.check('summarise the quarterly revenue report')
+    expect(result.chunkCount).toBe(1)
+    // Absent, not equal: nothing was sampled away.
+    expect(result.chunksTotal).toBeUndefined()
+  })
+
+  it('samples across the whole text, keeping the first and last chunk', async () => {
+    // Truncating to the first N chunks would make "bury the payload past the
+    // cap" a reliable bypass. An even stride keeps every region reachable, and
+    // the ends are where an instruction override is most often placed.
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 5 })
+    await checker.init()
+    mockExtractor.mockClear()
+
+    await checker.check(longText(60))
+    const encoded = mockExtractor.mock.calls.map(c => (c[0] as string[])[0])
+    expect(encoded).toHaveLength(5)
+    expect(encoded[0]).toContain('region 0 ')
+    // The final chunk of the text, not the fifth chunk of it.
+    expect(encoded[encoded.length - 1]).toContain('region 59 ')
+    // And the middle samples are spread out rather than adjacent.
+    expect(encoded[2]).not.toContain('region 1 ')
+  })
+
+  it('embeddingMaxChunks: 0 restores the uncapped behaviour', async () => {
+    const capped = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 0 })
+    await capped.init()
+    mockExtractor.mockClear()
+
+    const result = await capped.check(longText(60))
+    expect(result.chunksTotal).toBeUndefined()
+    // Same text the cap-8 case above sampled down; uncapped it encodes them all.
+    expect(result.chunkCount).toBeGreaterThan(8)
+    expect(mockExtractor).toHaveBeenCalledTimes(result.chunkCount)
+  })
+})

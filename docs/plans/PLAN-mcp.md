@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > MCP Monitoring & Security
+
 # Implementation Plan: MCP Monitoring & Security
 
 ## Phase 1: Configuration & Types

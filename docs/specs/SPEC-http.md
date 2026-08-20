@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > HTTP Interception & URL Classification
+
 # Specification: HTTP Interception & URL Classification (SPEC-http.md)
 
 This specification describes how `llm-fw` can be extended to intercept general HTTP/HTTPS traffic from local LLM agents, browsers, and tools, and details the available strategies and architectures for classifying and blocking malicious ("bad") URLs to prevent data exfiltration.

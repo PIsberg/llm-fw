@@ -1,3 +1,5 @@
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Improvements batch 2 (post intent-mention/two-tier)
+
 # PLAN — Improvements batch 2 (post intent-mention/two-tier)
 
 Branch: `feat/improvements-batch2-2026-07`, stacked on
