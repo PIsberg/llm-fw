@@ -268,13 +268,31 @@ export async function run(args: string[] = []): Promise<void> {
   // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
   // the record of the last seconds before a rollout — exactly the window
   // someone goes looking for afterwards.
-  const shutdown = (): Promise<unknown> =>
-    Promise.all([
-      pipeline.close(),
-      gateway ? gateway.stop() : Promise.resolve(),
-      auditWebhook ? auditWebhook.stop() : Promise.resolve(),
-      auditLog ? auditLog.close() : Promise.resolve(),
-    ]);
+  //
+  // allSettled, not all: these four are independent, and with Promise.all the
+  // FIRST rejection abandons the rest. A pipeline that fails to close would
+  // therefore skip the audit flush, losing precisely the record this comment
+  // says is worth keeping. Each failure is reported rather than swallowed,
+  // because a teardown that half-worked is worth knowing about.
+  const shutdown = async (): Promise<void> => {
+    const tasks: readonly { readonly what: string; readonly done: Promise<unknown> }[] = [
+      { what: 'detection pipeline', done: pipeline.close() },
+      { what: 'gateway', done: gateway ? gateway.stop() : Promise.resolve() },
+      { what: 'audit webhook', done: auditWebhook ? auditWebhook.stop() : Promise.resolve() },
+      { what: 'audit log', done: auditLog ? auditLog.close() : Promise.resolve() },
+    ];
+    const results = await Promise.allSettled(tasks.map(t => t.done));
+    results.forEach((r, i) => {
+      const task = tasks[i];
+      if (r.status !== 'rejected' || !task) return;
+      // Constant format string with the name as an ARGUMENT, not interpolated
+      // into it. Every name here is a literal from the array above, so nothing
+      // hostile can reach it, but a template literal in a console.* format
+      // position is a pattern worth not having in the codebase at all: the day
+      // one of those names becomes dynamic, an injected `%s` forges log lines.
+      console.error('[shutdown] %s did not close cleanly:', task.what, r.reason);
+    });
+  };
 
   // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
   // paths, so they also terminate the shared inference worker thread (Task
@@ -287,6 +305,19 @@ export async function run(args: string[] = []): Promise<void> {
     console.error('Uncaught exception:', err);
     cleanup();
     process.exit(1);
+  });
+  // A rejected promise nobody awaited was left to Node's default, which on
+  // Node 15+ is to print a warning and terminate — but AFTER this process's
+  // cleanup hooks were skipped entirely. That matters here more than in most
+  // programs: cleanup() restores the hosts file and removes the :443 port
+  // redirect, and a sinkhole install that outlives the process sends every
+  // provider request on the machine to a port with nothing listening on it.
+  //
+  // Rethrowing inside uncaughtException's sibling handler routes it through
+  // the handler above, so an unhandled rejection now takes the same documented
+  // exit path as any other fatal error instead of a different, quieter one.
+  process.on('unhandledRejection', (reason) => {
+    throw reason instanceof Error ? reason : new Error(`Unhandled rejection: ${String(reason)}`);
   });
 
   // Write PID file

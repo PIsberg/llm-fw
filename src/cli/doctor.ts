@@ -519,11 +519,17 @@ async function probe(): Promise<DoctorProbe> {
   const missingHostsTargets = config.targets.filter(t => !loopbackHosts.has(t))
   const hostsTargetCount = config.targets.length - missingHostsTargets.length
 
-  const [proxyListening, dashboardListening, sinkholeListening] = await Promise.all([
+  // allSettled, not all: `doctor` exists to report on a broken installation, so
+  // one probe throwing must not abandon the other two and leave the operator
+  // with a stack trace instead of a diagnosis. A probe that failed reports the
+  // port as not listening, which is what a failed probe means to a reader.
+  const probes = await Promise.allSettled([
     running ? portListening(config.proxy.port) : Promise.resolve(false),
     running ? portListening(config.dashboard.port) : Promise.resolve(false),
     running && sinkholeActive ? portListening(config.proxy.httpsPort) : Promise.resolve(false),
   ])
+  const [proxyListening, dashboardListening, sinkholeListening] =
+    probes.map(p => p.status === 'fulfilled' && p.value === true)
 
   const env = process.env
   return {

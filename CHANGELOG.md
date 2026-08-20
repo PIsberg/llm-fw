@@ -96,6 +96,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Teardown and diagnostics no longer abandon their remaining work on the
+  first failure.** `shutdown()` closed the detection pipeline, the gateway, the
+  audit webhook and the audit log with `Promise.all`, so a pipeline that failed
+  to close skipped the audit flush, losing exactly the record its own comment
+  calls "the record of the last seconds before a rollout". `doctor` probed three
+  ports the same way, so one throwing probe replaced the diagnosis with a stack
+  trace. Both use `Promise.allSettled` now, and `shutdown()` reports each
+  component that did not close cleanly rather than swallowing it.
+
+- **`noImplicitReturns` and `noFallthroughCasesInSwitch` are on.** Both were
+  measured at zero errors before being enabled, so they are a pure ratchet.
+
+- **An unhandled promise rejection now runs the cleanup hooks.** Only
+  `uncaughtException` was registered, so a rejected promise nobody awaited took
+  Node's default path and terminated *without* `cleanup()` running. That matters
+  more here than in most programs: `cleanup()` restores the hosts file and
+  removes the `:443` port redirect, and a sinkhole install that outlives the
+  process sends every provider request on the machine to a port with nothing
+  listening on it. Rejections are now rethrown into the same fatal path as any
+  other error.
+
+- **A mistyped numeric environment variable now refuses to start the firewall
+  instead of silently disabling a stage.** `parseInt`/`parseFloat` return `NaN`
+  for anything unparseable, and `NaN` poisons quietly: `server.listen(NaN)`
+  binds a *random* free port, and a `NaN` detection threshold makes every
+  `score >= threshold` comparison false, which turns a detection stage off with
+  nothing in the log. `LLM_FW_EMBEDDING_BLOCK_THRESHOLD=high` produced a
+  firewall that still answered `200` and had simply stopped blocking. Ten of the
+  seventeen numeric overrides had no guard at all; the seven that did silently
+  ignored the bad value, which tells an operator their setting took effect when
+  it did not. All of them now throw a `ConfigError` naming the variable, the
+  value and what was expected, and ranges are enforced (a port is 0-65535, a
+  cosine threshold is 0-1).
+
 - **The false-positive gate can now block a merge.** `Load Tests — Performance
   & Accuracy (Node 22)` was not among `main`'s required status checks, so a pull
   request could merge with it red. That job holds four gates that exist nowhere

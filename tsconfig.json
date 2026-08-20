@@ -6,6 +6,10 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
+    // Both cost zero errors on this codebase today, measured before adding
+    // them, so they are pure ratchet: they can only catch something new.
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "declaration": true,
