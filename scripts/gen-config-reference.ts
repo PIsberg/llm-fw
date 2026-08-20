@@ -59,7 +59,14 @@ function defaultFor(dotted: string): string {
   let cursor: unknown = DEFAULT_CONFIG;
   for (const segment of dotted.split('.')) {
     if (cursor === null || typeof cursor !== 'object') return '';
-    cursor = (cursor as Record<string, unknown>)[segment];
+    // Own properties only. A path segment of `__proto__`, `constructor` or
+    // `prototype` would otherwise walk off the config object and into
+    // Object.prototype, and report whatever it found there as a default.
+    // Reaching for a missing key yields undefined exactly as before, so the
+    // generated table is unchanged.
+    cursor = Object.hasOwn(cursor as object, segment)
+      ? (cursor as Record<string, unknown>)[segment]
+      : undefined;
   }
   if (cursor === undefined) return '_unset_';
   if (typeof cursor === 'string') return cursor === '' ? '_empty_' : '`' + cursor + '`';
