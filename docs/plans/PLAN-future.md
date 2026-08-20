@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > plan: future improvements
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Future improvements
 
-# plan: future improvements
+# Roadmap: future improvements
 
 Forward-looking roadmap derived from the held-out benchmark
 ([docs/BENCHMARK.md](../BENCHMARK.md)). The benchmark established three things:

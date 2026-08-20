@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Context Poisoning Detection
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > RAG context-poisoning detection
 
-# Specification: Context Poisoning Detection (SPEC-rag.md)
+# Specification: RAG context-poisoning detection
 
 This specification details how `llm-fw` will protect local agents and Retrieval-Augmented Generation (RAG) pipelines from Context Poisoning, where malicious instructions are hidden inside passive data files or scraped web pages.
 

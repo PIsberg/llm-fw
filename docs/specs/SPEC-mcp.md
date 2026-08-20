@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > MCP (Model Context Protocol) Monitoring & Security Spec
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > MCP (Model Context Protocol) monitoring and security
 
-# MCP (Model Context Protocol) Monitoring & Security Spec
+# Specification: MCP (Model Context Protocol) monitoring and security
 
 ## 1. Overview
 The Model Context Protocol (MCP) standardizes how AI agents communicate with local tools, data sources, and APIs. While the actual MCP communication (JSON-RPC over stdio or SSE) happens locally between the Agent and the MCP Server, the **intent** to use a tool is communicated over the network to the LLM (e.g., Anthropic, OpenAI) via function calling (`tool_use`).

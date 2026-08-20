@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Load Testing
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Load testing
 
-# Implementation Plan: Load Testing (PLAN-loadtests.md)
+# Implementation plan: Load testing
 
 This plan outlines the steps to build the load testing infrastructure specified in `SPEC-loadtests.md` to guarantee performance and minimize false positives.
 

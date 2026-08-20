@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > HTTP Interception & URL Classification
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > HTTP interception and URL classification
 
-# Implementation Plan: HTTP Interception & URL Classification (PLAN-http.md)
+# Implementation plan: HTTP interception and URL classification
 
 This plan outlines the step-by-step implementation roadmap for extending `llm-fw` to intercept external HTTP/HTTPS connections and classify malicious ("bad") domains and exfiltration paths, as specified in [SPEC-http.md](../specs/SPEC-http.md).
 

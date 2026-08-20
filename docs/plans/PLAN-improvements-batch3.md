@@ -1,6 +1,6 @@
 [llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Improvements batch 3 (robustness, outbound guarding, ops, distribution)
 
-# PLAN — Improvements batch 3 (robustness, outbound guarding, ops, distribution)
+# Implementation plan: Improvements batch 3 (robustness, outbound guarding, ops, distribution)
 
 Branch: `feat/improvements-batch3-2026-07`, stacked on
 `feat/improvements-batch2-2026-07`. Tasks run **sequentially, one commit each**,

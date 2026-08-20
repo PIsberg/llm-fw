@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Data Loss Prevention & Secret Redaction
+[llm-fw](../../README.md) > [Documentation](../README.md) > Plans > Data Loss Prevention and secret redaction
 
-# Implementation Plan: Data Loss Prevention & Secret Redaction (PLAN-dlp.md)
+# Implementation plan: Data Loss Prevention and secret redaction
 
 This plan outlines the step-by-step implementation for extending `llm-fw` to detect and redact sensitive data (secrets, PII) in outbound prompts, as specified in `SPEC-dlp.md`.
 

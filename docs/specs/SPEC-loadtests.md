@@ -1,6 +1,6 @@
-[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Load Testing and Accuracy Validation
+[llm-fw](../../README.md) > [Documentation](../README.md) > Specifications > Load testing and accuracy validation
 
-# Specification: Load Testing and Accuracy Validation (SPEC-loadtests.md)
+# Specification: Load testing and accuracy validation
 
 This specification outlines the strategy for load testing the `llm-fw` proxy to ensure it remains performant and accurate under stress.
 

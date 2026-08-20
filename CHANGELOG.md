@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Specs and plans have consistent titles.** Their `#` headings carried four
+  different conventions (`Implementation Plan: X (PLAN-x.md)`, `PLAN - X`,
+  `plan: x`, and one with an emoji) and eleven of them repeated their own
+  filename in the title. They are now `Specification: <subject>`,
+  `Implementation plan: <subject>` or `Roadmap: <subject>`, and the breadcrumb
+  carries the subject alone since the trail already says which section it is in.
+  Nothing linked to their heading anchors, which was checked before renaming.
+
 - **The configuration guide now contains the key reference it promised.** It
   said "the full key reference" and listed four environment variables while
   `ENV_OVERRIDES` held 81. All 81 are now documented with the config key each
