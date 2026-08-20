@@ -363,8 +363,9 @@ Four things to set deliberately:
 
 1. **`secrets.gatewayToken`.** Without one, every pod generates its own at
    startup and every rollout invalidates your clients' token.
-2. **`image.tag`.** `Chart.yaml` carries `appVersion: 0.4.1` while the package is
-   at `0.5.0`, so a default install pulls a stale tag. Pin it.
+2. **`image.tag`.** `Chart.yaml`'s `appVersion` tracks the released package, so
+   a default install pulls the matching image. Pin it anyway if you want a
+   rollout to be reproducible rather than following the chart.
 3. **Keep `gateway.enabled: true`** unless you are replacing the probes.
    `/healthz`, `/livez` and `/readyz` exist **only** on the gateway listener.
    Turn the gateway off and the kubelet has nothing to probe, and will
