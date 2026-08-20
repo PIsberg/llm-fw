@@ -23,7 +23,7 @@ export interface OnlineResult {
   /** false when Keygen says no; null when we could not reach it at all. */
   valid: boolean | null
   /** Keygen's machine-readable code, e.g. VALID / EXPIRED / SUSPENDED / NOT_FOUND. */
-  code?: string
+  code?: string | undefined
   /** Keygen's human-readable sentence, or the reason we could not ask. */
   detail: string
 }

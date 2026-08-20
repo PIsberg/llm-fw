@@ -36,10 +36,10 @@ export type OfflineLicenseVerdict =
 
 export interface OfflineLicenseDetails {
   verdict: OfflineLicenseVerdict
-  licensee?: string
-  plan?: string
-  issued?: string
-  expires?: string
+  licensee?: string | undefined
+  plan?: string | undefined
+  issued?: string | undefined
+  expires?: string | undefined
 }
 
 const FORMAT_PREFIX = 'LFW1'

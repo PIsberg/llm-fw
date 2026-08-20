@@ -163,7 +163,7 @@ export class ProxyServer {
   // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_ms at the
   // pipeline.run() call boundary below; block/warn/event counters are
   // recorded centrally by EventBus.emit() instead.
-  private metrics?: MetricsRegistry
+  private metrics?: MetricsRegistry | undefined
   // Resolved client-credential policy (see src/auth.ts). Enforced at the very
   // top of handleConnect, BEFORE the bypass tunnel, so the fail-safe switch
   // can never turn the proxy into an anonymous open relay.

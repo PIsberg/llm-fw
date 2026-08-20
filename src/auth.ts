@@ -96,9 +96,9 @@ export interface AuthPolicy {
  *   usable at the same time.
  */
 export function resolveAuthPolicy(opts: {
-  requireAuth?: boolean;
-  authToken?: string;
-  bindHost?: string;
+  requireAuth?: boolean | undefined;
+  authToken?: string | undefined;
+  bindHost?: string | undefined;
 }): AuthPolicy {
   const inferred = !isLocalBind(opts.bindHost);
   const required = opts.requireAuth ?? inferred;
