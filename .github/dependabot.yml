@@ -3,18 +3,50 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     # Wait 7 days before proposing updates to newly published versions — a
     # newly published package/action can be malicious or unstable.
+    #
+    # This is also the answer to "why has Dependabot gone quiet?". It has not:
+    # it is holding. Check the publish date before concluding anything is
+    # broken, because a package released yesterday will not be proposed today.
     cooldown:
       default-days: 7
+    # One pull request for the lot. Every action here is already SHA-pinned, so
+    # a bump is a SHA swap that stands or falls as a set; eight separate pull
+    # requests for that is noise, and noise gets bulk-closed unread. It did:
+    # PRs 171-178 were all closed in the same second on 2026-08-11.
+    groups:
+      github-actions:
+        patterns:
+          - '*'
 
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      # Dev tooling moves constantly and is reviewed as a set: if the suite is
+      # green afterwards, the bump did its job. Patch and minor only.
+      dev-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    # Deliberately NOT grouped, so each arrives as its own pull request:
+    #
+    #   * the three runtime dependencies. @huggingface/transformers decides
+    #     every embedding this firewall produces, so a bump can move cosine
+    #     similarities, change verdicts, invalidate the published benchmark
+    #     numbers and require a RULESET_VERSION cut. That is not a bump to
+    #     skim. node-forge issues the CA. cosmiconfig reads config.
+    #   * every major, in either group. vitest and typescript majors change
+    #     the tooling that MEASURES detection, which is the one thing here
+    #     that must not drift unnoticed.
+    #
+    # See the `dependencies` skill for what to check before merging either.
 
   # No pip ecosystem for .github/workflows/semgrep-requirements.txt, on purpose.
   #

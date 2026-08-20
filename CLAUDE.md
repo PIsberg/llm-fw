@@ -30,6 +30,7 @@ Keep this file short. Detail lives in `.claude/rules/`, loaded on demand.
 | The proxy, gateway, sinkhole or auth | [.claude/rules/proxy-gateway.md](.claude/rules/proxy-gateway.md) |
 | Any documentation change | [.claude/rules/docs.md](.claude/rules/docs.md) |
 | Cutting a release | the `release` skill in `.claude/skills/release/` |
+| Dependency updates, Dependabot PRs | the `dependencies` skill in `.claude/skills/dependencies/` |
 
 ## Where things are
 
