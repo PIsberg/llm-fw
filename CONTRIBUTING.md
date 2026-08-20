@@ -18,6 +18,7 @@ This file is about working *on* the project, not *with* it.
 - [Testing requirements](#testing-requirements)
 - [Benchmark and regression expectations](#benchmark-and-regression-expectations)
 - [Documentation expectations](#documentation-expectations)
+- [Conventions this codebase holds to](#conventions-this-codebase-holds-to)
 - [Pull request process](#pull-request-process)
 - [License of contributions](#license-of-contributions)
 
@@ -187,19 +188,81 @@ Run `npm run docs:links` before opening the PR. It walks every Markdown file,
 resolves relative links and verifies that heading anchors exist in the target.
 Use relative links only; `file:///` paths break for everyone but their author.
 
+## Conventions this codebase holds to
+
+Each of these is a decision with a reason, not a preference. Where something is
+enforced by a gate rather than by review, that is said.
+
+**Structure is by domain, not by layer.** `src/detection/`, `src/proxy/`,
+`src/gateway/`, `src/config/`, `src/dashboard/`, `src/cli/`. There is no
+controller/service/repository split because there is no database and no web
+framework: the transport layers are Node's own `http`/`https` servers, and the
+"business logic" is the detection pipeline. `test/` mirrors `src/`.
+
+**Pure ESM.** `"type": "module"`, and `src/` contains no `require()`. Node 22+.
+
+**Three runtime dependencies, and adding a fourth is a decision.**
+`@huggingface/transformers`, `cosmiconfig`, `node-forge`. Every dependency of a
+security product is attack surface a user inherits, so reach for the standard
+library first. A schema-validation library for seventeen scalar environment
+variables did not earn its place; a twenty-line parser did. See
+`envInt`/`envFloat` in `src/config/config.ts`.
+
+**Configuration fails fast.** A numeric environment variable that cannot be
+parsed throws `ConfigError` rather than becoming `NaN`. This is not pedantry:
+`server.listen(NaN)` binds a random port, and a `NaN` threshold makes every
+`score >= threshold` comparison false, which turns a detection stage off while
+the firewall keeps answering `200`. Operational errors carry `isOperational`
+and an `errorCode` so a caller can tell an operator's typo from a bug.
+
+**An empty `catch` needs a comment saying why.** Plenty here are deliberate,
+best-effort cleanup: `process.kill` on a stale PID, `fs.unlinkSync` on a lock
+file. Those are fine and they say so. A silent `catch {}` with no note is
+indistinguishable from a bug.
+
+**`Promise.allSettled` when subtasks fail independently.** `Promise.all`
+abandons the remaining work on the first rejection, which is wrong for teardown
+(losing the audit flush) and for diagnostics (replacing a `doctor` report with a
+stack trace). Use `all` only when one failure genuinely invalidates the batch.
+
+**CPU-heavy work stays off the event loop where it can.** The embedding model
+can run in a worker thread (`detection.workerInference`). Synchronous file reads
+are acceptable at boot and nowhere else.
+
+**Detection changes carry numbers.** Never move a threshold to make a test
+pass. Grow the corpus instead, and if a threshold genuinely must move, say so
+with the measured before and after, cut `RULESET_VERSION`, and re-run
+`npm run fpr`. A false-positive *rate* that holds steady while the set of
+blocked rows changes is a moved verdict wearing the same number.
+
 ## Pull request process
 
 1. Fork and branch from `main`.
 2. Make the change, with tests (see [Testing requirements](#testing-requirements)).
 3. Run `npx tsc --noEmit`, `npm run lint`, `npm run build`, and
-   `npm run test:run` locally — this is what CI runs, so a local pass here is
-   the real signal.
+   `npm run test:run` locally. **If you touched detection, also run
+   `npm run fpr` and `npm run scorecard`**: both are required status checks on
+   `main`, and `fpr` fails on the *first* false positive in any category that
+   currently has none. See [Testing requirements](#testing-requirements).
 4. Update the docs the change makes wrong (see above).
 5. Open the PR against `main`. Describe *why* the change is needed and how you
    verified it; the diff already shows *what* changed.
 6. Address review feedback and keep the PR green through CI. A maintainer
    merges once checks pass and the change is reviewed — please don't merge
    your own PR.
+
+`main` requires these eight checks, and requires the branch to be up to date
+with `main` before merging:
+
+```
+Build & Test (Node 22)     Build & Test (Node 24)     E2E Tests (Node 22)
+Analyze (javascript)       Analyze (typescript)       Scan
+Load Tests — Performance & Accuracy (Node 22)         dependency-review
+```
+
+`Load Tests` is the one people forget. It carries the p99 latency ceiling, the
+accuracy-under-load gate, the deterministic scorecard sweep and the
+false-positive SLO.
 
 ## License of contributions
 
