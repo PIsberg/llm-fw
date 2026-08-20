@@ -18,11 +18,24 @@ detection accuracy regression) and `vitest run --config vitest.e2e.config.ts`
 (the proxy end-to-end suite). Both must pass.
 
 Also in CI, not required locally before a PR, but say so in the PR if you did
-not run them: `npm run test:e2e` (Playwright, dashboard UI) and `npm run
-test:load` (performance and accuracy).
+not run them:
+
+| Command | Job | Gates |
+| --- | --- | --- |
+| `npm run test:e2e` | E2E Tests | Playwright, dashboard UI. Needs `npx playwright install chromium` first. |
+| `npm run test:load:perf` | Load Tests | p99 latency ceiling |
+| `npm run test:load:accuracy` | Load Tests | FPR ceiling, TPR floor, under concurrency |
+| `npm run scorecard` | Load Tests | deterministic sweep, per-class recall |
+| `npm run fpr` | Load Tests | false-positive SLO on a HELD-OUT benign corpus |
+
+The last one is the half that is easy to forget. Recall has always been gated;
+`fpr` is what catches a change that starts blocking real benign traffic, and it
+fails on the FIRST false positive in any category that currently has none. If
+you touched detection, run it.
 
 Not in CI: `npm run knip` (unused exports and dependencies), `npm run mutation`
-(Stryker). Worth running when restructuring or removing code.
+(Stryker, weekly on a schedule instead). Worth running when restructuring or
+removing code.
 
 ## Where a test goes
 

@@ -3,7 +3,10 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    branches: ["main"]
+    # NOT restricted to main: `Scan` is a required status check, so a stacked
+    # pull request whose base is a feature branch could never satisfy it.
+    # This is also how three mutable action tags reached a pull request that
+    # was reporting green.
 permissions:
   contents: read
 
