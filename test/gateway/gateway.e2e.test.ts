@@ -401,6 +401,35 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     expect(res.json?.upstream).toBe('127.0.0.1')
   })
 
+  it('gives every request a correlation id and echoes it back', async () => {
+    // An operator tracing "my request was blocked" needs one token that appears
+    // in the response the caller has and in the log lines the request wrote.
+    const res = await request({ path: '/v1/chat/completions', body: benign, headers: authed })
+    const id = res.headers?.['x-request-id']
+    expect(typeof id).toBe('string')
+    expect(String(id).length).toBeGreaterThan(10)
+  })
+
+  it('honours an inbound x-request-id so the trace joins up with the caller', async () => {
+    const res = await request({
+      path: '/v1/chat/completions', body: benign,
+      headers: { ...authed, 'x-request-id': 'caller-supplied-id' },
+    })
+    expect(res.headers?.['x-request-id']).toBe('caller-supplied-id')
+  })
+
+  it('mints its own id rather than trusting an absurd one', async () => {
+    // The id is echoed into a response header and into every log line, so an
+    // unbounded value from a caller is a log-flooding and header-smuggling
+    // primitive rather than a trace.
+    const res = await request({
+      path: '/v1/chat/completions', body: benign,
+      headers: { ...authed, 'x-request-id': 'x'.repeat(500) },
+    })
+    expect(res.headers?.['x-request-id']).not.toBe('x'.repeat(500))
+    expect(String(res.headers?.['x-request-id']).length).toBeLessThan(100)
+  })
+
   it('404s an unroutable path instead of guessing an upstream', async () => {
     calls = []
     const res = await request({ path: '/not-a-provider/x', headers: authed })

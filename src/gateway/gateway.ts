@@ -13,6 +13,10 @@ import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, type Auth
 import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuery, upstreamHostHeader, type GatewayProvider, type GatewayRoute } from './routes.js';
 import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
+import { createLogger, withRequestId } from '../logger.js';
+import { randomUUID } from 'node:crypto';
+
+const log = createLogger('gateway');
 
 /**
  * Reverse-proxy ("gateway") deployment.
@@ -83,12 +87,24 @@ export class GatewayServer {
     });
 
     const tls = gw?.tls;
+    // Every log line this request produces carries the same id, however deep
+    // in the detection pipeline it is written. An inbound x-request-id is
+    // honoured so the id joins up with whatever sent the request; otherwise one
+    // is minted here. The id is echoed back, so a caller reporting "my request
+    // was blocked" can quote something an operator can grep for.
+    const serve = (req: http.IncomingMessage, res: http.ServerResponse): void => {
+      const inbound = (req.headers['x-request-id'] as string | undefined)?.trim();
+      const requestId = inbound && inbound.length <= 200 ? inbound : randomUUID();
+      res.setHeader('x-request-id', requestId);
+      withRequestId(requestId, () => { void this.handle(req, res); });
+    };
+
     this.server = tls
       ? https.createServer(
         { cert: fs.readFileSync(tls.certFile), key: fs.readFileSync(tls.keyFile) },
-        (req, res) => { void this.handle(req, res); },
+        serve,
       )
-      : http.createServer((req, res) => { void this.handle(req, res); });
+      : http.createServer(serve);
   }
 
   /** Credential clients must present. Printed at startup by cli/start.ts. */
@@ -221,7 +237,7 @@ export class GatewayServer {
 
       await this.forward(req, res, route, decision.body, authIsInternal);
     } catch (err) {
-      console.error(`[gateway] ${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
+      log.error(`${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
     }
   }
@@ -356,7 +372,7 @@ export class GatewayServer {
         kind: 'error',
         ...tenantTag,
       });
-      console.error(`[gateway] pipeline error on ${method} ${path}: ${message}`);
+      log.error(`pipeline error on ${method} ${path}: ${message}`);
       if (failOpen) return { blocked: false, body: bodyBuf };
       return {
         blocked: true, status: 403,
@@ -455,7 +471,7 @@ export class GatewayServer {
         resolve();
       });
       upstream.on('error', (err) => {
-        console.error(`[gateway] upstream ${route.provider.host} — ${err.message}`);
+        log.error(`upstream ${route.provider.host} — ${err.message}`);
         this.json(res, 502, { error: 'upstream request failed', upstream: route.provider.host });
         resolve();
       });

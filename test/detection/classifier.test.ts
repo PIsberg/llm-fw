@@ -189,7 +189,15 @@ describe('InjectionClassifier worker isolation (Task C3)', () => {
     await c.init()
     expect(c.isInitialized()).toBe(false)
     expect(await c.classify('anything')).toBeNull()
-    expect(warn).toHaveBeenCalledWith('[classifier] could not load injection classifier — stage disabled:', 'network down')
+    // One structured record rather than two console arguments. Asserting on
+    // the content the operator reads, not on the shape of the call.
+    // Pin the format. The logger otherwise chooses JSON or prose from whether
+    // stderr is a TTY, which would make these assertions pass or fail depending
+    // on how the suite was launched.
+    process.env.LLM_FW_LOG_FORMAT = 'json'
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not load injection classifier'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('network down'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"scope":"classifier"'))
     warn.mockRestore()
   })
 

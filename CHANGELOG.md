@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Structured logging, with a correlation id per request.** `console.log` gave
+  an operator no level to filter on, no structure to ship to a collector, and no
+  way to join the lines one request produced. `src/logger.ts` emits JSON with a
+  level, a scope and the request's id, and prose when stderr is a terminal, so
+  a person running `llm-fw start` and a container shipping to a collector each
+  get what they want without configuring it. `LLM_FW_LOG_LEVEL` and
+  `LLM_FW_LOG_FORMAT` control it. The gateway honours an inbound `x-request-id`
+  and echoes the id back, so "my request was blocked" has one token that appears
+  both in the caller's response and in the operator's logs. Prompt text, tool
+  results, retrieved documents and credentials are still never logged; payload
+  capture remains a deliberate, separate decision behind `audit.includePayloads`.
+  No new dependency: the logger is about 100 lines, because this package ships
+  three runtime dependencies on purpose. Closes
+  [#206](https://github.com/PIsberg/llm-fw/issues/206).
+
 - **A `dependencies` skill, and Dependabot pull requests that arrive grouped.**
   Eight separate bump pull requests were opened on 2026-08-11 and all eight were
   closed in the same second, unread. Dependabot now proposes weekly rather than

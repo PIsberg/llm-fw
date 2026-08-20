@@ -131,7 +131,13 @@ describe('OutputModerationClassifier', () => {
     expect(await c.classify('anything')).toBeNull()
     // Load is attempted ONCE — classify() must not retry the download.
     expect(pipeline).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[output-classifier]'), expect.any(String))
+    // The scope moved from a prefix in the text to a field in the record.
+    // Pin the format. The logger otherwise chooses JSON or prose from whether
+    // stderr is a TTY, which would make these assertions pass or fail depending
+    // on how the suite was launched.
+    process.env.LLM_FW_LOG_FORMAT = 'json'
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"scope":"output-classifier"'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not load response moderation classifier'))
     warn.mockRestore()
   })
 

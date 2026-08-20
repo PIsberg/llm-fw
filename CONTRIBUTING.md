@@ -229,6 +229,14 @@ stack trace). Use `all` only when one failure genuinely invalidates the batch.
 can run in a worker thread (`detection.workerInference`). Synchronous file reads
 are acceptable at boot and nowhere else.
 
+**Log through the logger, print through `console`.** `src/logger.ts` is for
+anything an operator reads after the fact: it carries a level, a scope and the
+request's correlation id. `console` stays in `src/cli/` where the output is a
+report a person asked for, such as `doctor` or the startup banner. Never log
+prompt text, tool results, retrieved documents or credentials, and remember
+that a `console.log` added to a hot path in a firewall is a payload leak
+waiting for its first production incident.
+
 **Detection changes carry numbers.** Never move a threshold to make a test
 pass. Grow the corpus instead, and if a threshold genuinely must move, say so
 with the measured before and after, cut `RULESET_VERSION`, and re-run

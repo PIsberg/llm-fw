@@ -62,6 +62,37 @@ URL and DoS stages still running — the same outcome as any other model-load
 failure, so an unreachable HuggingFace degrades detection rather than blocking
 startup.
 
+## Logging
+
+Structured JSON to `stdout` for informational records and `stderr` for
+problems, with one correlation id per request.
+
+```bash
+LLM_FW_LOG_LEVEL=info     # debug | info | warn | error | fatal (default info)
+LLM_FW_LOG_FORMAT=json    # json | pretty (default: pretty on a terminal, json otherwise)
+```
+
+The default is right without configuring it: a person running `llm-fw start`
+in a terminal gets prose, and the same binary in a container gets JSON a
+collector can parse.
+
+Both are read directly from the environment rather than through the config
+object, and so are absent from the table below. Logging starts before
+`loadConfig()` runs, and a logger that cannot report a configuration failure
+because it is waiting on the configuration is no use.
+
+**Request correlation.** The gateway gives every request an id, honouring an
+inbound `x-request-id` when the caller sends one and minting a UUID otherwise,
+and echoes it back in the `x-request-id` response header. Every log record
+written while serving that request carries it, however deep in the detection
+pipeline it was written. So "my request was blocked" has one token that appears
+both in what the caller holds and in what the operator greps.
+
+**What is never logged.** Prompt text, tool results, retrieved documents and
+credentials. This is a firewall for traffic that contains exactly those things;
+payload capture is a deliberate, separate decision behind
+`audit.includePayloads`.
+
 ## Environment variable reference
 
 Every `LLM_FW_*` variable, the config key it writes and its default. Applied after the config files, so an environment variable always wins. Two traps worth knowing before you read the table: booleans are strictly the string `true` (`1` and `yes` both mean false), and an empty value is ignored rather than treated as false.

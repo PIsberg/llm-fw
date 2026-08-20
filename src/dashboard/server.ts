@@ -17,6 +17,9 @@ import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
+import { createLogger } from '../logger.js';
+
+const log = createLogger('dashboard');
 
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -1847,9 +1850,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   const authToken = config.dashboard.authToken || generateToken()
   if (!bindLocal) {
     if (config.dashboard.authToken) {
-      console.log('[dashboard] remote access requires the configured auth token (Authorization: Bearer <token>, or Basic with the token as the password).')
+      log.info('remote access requires the configured auth token (Authorization: Bearer <token>, or Basic with the token as the password).')
     } else {
-      console.log(`[dashboard] reachable remotely — auth token (no LLM_FW_DASHBOARD_TOKEN set): ${authToken}`)
+      log.info(`reachable remotely — auth token (no LLM_FW_DASHBOARD_TOKEN set): ${authToken}`)
     }
   }
 
@@ -1959,7 +1962,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, applied, errors, settings: readSettings(config) }))
         } catch (err) {
-          console.error('[dashboard] /api/settings handler error:', err)
+          log.error('/api/settings handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'internal error' }))
         }
@@ -2201,7 +2204,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ...result, judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
         } catch (err) {
-          console.error('[dashboard] /api/test handler error:', err)
+          log.error('/api/test handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'internal error' }))
         }
@@ -2248,7 +2251,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, entry }))
         } catch (err) {
-          console.error('[dashboard] /api/whitelist handler error:', err)
+          log.error('/api/whitelist handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'internal error' }))
         }
@@ -2317,7 +2320,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, entry }))
         } catch (err) {
-          console.error('[dashboard] /api/feedback handler error:', err)
+          log.error('/api/feedback handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'internal error' }))
         }
@@ -2394,7 +2397,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify(result))
         } catch (err) {
-          console.error('[dashboard] /api/translate handler error:', err)
+          log.error('/api/translate handler error', { err: err })
           res.writeHead(502, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'translation request failed' }))
         }

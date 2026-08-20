@@ -1,4 +1,7 @@
 import { Worker } from 'node:worker_threads'
+import { createLogger } from '../logger.js';
+
+const log = createLogger('inference-worker');
 
 /**
  * Task C3 — main-thread client for opt-in worker_threads inference isolation
@@ -125,10 +128,10 @@ export class InferenceWorkerClient {
 
     this.crashCount++
     if (this.crashCount === 1) {
-      console.warn(`[llm-fw] inference worker crashed (${err.message}) — respawning`)
+      log.warn(`inference worker crashed (${err.message}) — respawning`)
     } else {
       this.permanentlyDisabled = true
-      console.warn(`[llm-fw] inference worker crashed again (${err.message}) — falling back to in-process inference`)
+      log.warn(`inference worker crashed again (${err.message}) — falling back to in-process inference`)
     }
   }
 
