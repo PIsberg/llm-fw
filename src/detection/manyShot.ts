@@ -93,11 +93,14 @@ export function detectManyShot(text: string, config: ManyShotConfig): ManyShotRe
   for (const line of lines) {
     const m = TURN_LABEL_RE.exec(line)
     if (m) {
-      const role = m[1].toLowerCase()
-      const body = line.slice(m[0].length)
+      // Group 1 is not optional in TURN_LABEL_RE, so a successful exec always
+      // has it; the fallback documents that rather than guarding a real case.
+      const role = (m[1] ?? '').toLowerCase()
+      const body = line.slice((m[0] ?? '').length)
       turns.push({ role, body })
-    } else if (turns.length > 0) {
-      turns[turns.length - 1].body += '\n' + line
+    } else {
+      const last = turns[turns.length - 1]
+      if (last) last.body += '\n' + line
     }
   }
 

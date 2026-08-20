@@ -44,7 +44,9 @@ export interface TLSCredentials { cert: string; key: string }
  */
 function randomSerial(): string {
   const b = randomBytes(16)
-  b[0] = b[0] & 0x7f
+  // Clear the top bit so the serial is a positive integer. randomBytes(16)
+  // always has index 0; the fallback restates that for the compiler.
+  b[0] = (b[0] ?? 0) & 0x7f
   return b.toString('hex')
 }
 
@@ -203,7 +205,11 @@ export class CertFactory {
     // Re-use the issuer ASN.1 from the CA cert verbatim (preserves exact byte encoding).
     // TBSCertificate layout (with explicit version): [version, serial, sigAlg, issuer, ...]
     const caCertAsn1 = forge.pki.certificateToAsn1(ca.cert)
+    // Index 3 of the TBSCertificate is the issuer Name. A CA cert that does
+    // not have one is not a CA cert, and a CRL built from a guess would be
+    // signed and served to every client, so refuse rather than improvise.
     const issuerAsn1 = (caCertAsn1.value[0] as { value: forge.asn1.Asn1[] }).value[3]
+    if (!issuerAsn1) throw new Error('CA certificate has no issuer field; cannot build a CRL')
 
     // TBSCertList (no revokedCertificates → empty CRL)
     const tbsCertList = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [

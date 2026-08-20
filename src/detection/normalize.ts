@@ -103,7 +103,9 @@ function decodeAscii85Candidates(text: string): { text: string; source: string }
     if (ok && count > 0) {
       for (let i = count; i < 5; i++) tuple = tuple * 85 + 84
       const bytes = [(tuple >>> 24) & 0xff, (tuple >>> 16) & 0xff, (tuple >>> 8) & 0xff, tuple & 0xff]
-      for (let i = 0; i < count - 1; i++) out.push(bytes[i])
+      // bytes always has 4 entries and count is at most 5, so the slice is
+      // exactly the loop this replaces, with the bound carried by the values.
+      for (const b of bytes.slice(0, count - 1)) out.push(b)
     }
     if (!ok || out.length < 4) continue
     try {
@@ -216,13 +218,15 @@ function decodePigLatin(text: string): string[] {
   const decodeWord = (word: string): string[] => {
     const match = word.match(/^([a-zA-Z]+)ay$/i)
     if (!match) return [word]
+    // Group 1 is not optional in the pattern above, so a match always has it.
     const body = match[1]
+    if (body === undefined) return [word]
     if (body.toLowerCase().endsWith('w')) {
       return [body.slice(0, -1)]
     }
     const matchCons = body.match(/([^aeiouAEIOU]+)$/)
     if (matchCons) {
-      const cons = matchCons[1].toLowerCase()
+      const cons = (matchCons[1] ?? '').toLowerCase()
       const decodings: string[] = []
       for (const cluster of commonClusters) {
         if (cons.endsWith(cluster)) {
@@ -440,13 +444,14 @@ export function calculateEntropy(text: string): number {
   if (!text) return 0;
   const len = text.length;
   const freqs: Record<string, number> = {};
-  for (let i = 0; i < len; i++) {
-    const char = text[i];
-    freqs[char] = (freqs[char] || 0) + 1;
+  // Iterating the string yields the characters themselves, so neither the
+  // index nor the lookup needs a guard the loop already provides.
+  for (const char of text) {
+    freqs[char] = (freqs[char] ?? 0) + 1;
   }
   let entropy = 0;
   for (const char in freqs) {
-    const p = freqs[char] / len;
+    const p = (freqs[char] ?? 0) / len;
     entropy -= p * Math.log2(p);
   }
   return entropy;

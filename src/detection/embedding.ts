@@ -217,10 +217,17 @@ export class EmbeddingChecker {
     let dot = 0
     let normA = 0
     let normB = 0
+    // The hottest loop in the product: one pass per template per chunk. A read
+    // inside a Float32Array's length is always a number, so `?? 0` never fires;
+    // it is also the right failure mode if the two ever differ in length, since
+    // a missing term contributing 0 beats one contributing NaN and poisoning
+    // the whole similarity.
     for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
+      const av = a[i] ?? 0
+      const bv = b[i] ?? 0
+      dot += av * bv
+      normA += av * av
+      normB += bv * bv
     }
     normA = Math.sqrt(normA)
     normB = Math.sqrt(normB)
@@ -267,13 +274,16 @@ export class EmbeddingChecker {
   private sampleChunks(chunks: string[]): string[] {
     const max = this.config.embeddingMaxChunks ?? 0
     if (max <= 0 || chunks.length <= max) return chunks
-    if (max === 1) return [chunks[0]]
+    if (max === 1) return chunks.slice(0, 1)
 
     // Even stride over the closed interval, so index 0 and the final chunk are
     // both always taken and the rest are spread between them.
     const stride = (chunks.length - 1) / (max - 1)
     const sampled: string[] = []
-    for (let i = 0; i < max; i++) sampled.push(chunks[Math.round(i * stride)])
+    for (let i = 0; i < max; i++) {
+      const chunk = chunks[Math.round(i * stride)]
+      if (chunk !== undefined) sampled.push(chunk)
+    }
     return sampled
   }
 
@@ -315,7 +325,9 @@ export class EmbeddingChecker {
       let injSim = 0
       let injIdx = 0
       for (let i = 0; i < this.templateEmbeddings.length; i++) {
-        const sim = this.cosineSimilarity(emb, this.templateEmbeddings[i])
+        const template = this.templateEmbeddings[i]
+        if (!template) continue
+        const sim = this.cosineSimilarity(emb, template)
         if (sim > injSim) {
           injSim = sim
           injIdx = i

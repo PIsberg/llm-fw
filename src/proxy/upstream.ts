@@ -14,8 +14,10 @@ export class UpstreamResolver {
     const cached = this.cache.get(hostname);
     if (cached && performance.now() < cached.expiresAt) return cached.ip;
     const addresses = await this.resolver.resolve4(hostname);
-    if (!addresses.length) throw new Error('No A records for ' + hostname);
     const ip = addresses[0];
+    // Checking the value rather than the length tells the compiler the same
+    // thing it tells a reader: there is an address, or there is no answer.
+    if (!ip) throw new Error('No A records for ' + hostname);
     this.cache.set(hostname, { ip, expiresAt: performance.now() + 60_000 });
     return ip;
   }

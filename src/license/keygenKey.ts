@@ -35,11 +35,11 @@ export type KeyVerdict =
 export interface KeyDetails {
   verdict: KeyVerdict
   /** Who the licence names, when the dataset carries it. */
-  holder?: string
+  holder?: string | undefined
   /** Policy / plan name, when the dataset carries it. */
-  plan?: string
+  plan?: string | undefined
   /** ISO-8601 expiry from the dataset; absent means perpetual. */
-  expiry?: string
+  expiry?: string | undefined
   /** The decoded dataset, for `--verbose` output and for tests to assert on. */
   dataset?: unknown
 }

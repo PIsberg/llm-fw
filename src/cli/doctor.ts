@@ -25,7 +25,7 @@ export type CheckLevel = 'ok' | 'fail' | 'warn' | 'info'
 export interface CheckResult {
   level: CheckLevel
   title: string
-  detail?: string
+  detail?: string | undefined
   /** Commands / instructions to remediate, shown indented under the check. */
   fix?: string[]
 }
@@ -528,7 +528,10 @@ async function probe(): Promise<DoctorProbe> {
     running ? portListening(config.dashboard.port) : Promise.resolve(false),
     running && sinkholeActive ? portListening(config.proxy.httpsPort) : Promise.resolve(false),
   ])
-  const [proxyListening, dashboardListening, sinkholeListening] =
+  // Defaults rather than assertions: the map always yields three booleans,
+  // and if that ever stops being true a probe reads as "not listening", which
+  // is what an unknown probe means to a reader.
+  const [proxyListening = false, dashboardListening = false, sinkholeListening = false] =
     probes.map(p => p.status === 'fulfilled' && p.value === true)
 
   const env = process.env

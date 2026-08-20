@@ -141,8 +141,10 @@ export class DlpScanner {
 
     // Apply right-to-left so earlier indices stay valid as we splice.
     let result = text
-    for (let i = kept.length - 1; i >= 0; i--) {
-      const r = kept[i]
+    // Reverse order matters: each splice must not shift the offsets of the
+    // ones still to come. Iterating the reversed copy keeps that and carries
+    // the bound with the value.
+    for (const r of [...kept].reverse()) {
       result = result.slice(0, r.start) + r.marker + result.slice(r.end)
     }
     return result

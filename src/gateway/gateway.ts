@@ -38,7 +38,7 @@ export class GatewayServer {
   private pipeline: Pipeline;
   private dlp: DlpScanner;
   private eventBus: EventBus;
-  private metrics?: MetricsRegistry;
+  private metrics?: MetricsRegistry | undefined;
   private config: Config;
   private authPolicy: AuthPolicy;
   private providers: Record<string, GatewayProvider>;
@@ -289,7 +289,8 @@ export class GatewayServer {
     // binary uploads are not scanned as if they were prompts.
     if (this.config.dlp.enabled && getParser(path) !== null) {
       const findings = this.dlp.scan(text);
-      if (findings.length) {
+      const firstFinding = findings[0];
+      if (firstFinding) {
         const types = Array.from(new Set(findings.map(f => f.type)));
         // Observation must not refuse the request and must not rewrite it
         // either: 'redact' alters the body the client sent, which is exactly
@@ -300,7 +301,7 @@ export class GatewayServer {
           target, method, path,
           payload_preview: types.join(', '), payload_full: types.join(', '),
           action: this.config.dlp.mode === 'block' ? 'blocked' : 'warned',
-          kind: 'dlp', dlpType: findings[0].type,
+          kind: 'dlp', dlpType: firstFinding.type,
           ...observedTag, ...tenantTag,
         });
         if (mode === 'block') {

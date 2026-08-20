@@ -31,8 +31,8 @@ export class EventBus {
   // metrics registry is: this is the one place every block, warn and audit
   // event already passes through, so nothing can be recorded on the dashboard
   // and missing from the audit trail.
-  private auditLog?: AuditSink
-  private auditWebhook?: AuditSink
+  private auditLog?: AuditSink | undefined
+  private auditWebhook?: AuditSink | undefined
 
   /**
    * Attach the durable audit sinks. Separate from the constructor so the many

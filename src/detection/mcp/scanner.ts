@@ -109,7 +109,7 @@ export class McpScanner {
       if (findings.length > 0) {
         // We cannot redact the tool_result payload at this layer, so when DLP is
         // in block mode we drop the whole request to prevent exfiltration.
-        const reason = `Sensitive data (${findings[0].type}) found in tool result (${toolUseId}).`
+        const reason = `Sensitive data (${findings[0]?.type ?? 'unknown'}) found in tool result (${toolUseId}).`
         if (this.dlp.config.mode === 'block') {
           if (!this.config.auditOnly) {
             return { action: 'block', reason }

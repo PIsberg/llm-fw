@@ -16,10 +16,10 @@ import { OpenAIParser } from '../parsers.js'
 export interface ToolDecision {
   toolName: string
   action: 'block' | 'pass'
-  reason?: string
+  reason?: string | undefined
   // Set when a policy matched but `auditOnly` let the call through; callers
   // emit a 'warned' audit event instead of a silent 'passed'.
-  audit?: boolean
+  audit?: boolean | undefined
 }
 
 export interface JsonInspection {

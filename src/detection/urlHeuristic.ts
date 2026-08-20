@@ -199,8 +199,9 @@ function entropyLabels(host: string): string[] {
   const parts = host.split('.')
   const labels = subdomainLabels(host)
   if (parts.length >= 2) {
+    // length >= 2 makes this index valid; the guard restates it for the compiler.
     const registrable = parts[parts.length - 2]
-    if (!labels.includes(registrable)) labels.push(registrable)
+    if (registrable !== undefined && !labels.includes(registrable)) labels.push(registrable)
   }
   return labels
 }

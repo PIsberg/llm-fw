@@ -86,7 +86,7 @@ export class Pipeline {
   // Reading "the most recent event" from the ring instead would attribute the
   // wrong id under concurrent traffic, which is precisely when someone is
   // trying to trace a block.
-  private onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => BlockEvent | void
+  private onBlock?: ((event: Omit<BlockEvent, 'id' | 'timestamp'>) => BlockEvent | void) | undefined
   private suppressions: SuppressionStore
   // Opt-in cross-request crescendo memory (Task B4, crescendo.crossRequest).
   // Lives for the lifetime of this Pipeline instance — the same lifetime as
@@ -152,7 +152,7 @@ export class Pipeline {
       // Called with each event this run stores. Lets the caller quote the exact
       // event id back to the blocked client instead of guessing it from the
       // shared event ring, which two concurrent requests would race on.
-      onEvent?: (event: BlockEvent) => void;
+      onEvent?: (event: BlockEvent) => void | undefined;
       // Per-request override of the deployment's enforcement setting, used by
       // the gateway so one tenant can observe while the rest enforce.
       enforcement?: 'enforce' | 'observe';
@@ -181,7 +181,7 @@ export class Pipeline {
     meta: {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
-      onEvent?: (event: BlockEvent) => void;
+      onEvent?: (event: BlockEvent) => void | undefined;
     }
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)

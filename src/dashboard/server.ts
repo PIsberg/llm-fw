@@ -1730,29 +1730,37 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
   const applied: string[] = []
   const errors: string[] = []
   for (const [key, value] of Object.entries(patch)) {
-    if (key in BOOL_SETTERS) {
+    // Bind the setter, then test it. `key in TABLE` tells a reader the entry
+    // exists but tells the compiler nothing about TABLE[key], and the tables
+    // are constants with no undefined values, so the two forms select exactly
+    // the same entries. Validation order is unchanged: type first, apply after.
+    const boolSetter = BOOL_SETTERS[key]
+    const enumSpec = ENUM_SETTERS[key]
+    const numberSpec = NUMBER_SETTERS[key]
+    const stringSpec = STRING_SETTERS[key]
+    if (boolSetter) {
       if (typeof value !== 'boolean') { errors.push(`${key}: expected boolean`); continue }
-      BOOL_SETTERS[key](config, value)
+      boolSetter(config, value)
       applied.push(key)
-    } else if (key in ENUM_SETTERS) {
-      const spec = ENUM_SETTERS[key]
+    } else if (enumSpec) {
+      const spec = enumSpec
       if (typeof value !== 'string' || !spec.values.includes(value)) {
         errors.push(`${key}: expected one of ${spec.values.join(', ')}`); continue
       }
       spec.apply(config, value)
       applied.push(key)
-    } else if (key in NUMBER_SETTERS) {
-      const spec = NUMBER_SETTERS[key]
+    } else if (numberSpec) {
+      const spec = numberSpec
       if (typeof value !== 'number' || !Number.isFinite(value) || value < spec.min || value > spec.max) {
         errors.push(`${key}: expected a number in [${spec.min}, ${spec.max}]`); continue
       }
       spec.apply(config, value)
       applied.push(key)
-    } else if (key in STRING_SETTERS) {
+    } else if (stringSpec) {
       if (typeof value !== 'string' || value.trim().length === 0 || value.length > 100) {
         errors.push(`${key}: expected a non-empty string (≤ 100 chars)`); continue
       }
-      STRING_SETTERS[key].apply(config, value.trim())
+      stringSpec.apply(config, value.trim())
       applied.push(key)
     } else {
       errors.push(`${key}: unknown setting`)
@@ -1785,7 +1793,7 @@ function persistSettings(config: Config): void {
 // Non-browser clients (curl, scripts) have no ambient credentials to abuse and
 // send no Origin, so they are unaffected beyond the JSON content-type rule.
 function checkSameOrigin(req: http.IncomingMessage): { ok: true } | { ok: false; status: number; error: string } {
-  const ct = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase()
+  const ct = ((req.headers['content-type'] ?? '').split(';')[0] ?? '').trim().toLowerCase()
   if (ct !== 'application/json') {
     return { ok: false, status: 415, error: 'Content-Type must be application/json' }
   }
