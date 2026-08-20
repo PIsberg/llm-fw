@@ -83,6 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three high-severity `mcp` advisories closed, and something now watches for
+  the next one.** `semgrep` 1.172.0 hard-pinned `mcp==1.23.3`, which carries
+  three high-severity advisories. Dependabot could not fix it: the install set
+  is a fully-resolved, hash-pinned lock, and `dependabot.yml` deliberately does
+  not watch it because bumping one entry of a resolved lock cannot install. So
+  the alerts sat open with no pull request and nothing to raise the fact. The
+  Semgrep job fails when the lock is unsatisfiable, but a lock that resolves
+  while pinning a vulnerable dependency passed quietly. `semgrep` is now
+  1.173.0, which pins `mcp==1.29.0`, above all three patched versions, and
+  `.github/workflows/semgrep-lock-freshness.yml` watches semgrep's own version
+  weekly and opens a whole-file regeneration when it moves.
+
 - **CI ran on no branch prefix it did not already know about.** `ci.yml`
   triggered on pushes to `main`, `feat/**`, `fix/**`, `chore/**` and
   `release/**`, and on pull requests targeting `main` only. Anything else got no

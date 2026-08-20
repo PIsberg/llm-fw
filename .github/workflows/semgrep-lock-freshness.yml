@@ -1,0 +1,120 @@
+name: Semgrep lock freshness
+
+# The Semgrep install set is a fully-resolved, hash-pinned lock, and
+# dependabot.yml deliberately does NOT watch it: it reads the file as a flat
+# requirement list and bumps entries one at a time, which cannot resolve
+# (semgrep hard-pins its own dependencies, so moving one alone gives pip a
+# ResolutionImpossible).
+#
+# The cost of that exclusion showed up as three high-severity `mcp` advisories
+# sitting open with no pull request to fix them and nothing to raise the fact:
+# the Semgrep job fails when the lock is UNSATISFIABLE, but a lock that
+# resolves perfectly well while pinning a vulnerable transitive dependency
+# passes quietly forever.
+#
+# So watch the one input that matters. When a newer semgrep exists, regenerate
+# the whole file the way its header prescribes and open one pull request with
+# the entire resolved tree, which is the only shape that can actually install.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semgrep-lock-freshness
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: '0.9.9'
+
+      - name: Read the pinned semgrep version
+        id: current
+        run: |
+          set -euo pipefail
+          version=$(grep -oP '^semgrep==\K[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/semgrep-requirements.txt)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "locked at $version"
+
+      - name: Find the latest release on PyPI
+        id: latest
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL https://pypi.org/pypi/semgrep/json | jq -r '.info.version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "latest is $version"
+
+      - name: Regenerate the lock
+        id: regen
+        if: steps.current.outputs.version != steps.latest.outputs.version
+        run: |
+          set -euo pipefail
+          target=.github/workflows/semgrep-requirements.txt
+          # Keep the hand-written header: it explains why the file exists, how
+          # to regenerate it, and why dependabot does not watch it.
+          header=$(sed -n '1,/^[a-zA-Z0-9_.-]\+==/p' "$target" | head -n -1)
+          echo "semgrep==${{ steps.latest.outputs.version }}" > /tmp/semgrep.in
+          uv pip compile /tmp/semgrep.in \
+            --generate-hashes --no-header \
+            --python-version 3.12 \
+            --python-platform x86_64-unknown-linux-gnu \
+            -o /tmp/body.txt
+          printf '%s\n' "$header" > "$target"
+          cat /tmp/body.txt >> "$target"
+
+      - name: Prove the new lock installs
+        if: steps.current.outputs.version != steps.latest.outputs.version
+        run: |
+          set -euo pipefail
+          # The same command the Semgrep workflow runs. A lock that cannot
+          # install must never reach a pull request.
+          uv venv /tmp/verify --python 3.12
+          uv pip install --python /tmp/verify --require-hashes \
+            -r .github/workflows/semgrep-requirements.txt
+          uv run --python /tmp/verify semgrep --version
+
+      - name: Open the pull request
+        if: steps.current.outputs.version != steps.latest.outputs.version
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+        with:
+          branch: chore/semgrep-lock-refresh
+          base: main
+          title: "chore: regenerate the Semgrep lock for ${{ steps.latest.outputs.version }}"
+          commit-message: |
+            chore: regenerate the Semgrep lock for ${{ steps.latest.outputs.version }}
+
+            Whole-file regeneration, which is the only shape that installs:
+            semgrep pins its own dependency tree, so moving one entry alone
+            gives pip a ResolutionImpossible. Verified by installing the
+            result with --require-hashes before this was opened.
+          body: |
+            `semgrep` moved from `${{ steps.current.outputs.version }}` to
+            `${{ steps.latest.outputs.version }}`, so the hash-pinned install
+            set was regenerated in full.
+
+            Dependabot does not watch this file on purpose: it reads a resolved
+            lock as a flat requirement list and bumps entries one at a time,
+            which cannot resolve. That exclusion left three high-severity `mcp`
+            advisories open with nothing to fix them, which is what this
+            workflow exists to prevent.
+
+            The new lock was installed with `--require-hashes` and `semgrep
+            --version` was run against it before this pull request was opened.
+            Review the transitive diff as you would a lockfile: the versions
+            are semgrep's choice, not ours.
+          labels: dependencies
+          delete-branch: true
