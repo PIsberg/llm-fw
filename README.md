@@ -34,11 +34,16 @@
 
 ![llm-fw infographic](docs/images/infographics-llm-fw.jpg)
 
+## Video
+
+[![llm-fw walkthrough](https://img.youtube.com/vi/pTcICfIDhwE/hqdefault.jpg)](https://www.youtube.com/watch?v=pTcICfIDhwE&t=60s)
+
 ---
 
 ## Table of Contents
 
 **Start here**
+- [Video](#video)
 - [Dashboard Screenshots](#dashboard-screenshots)
 - [How it works](#how-it-works)
 - [Supported AI services](#supported-ai-services)
