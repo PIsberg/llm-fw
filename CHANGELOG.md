@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Retrieved documents and tool output stop blocking on ordinary imperative
+  prose.** `indirectInstruction` fired on any sensitive verb at a clause
+  boundary, so an expenses handbook ("Submit receipts within 30 days"), a
+  failover runbook ("Step 1, confirm the primary is unreachable"), a git log
+  containing "docs: update benchmark table" and the JSON value
+  `"status":"Update pending"` were all refused when an agent read them back.
+  For a firewall whose worst failure is a developer switching it off, that is
+  the expensive kind of wrong. The rule now additionally requires the verb to
+  take an object that is either attacker-controlled (an account number, a
+  currency amount, a URL, an address, a handle like `guest_amy01`, or a
+  first-person possessive claiming the resource) or plainly sensitive
+  (credentials, customer records, a database), within 120 characters after the
+  verb so it is that verb's object rather than any noun elsewhere in the
+  document.
+
+  Held-out false positives fall from 8.45% to 5.63% (12 of 142 to 8 of 142) with
+  **no measured recall cost**: InjecAgent stays at 1054/1054 with every attack
+  class still at 100%. That is the distinction from the 2026.08.8 attempt at the
+  same problem, which reached the same 5.63% by demoting verbs and paid 14.5
+  points of InjecAgent recall for it, and was reverted. The `rag-document` and
+  `benign-tool-result` ceilings in the false-positive gate were lowered to 1 and
+  0 to hold the improvement, so a regression fails the build rather than being
+  absorbed. Ruleset `2026.08.12`. See
+  [docs/FALSE-POSITIVES.md](docs/FALSE-POSITIVES.md).
+
+### Fixed
+
+- **`docs/FALSE-POSITIVES.md` described an intended state rather than a measured
+  one, in three places.** Its per-category table summed to 8 blocked rows while
+  the headline on the same page reported 12; the "what is actually being
+  blocked" list still named rows that two earlier rulesets had already cleared;
+  and the priorities list was still counted against a baseline two rulesets old.
+  All three now carry what `npm run fpr` actually reports, and the list is
+  enumerated in full so a reader can check it against a run rather than trust
+  the prose.
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
