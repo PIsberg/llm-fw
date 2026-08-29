@@ -109,7 +109,7 @@ Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
 **Provenance.** Every **cheap (default)** figure below was measured on
-2026-08-29 against ruleset `2026.08.12`, full splits and no sampling, by
+2026-08-29 against ruleset `2026.08.13`, full splits and no sampling, by
 `node --import tsx/esm scripts/run-benchmark.ts cheap`. The previous column had
 been measured on 2026-08-13 against ruleset `2026.08.4`/`2026.08.6` and was not
 regenerated across the four rulesets that followed, so four of its eight rows
@@ -126,7 +126,7 @@ double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 5.63% (8/142) at ruleset `2026.08.12`. Both harnesses now
+`benign-realistic` — 5.63% (8/142) at ruleset `2026.08.13`. Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
 `tool_definition` surfaces and scanned both as untrusted user text — a path
@@ -139,17 +139,30 @@ claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.13 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
-| gandalf (real "ignore instructions" attacks) | 112 | 73.2% (82/112) / — | 100% / — ‡ |
-| safeguard (clean, balanced, full split) | 2,060 | 41.8% (272/650) / 0.21% (3/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** |
-| deepset (noisy labels) | 116 | 11.7% (7/60) / 0% (0/56) | 41.7% / 0% ‡ |
+| gandalf (real "ignore instructions" attacks) | 112 | 74.1% (83/112) / — | 100% / — ‡ |
+| safeguard (clean, balanced, full split) | 2,060 | 60.8% (395/650) / 0.21% (3/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** |
+| deepset (noisy labels) | 116 | 25.0% (15/60) / 0% (0/56) | 41.7% / 0% ‡ |
 | heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
 
+Pooled across those four splits, direct-injection recall is **60.0% (512/853)**,
+up from 44.5% (380/853) at ruleset `2026.08.12`. Ruleset `2026.08.13` closed the
+override family (the object list demanded a specific noun, so "forget
+everything" slipped through in every language), fixed a Spanish quantifier that
+missed the canonical Spanish injection on one character, and added rules for
+persona-reassignment exfiltration and system-prompt extraction. No
+false-positive rate moved.
+
 **Why the classifier is still opt-in, despite that safeguard row.** On safeguard
-the trained classifier is the better detector by a wide margin: 83.5% recall
-against the cheap pipeline 41.8%, at a comparable 0.28% false-positive rate.
-That row on its own argues for turning it on by default. Measured against the
+the trained classifier is still the better detector: 83.5% recall against the
+cheap pipeline 60.8%, at a comparable 0.28% false-positive rate. That gap was
+41.7 points before ruleset `2026.08.13` closed the override, disclosure and
+extraction families, and is 22.7 points now: roughly half of what the classifier
+was buying on this split is bought deterministically instead, at ~27 ms rather
+than ~800 ms.
+
+That row on its own still argues for turning it on by default. Measured against the
 realistic benign corpus instead, it argues the opposite. On
 `test/eval/data/benign-realistic.json` the same configuration blocks 27.5% of
 benign rows (39 of 142) where the cheap pipeline blocks 5.63% (8 of 142), and it
@@ -166,13 +179,36 @@ one benign request in four.
 
 So the shipped operating point is the honest one: the classifier stays opt-in,
 and the safeguard row is what it can do for a deployment whose traffic resembles
-that corpus and which has measured its own false-positive rate first. Raising
-`classifier.blockThreshold` is the untested lever; nobody has swept it against
-both corpora, and until someone does, the default cannot move.
+that corpus and which has measured its own false-positive rate first.
+
+**The threshold lever was swept, and it does not resolve this.** Measured
+2026-08-29 over both corpora in one pass, deriving each operating point from the
+per-row classifier score:
+
+| `blockThreshold` | safeguard recall | safeguard FPR | realistic benign FPR |
+|---|---|---|---|
+| 0.50 | 85.2% (554/650) | 0.07% (1/1,410) | 23.94% (34/142) |
+| 0.90 (default) | 82.8% (538/650) | 0.07% (1/1,410) | 22.54% (32/142) |
+| 0.99 | 78.8% (512/650) | 0.07% (1/1,410) | 18.31% (26/142) |
+| 1.00 (maximum) | 74.0% (481/650) | 0.07% (1/1,410) | 15.49% (22/142) |
+
+Even at the maximum threshold the classifier still blocks 15.5% of realistic
+benign traffic, against 5.63% for the cheap pipeline, while p50 latency is 147 ms
+against roughly 27 ms. There is no operating point at which it is merely a
+strictly better detector: it is confidently wrong about system prompts, tool
+definitions and developer imperatives, and confidence is exactly what a threshold
+cannot filter. The default therefore cannot move on this lever, and the remaining
+options are surface-scoping it away from those shapes or retraining it.
+
+These figures are a lower bound on a combined deployment, which is why the
+default row reads 22.54% here against the 27.5% measured directly above. The sweep pinned the
+threshold at 0 so every row recorded a classifier score, which lets the classifier
+pre-empt the cheap stages; rows it takes are therefore not credited to the cheap
+rules that would otherwise have caught them.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.13 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
 
@@ -185,10 +221,24 @@ this surface.
 † FPR over only 17 synthetic benign rows — indicative, not precise. The same
 caveat applies to heldout's 21 benign rows: a 9.5% FPR there is 2 prompts.
 
+**Read the 100% with its corpus in mind.** InjecAgent is templated, and its
+attacker instructions are far less varied than 1,054 rows suggests: 66.7% of the
+attack rows contain an email address and 54.8% contain the *same* one
+(`amy.watson@gmail.com`); only 30.7% contain neither an email nor a URL. The
+object list in `indirectInstruction` matches an email address directly, so a
+large share of that 100% rests on one recurring artifact. Dropping the entire
+sensitive-object half of that list was measured and changes InjecAgent recall by
+zero, because every attack there carries an attacker-controlled identifier.
+
+What the row supports is "catches essentially all indirect injection of the
+InjecAgent template shape", which is not the same claim as "catches essentially
+all indirect injection". A second indirect-injection corpus whose payloads carry
+no identifier is the missing measurement.
+
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.13 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
 | harmbench | 400 | **41.0% (164/400) / —** | 18.5% / — ‡ |
