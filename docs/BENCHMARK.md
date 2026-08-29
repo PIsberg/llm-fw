@@ -108,19 +108,26 @@ fetched copy with `--file=` to reproduce the gate as CI evaluates it.
 Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
-**Provenance.** The **cheap (default)** column was measured on 2026-08-13 by
-`node --import tsx/esm scripts/run-benchmark.ts cheap --json`, first against
-ruleset `2026.08.4` and then re-run in full against `2026.08.6`. Every dataset
-returned identical counts — that re-run is the evidence for the claim that the
-rulesets in between moved observability and per-tenant routing rather than
-verdicts. The **classifier** column is older: it dates from the Round 6 run
-recorded in [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and is
-marked accordingly rather than presented as current.
+**Provenance.** Every **cheap (default)** figure below was measured on
+2026-08-29 against ruleset `2026.08.12`, full splits and no sampling, by
+`node --import tsx/esm scripts/run-benchmark.ts cheap`. The previous column had
+been measured on 2026-08-13 against ruleset `2026.08.4`/`2026.08.6` and was not
+regenerated across the four rulesets that followed, so four of its eight rows
+had drifted by the time they were re-run: gandalf read 81.3% against a measured
+73.2%, deepset 15.0% against 11.7%, safeguard 43.5% against 41.8%, and heldout
+FPR 9.5% against a measured 0%. That is the same failure the paragraph below
+already records, repeated. Regenerate this table when detection changes.
+
+The **classifier** column is mixed. The safeguard row was re-measured at ruleset
+`2026.08.12` on 2026-08-29 and is shown in bold; every other classifier figure
+still dates from the Round 6 run recorded in
+[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and is marked with a
+double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 13.4% (19/142). Both harnesses now build requests through
-one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
+`benign-realistic` — 5.63% (8/142) at ruleset `2026.08.12`. Both harnesses now
+build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
 `tool_definition` surfaces and scanned both as untrusted user text — a path
 production never takes. Two numbers for one corpus is worse than either alone.
@@ -132,16 +139,40 @@ claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-08-13 | + Trained classifier (not re-measured) |
+| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
-| gandalf (real "ignore instructions" attacks) | 112 | 81.3% (91/112) / — | 100% / — ‡ |
-| safeguard (clean, balanced, full split) | 2,060 | 43.5% (283/650) / 0.21% (3/1,410) | 84.9% / 0.7% ‡ |
-| deepset (noisy labels) | 116 | 15.0% (9/60) / 0% (0/56) | 41.7% / 0% ‡ |
-| heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 9.5% (2/21) | 80.6% / 9.5% ‡ |
+| gandalf (real "ignore instructions" attacks) | 112 | 73.2% (82/112) / — | 100% / — ‡ |
+| safeguard (clean, balanced, full split) | 2,060 | 41.8% (272/650) / 0.21% (3/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** |
+| deepset (noisy labels) | 116 | 11.7% (7/60) / 0% (0/56) | 41.7% / 0% ‡ |
+| heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
+
+**Why the classifier is still opt-in, despite that safeguard row.** On safeguard
+the trained classifier is the better detector by a wide margin: 83.5% recall
+against the cheap pipeline 41.8%, at a comparable 0.28% false-positive rate.
+That row on its own argues for turning it on by default. Measured against the
+realistic benign corpus instead, it argues the opposite. On
+`test/eval/data/benign-realistic.json` the same configuration blocks 27.5% of
+benign rows (39 of 142) where the cheap pipeline blocks 5.63% (8 of 142), and it
+does so at 808 ms p50 rather than roughly 10 ms.
+
+The two results are not in conflict, they are measuring different traffic.
+safeguard benign rows are dataset-style prompts. The realistic corpus is
+deliberately weighted toward what an agent deployment actually sends: system
+prompts, tool definitions, retrieved documents, bare developer imperatives. The
+classifier fires hardest on exactly those shapes, blocking 70% of the
+instruction-management rows and 63% of the rag-document rows. A firewall whose
+worst failure is a developer switching it off cannot ship a default that blocks
+one benign request in four.
+
+So the shipped operating point is the honest one: the classifier stays opt-in,
+and the safeguard row is what it can do for a deployment whose traffic resembles
+that corpus and which has measured its own false-positive rate first. Raising
+`classifier.blockThreshold` is the untested lever; nobody has swept it against
+both corpora, and until someone does, the default cannot move.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-08-13 | + Trained classifier (not re-measured) |
+| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
 
@@ -157,11 +188,11 @@ caveat applies to heldout's 21 benign rows: a 9.5% FPR there is 2 prompts.
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-08-13 | + Trained classifier (not re-measured) |
+| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
 | harmbench | 400 | **41.0% (164/400) / —** | 18.5% / — ‡ |
-| advbench | 520 | **63.3% (329/520) / —** | 40.4% / — ‡ |
+| advbench | 520 | **63.1% (328/520) / —** | 40.4% / — ‡ |
 
 ‡ Measured on an earlier ruleset. Where the cheap column now exceeds it, that is
 staleness in the classifier column, not evidence that the classifier hurts —
