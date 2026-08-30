@@ -126,7 +126,7 @@ double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 4.93% (7/142) at ruleset `2026.08.15`. Both harnesses now
+`benign-realistic` — 4.23% (6/142) at ruleset `2026.08.16`. Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
 `tool_definition` surfaces and scanned both as untrusted user text — a path
