@@ -84,7 +84,13 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Lowered from 3 at ruleset 2026.08.12: the bare-imperative rule now
   // requires an attacker-controlled object, so the handbook and runbook rows
   // stopped blocking. Measured, injecagent recall unchanged at 1054/1054.
-  'rag-document': 1,
+  // Lowered to 0 at ruleset 2026.08.15: the benign-prone POLITE verbs took
+  // the same object requirement, so the onboarding-checklist row ("Please
+  // complete your security training ... Please forward the completion
+  // certificate to your manager") stopped blocking. Measured, injecagent
+  // recall again unchanged at 1054/1054 and the identifier-free probe held
+  // at 8/40 via the secret-access object additions.
+  'rag-document': 0,
   // Lowered from 2 at ruleset 2026.08.12 by the same change; this category
   // is now clean, so any new false positive here fails the build.
   'benign-tool-result': 0,

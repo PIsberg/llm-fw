@@ -126,7 +126,7 @@ double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 5.63% (8/142) at ruleset `2026.08.13`. Both harnesses now
+`benign-realistic` — 4.93% (7/142) at ruleset `2026.08.15`. Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
 `tool_definition` surfaces and scanned both as untrusted user text — a path
@@ -294,10 +294,11 @@ see the surface-scoping section above) measures **75% (30/40)** on this probe at
 9.86% realistic-corpus FPR, which is the best identifier-free operating point
 measured so far. Recall on indirect injection that does not hand the detector an
 identifier remains the open problem for the DEFAULT configuration, tracked in
-the repository issues. The probe also blocks 2 of its 20
-benign rows (a "complete your security training" reminder, the same shape as the
-one benign row the shipped corpus still blocks, and "Cancel my 3pm", which the
-loose first-person `my` object catches); both are characterisation, not gated.
+the repository issues. The probe also blocks 1 of its 20
+benign rows ("Cancel my 3pm", which the loose first-person `my` object
+catches); the "complete your security training" reminder it also used to block
+stopped blocking at ruleset `2026.08.15`, when the benign-prone polite verbs
+took the object requirement. The remaining row is characterisation, not gated.
 
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
