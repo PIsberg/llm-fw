@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Benign HR/onboarding prose in retrieved documents no longer blocks: held-out
+  benign FPR 5.63% (8/142) to 4.93% (7/142) at zero recall cost.** The
+  indirect-instruction detector's polite rule ("please <verb>") fired on any
+  sensitive verb with no object requirement, so an onboarding checklist
+  ("Please complete your security training in the first week. Please forward
+  the completion certificate to your manager.") blocked on the tool_result
+  surface. A benign-prone verb subset (complete, confirm, submit, apply,
+  register, subscribe, fill, forward) now requires the same
+  attacker-controlled-or-sensitive object the bare imperative has required
+  since ruleset 2026.08.12, in both the polite rule and the multilingual
+  marker fallback. The sensitive-object list grew secret-access nouns
+  (vault/safe combination and code, passcode, pin code) so the one
+  identifier-free probe attack the ungated rule had caught by verb alone is
+  still caught, by its object. Measured: injecagent 1054/1054 unchanged,
+  identifier-free probe 8/40 unchanged with benign blocks 2 to 1, heldout
+  61.3%, safeguard 60.8%, gandalf 74.1%, deepset 25.0% all unchanged. The
+  rag-document false-positive ceiling is lowered to 0. Ruleset `2026.08.15`.
+
 ### Added
 
 - **The trained classifier can now be scoped per surface, which makes it usable

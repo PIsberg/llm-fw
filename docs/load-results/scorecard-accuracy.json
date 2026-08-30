@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-07-05T18:29:20.026Z",
+  "timestamp": "2026-08-30T18:50:10.299Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,37 +17,7 @@
       "fn": 0
     },
     "perClass": {
-      "roleplay-fiction": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
       "social-engineering": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "benign": {
-        "tp": 0,
-        "fn": 0,
-        "tn": 78,
-        "fp": 0
-      },
-      "direct-override": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "exfiltration-markdown": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "payload-splitting": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
@@ -59,14 +29,44 @@
         "tn": 0,
         "fp": 0
       },
-      "refusal-override": {
-        "tp": 4,
+      "policy-puppetry": {
+        "tp": 3,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "obfuscation-encoding": {
+        "tp": 12,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
       "prompt-exfil": {
         "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "direct-override": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "multilingual": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "benign": {
+        "tp": 0,
+        "fn": 0,
+        "tn": 78,
+        "fp": 0
+      },
+      "roleplay-fiction": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -83,20 +83,8 @@
         "tn": 0,
         "fp": 0
       },
-      "delimiter-confusion": {
-        "tp": 6,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "obfuscation-encoding": {
-        "tp": 12,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
+      "payload-splitting": {
+        "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -107,8 +95,14 @@
         "tn": 0,
         "fp": 0
       },
-      "policy-puppetry": {
-        "tp": 3,
+      "delimiter-confusion": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "refusal-override": {
+        "tp": 4,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -118,14 +112,20 @@
         "fn": 0,
         "tn": 0,
         "fp": 0
+      },
+      "exfiltration-markdown": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
       }
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 106.1,
-    "p50LatencyMs": 95,
-    "p95LatencyMs": 207,
-    "p99LatencyMs": 260,
+    "avgLatencyMs": 57.8,
+    "p50LatencyMs": 50,
+    "p95LatencyMs": 97,
+    "p99LatencyMs": 226,
     "errCount": 0
   },
   "passed": true,
