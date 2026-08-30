@@ -115,8 +115,12 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // this one known false positive; it is the pre-existing behaviour, not a new
   // regression.
   'about-injection': 3,
-  // A tool description that tells the model to ignore embedded instructions.
-  'agent-tool-definition': 1,
+  // Was 1: a tool description that tells the model to ignore embedded
+  // instructions. Lowered to 0 at ruleset 2026.08.16, when the heuristic
+  // learned to strip defensive instruction-hygiene clauses (an override verb
+  // whose object is instructions-IN-DATA) before rule matching. Measured:
+  // every recall split byte-identical, injecagent 1054/1054.
+  'agent-tool-definition': 0,
 };
 
 type Row = EvalRow;
