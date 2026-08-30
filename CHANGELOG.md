@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The trained classifier can now be scoped per surface, which makes it usable
+  as an indirect-injection detector.** `detection.classifier.surfaces` (also
+  `LLM_FW_CLASSIFIER_SURFACES`) selects which scan surfaces reach the opt-in
+  classifier; the default now excludes the trusted `system` and
+  `tool_definition` surfaces, where it blocked benign developer text at every
+  threshold and no dataset shows recall. Scoped to only `tool_result` and
+  `document` (the new `classifier-indirect` benchmark preset), it lifts
+  identifier-free indirect-injection recall from 20.0% (8/40) to 75.0% (30/40)
+  while cutting the classifier's realistic-benign FPR from 25.35% (36/142) to
+  9.86% (14/142), because the prompt-surface false positives that kept it
+  opt-in are never paid. A new per-surface
+  `detection.surfaces.<tool_result|document>.classifierBlockThreshold` raises
+  the block bar on untrusted data only; 0.999 measures 50.0% (20/40) probe
+  recall at 7.04% (10/142) realistic FPR. Default behaviour with the
+  classifier disabled (the shipped configuration) is unchanged, re-measured:
+  heldout 61.3%, injecagent 1054/1054, safeguard 60.8%, held-out benign corpus
+  5.63% on the same eight rows. Enabled configurations that relied on the
+  classifier scanning system prompts or tool definitions must now list those
+  surfaces explicitly. Ruleset `2026.08.14`.
+
 - **Direct-injection recall went from 44.5% to 60.0% on the held-out splits, at
   no false-positive cost.** The prompt-injection detector was markedly weaker at
   the threat it is named after than at indirect injection, and three families

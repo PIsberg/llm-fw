@@ -45,6 +45,29 @@ reads every byte. Raising it costs latency roughly linearly; `0` removes the
 bound entirely, which is how a 1 MB prompt used to take 423 s. See
 [detection-stages.md](detection-stages.md#cost-on-long-prompts).
 
+**Classifier surface scoping.** The opt-in trained classifier
+(`detection.classifier`) can be limited to specific scan surfaces via
+`detection.classifier.surfaces` (also `LLM_FW_CLASSIFIER_SURFACES`,
+comma-separated). The default list is `prompt, memory, tool_result, document`:
+the trusted `system` and `tool_definition` surfaces are excluded because the
+model false-positives on developer-authored instruction text at every
+threshold. Scoping it to only the untrusted data surfaces turns it into an
+indirect-injection detector with no false-positive cost on user prompts:
+
+```json
+{
+  "detection": {
+    "classifier": { "enabled": true, "surfaces": ["tool_result", "document"] },
+    "surfaces": { "tool_result": { "classifierBlockThreshold": 0.999 } }
+  }
+}
+```
+
+`classifierBlockThreshold` under `detection.surfaces` raises the block bar on
+that surface only; the second line is optional and trades recall for precision
+on benign tool output. Measured numbers for both settings are in
+[BENCHMARK.md](../BENCHMARK.md).
+
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
 while. Point `LLM_FW_MODEL_DIR` at a persistent path to download once and reuse
@@ -101,7 +124,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_81 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_82 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -113,6 +136,7 @@ _81 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
+| `LLM_FW_CLASSIFIER_SURFACES` | `detection.classifier.surfaces` | `4 entries` |
 | `LLM_FW_CLASSIFIER_THRESHOLD` | `detection.classifier.blockThreshold` | `0.9` |
 | `LLM_FW_CRESCENDO_CROSS_REQUEST` | `crescendo.crossRequest` | `false` |
 | `LLM_FW_CRESCENDO_ENABLED` | `crescendo.enabled` | `true` |

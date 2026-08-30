@@ -1,3 +1,8 @@
+// Where a scanned text candidate came from. Declared here (not in
+// pipeline.ts, its historical home, which now re-exports it) so config types
+// below can reference it without importing the pipeline module.
+export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document' | 'memory';
+
 export interface UrlFilterConfig {
   enabled: boolean;
   entropyThreshold: number;
@@ -118,15 +123,20 @@ export interface DetectionConfig {
   // default without touching the thresholds every other surface relies on —
   // e.g. an operator who sees repeated indirect-injection near-misses in tool
   // output can lower heuristicBlockThreshold there without affecting how the
-  // user's own prompt is scored. Only these two knobs are overridable; the
+  // user's own prompt is scored. Only these three knobs are overridable; the
   // embedding stage's absolute block/warn cosines stay global — they are e5
   // calibration constants (see embedding.ts) and must not be tuned per-surface.
   // Absent (the default) ⇒ no override ⇒ identical behaviour to today. The
   // tool_result heuristic threshold is also settable via
   // LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD; everything else is file-config only.
+  // classifierBlockThreshold exists because the classifier's score distribution
+  // on tool/document JSON differs from natural prompts: benign tool output
+  // scores above the global 0.9 default far more often than benign prompts do,
+  // but falls away at stricter thresholds while real attacks hold (issue #221).
   surfaces?: { [S in 'tool_result' | 'document']?: {
     heuristicBlockThreshold?: number;
     embeddingMarginThreshold?: number;
+    classifierBlockThreshold?: number;
   } };
   // What happens to a request when Pipeline.run() itself THROWS (a bug in a
   // parser/normalizer/stage, not a detected injection) — Task C2. Before this
@@ -162,6 +172,15 @@ export interface ClassifierConfig {
   // second opinion instead of silently passing. Below escalateThreshold the
   // classifier signal is treated as noise. Also LLM_FW_CLASSIFIER_ESCALATE.
   escalateThreshold?: number;
+  // Surfaces the classifier stage scans (issue #221 surface-scoping). The
+  // model is trained on natural prompts; on the TRUSTED developer surfaces it
+  // is confidently wrong in a way no threshold filters (measured: it blocks
+  // system-prompt and tool-definition shapes from the realistic benign corpus
+  // even at blockThreshold 1.0), so the default list excludes 'system' and
+  // 'tool_definition'. Absent falls back to DEFAULT_CONFIG's list; an explicit
+  // list replaces it wholesale (array merge semantics). Also
+  // LLM_FW_CLASSIFIER_SURFACES (comma-separated).
+  surfaces?: ScanSource[];
 }
 
 export interface DashboardConfig {
