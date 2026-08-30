@@ -66,7 +66,7 @@ Lakera, so it cannot be fetched reproducibly.
 ```
 node --import tsx/esm scripts/fetch-eval-data.ts            # regenerate public datasets
 node --import tsx/esm scripts/run-benchmark.ts <preset> [ollama-model] [--json] [--only=name,...]
-# presets: cheap | judge-suspicious | judge-unless | classifier
+# presets: cheap | judge-suspicious | judge-unless | classifier | classifier-indirect
 # --json emits machine-readable results incl. a per-attack-class breakdown
 ```
 
@@ -198,13 +198,52 @@ against roughly 27 ms. There is no operating point at which it is merely a
 strictly better detector: it is confidently wrong about system prompts, tool
 definitions and developer imperatives, and confidence is exactly what a threshold
 cannot filter. The default therefore cannot move on this lever, and the remaining
-options are surface-scoping it away from those shapes or retraining it.
+options are surface-scoping it away from those shapes or retraining it. The
+scoping option has since been implemented and measured; see the next section.
 
 These figures are a lower bound on a combined deployment, which is why the
 default row reads 22.54% here against the 27.5% measured directly above. The sweep pinned the
 threshold at 0 so every row recorded a classifier score, which lets the classifier
 pre-empt the cheap stages; rows it takes are therefore not credited to the cheap
 rules that would otherwise have caught them.
+
+**Surface scoping, implemented and measured.**
+`detection.classifier.surfaces` selects which scan surfaces reach
+the classifier at all, and `detection.surfaces.tool_result.classifierBlockThreshold`
+(likewise for `document`) sets a stricter block threshold on the untrusted data
+surfaces without moving the global one. The default surface list now excludes
+the trusted `system` and `tool_definition` surfaces: the sweep above shows the
+model is confidently wrong about those shapes at every threshold, no eval
+dataset shows recall on them, and dropping them costs nothing.
+
+Measured 2026-08-30 (classifier weights `protectai/deberta-v3-base-prompt-injection-v2`,
+judge off) over the identifier-free probe (40 attacks / 20 benign, all on the
+`tool_result` surface) and the realistic benign corpus (142 rows):
+
+| Configuration | Probe recall | Probe benign blocked | Realistic benign FPR |
+|---|---|---|---|
+| cheap (classifier off) | 20.0% (8/40) | 2/20 | 5.63% (8/142) |
+| classifier, every surface, 0.9 (pre-scoping) | 75.0% (30/40) | 9/20 | 25.35% (36/142) |
+| classifier, default scope, 0.9 | 75.0% (30/40) | 9/20 | 23.94% (34/142) |
+| classifier, `tool_result`+`document` only, 0.9 (= the `classifier-indirect` preset) | 75.0% (30/40) | 9/20 | 9.86% (14/142) |
+| same, with `classifierBlockThreshold: 0.999` on both surfaces | 50.0% (20/40) | 3/20 | 7.04% (10/142) |
+
+Two things fall out. First, the classifier's false-positive problem on natural
+user prompts is simply not paid when it never sees the prompt surface: the
+indirect-only scope cuts the realistic corpus FPR from 25.35% to 9.86% while
+keeping the full 20% to 75% probe recall gain. Second, unlike the prompt
+surface, the tool_result surface DOES have a usable threshold lever: of the 40
+benign tool_result rows across the two corpora the classifier at 0.9 blocks 16
+where the cheap pipeline blocks 3, but at 0.999 that falls to 6 while probe
+recall holds at 50% (20/40, still 2.5x the cheap pipeline). Operators choose
+the point; neither is a default, because the classifier itself is not.
+
+InjecAgent recall is unaffected by any of these configurations (the
+deterministic `indirectInstruction` rules catch those rows before the
+classifier runs), and the direct-injection story is unchanged: scoping to the
+untrusted surfaces means giving up the classifier's safeguard gains, which is
+exactly the trade an operator who cannot afford prompt-surface false positives
+was already making by leaving it off.
 
 **Indirect injection (tool_result surface)**
 
@@ -249,9 +288,13 @@ combination") or use an override verb ("New directive:").
 
 This is the honest ceiling of a regex detector against indirect injection, and it
 is the strongest argument in this document for the trained classifier or the
-judge on the `tool_result` surface, neither of which ships on by default. Recall
-on indirect injection that does not hand the detector an identifier is the open
-problem, tracked in the repository issues. The probe also blocks 2 of its 20
+judge on the `tool_result` surface, neither of which ships on by default. The
+classifier scoped to the untrusted surfaces (the `classifier-indirect` preset,
+see the surface-scoping section above) measures **75% (30/40)** on this probe at
+9.86% realistic-corpus FPR, which is the best identifier-free operating point
+measured so far. Recall on indirect injection that does not hand the detector an
+identifier remains the open problem for the DEFAULT configuration, tracked in
+the repository issues. The probe also blocks 2 of its 20
 benign rows (a "complete your security training" reminder, the same shape as the
 one benign row the shipped corpus still blocks, and "Cancel my 3pm", which the
 loose first-person `my` object catches); both are characterisation, not gated.

@@ -143,6 +143,25 @@ describe('loadConfig env overrides', () => {
     delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
   })
 
+  it('defaults classifier.surfaces to everything except the trusted system/tool_definition surfaces', async () => {
+    const cfg = await loadConfig()
+    expect(cfg.detection.classifier?.surfaces).toEqual(['prompt', 'memory', 'tool_result', 'document'])
+  })
+
+  it('LLM_FW_CLASSIFIER_SURFACES replaces the surface list, dropping unknown names', async () => {
+    process.env.LLM_FW_CLASSIFIER_SURFACES = 'tool_result, document, not-a-surface'
+    const cfg = await loadConfig()
+    expect(cfg.detection.classifier?.surfaces).toEqual(['tool_result', 'document'])
+    delete process.env.LLM_FW_CLASSIFIER_SURFACES
+  })
+
+  it('LLM_FW_CLASSIFIER_SURFACES with no valid surface is ignored (never yields an empty list)', async () => {
+    process.env.LLM_FW_CLASSIFIER_SURFACES = 'bogus,also-bogus'
+    const cfg = await loadConfig()
+    expect(cfg.detection.classifier?.surfaces).toEqual(['prompt', 'memory', 'tool_result', 'document'])
+    delete process.env.LLM_FW_CLASSIFIER_SURFACES
+  })
+
   it('defaults detection.failMode to closed (matches the pre-C2 implicit deny-on-error)', async () => {
     expect(DEFAULT_CONFIG.detection.failMode).toBe('closed')
     const cfg = await loadConfig()

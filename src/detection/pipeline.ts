@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/require-await */
-import { Config, PipelineResult, BlockEvent } from '../types.js'
+import { Config, PipelineResult, BlockEvent, ScanSource } from '../types.js'
 import { isObserving } from '../config/config.js'
 import { getParser, extractPartialPrompts, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
@@ -51,7 +51,7 @@ import { closeInferenceWorker } from './inferenceWorker.js'
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
 // Exported (Task C6) so the programmatic API (src/api.ts) can tag a raw-text
 // scan with the same provenance the proxy derives from a real request shape.
-export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document' | 'memory'
+export type { ScanSource } from '../types.js'
 
 // Per-surface sensitivity overrides (Task B3). Resolves the effective Stage 1
 // (heuristic) / Stage 2 (embedding contrastive margin) threshold for a given
@@ -73,6 +73,27 @@ function resolveEmbeddingMarginThreshold(config: Config, source: ScanSource): nu
     ? config.detection.surfaces?.[source]?.embeddingMarginThreshold
     : undefined
   return override ?? config.detection.embeddingMarginThreshold ?? 0
+}
+
+// Classifier (Stage 2.5) per-surface controls (issue #221). Scoping: the
+// classifier model is trained on natural prompts; on the trusted developer
+// surfaces (system, tool_definition) it is confidently wrong in a way no
+// threshold filters, so classifier.surfaces decides which surfaces reach it at
+// all — an absent list means every surface, preserving pre-scoping behaviour.
+// Threshold: on tool_result/document the score distribution shifts (benign
+// tool JSON scores high more often than benign prompts do), so those two
+// surfaces take an optional stricter blockThreshold override from
+// detection.surfaces, same shape as the heuristic/embedding overrides above.
+function classifierScansSurface(config: Config, source: ScanSource): boolean {
+  const scoped = config.detection.classifier?.surfaces
+  return !scoped || scoped.includes(source)
+}
+
+function resolveClassifierBlockThreshold(config: Config, source: ScanSource): number {
+  const override = (source === 'tool_result' || source === 'document')
+    ? config.detection.surfaces?.[source]?.classifierBlockThreshold
+    : undefined
+  return override ?? config.detection.classifier?.blockThreshold ?? 0.9
 }
 
 export class Pipeline {
@@ -588,8 +609,13 @@ export class Pipeline {
       // raw prompt (it was trained on natural text). Opt-in; classify() is a
       // no-op (returns null) when the stage is disabled, and lazy-loads the
       // model on first use when enabled.
-      if (this.config.detection.classifier?.enabled) {
+      if (this.config.detection.classifier?.enabled && classifierScansSurface(this.config, source)) {
         const v = await this.classifier.classify(prompt)
+        // Per-surface block threshold; equals classifier.blockThreshold unless
+        // detection.surfaces overrides it for tool_result/document. Compared
+        // against v.score here rather than trusting v.injection, which the
+        // classifier computed against the GLOBAL threshold only.
+        const surfaceBlockThreshold = resolveClassifierBlockThreshold(this.config, source)
 
         // Intent-vs-mention gate (Option C): the classifier can't tell a prompt
         // that ISSUES an override from one that only QUOTES/translates/documents/
@@ -603,7 +629,7 @@ export class Pipeline {
           ? detectMentionFrame(prompt)
           : null
 
-        if (v?.injection) {
+        if (v && v.score >= surfaceBlockThreshold) {
           const frame = mentionFrame()
           if (frame) {
             // Downgrade to a warn rather than blocking, and keep scanning — a
@@ -632,8 +658,7 @@ export class Pipeline {
           // judge for a second opinion — the same trade-off the entropy-escalation
           // check above makes for high-entropy payloads.
           const escalateThreshold = this.config.detection.classifier.escalateThreshold ?? 0.5
-          const blockThreshold = this.config.detection.classifier.blockThreshold ?? 0.9
-          if (judgeEnabled && v.score >= escalateThreshold && v.score < blockThreshold) {
+          if (judgeEnabled && v.score >= escalateThreshold) {
             const j = await this.judge.classify(prompt)
             if (j.verdict === 'MALICIOUS') {
               // Same intent-mention downgrade rule applies: this is still a

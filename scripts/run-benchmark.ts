@@ -20,6 +20,8 @@
  *   judge-suspicious judge on, async-style routing (suspicious-only), sync block
  *   judge-unless     judge on, judgeUnlessBenign, sync block
  *   classifier       cheap + the trained ONNX classifier stage (if integrated)
+ *   classifier-indirect  cheap + classifier scoped to tool_result/document only
+ *                    (the untrusted surfaces) — the issue #221 indirect-only mode
  * model: Ollama tag for judge presets (default qwen2.5:3b)
  * --json:  print machine-readable results (single JSON object) to stdout
  * --only:  comma-separated dataset names to run (default: all)
@@ -57,7 +59,7 @@ export function loadAll(): Dataset[] {
 function buildConfig(preset: string, model: string): Config {
   const c: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config
   c.detection.judgeModel = model
-  if (preset === 'cheap' || preset === 'classifier') {
+  if (preset === 'cheap' || preset === 'classifier' || preset === 'classifier-indirect') {
     c.detection.judgeEnabled = false
   } else if (preset === 'judge-suspicious') {
     c.detection.judgeEnabled = true
@@ -71,8 +73,13 @@ function buildConfig(preset: string, model: string): Config {
     throw new Error(`unknown preset: ${preset}`)
   }
   // Classifier stage (optional; only present once integrated).
-  const cls = (c.detection as unknown as { classifier?: { enabled: boolean } }).classifier
-  if (cls) cls.enabled = preset === 'classifier'
+  const cls = c.detection.classifier
+  if (cls) cls.enabled = preset === 'classifier' || preset === 'classifier-indirect'
+  // Indirect-only mode: the classifier scans ONLY the untrusted data surfaces,
+  // so its (measured, issue #221) false-positive cost on natural user prompts
+  // is never paid. DEFAULT_CONFIG's surface list already excludes the trusted
+  // system/tool_definition surfaces for the plain 'classifier' preset.
+  if (cls && preset === 'classifier-indirect') cls.surfaces = ['tool_result', 'document']
   return c
 }
 

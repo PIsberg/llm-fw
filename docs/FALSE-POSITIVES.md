@@ -30,7 +30,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.08.13
+## Result, ruleset 2026.08.14
 
 **5.63% overall (8 of 142), 95% CI 2.88–10.72%.**
 
@@ -79,6 +79,17 @@ while the rows the anchors protect name a specific object ("ignore the typos in
 my draft"). The same discipline applies to the disclosure rule, which keys on
 the REQUEST rather than the persona because "act as" alone is 193 attacks
 against 159 benign rows and carries no signal at all.
+
+**2026.08.14 — classifier surface scoping (5.63% unchanged in the default
+configuration).** This ruleset added `detection.classifier.surfaces` and the
+per-surface `classifierBlockThreshold`, which change verdicts only when the
+opt-in classifier is enabled; this gate runs the shipped default (classifier
+off), and re-running it confirmed the same 8 rows at 5.63%. The held-out
+recall splits were also re-run and are unchanged: heldout 61.3%, injecagent
+1054/1054, safeguard 60.8%. What scoping does for a deployment that enables
+the classifier is measured in [BENCHMARK.md](BENCHMARK.md): its realistic-corpus
+FPR falls from 25.35% (36/142) at every-surface scope to 9.86% (14/142) scoped
+to the untrusted surfaces only.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 
