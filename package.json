@@ -103,7 +103,7 @@
   "//overrides": "READ THIS BEFORE TRUSTING AN ENTRY HERE. npm honours `overrides` only from the ROOT project, so every entry below cleans this repo's own node_modules and CI and nothing else. Anyone who installs llm-fw as a dependency still resolves the parent's original pin. Verified with `npm install <tarball> --omit=dev --dry-run`, which still yields sharp 0.34.5, adm-zip 0.5.18 and global-agent 3.0.0. A consumer-visible fix has to come from the parent's own range, so treat a cleared `npm audit` here as a statement about this repo, not about what users install. Drop an entry once the parent's range covers the fix.",
   "overrides": {
     "qs": "^6.15.3",
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "sharp": "^0.35.3",
     "global-agent": "^4.1.3"
   }
