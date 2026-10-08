@@ -135,6 +135,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run fpr` gates a second, human-written benign corpus: a fixed
+  2,000-row sample of Dolly-15k, at 0 false positives.** The existing held-out
+  corpus is 142 hand-written rows weighted toward known-hard shapes; nothing in
+  the suite could show a detector that misfires once per thousand ordinary
+  prompts, which is the rate at which harmful-request was refusing trivia
+  (#246). `scripts/fetch-eval-data.ts dolly-15k-sample` regenerates
+  `test/eval/data/dolly-15k-sample.json` from a pinned revision of
+  databricks-dolly-15k (CC BY-SA 3.0, attribution in the file and in
+  `NOTICE.md`), stratified by Dolly category with a deterministic hash order.
+  The 15 rows the 2026-10-08 survey found blocked are excluded, since fixes
+  were written against them. It gets its own 0.5% SLO (`FPR_DOLLY_SLO`) and,
+  like the first corpus, a zero ceiling on every category. Measured at ruleset
+  2026.10.4: 0 of 2,000 (95% CI 0.00-0.19%); the full 15,011 block 2. The
+  `fpr.json` CI artifact keeps its top-level fields and gains a `corpora` key.
+  The sample also appears in `scripts/run-benchmark.ts` output. (#245)
+
 - **The trained classifier can now be scoped per surface, which makes it usable
   as an indirect-injection detector.** `detection.classifier.surfaces` (also
   `LLM_FW_CLASSIFIER_SURFACES`) selects which scan surfaces reach the opt-in

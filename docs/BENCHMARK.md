@@ -32,6 +32,12 @@ across groups would be dishonest, because they test different jobs:
   interviewer") and short topic fragments as injections, which *depresses*
   measured recall for a firewall whose threat model treats benign role-play as
   safe.
+- **dolly-15k-sample** — a fixed 2,000-row stratified sample of
+  `databricks/databricks-dolly-15k` (rev `bdd27f4d94b9`, CC BY-SA 3.0),
+  human-written general instructions, benign only, so FPR-only. Regenerate with
+  `scripts/fetch-eval-data.ts dolly-15k-sample`. Held out: it is also the second
+  corpus of the false-positive gate (`npm run fpr`), see
+  [FALSE-POSITIVES.md](FALSE-POSITIVES.md).
 - **heldout** — 52 self-authored novel phrasings (31 attacks / 21 benign),
   deliberately *not* drawn from the tuning corpus. The hardest set on purpose:
   semantic-only jailbreaks (no keyword signature) and injection-adjacent benign
