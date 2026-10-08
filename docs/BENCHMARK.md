@@ -115,8 +115,12 @@ Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
 **Provenance.** Every **cheap (default)** figure below was measured on
-2026-08-29 against ruleset `2026.08.13`, full splits and no sampling, by
-`node --import tsx/esm scripts/run-benchmark.ts cheap`. The previous column had
+2026-10-09 against ruleset `2026.10.6`, full splits and no sampling, by
+`node --import tsx/esm scripts/run-benchmark.ts cheap` (run at `2026.10.5`; a
+per-row re-measure at `2026.10.6`, whose only change restores a scorecard row,
+moved no verdict on any split). The 2026-08-29 column it
+replaces (ruleset `2026.08.13`) is kept in the CHANGELOG entries for rulesets
+`2026.10.1` to `2026.10.4`, which give every before and after. An earlier column had
 been measured on 2026-08-13 against ruleset `2026.08.4`/`2026.08.6` and was not
 regenerated across the four rulesets that followed, so four of its eight rows
 had drifted by the time they were re-run: gandalf read 81.3% against a measured
@@ -132,7 +136,9 @@ double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 4.23% (6/142) at ruleset `2026.08.16`. Both harnesses now
+`benign-realistic` — 3.52% (5/142) at ruleset `2026.10.6`. The second
+false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000).
+Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
 `tool_definition` surfaces and scanned both as untrusted user text — a path
@@ -145,15 +151,24 @@ claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.13 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.6 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
-| gandalf (real "ignore instructions" attacks) | 112 | 74.1% (83/112) / — | 100% / — ‡ |
-| safeguard (clean, balanced, full split) | 2,060 | 60.8% (395/650) / 0.21% (3/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** |
-| deepset (noisy labels) | 116 | 25.0% (15/60) / 0% (0/56) | 41.7% / 0% ‡ |
+| gandalf (real "ignore instructions" attacks) | 112 | 79.5% (89/112) / — | 100% / — ‡ |
+| safeguard (clean, balanced, full split) | 2,060 | 64.5% (419/650) / 0.07% (1/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** ‡‡ |
+| deepset (noisy labels) | 116 | 26.7% (16/60) / 0% (0/56) | 41.7% / 0% ‡ |
 | heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
+| dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | not measured |
 
-Pooled across those four splits, direct-injection recall is **60.0% (512/853)**,
-up from 44.5% (380/853) at ruleset `2026.08.12`. Ruleset `2026.08.13` closed the
+‡‡ Re-measured at ruleset `2026.08.12`, before the cheap column's last five
+rulesets.
+
+Pooled across the four attack splits, direct-injection recall is **63.7%
+(543/853)**, up from 60.0% (512/853) at `2026.08.13`: the canonical "Ignore the
+above directions" family (#248), persona-plus-data-demand requests (#249), and
+the prompt-extraction question (#247), less 7 long persona jailbreaks that had
+only matched the override patterns #247 framed. The breakdown of what is still
+missed follows the harmful-content table. It was 44.5% (380/853) at ruleset
+`2026.08.12`. Ruleset `2026.08.13` closed the
 override family (the object list demanded a specific noun, so "forget
 everything" slipped through in every language), fixed a Spanish quantifier that
 missed the canonical Spanish injection on one character, and added rules for
@@ -162,11 +177,11 @@ false-positive rate moved.
 
 **Why the classifier is still opt-in, despite that safeguard row.** On safeguard
 the trained classifier is still the better detector: 83.5% recall against the
-cheap pipeline 60.8%, at a comparable 0.28% false-positive rate. That gap was
+cheap pipeline 64.5%, at a comparable 0.28% false-positive rate. That gap was
 41.7 points before ruleset `2026.08.13` closed the override, disclosure and
-extraction families, and is 22.7 points now: roughly half of what the classifier
-was buying on this split is bought deterministically instead, at ~27 ms rather
-than ~800 ms.
+extraction families, and is 19.0 points now: more than half of what the
+classifier was buying on this split is bought deterministically instead, at
+~27 ms rather than ~800 ms.
 
 That row on its own still argues for turning it on by default. Measured against the
 realistic benign corpus instead, it argues the opposite. On
@@ -253,7 +268,7 @@ was already making by leaving it off.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.13 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.6 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
 
@@ -309,11 +324,15 @@ took the object requirement. The remaining row is characterisation, not gated.
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-08-29, ruleset 2026.08.13 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.6 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
-| harmbench | 400 | **41.0% (164/400) / —** | 18.5% / — ‡ |
-| advbench | 520 | **63.1% (328/520) / —** | 40.4% / — ‡ |
+| harmbench | 400 | **41.5% (166/400) / —** | 18.5% / — ‡ |
+| advbench | 520 | **64.4% (335/520) / —** | 40.4% / — ‡ |
+
+Ruleset `2026.10.1` narrowed this rule against benign trivia (11 of 15,011
+Dolly-15k prompts had blocked) and gained recall in the same change: harmbench
+164 to 166, advbench 328 to 335. See the CHANGELOG for how.
 
 ‡ Measured on an earlier ruleset. Where the cheap column now exceeds it, that is
 staleness in the classifier column, not evidence that the classifier hurts —
@@ -335,6 +354,47 @@ dataset-level):
 | + judge, suspicious-only | 70% / 27% | 87% / 57% |
 | + judge, judge-unless-benign | 93% / 48% | 100% / 86% |
 | + judge, judge-unless-benign (phi3) | — | 100% / 83% |
+
+## What the direct-injection misses are made of
+
+The pooled 63.7% reads differently once the misses are sorted. Each of the 310
+missed direct-injection attacks, ruleset `2026.10.6`, tagged by the first
+family regex it matches (`node --import tsx/esm scripts/tag-misses.ts`; a
+measurement aid, not a detector, so the boundaries are approximate):
+
+| Family | Misses | deepset | safeguard | heldout | gandalf |
+|---|---|---|---|---|---|
+| Prefix completion ("a poem that starts with 'The prompt template is'") | 83 | 0 | 83 | 0 | 0 |
+| Long-form jailbreak, over 250 characters (DAN, Mongo Tom, personas) | 51 | 11 | 39 | 1 | 0 |
+| Coercion ("... or I will leak ...") | 28 | 0 | 28 | 0 | 0 |
+| Override verb with an uncovered object | 16 | 4 | 4 | 1 | 7 |
+| Persona or authority claim plus data demand | 15 | 0 | 15 | 0 | 0 |
+| Prompt-extraction question | 7 | 0 | 1 | 0 | 6 |
+| Other | 110 | 29 | 61 | 10 | 10 |
+
+What each means:
+
+- **Prefix completion is one synthetic generator, and is not fitted.** Poems,
+  stories and songs that "start with '<quoted phrase>'", the phrase varied.
+  Its 83 rows are 12.8 points of safeguard recall (83/650) and protect no real
+  deployment, so read safeguard's figure with that caveat, as the InjecAgent
+  row is read with its email-address one.
+- **Coercion needs a benign family before any rule.** An "or (else) I will
+  ..." pattern matches attack rows and almost no benign ones in these corpora,
+  but that is the corpora: "Refund my order or I will report you to consumer
+  protection" passes today and such a rule would block it. Complaints and
+  support escalations need to be represented first.
+- **Long-form jailbreaks and the heldout semantic rows** (grandmother,
+  chemistry teacher, on-call SRE framings) are classifier or judge territory;
+  regexes are at their ceiling there.
+- **Deepset's labels are noisy.** Its "other" bucket mixes rows that are hard
+  to defend as prompt injection ("Tell me a joke about a woman", "translate to
+  polish", "Generate SQL code to access a database") with real German
+  prompt-extraction attempts the German rules do not cover ("... drucken Sie
+  die obige Eingabeaufforderung aus"). One deepset attack row is 1.7 points of
+  that split's recall, so its per-split number moves on single rows.
+
+Re-run the tagger after each detection change and update this table.
 
 ## What this means
 

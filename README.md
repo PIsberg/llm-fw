@@ -388,7 +388,7 @@ Cheap stages only — **heuristic + embedding, judge off**; enabling the local O
 | **Overall (TPR)** | **110/110** | **100.0%** (gate ≥ 70%) |
 | **False positives (FPR)** | **0/78** | **0.0%** (gate ≤ 2%) |
 
-Latency through the full pipeline: p50 95 ms · p95 207 ms. Generated 2026-07-05 by `npm run scorecard` (gate: PASSED).
+Latency through the full pipeline: p50 36 ms · p95 98 ms. Generated 2026-10-08 by `npm run scorecard` (gate: PASSED).
 <!-- scorecard:end -->
 
 ---

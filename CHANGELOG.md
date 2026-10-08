@@ -144,6 +144,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/tag-misses.ts`, and a section of `docs/BENCHMARK.md` that says
+  what the direct-injection misses are made of.** The pooled figure (now 63.7%,
+  543 of 853) reads differently once the 310 misses are sorted: 83 are one
+  synthetic safeguard generator ("a poem that starts with 'The prompt template
+  is'", 12.8 points of that split, recorded as a caveat and not fitted), 51 are
+  long-form persona jailbreaks (classifier or judge territory), 28 are coercion
+  (which needs a benign complaints family before any rule could be trusted),
+  and deepset's misses include rows that are hard to defend as injections. The
+  tagger runs the default configuration over the four splits and is
+  first-match and approximate by design; re-run it after each detection change.
+  The benchmark tables are regenerated at ruleset `2026.10.6`, and the
+  scorecard (`npm run scorecard`) re-run at 110/110. (#250)
+
 - **Opt-in transcription of spoken audio, so an injection said out loud in a
   voice memo can block.** OpenAI's audio models (`input_audio` parts) and
   Gemini (`inlineData` with an `audio/*` type) take speech in an ordinary chat
