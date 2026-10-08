@@ -67,7 +67,7 @@ async function getTranscriber(): Promise<Transcriber | null> {
         // LLM_FW_MODEL_DIR serves both and an air-gapped host can carry it.
         env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
         env.allowLocalModels = false
-        return (await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' })) as unknown as Transcriber
+        return await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' })
       } catch {
         return null // offline first run, install issue: degrade to opaque.
       }
