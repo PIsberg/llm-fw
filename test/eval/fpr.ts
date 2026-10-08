@@ -73,7 +73,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // embedding-stage blocks here went to zero. The one that remains is
   // [heuristic] ("New instructions for the rest of this session: …"), a
   // different stage with a different fix.
-  'instruction-management': 1,
+  // Lowered to 0 at ruleset 2026.10.2: `new <instructions>` now needs an
+  // override frame (#247), so the mid-session row above stopped blocking.
+  'instruction-management': 0,
   // Back to 3 and 2, the values they held before 2026.08.7. The verb tiering
   // that lowered them cost 14.5 points of injecagent recall (100% -> 85.5%),
   // which the nightly drift gate caught, so it was reverted — see the header
