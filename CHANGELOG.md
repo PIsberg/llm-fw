@@ -151,6 +151,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enumerated in full so a reader can check it against a run rather than trust
   the prose.
 
+### Internal
+
+- **The Semgrep lock moved from `.github/workflows/semgrep-requirements.txt` to
+  `.github/semgrep/requirements.txt`, so the weekly freshness job can finally
+  push its regeneration.** GitHub treats every file under `.github/workflows/`
+  as workflow content and `GITHUB_TOKEN` cannot hold the `workflows`
+  permission, so all 7 runs from 2026-08-24 to 2026-10-05 failed at the push
+  while 16 Dependabot alerts (PyJWT, urllib3) accumulated against a lock pinned
+  at semgrep 1.173.0. `test/ci/semgrepLock.test.ts` keeps that directory to
+  workflow files only and every workflow pointing at the same lock. (#251)
+
 ## [0.6.0] - 2026-08-20
 
 ### Added

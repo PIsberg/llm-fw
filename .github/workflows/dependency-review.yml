@@ -29,7 +29,7 @@ jobs:
           # semgrep 1.172.0 hard-pins `mcp==1.23.3`, which carries these three.
           # They were always in the tree — the unpinned `pip install semgrep`
           # resolved the same mcp — but hash-pinning the install
-          # (semgrep-requirements.txt) is what made the manifest visible here.
+          # (.github/semgrep/requirements.txt) is what made the manifest visible here.
           #
           # All three are server-side: task handlers, HTTP transport principal
           # checks, WebSocket Host/Origin validation. The workflow runs

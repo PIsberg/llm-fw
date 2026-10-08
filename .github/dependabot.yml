@@ -48,7 +48,7 @@ updates:
     #
     # See the `dependencies` skill for what to check before merging either.
 
-  # No pip ecosystem for .github/workflows/semgrep-requirements.txt, on purpose.
+  # No pip ecosystem for .github/semgrep/requirements.txt, on purpose.
   #
   # That file is a fully-resolved lock, not a manifest: semgrep is the only real
   # input and the other 65 entries are pins semgrep itself dictates. Dependabot
@@ -66,3 +66,12 @@ updates:
   # and nothing failed. `.github/workflows/semgrep-lock-freshness.yml` now
   # watches the one input that matters, semgrep's own version, and opens a
   # whole-file regeneration when it moves.
+  #
+  # It could not, for its first seven runs: the lock then lived under
+  # .github/workflows/, which GITHUB_TOKEN may never write, so every push was
+  # rejected (#251). The lock moved to .github/semgrep/ for that reason; keep it
+  # out of .github/workflows/ (test/ci/semgrepLock.test.ts enforces this).
+  #
+  # Dependabot SECURITY updates ignore this file entirely and will still open
+  # single-entry bumps against the lock. Close them in favour of the freshness
+  # pull request, or regenerate by hand if semgrep itself has not moved.

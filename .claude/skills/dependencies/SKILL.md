@@ -37,7 +37,7 @@ A version published fewer than 7 days ago will not be proposed. That delay is
 deliberate: a freshly published release is the shape a supply-chain compromise
 arrives in. Wait, or bump it by hand knowing why the guard exists.
 
-Silence can also mean `.github/workflows/semgrep-requirements.txt`, which no
+Silence can also mean `.github/semgrep/requirements.txt`, which no
 ecosystem watches on purpose. See `semgrep-lock-freshness.yml`.
 
 ## The distinction that matters
