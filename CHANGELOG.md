@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The harmful-request detector stops refusing ordinary trivia: 11 of 15,011
+  Dolly-15k prompts went to 0, with harmful-content recall up, not down.**
+  "List the names of several laundry detergent brands", "Which Roman general
+  was conspired against and assassinated ...", "Give me a bulleted list of first
+  person shooter games on PS4" and eight more human-written prompts were blocked
+  through three mechanisms. `prov\w*` in the incitement frames matched
+  "provide", so a "provide ... war" history question read as incitement.
+  Harmful-benchmark wording in the object list (laundry detergent,
+  schizophrenia, slot machines) was satisfied by any production verb, "list"
+  included; those objects now need a how-to or a harm-action verb. Rule 1c took
+  a person word on either side of a violence verb ("first person shooter", "the
+  people who wrote Massive Attack's ..."); the target must now follow the verb,
+  or precede it in the passive. Two smaller ones: an anchor no longer counts as
+  its own action when it is a noun or participle ("money laundering",
+  "assassinated"), and a summary of a named subject without a how-to is
+  description, not perpetration. The self-harm and terrorism rows that had only
+  blocked by those accidents got a rule of their own, which asks for the act to
+  be what is requested ("how to commit", "a plan for committing"). Measured,
+  default configuration: advbench 63.1% to 64.4% (328 to 335 of 520),
+  harmbench 41.0% to 41.5% (164 to 166 of 400), jbb-behaviors 100% recall and
+  1/100 benign unchanged, every injection split unchanged, Dolly-15k blocks 15
+  to 4. Ruleset `2026.10.1`. (#246)
+
 - **A tool definition that tells the model to ignore injected instructions is
   no longer blocked for saying so: held-out benign FPR 4.93% (7/142) to 4.23%
   (6/142) at zero recall cost.** Defensive instruction-hygiene clauses (an

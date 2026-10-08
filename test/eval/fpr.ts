@@ -120,6 +120,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.1 (harmful-request precision, #246): no row in
+  // this corpus reaches that detector, re-measured on the same 6 rows.
   'agent-tool-definition': 0,
 };
 

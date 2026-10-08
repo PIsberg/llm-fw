@@ -109,6 +109,46 @@ const HARM_OBJECT = [
 
 const HARM_OBJECT_RE = new RegExp('\\b(' + HARM_OBJECT.join('|') + ')\\b', 'i')
 
+// Objects that are the WORDING of harmful-content benchmark rows rather than
+// harmful things: "convince children to eat laundry detergent", "a treatment
+// guide for schizophrenia". Asked about with an ordinary production or list
+// verb they are household products and diagnoses ("List the names of several
+// laundry detergent brands" blocked on Dolly-15k, #246), so they need a how-to
+// or a harm-action verb, never production alone.
+const SOFT_HARM_OBJECT_RE = /^(?:laundry\s+detergent|bleach|ammonia|schizophrenia|bipolar\s+disorder|clinical\s+depression|treatment\s+guide|slot\s+machine\w*|fire\s+alarm|breathalyzer)$/i
+
+// A fraud NAMED after the people in it ("Harshad Mehta scam", Dolly-15k) is a
+// historical event, and asking for a summary of it is not asking for a scam.
+// Capitalisation alone is attacker-controlled ("Write an Email scam ..."), so
+// both are required: a two-word proper name directly before the noun, and a
+// descriptive frame directly before the name ("summary on", "history of",
+// "what was", "tell me about"). "Draft the Microsoft Support scam script"
+// has the name but no frame, and stays a hard object.
+const NAMED_SCAM_RE = /\b(?:summary\s+(?:on|of|about)|overview\s+of|history\s+of|what\s+(?:was|is)(?:\s+the)?|tell\s+me\s+about(?:\s+the)?|about\s+the)\s+(?!(?:A|An|The|This|That|My|Your|Our|Their)\s)[A-Z][\w'’-]+\s+[A-Z][\w'’-]+\s+$/
+
+// Self-harm and terrorism asked for as an ACT to carry out ("committing a
+// terrorist attack", "engage in self-harm", "instructions for self-harm"),
+// with production or how-to framing. These rows used to block only by
+// accident: `prov\w*` in the incitement frames matched "provide", or Rule 1c
+// found a person word before the verb ("children how to perform self-harm").
+// Both accidents were also what blocked benign Dolly prompts (#246), so the
+// family gets its own rule instead. Supportive and historical phrasings ("ways
+// to cope with self-harm urges", "why did the attack happen") name no act,
+// and the act must be what is REQUESTED ("how to commit", "a plan for
+// committing", "convince someone to commit"): "the most common ways that
+// individuals commit suicide" describes it, and is jbb-behaviors' benign row.
+const SELF_HARM_OR_TERROR_ACT_RE = /\b(?:(?:how\s+to|to|for|into)\s+(?:commit(?:s|ted|ting)?|carry(?:ing)?\s+out|perform(?:s|ed|ing)?|engag(?:e|es|ed|ing)\s+in|attempt(?:s|ed|ing)?|plan(?:s|ned|ning)?)\s+(?:an?\s+)?(?:terrorist\s+attack|act\s+of\s+terror\w*|suicide|self[-\s]?harm|mass\s+shooting)|(?:instructions?|steps?|guide|tutorial|methods?|ways)\s+(?:for|on|to)\s+(?:(?:commit|perform|attempt)\w*\s+)?(?:suicide|self[-\s]?harm))\b/i
+
+// A base-form anchor that is also a harm verb ("blackmail", "scam", "launder
+// money") counts as its own action only when it is USED as a verb: after "to",
+// a modal, or a subject pronoun ("I will blackmail you", "how to launder
+// money"). "The Harshad Mehta scam" names an event.
+const VERB_CONTEXT_RE = /(?:\b(?:to|will|would|can|could|should|must|shall|i|we|you|they|he|she|and|or|then|please|help\s+me)\s+|(?:^|[.!?;:]\s*))$/i
+
+// "were killed", "being attacked": a violence verb in the passive takes its
+// human target BEFORE it ("if all people older than fifty were killed").
+const PASSIVE_AUX_RE = /\b(?:was|were|be|been|being|is|are|get|gets|got|getting)\s+(?:\w+\s+)?$/i
+
 // Harm-action verbs — the "doing harm" sense, paired with a harmful object or a
 // harmful direct object (someone's identity, into a system).
 const HARM_ACTION_RE =
@@ -130,7 +170,7 @@ const HATEFUL_QUALIFIER_RE =
 // alongside incitement framing, so "an article about ethnic genocide" (benign
 // per JBB) passes while "a speech that promotes genocide" blocks.
 const INCITE_TOPIC_RE = /\b(violence|terrorism|terrorist\w*|genocide|ethnic\s+cleansing|holocaust|nazi\s+party|self[-\s]?harm|suicide|anorexia|bulimia|hatred|animal\s+cruelty|sexual\s+assault|stalking|child\s+(?:abuse|labor|labour)|holodomor|khmer\s+rouge|armenian\s+genocide|stolen\s+generations?|residential\s+schools?|annexation\s+of\s+crimea|agent\s+orange|great\s+leap\s+forward|syrian\s+civil\s+war|fossil\s+fuels?|immigrant\w*|immigration|gambling\s+addict\w*|gambl\w*|September\s+11|9\/11|conflict\w*|war\b|Hiroshima|Nagasaki|5G\s+(?:causes?|and)\s+COVID[-\s]?19|vaccines?\s+(?:causes?|and)\s+autism|global\s+warming\s+is\s+a\s+hoax|earth\s+is\s+flat|illuminati|new\s+world\s+order|2020\s+(?:U\.?S\.?\s+)?presidential\s+election)\b/i
-const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argu\w*\s+(?:for|that)|justif\w*|praise[s]?|celebrat\w*|should\b|ought\s+to\b|downplay\w*|den\w*|exaggerat\w*|hoax\w*|myth\w*|beneficial\b|natural[-\s]disaster\b|peaceful\b|democratic\b|positive\s+impact\b|better\s+for\s+the\s+environment|never\s+happened|mock\w*|ridicul\w*|prov\w*|proof|evidence|unanimously\s+won|rigged\b|fraudulent\b|stolen\b|posing\s+as\s+(?:an?\s+)?expert)\b/i
+const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argu\w*\s+(?:for|that)|justif\w*|praise[s]?|celebrat\w*|should\b|ought\s+to\b|downplay\w*|den\w*|exaggerat\w*|hoax\w*|myth\w*|beneficial\b|natural[-\s]disaster\b|peaceful\b|democratic\b|positive\s+impact\b|better\s+for\s+the\s+environment|never\s+happened|mock\w*|ridicul\w*|prov(?:e|es|ed|en|ing)\b|proof|evidence|unanimously\s+won|rigged\b|fraudulent\b|stolen\b|posing\s+as\s+(?:an?\s+)?expert)\b/i
 
 // Content-production verbs — for the hateful and intrusion rules, the request
 // must ask to generate something. Bare "make" is excluded (it matches "make
@@ -164,6 +204,10 @@ const DATA_TRANSFORM_RE =
 const FICTION_RE =
   /\b(fiction\w*|novels?\b|short\s+story|screenplay|movie\s+(?:plot|script)|television\s+script\w*|tv\s+script\w*|in\s+a\s+(?:story|game|novel|movie|film|play)|narrative\s+where|biography\s+where|play\s+script|a\s+play\s+where|stage\s+play)\b/i
 
+function countMatches(re: RegExp, text: string): number {
+  return text.match(new RegExp(re.source, 'gi'))?.length ?? 0
+}
+
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 30)
   const end = Math.min(text.length, index + len + 70)
@@ -193,11 +237,28 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
 
   // Rule 1 — operational harm: a concrete harmful object asked about with
   // production/how-to intent, OR a harm-action verb aimed at a harmful object.
-  const obj = HARM_OBJECT_RE.exec(text)
-  if (obj) {
-    if (hasHowto || HARM_ACTION_RE.test(text) || hasProduce) {
-      return { kind: 'operational', anchor: (obj[1] ?? '').toLowerCase(), snippet: snippetAround(text, obj.index, (obj[1] ?? '').length) }
+  // Every object in the text is tried, not only the first, so a soft object
+  // mentioned early ("bleach") cannot hide a hard one later ("a pipe bomb").
+  // Harm-action verbs are counted once for the whole text, so each object
+  // costs only a scan of its own few characters: a prompt dense with object
+  // words must stay linear, not rescan the text per match.
+  const totalActions = countMatches(HARM_ACTION_RE, text)
+  const objRe = new RegExp(HARM_OBJECT_RE.source, 'gi')
+  let obj: RegExpExecArray | null
+  while ((obj = objRe.exec(text)) !== null) {
+    // The anchor cannot be its own action: `assassinat\w*` and `launder\w*`
+    // are in both lists, so "Which Roman general was ... assassinated" and
+    // "money laundering watch dog" satisfied the conjunction alone (#246).
+    // It still counts when it is used as a verb (see VERB_CONTEXT_RE).
+    const anchor = obj[1] ?? ''
+    const anchorIsVerb = !/(?:ed|ing|ion|ions)$/i.test(anchor) && VERB_CONTEXT_RE.test(text.slice(Math.max(0, obj.index - 20), obj.index))
+    const hasAction = totalActions > (anchorIsVerb ? 0 : countMatches(HARM_ACTION_RE, obj[0]))
+    const soft = SOFT_HARM_OBJECT_RE.test(anchor) ||
+      (/^scam/i.test(anchor) && NAMED_SCAM_RE.test(text.slice(Math.max(0, obj.index - 80), obj.index)))
+    if (hasHowto || hasAction || (hasProduce && !soft)) {
+      return { kind: 'operational', anchor: anchor.toLowerCase(), snippet: snippetAround(text, obj.index, anchor.length) }
     }
+    if (obj[0].length === 0) objRe.lastIndex++
   }
 
   // Rule 1b — intrusion/theft/fraud against a person or system, without a listed
@@ -227,7 +288,13 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   VIOLENCE_RE.lastIndex = 0
   while ((viol = VIOLENCE_RE.exec(text)) !== null) {
     if (hasHowto || hasProduce) {
-      const window = text.slice(Math.max(0, viol.index - 80), Math.min(text.length, viol.index + 80))
+      // The target follows the verb ("harm someone", "poison a person's
+      // food"), or precedes it only in the passive ("people ... were
+      // killed"). Either side was accepted before, so "first person
+      // shooter" and "the people who wrote Massive Attack's ..." blocked on
+      // Dolly-15k (#246).
+      const passive = PASSIVE_AUX_RE.test(text.slice(Math.max(0, viol.index - 30), viol.index))
+      const window = text.slice(passive ? Math.max(0, viol.index - 80) : viol.index, Math.min(text.length, viol.index + 80))
       if (/\b(person|people|someone|some\s?one|others?|victim|colleague|individual|baby|infant|toddler|man|woman|human|humans|child(?!\s+(?:process|node|element|class|component)\b)|children|girl|boy|guy|lady|gentleman|gentlemen|adult|senior|elder|grandmother|grandfather|parent|mother|father|brother|sister|wife|husband|spouse|friend|colleague)\b/i.test(window)) {
         return { kind: 'operational', anchor: (viol[1] ?? '').toLowerCase(), snippet: snippetAround(text, viol.index, (viol[1] ?? '').length) }
       }
@@ -280,6 +347,13 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
         return { kind: 'hateful', anchor: (off[1] ?? '').toLowerCase(), snippet: snippetAround(text, off.index, (off[1] ?? '').length) }
       }
     }
+  }
+
+  // Rule 1f — self-harm or terrorism requested as an act to carry out. Last,
+  // so a row another rule already names keeps that rule's kind and anchor.
+  if (hasProduce || hasHowto) {
+    const act = SELF_HARM_OR_TERROR_ACT_RE.exec(text)
+    if (act) return { kind: 'operational', anchor: act[0].toLowerCase(), snippet: snippetAround(text, act.index, act[0].length) }
   }
 
   return null

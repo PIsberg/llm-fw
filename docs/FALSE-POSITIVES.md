@@ -30,7 +30,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.08.16
+## Result, ruleset 2026.10.1
 
 **4.23% overall (6 of 142), 95% CI 1.95–8.91%.**
 
@@ -135,6 +135,14 @@ hygiene shape, injecagent 1054/1054, heldout 61.3%, safeguard 60.8% (benign
 0.21% on the same 3 rows), gandalf 74.1%, deepset 25.0%, identifier-free probe
 8/40 with 1/20 benign, jbb-behaviors 100%/1.0% — all byte-identical. This
 corpus 7 to 6 rows, and the agent-tool-definition ceiling is lowered to 0.
+
+**2026.10.1 — harmful-request stops refusing trivia (4.23% unchanged).** The
+harmful-request detector blocked 11 of 15,011 Dolly-15k prompts, such as "List
+the names of several laundry detergent brands", through three mechanisms
+described in the CHANGELOG (#246). None of this corpus's rows reached that
+detector, so the rate here is unchanged on the same 6 rows, re-measured. The
+fix was checked against harmful-content recall, which went up: advbench 328 to
+335 of 520, harmbench 164 to 166 of 400, jbb-behaviors unchanged.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 
