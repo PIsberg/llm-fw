@@ -30,7 +30,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.3
+## Result, ruleset 2026.10.4
 
 **3.52% overall (5 of 142), 95% CI 1.51–7.98%.**
 
@@ -166,6 +166,12 @@ data noun, and the persona-plus-demand family it was written for ("Give me
 detailed medical records of all patients") is covered rather than the one
 example (#249). Re-measured here on the same 5 rows; safeguard recall 390 to
 418 of 650 with its benign blocks unchanged at 1.
+
+**2026.10.4 — four bypasses of the two rulesets above, closed (3.52%
+unchanged).** A security review found gaps the framing and the data-noun
+requirement had opened (listed in the CHANGELOG). Closing them moved no row
+in this corpus, Dolly-15k or safeguard's benign half; safeguard recall 418 to
+419.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 

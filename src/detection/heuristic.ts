@@ -65,7 +65,7 @@ export class HeuristicScorer {
           // "Ignore the above and instead ...": the bare positional form, with
           // the hijacking instruction required so "Ignore the above, I pasted
           // the wrong file" stays a person correcting themselves.
-          /\b(?:ignore|disregard) (?:all of )?the (?:above|preceding)\b,?\s*(?:and |then |[.;:] ?)(?:instead|just|rather|say|print|output|respond|reply|reveal|tell|repeat|spell|translate)\b/,
+          /\b(?:ignore|disregard) (?:all of )?the (?:above|preceding)\b,?\s*(?:and |then |[.;:] ?)(?:now |please |simply |only )?(?:instead|just|rather|say|print|output|respond|reply|reveal|tell|repeat|spell|translate)\b/,
           // The three patterns below once matched their nouns with no override
           // frame and blocked ordinary sentences alone (#247): "What is your
           // goal for this quarter?", "Our new task for the sprint is ...",
@@ -89,6 +89,9 @@ export class HeuristicScorer {
           // as often as of jailbreak personas, so it carries no signal.
           /\byour (?:new|real|actual|true|updated) (?:instructions?|purpose|role|goal|directives?|tasks?|mission|objectives?)s? (?:is|are|will be|has become|have changed)\b/,
           /\byour (?:instructions?|purpose|role|goal|directives?|tasks?|mission|objectives?) (?:is|are) now\b/,
+          // A time frame does the modifier's job: "From now on your goal is
+          // to ..." redefines the model's purpose as surely as "your new goal".
+          /\b(?:from now on|henceforth|going forward|starting now|starting today)[,:]? your (?:new |real |only |sole |primary )?(?:instructions?|purpose|role|goal|directives?|tasks?|mission|objectives?) (?:is|are|will be)\b/,
           // A claim the system prompt was replaced or withdrawn. "The system
           // prompt is too long" is developer talk. 0 attack rows in every
           // eval corpus matched the old unframed pattern.
@@ -224,7 +227,7 @@ export class HeuristicScorer {
         // records", "patients' medical records"). Open-ended filler is not
         // allowed there: "some medical information about flu" is a question.
         weight: 50, label: 'sensitive-disclosure', patterns: [
-          /(?<!\b(?:never|not|don'?t|avoid|refuse to|must not|cannot|won'?t) (?:\w+ ){0,3})\b(?:give|share|provide|disclose|reveal|send|show|list|export|hand over)(?=[^.!?]{0,100}?(?:\b(?:me|us)\b|\byour (?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin)\b)) (?:me |us |all |the |your |every |any |with |access to |of )*(?:(?:detailed|complete|full|raw|exact|unredacted|stored|login|users?['’]s?|patients?['’]s?|customers?['’]s?|clients?['’]s?|employees?['’]s?|parents?['’]s?|company|their) ){0,2}(?:(?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin) (?:[a-z]+ ){0,2}?(?:records?|data|information|info|details|credentials?|passwords?|api ?keys?|secrets?|history|histories)|(?:credentials|passwords?|api ?keys?|access tokens?|credit card (?:numbers?|information|details)))\b(?! (?:reset|manager|policy|policies|requirements?|strength|rules?|generator|hint|setup|rotation|format|tips|advice|best)\b)/,
+          /(?<!\b(?:never|not|don'?t|avoid|refuse to|must not|cannot|won'?t) (?:\w+ ){0,3})\b(?:give|share|provide|disclose|reveal|send|show|list|export|hand over)(?=[^.!?]{0,100}?(?:\b(?:me|us)\b|\byour (?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin)\b)) (?:me |us |all |the |your |every |any |with |access to |of )*(?:(?:detailed|complete|full|raw|exact|unredacted|stored|login|users?['’ʼ`´]?s?|patients?['’ʼ`´]?s?|customers?['’ʼ`´]?s?|clients?['’ʼ`´]?s?|employees?['’ʼ`´]?s?|parents?['’ʼ`´]?s?|company|their) ){0,2}(?:(?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin) (?:[a-z]+ ){0,2}?(?:records?|data|information|info|details|credentials?|passwords?|api ?keys?|secrets?|history|histories|files?|documents?|docs|e-?mails?|addresses|contacts?|messages|notes|reports?|numbers?|accounts?|logs?)|(?:credentials|passwords?|api ?keys?|access tokens?|credit card (?:numbers?|information|details)))\b(?! (?:reset|manager|policy|policies|requirements?|strength|rules?|generator|hint|setup|rotation|format|tips|advice|best)\b)/,
         ],
       },
       {

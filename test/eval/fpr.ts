@@ -126,6 +126,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // this corpus reaches that detector, re-measured on the same 6 rows.
   // Held at ruleset 2026.10.3 (sensitive-disclosure needs a data noun,
   // #249): re-measured on the same 5 rows left after 2026.10.2.
+  // Held at ruleset 2026.10.4 (review follow-up to both): same 5 rows.
   'agent-tool-definition': 0,
 };
 
