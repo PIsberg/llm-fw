@@ -70,6 +70,17 @@ updates:
     #
     # See the `dependencies` skill for what to check before merging either.
 
+  # The Dockerfile's base image, pinned by digest. Without this nothing would
+  # ever propose a new digest, and a pin nobody moves is a pin that ages into
+  # an unpatched base. A bump changes the Node patch level the image runs on,
+  # not detection; build the image and run it once before merging.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
   # No pip ecosystem for .github/semgrep/requirements.txt, on purpose.
   #
   # That file is a fully-resolved lock, not a manifest: semgrep is the only real

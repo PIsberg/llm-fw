@@ -171,6 +171,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test/ci/dependabotGroups.test.ts` reads every direct dependency's
   `peerDependencies` and fails if an exact-version pair would be split. (#252)
 
+- **The container's base image is pinned by digest and watched by Dependabot.**
+  All three `Dockerfile` stages used `node:22-bookworm-slim` by tag only, so two
+  builds of one commit could differ and a re-pushed tag would arrive without a
+  diff (Scorecard `PinnedDependencies` alerts #64-#66). They now carry the tag
+  plus `@sha256:` digest, and a `docker` ecosystem in `dependabot.yml` proposes
+  digest bumps on the same 7-day cooldown. `test/ci/dockerPinning.test.ts`
+  fails on an unpinned or diverging `FROM`. (#253)
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
