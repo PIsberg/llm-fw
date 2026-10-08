@@ -124,6 +124,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // every recall split byte-identical, injecagent 1054/1054.
   // Held at ruleset 2026.10.1 (harmful-request precision, #246): no row in
   // this corpus reaches that detector, re-measured on the same 6 rows.
+  // Held at ruleset 2026.10.3 (sensitive-disclosure needs a data noun,
+  // #249): re-measured on the same 5 rows left after 2026.10.2.
   'agent-tool-definition': 0,
 };
 

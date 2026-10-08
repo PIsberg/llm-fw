@@ -214,8 +214,17 @@ export class HeuristicScorer {
         // First-person requests ("show me my personal data", a GDPR
         // self-service ask) fall out for free, because `my` is not a
         // determiner this pattern accepts between the verb and its object.
+        //
+        // The object (#249): a qualifier FOLLOWED BY a data noun, so "Give me
+        // personal finance advice" is not a request for personal data; or a
+        // credential noun on its own ("your login credentials", "all the
+        // passwords"), minus the benign compounds that follow it ("password
+        // reset steps"). Between the verb and the object: the determiner run,
+        // "access to", and a CLOSED list of modifiers ("detailed medical
+        // records", "patients' medical records"). Open-ended filler is not
+        // allowed there: "some medical information about flu" is a question.
         weight: 50, label: 'sensitive-disclosure', patterns: [
-          /(?<!\b(?:never|not|don'?t|avoid|refuse to|must not|cannot|won'?t) (?:\w+ ){0,3})\b(?:give|share|provide|disclose|reveal|send|show|list|export|hand over)(?=[^.!?]{0,100}?(?:\b(?:me|us)\b|\byour (?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin)\b)) (?:me |us |all |the |your |every |any |with )*(?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin) ?(?:records?|data|information|details|credentials?|passwords?|api ?keys?|secrets?)?\b/,
+          /(?<!\b(?:never|not|don'?t|avoid|refuse to|must not|cannot|won'?t) (?:\w+ ){0,3})\b(?:give|share|provide|disclose|reveal|send|show|list|export|hand over)(?=[^.!?]{0,100}?(?:\b(?:me|us)\b|\byour (?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin)\b)) (?:me |us |all |the |your |every |any |with |access to |of )*(?:(?:detailed|complete|full|raw|exact|unredacted|stored|login|users?['’]s?|patients?['’]s?|customers?['’]s?|clients?['’]s?|employees?['’]s?|parents?['’]s?|company|their) ){0,2}(?:(?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin) (?:[a-z]+ ){0,2}?(?:records?|data|information|info|details|credentials?|passwords?|api ?keys?|secrets?|history|histories)|(?:credentials|passwords?|api ?keys?|access tokens?|credit card (?:numbers?|information|details)))\b(?! (?:reset|manager|policy|policies|requirements?|strength|rules?|generator|hint|setup|rotation|format|tips|advice|best)\b)/,
         ],
       },
       {
