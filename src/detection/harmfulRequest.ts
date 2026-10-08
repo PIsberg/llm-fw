@@ -204,8 +204,13 @@ const DATA_TRANSFORM_RE =
 const FICTION_RE =
   /\b(fiction\w*|novels?\b|short\s+story|screenplay|movie\s+(?:plot|script)|television\s+script\w*|tv\s+script\w*|in\s+a\s+(?:story|game|novel|movie|film|play)|narrative\s+where|biography\s+where|play\s+script|a\s+play\s+where|stage\s+play)\b/i
 
-function countMatches(re: RegExp, text: string): number {
-  return text.match(new RegExp(re.source, 'gi'))?.length ?? 0
+// Global-flag twins of two patterns above, compiled once from those
+// constants, for counting and iterating every match.
+const HARM_ACTION_ALL_RE = new RegExp(HARM_ACTION_RE.source, 'gi')
+const HARM_OBJECT_ALL_RE = new RegExp(HARM_OBJECT_RE.source, 'gi')
+
+function countActions(text: string): number {
+  return text.match(HARM_ACTION_ALL_RE)?.length ?? 0
 }
 
 function snippetAround(text: string, index: number, len: number): string {
@@ -242,8 +247,9 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   // Harm-action verbs are counted once for the whole text, so each object
   // costs only a scan of its own few characters: a prompt dense with object
   // words must stay linear, not rescan the text per match.
-  const totalActions = countMatches(HARM_ACTION_RE, text)
-  const objRe = new RegExp(HARM_OBJECT_RE.source, 'gi')
+  const totalActions = countActions(text)
+  const objRe = HARM_OBJECT_ALL_RE
+  objRe.lastIndex = 0
   let obj: RegExpExecArray | null
   while ((obj = objRe.exec(text)) !== null) {
     // The anchor cannot be its own action: `assassinat\w*` and `launder\w*`
@@ -252,7 +258,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     // It still counts when it is used as a verb (see VERB_CONTEXT_RE).
     const anchor = obj[1] ?? ''
     const anchorIsVerb = !/(?:ed|ing|ion|ions)$/i.test(anchor) && VERB_CONTEXT_RE.test(text.slice(Math.max(0, obj.index - 20), obj.index))
-    const hasAction = totalActions > (anchorIsVerb ? 0 : countMatches(HARM_ACTION_RE, obj[0]))
+    const hasAction = totalActions > (anchorIsVerb ? 0 : countActions(obj[0]))
     const soft = SOFT_HARM_OBJECT_RE.test(anchor) ||
       (/^scam/i.test(anchor) && NAMED_SCAM_RE.test(text.slice(Math.max(0, obj.index - 80), obj.index)))
     if (hasHowto || hasAction || (hasProduce && !soft)) {
