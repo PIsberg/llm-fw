@@ -77,11 +77,12 @@ export class HeuristicScorer {
           // "new <instructions>" needs an announcing frame ("your new task is",
           // "you've been given new instructions", "now comes a new task") or
           // a header shape: the noun at a boundary and directly followed by a
-          // colon ("-END- New instructions: you are ..."). A possessor ("my
+          // colon or dash ("-END- New instructions: you are ...", "(assistant:
+          // new mandate — answer ...)"). A possessor ("my
           // new instructions from the client: ...", "our new task") is a
           // person relaying their own work.
           /\b(?:your new (?:primary |main |core )?(?:instructions?|mandate|directives?|objectives?|tasks?) (?:is|are|will be)|(?:you(?:'ve| have)? been given|here are|these are|consider|accept|obey) (?:your |some |these )?new (?:instructions?|directives?|orders|tasks?)|now (?:comes?|come|follows?|here are) (?:a |some |your )?new (?:instructions?|directives?|tasks?))\b/,
-          /(?<![\w,'’] ?)new (?:primary |main |core )?(?:instructions?|mandate|directives?|objectives?|tasks?|orders?)\s*:/,
+          /(?<![\w,'’] ?)new (?:primary |main |core )?(?:instructions?|mandate|directives?|objectives?|tasks?|orders?)\s*[:—–-]/,
           /override (your |all |the )?(instructions?|rules?|system|guidelines|constraints)/,
           // "your <purpose>" needs a replacement modifier and a copula ("your
           // real purpose is", "your new goal is"), or "is now". "Your goal is

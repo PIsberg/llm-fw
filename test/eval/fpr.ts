@@ -133,6 +133,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // #249): re-measured on the same 5 rows left after 2026.10.2.
   // Held at ruleset 2026.10.4 (review follow-up to both): same 5 rows.
   // Held at ruleset 2026.10.5 (opt-in audio transcription, off by default).
+  // Held at ruleset 2026.10.6 (dash-terminated override header): same rows.
   'agent-tool-definition': 0,
 };
 
