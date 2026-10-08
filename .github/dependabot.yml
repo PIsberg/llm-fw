@@ -28,6 +28,26 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      # The exceptions to "majors arrive alone", and they must stay listed
+      # first: Dependabot files an update under the first group it matches.
+      # Each pair below peer-depends on its partner at an EXACT version, so a
+      # major split across two pull requests fails `npm ci` in both and neither
+      # can ever go green. #211 and #212 (Stryker 10) sat open seven weeks that
+      # way (#252). Minor and patch updates of both already travel together in
+      # dev-tooling, so these take majors only. test/ci/dependabotGroups.test.ts
+      # fails if another exact-peer pair appears without a shared group.
+      stryker:
+        patterns:
+          - '@stryker-mutator/*'
+        update-types:
+          - major
+      # @vitest/coverage-v8 pins vitest exactly, and vitest pins it back.
+      vitest:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
+        update-types:
+          - major
       # Dev tooling moves constantly and is reviewed as a set: if the suite is
       # green afterwards, the bump did its job. Patch and minor only.
       dev-tooling:
@@ -44,7 +64,9 @@ updates:
     #     skim. node-forge issues the CA. cosmiconfig reads config.
     #   * every major, in either group. vitest and typescript majors change
     #     the tooling that MEASURES detection, which is the one thing here
-    #     that must not drift unnoticed.
+    #     that must not drift unnoticed. The peer-locked pairs above are the
+    #     only exception: each pair arrives as one pull request, still apart
+    #     from everything else.
     #
     # See the `dependencies` skill for what to check before merging either.
 

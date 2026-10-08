@@ -110,6 +110,12 @@ and say in the PR body which ones you checked. A major that "just works"
 because nothing in the suite exercises the changed path is the expensive kind
 of green.
 
+Peer-locked packages arrive as one pull request per pair (the `stryker` and
+`vitest` groups in `dependabot.yml`), because a major of either half alone
+cannot pass `npm ci`. For a Stryker major, run `npm run mutation` once and
+compare the score by hand against the last weekly run: `stryker.config` sets no
+`thresholds.break`, so a major that shifts the reported score fails nothing.
+
 ## Writing it up
 
 `CHANGELOG.md` under `## [Unreleased]`. Say what a user gets, not what moved:

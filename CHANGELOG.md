@@ -162,6 +162,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at semgrep 1.173.0. `test/ci/semgrepLock.test.ts` keeps that directory to
   workflow files only and every workflow pointing at the same lock. (#251)
 
+- **Dependabot proposes majors of peer-locked packages as one pull request per
+  pair.** `@stryker-mutator/vitest-runner` pins `@stryker-mutator/core` at an
+  exact version, so the Stryker 10 majors arrived as #211 and #212 and each
+  failed `npm ci` against the other for seven weeks. New `stryker` and
+  `vitest` groups take majors for those pairs (`vitest` and
+  `@vitest/coverage-v8` pin each other the same way, found by the new test).
+  `test/ci/dependabotGroups.test.ts` reads every direct dependency's
+  `peerDependencies` and fails if an exact-version pair would be split. (#252)
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
