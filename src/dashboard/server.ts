@@ -1224,6 +1224,7 @@ const SETTINGS_SCHEMA = [
     { key: 'nonText', label: 'Non-text content scanning', sub: 'Inspect/track image, PDF, document, and audio attachments rather than letting them pass uninspected' },
     { key: 'nonTextMode', label: 'Opaque media mode', type: 'select', options: ['audit', 'block'], sub: 'audit: forward + warn · block: refuse uninspectable media' },
     { key: 'nonTextOcr', label: 'OCR raster images', sub: 'Read injection text rendered as pixels and scan it (WASM, no Python; ~12 MB first-run download, ~0.2–2s/image)' },
+    { key: 'nonTextTranscribe', label: 'Transcribe WAV audio', sub: 'Transcribe speech in WAV clips locally with Whisper and scan it (~40 MB first-run download). MP3/AAC/Ogg/FLAC stay opaque' },
   ]},
   { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails for agentic / MCP traffic.', rows: [
     { key: 'mcp', label: 'MCP tool policy', sub: 'Allow/deny tool calls by name and inspect tool definitions for poisoning' },
@@ -1570,6 +1571,7 @@ interface SettingsView {
   nonText: boolean
   nonTextMode: 'audit' | 'block'
   nonTextOcr: boolean
+  nonTextTranscribe: boolean
   // Advanced — numeric/text tuning (all live, no restart).
   heuristicBlockThreshold: number
   embeddingBlockThreshold: number
@@ -1615,6 +1617,7 @@ function readSettings(config: Config): SettingsView {
     nonText: config.nonText?.enabled ?? true,
     nonTextMode: config.nonText?.mode ?? 'audit',
     nonTextOcr: config.nonText?.ocr ?? false,
+    nonTextTranscribe: config.nonText?.transcribe ?? false,
     heuristicBlockThreshold: config.detection?.heuristicBlockThreshold ?? 50,
     embeddingBlockThreshold: config.detection?.embeddingBlockThreshold ?? 0.86,
     embeddingWarnThreshold: config.detection?.embeddingWarnThreshold ?? 0.80,
@@ -1651,6 +1654,7 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   responseScan: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).enabled = v },
   nonText: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).enabled = v },
   nonTextOcr: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).ocr = v },
+  nonTextTranscribe: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).transcribe = v },
 }
 
 // Numeric tuning setters with an inclusive valid range (the POST allowlist for

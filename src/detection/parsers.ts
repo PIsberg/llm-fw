@@ -392,7 +392,12 @@ class OpenAIParser implements PayloadParser {
           }
         } else if (part.type === 'input_audio') {
           const format = part.input_audio?.format
-          out.push({ kind: 'audio', ...(typeof format === 'string' ? { mimeType: `audio/${format}` } : {}) })
+          const audio = part.input_audio?.data
+          const mime = typeof format === 'string' ? `audio/${format}` : undefined
+          // Keep the payload so opt-in transcription (#82) can read it.
+          out.push(typeof audio === 'string' && audio.length > 0
+            ? mediaBlockFromBase64('audio', mime, audio)
+            : { kind: 'audio', ...(mime ? { mimeType: mime } : {}) })
         }
       }
 

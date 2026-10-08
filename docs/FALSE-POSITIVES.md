@@ -43,7 +43,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.4
+## Result, ruleset 2026.10.5
 
 **3.52% overall (5 of 142), 95% CI 1.51–7.98%.**
 
@@ -185,6 +185,11 @@ unchanged).** A security review found gaps the framing and the data-noun
 requirement had opened (listed in the CHANGELOG). Closing them moved no row
 in this corpus, Dolly-15k or safeguard's benign half; safeguard recall 418 to
 419.
+
+**2026.10.5 — opt-in audio transcription, no default verdict moved (3.52%
+unchanged).** The ruleset was cut because the pipeline and config changed to
+add `nonText.transcribe` (#82), which is off by default. Re-measured: both
+corpora here (5/142 and 0/2,000) and every eval split identical to 2026.10.4.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 
