@@ -13,7 +13,7 @@ than asserted.
 ## The measurement
 
 `npm run fpr` runs a **held-out** benign corpus
-(`test/eval/data/benign-realistic.json`, 166 rows) through the real detection
+(`test/eval/data/benign-realistic.json`, 176 rows) through the real detection
 pipeline in its shipped default configuration, and reports the rate per category
 with a 95% Wilson interval.
 
@@ -60,13 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.12
+## Result, ruleset 2026.10.13
 
-**3.01% overall (5 of 166), 95% CI 1.29–6.86%.** The same 5 rows as at
-2026.10.6 (3.52%, 5 of 142); the denominator grew by two 12-row families,
-`customer-ultimatum` for #259 and `self-correction` for #258, each added
-before its rule and blocking none of them. Rulesets 2026.10.8 to 2026.10.12
-moved none of the original 154.
+**2.84% overall (5 of 176), 95% CI 1.22–6.48%.** The same 5 rows as at
+2026.10.6 (3.52%, 5 of 142); the denominator grew by three families,
+`customer-ultimatum` (12 rows) for #259, `self-correction` (12) for #258 and
+`prior-briefing` (10) for #221, each added before its rule and blocking none
+of them. Rulesets 2026.10.8 to 2026.10.13 moved none of the original 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
 
@@ -258,6 +258,16 @@ benign traffic; they cannot, so no rule was written for those.
 (5 rows unchanged).** `nonText.transcribe` stays off by default (#257);
 every corpus here and every eval split re-measured identical.
 
+**2026.10.13 - an override of what the model was told, with its benign family
+first (5 rows unchanged, 2.84% of a larger corpus).** "Ignore all the
+instructions you got before" opens long-form persona jailbreaks, and "Ignore
+the calendar invite you got this morning, the review moved" is a user
+updating a briefing. Before the rule, 10 such updates went into this corpus
+as `prior-briefing`, gated at zero: 0 of 10, and still 0 of 10 after (#221).
+The rule needs the clause to end at what the model was told (or at a time
+frame), so things the model got from a tool, a vendor or a colleague are not
+read as its instructions.
+
 Net across all of it, against the pre-2026.08.7 baseline:
 
 | Split | Before | Now |
@@ -383,7 +393,7 @@ npm run fpr -- --only=dolly-15k-full
 ```
 
 The production target is **0.1%**. A clean run would need about **3,838** benign
-rows to support that claim at 95% confidence; the corpus has 166. That number is
+rows to support that claim at 95% confidence; the corpus has 176. That number is
 printed on every run so a small clean sample is never read as a passing grade.
 
 ## How these get fixed

@@ -155,6 +155,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // rows. The self-correction family (12 rows) was added and measured 0/12
   // before the rule, as customer-ultimatum was, and is still 0/12 after.
   // Held at ruleset 2026.10.12 (AIFF transcription, off by default, #257).
+  // Held at ruleset 2026.10.13 (override of what the model was told, #221):
+  // same 5 rows. The prior-briefing family (10 rows) was added and measured
+  // 0/10 before the rule, and is still 0/10 after.
   'agent-tool-definition': 0,
 };
 
