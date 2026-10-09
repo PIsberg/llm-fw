@@ -26,7 +26,7 @@ not run them:
 | `npm run test:load:perf` | Load Tests | p99 latency ceiling |
 | `npm run test:load:accuracy` | Load Tests | FPR ceiling, TPR floor, under concurrency |
 | `npm run scorecard` | Load Tests | deterministic sweep, per-class recall |
-| `npm run fpr` | Load Tests | false-positive SLO on a HELD-OUT benign corpus |
+| `npm run fpr` | Load Tests | false-positive SLO on two HELD-OUT benign corpora: hand-written agent traffic and a 2,000-row Dolly-15k sample. The full 15,011 rows run nightly, report-only (`--only=dolly-15k-full`) |
 
 The last one is the half that is easy to forget. Recall has always been gated;
 `fpr` is what catches a change that starts blocking real benign traffic, and it

@@ -69,16 +69,20 @@ export function parseDataUrl(url: string): { mimeType: string; data: string } | 
 
 /** Build a MediaBlock from a base64 payload, decoding text where possible. */
 export function mediaBlockFromBase64(kind: MediaBlock['kind'], mimeType: string | undefined, base64Data: string): MediaBlock {
-  const text = decodeMediaText(mimeType, base64Data)
+  // Only documents and files are decoded as text. An image, audio or video
+  // part is rendered by the provider as that medium whatever its bytes say, so
+  // sniffing PDF magic in one would mark a clip "inspected" and let a payload
+  // that starts with %PDF- past block mode.
+  const text = kind === 'document' || kind === 'file' ? decodeMediaText(mimeType, base64Data) : null
   return {
     kind,
     mimeType,
     sizeBytes: Math.floor(base64Data.length * 3 / 4),
     ...(text ? { text } : {}),
-    // Keep the raw payload for opaque raster images so the optional OCR stage
-    // can read the pixels. Text-bearing blocks are already decoded; no point
-    // retaining their bytes.
-    ...(!text && kind === 'image' ? { data: base64Data } : {}),
+    // Keep the raw payload for opaque raster images and audio, so the optional
+    // OCR and transcription stages can read them. Text-bearing blocks are
+    // already decoded; no point retaining their bytes.
+    ...(!text && (kind === 'image' || kind === 'audio') ? { data: base64Data } : {}),
   }
 }
 

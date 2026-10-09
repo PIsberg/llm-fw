@@ -33,9 +33,9 @@ jobs:
       #
       # Every package in the tree is pinned by version and sha256 —
       # --require-hashes makes pip refuse anything unpinned, so the resolver
-      # cannot quietly pull a different build. See semgrep-requirements.txt for
+      # cannot quietly pull a different build. See .github/semgrep/requirements.txt for
       # how to regenerate it.
       - name: Install Semgrep
-        run: pip install --no-cache-dir --require-hashes -r .github/workflows/semgrep-requirements.txt
+        run: pip install --no-cache-dir --require-hashes -r .github/semgrep/requirements.txt
       - name: Run Semgrep
         run: semgrep scan --config=p/default --error --metrics=off

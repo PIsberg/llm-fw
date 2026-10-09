@@ -75,3 +75,33 @@ describe('nightly workflow — trend history round-trip', () => {
     expect(run).toContain('--file="$TREND_FILE"')
   })
 })
+
+// The PR gate scans a 2,000-row Dolly sample. The full 15,011 rows find rarer
+// misfires the sample cannot show, but take minutes, so they run here instead
+// (#256): fetched fresh each night, never committed, reported but not gated.
+describe('nightly workflow — full Dolly-15k false-positive report', () => {
+  /** The `- name:` step block that contains `needle`. */
+  function stepWith(needle: string): string | undefined {
+    return WORKFLOW.split(/\n(?=\s*- name:)/).find(s => s.includes(needle))
+  }
+
+  it('fetches the full set before scanning it', () => {
+    const fetch = WORKFLOW.indexOf('fetch-eval-data.ts dolly-15k-full')
+    const scan = WORKFLOW.indexOf('npm run fpr -- --only=dolly-15k-full')
+    expect(fetch).toBeGreaterThan(-1)
+    expect(scan).toBeGreaterThan(fetch)
+  })
+
+  it('reports even on a night the drift gate failed', () => {
+    // Steps after a failed one are skipped unless they opt out; the drift gate
+    // failing is exactly the night the false-positive picture is wanted.
+    for (const needle of ['fetch-eval-data.ts dolly-15k-full', 'npm run fpr -- --only=dolly-15k-full']) {
+      expect(stepWith(needle)).toMatch(/if: \$\{\{ !cancelled\(\) \}\}|if: always\(\)/)
+    }
+  })
+
+  it('never commits the fetched set back', () => {
+    // The only push is the one-file trend commit, built from $TREND_FILE.
+    expect(WORKFLOW).not.toMatch(/dolly-15k-full\.json/)
+  })
+})

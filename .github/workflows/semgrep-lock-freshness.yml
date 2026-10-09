@@ -15,6 +15,11 @@ name: Semgrep lock freshness
 # So watch the one input that matters. When a newer semgrep exists, regenerate
 # the whole file the way its header prescribes and open one pull request with
 # the entire resolved tree, which is the only shape that can actually install.
+#
+# The lock lives in .github/semgrep/, NOT next to this file. GitHub treats
+# everything under .github/workflows/ as workflow content and GITHUB_TOKEN can
+# never be granted the `workflows` permission, so while the lock sat there this
+# job regenerated it correctly and then failed at the push, every run (#251).
 
 on:
   schedule:
@@ -38,7 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: '0.9.9'
 
@@ -46,7 +51,7 @@ jobs:
         id: current
         run: |
           set -euo pipefail
-          version=$(grep -oP '^semgrep==\K[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/semgrep-requirements.txt)
+          version=$(grep -oP '^semgrep==\K[0-9]+\.[0-9]+\.[0-9]+' .github/semgrep/requirements.txt)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "locked at $version"
 
@@ -63,7 +68,7 @@ jobs:
         if: steps.current.outputs.version != steps.latest.outputs.version
         run: |
           set -euo pipefail
-          target=.github/workflows/semgrep-requirements.txt
+          target=.github/semgrep/requirements.txt
           # Keep the hand-written header: it explains why the file exists, how
           # to regenerate it, and why dependabot does not watch it.
           header=$(sed -n '1,/^[a-zA-Z0-9_.-]\+==/p' "$target" | head -n -1)
@@ -84,7 +89,7 @@ jobs:
           # install must never reach a pull request.
           uv venv /tmp/verify --python 3.12
           uv pip install --python /tmp/verify --require-hashes \
-            -r .github/workflows/semgrep-requirements.txt
+            -r .github/semgrep/requirements.txt
           uv run --python /tmp/verify semgrep --version
 
       - name: Open the pull request

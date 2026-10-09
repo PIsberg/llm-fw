@@ -43,6 +43,7 @@ import { detectMentionFrame } from './intentMention.js'
 import { SuppressionStore } from './suppressions.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
+import { transcribeAudio, isTranscribeCandidate, MAX_TRANSCRIBE_CLIPS } from './transcribe.js'
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
 import { closeInferenceWorker } from './inferenceWorker.js'
 
@@ -346,6 +347,18 @@ export class Pipeline {
         for (const m of media) {
           if (m.text || !m.data || !isOcrCandidate(m.mimeType)) continue
           const text = await ocrImage(m.data, m.mimeType)
+          if (text) scanItems.push({ text, source: 'document' })
+        }
+      }
+      // Transcription opt-in (#82): the same arrangement for speech in WAV
+      // audio. The transcript is scanned; the clip is never marked inspected,
+      // for the same noise-speech reason as OCR above.
+      if (nonText.transcribe) {
+        let clips = 0
+        for (const m of media) {
+          if (m.text || !m.data || m.kind !== 'audio' || !isTranscribeCandidate(m.mimeType)) continue
+          if (clips++ >= MAX_TRANSCRIBE_CLIPS) break
+          const text = await transcribeAudio(m.data, m.mimeType)
           if (text) scanItems.push({ text, source: 'document' })
         }
       }

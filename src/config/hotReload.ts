@@ -131,6 +131,7 @@ const HOT_PATHS: Path[] = [
   ['nonText', 'enabled'],
   ['nonText', 'mode'],
   ['nonText', 'ocr'],
+  ['nonText', 'transcribe'],
   ['manyShot', 'enabled'],
   ['manyShot', 'mode'],
   ['crescendo', 'enabled'],
