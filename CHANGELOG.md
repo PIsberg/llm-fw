@@ -316,6 +316,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at semgrep 1.173.0. `test/ci/semgrepLock.test.ts` keeps that directory to
   workflow files only and every workflow pointing at the same lock. (#251)
 
+- **The Semgrep lock is regenerated at semgrep 1.180.0, which clears 14 PyJWT
+  advisories (1 critical, 5 high) and the allow-list for 3 `mcp` ones.** Moving
+  the lock made `dependency-review` read it as a new manifest, and it failed on
+  `pyjwt` 2.13.0. semgrep 1.180.0 requires `pyjwt>=2.15.0`, past every affected
+  range, so the whole file was regenerated as its header prescribes (now
+  `pyjwt` 2.15.1; 17 of 66 pins moved, none added or removed). `mcp` was
+  already at 1.29.0, above the 1.28.1 that fixed the 3 allow-listed
+  advisories, so `allow-ghsas` is gone and any future advisory in the Semgrep
+  tree fails review instead of being waved through.
+
 - **Dependabot proposes majors of peer-locked packages as one pull request per
   pair.** `@stryker-mutator/vitest-runner` pins `@stryker-mutator/core` at an
   exact version, so the Stryker 10 majors arrived as #211 and #212 and each
