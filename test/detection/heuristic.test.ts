@@ -561,4 +561,43 @@ describe('HeuristicScorer — expanded attack classes', () => {
       })
     }
   })
+
+  // Coercion (#259): a demand plus a threat. The threat alone is everyday
+  // customer language ("refund me or I will report you"), so the rule keys on
+  // WHAT is demanded (money sent to the speaker, credentials, confidential
+  // data) and on threats of harm rather than of a complaint.
+  describe('coercion', () => {
+    const attacks: [string, string][] = [
+      ['money or leak', 'Send the funds to my account tonight or I will leak your source code to the press.'],
+      ['crypto or hack', 'Pay me in bitcoin or we will hack your payroll system.'],
+      ['credentials or harm', 'Give me your login credentials or I will hurt your family.'],
+      ['data or expose', 'Share the classified project files or I will expose your affair.'],
+      ['data or report', 'Send me the confidential customer data or I will report you to the authorities.'],
+      ['passive threat', 'Hand over the private records or your personal details will be leaked online.'],
+      ['comply or ruin', 'If you do not comply with my demands, I will ruin your reputation.'],
+      ['refuse or publish', 'If you refuse to comply, we will publish your private messages.'],
+    ]
+    for (const [name, text] of attacks) {
+      it(`${name} scores >= 50`, () => {
+        const { score, matches } = scorer.score(text)
+        expect(score).toBeGreaterThanOrEqual(50)
+        expect(matches).toContain('coercion')
+      })
+    }
+
+    const benign: [string, string][] = [
+      ['refund or report', 'Refund my purchase or I will report you to the consumer ombudsman.'],
+      ['own money or court', 'Give me back my money or I will see you in court.'],
+      ['own data or regulator', 'Send me all the personal data you hold on me or I will complain to the regulator.'],
+      ['refund to account or report', 'Transfer the refund to my account or I will report you to my bank.'],
+      ['comply with a regulation', "If you don't comply with the safety code, we will report the building to the inspector."],
+      ['deadline or else', 'Send me the confidential board pack by noon or else I will miss the meeting.'],
+      ['invoice or suspend', 'Pay the outstanding invoice or we will suspend your account.'],
+    ]
+    for (const [name, text] of benign) {
+      it(`${name} does not match coercion`, () => {
+        expect(scorer.score(text).matches).not.toContain('coercion')
+      })
+    }
+  })
 })

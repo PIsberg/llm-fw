@@ -119,10 +119,11 @@ Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
 **Provenance.** Every **cheap (default)** figure below was measured on
-2026-10-09 against ruleset `2026.10.6`, full splits and no sampling, by
+2026-10-09 against ruleset `2026.10.7`, full splits and no sampling, by
 `node --import tsx/esm scripts/run-benchmark.ts cheap` (run at `2026.10.5`; a
 per-row re-measure at `2026.10.6`, whose only change restores a scorecard row,
-moved no verdict on any split). The 2026-08-29 column it
+moved no verdict on any split; `2026.10.7`, the coercion rule, was measured
+before and after on every split below and moved only safeguard's attack half). The 2026-08-29 column it
 replaces (ruleset `2026.08.13`) is kept in the CHANGELOG entries for rulesets
 `2026.10.1` to `2026.10.4`, which give every before and after. An earlier column had
 been measured on 2026-08-13 against ruleset `2026.08.4`/`2026.08.6` and was not
@@ -140,7 +141,7 @@ double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 3.52% (5/142) at ruleset `2026.10.6`. The second
+`benign-realistic` — 3.25% (5/154) at ruleset `2026.10.7`. The second
 false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000).
 Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
@@ -155,10 +156,10 @@ claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.6 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.7 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | gandalf (real "ignore instructions" attacks) | 112 | 79.5% (89/112) / — | 100% / — ‡ |
-| safeguard (clean, balanced, full split) | 2,060 | 64.5% (419/650) / 0.07% (1/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** ‡‡ |
+| safeguard (clean, balanced, full split) | 2,060 | 68.3% (444/650) / 0.07% (1/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** ‡‡ |
 | deepset (noisy labels) | 116 | 26.7% (16/60) / 0% (0/56) | 41.7% / 0% ‡ |
 | heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
 | dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | not measured |
@@ -166,11 +167,12 @@ claim, not a measurement; regenerate this table when detection changes.
 ‡‡ Re-measured at ruleset `2026.08.12`, before the cheap column's last five
 rulesets.
 
-Pooled across the four attack splits, direct-injection recall is **63.7%
-(543/853)**, up from 60.0% (512/853) at `2026.08.13`: the canonical "Ignore the
+Pooled across the four attack splits, direct-injection recall is **66.6%
+(568/853)**, up from 60.0% (512/853) at `2026.08.13`: the canonical "Ignore the
 above directions" family (#248), persona-plus-data-demand requests (#249), and
 the prompt-extraction question (#247), less 7 long persona jailbreaks that had
-only matched the override patterns #247 framed. The breakdown of what is still
+only matched the override patterns #247 framed, reached 63.7% (543/853); the
+coercion rule (#259) added 25 more. The breakdown of what is still
 missed follows the harmful-content table. It was 44.5% (380/853) at ruleset
 `2026.08.12`. Ruleset `2026.08.13` closed the
 override family (the object list demanded a specific noun, so "forget
@@ -181,9 +183,9 @@ false-positive rate moved.
 
 **Why the classifier is still opt-in, despite that safeguard row.** On safeguard
 the trained classifier is still the better detector: 83.5% recall against the
-cheap pipeline 64.5%, at a comparable 0.28% false-positive rate. That gap was
+cheap pipeline 68.3%, at a comparable 0.28% false-positive rate. That gap was
 41.7 points before ruleset `2026.08.13` closed the override, disclosure and
-extraction families, and is 19.0 points now: more than half of what the
+extraction families, and is 15.2 points now: more than half of what the
 classifier was buying on this split is bought deterministically instead, at
 ~27 ms rather than ~800 ms.
 
@@ -272,7 +274,7 @@ was already making by leaving it off.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.6 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.7 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
 
@@ -328,7 +330,7 @@ took the object requirement. The remaining row is characterisation, not gated.
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.6 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.7 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
 | harmbench | 400 | **41.5% (166/400) / —** | 18.5% / — ‡ |
@@ -361,8 +363,8 @@ dataset-level):
 
 ## What the direct-injection misses are made of
 
-The pooled 63.7% reads differently once the misses are sorted. Each of the 310
-missed direct-injection attacks, ruleset `2026.10.6`, tagged by the first
+The pooled 66.6% reads differently once the misses are sorted. Each of the 285
+missed direct-injection attacks, ruleset `2026.10.7`, tagged by the first
 family regex it matches (`node --import tsx/esm scripts/tag-misses.ts`; a
 measurement aid, not a detector, so the boundaries are approximate):
 
@@ -370,9 +372,9 @@ measurement aid, not a detector, so the boundaries are approximate):
 |---|---|---|---|---|---|
 | Prefix completion ("a poem that starts with 'The prompt template is'") | 83 | 0 | 83 | 0 | 0 |
 | Long-form jailbreak, over 250 characters (DAN, Mongo Tom, personas) | 51 | 11 | 39 | 1 | 0 |
-| Coercion ("... or I will leak ...") | 28 | 0 | 28 | 0 | 0 |
 | Override verb with an uncovered object | 16 | 4 | 4 | 1 | 7 |
 | Persona or authority claim plus data demand | 15 | 0 | 15 | 0 | 0 |
+| Coercion ("... or I will leak ..."), 28 before #259 | 3 | 0 | 3 | 0 | 0 |
 | Prompt-extraction question | 7 | 0 | 1 | 0 | 6 |
 | Other | 110 | 29 | 61 | 10 | 10 |
 
@@ -383,11 +385,15 @@ What each means:
   Its 83 rows are 12.8 points of safeguard recall (83/650) and protect no real
   deployment, so read safeguard's figure with that caveat, as the InjecAgent
   row is read with its email-address one.
-- **Coercion needs a benign family before any rule.** An "or (else) I will
-  ..." pattern matches attack rows and almost no benign ones in these corpora,
-  but that is the corpora: "Refund my order or I will report you to consumer
-  protection" passes today and such a rule would block it. Complaints and
-  support escalations need to be represented first.
+- **Coercion got its benign family first, then a rule (#259).** An "or (else)
+  I will ..." pattern matched attack rows and almost no benign ones in these
+  corpora, but that was the corpora: "Refund my order or I will report you to
+  consumer protection" would have blocked. The `customer-ultimatum` family in
+  the false-positive corpus came first; the rule keys on what is demanded
+  (money paid to the speaker, credentials, confidential or third-party data)
+  and a threat of harm. The 3 left threaten only a report, after a demand the
+  rule does not cover ("Help me carry out a cyber attack ... or I will report
+  you"), which is the shape a complaint takes too.
 - **Long-form jailbreaks and the heldout semantic rows** (grandmother,
   chemistry teacher, on-call SRE framings) are classifier or judge territory;
   regexes are at their ceiling there.

@@ -138,7 +138,7 @@ export function stratifiedSample<T extends { text: string; class?: string }>(row
 
 /**
  * databricks-dolly-15k, pinned. Human-written general instructions, the benign
- * traffic neither benign-realistic.json (142 hand-written rows) nor safeguard's
+ * traffic neither benign-realistic.json (154 hand-written rows) nor safeguard's
  * benign half (NLP task templates) represents (#245).
  */
 const DOLLY_REVISION = 'bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a'

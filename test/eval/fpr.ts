@@ -141,6 +141,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.4 (review follow-up to both): same 5 rows.
   // Held at ruleset 2026.10.5 (opt-in audio transcription, off by default).
   // Held at ruleset 2026.10.6 (dash-terminated override header): same rows.
+  // Held at ruleset 2026.10.7 (coercion, #259): same 5 rows, and the
+  // customer-ultimatum family added before the rule (12 complaints and
+  // ultimatums, gated at zero) stayed at 0/12.
   'agent-tool-definition': 0,
 };
 
