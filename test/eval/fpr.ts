@@ -168,6 +168,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // rows) was added and measured 0/10 before the rule, and is still 0/10
   // after. A first draft blocked a deadline-notice row (a refund's bank
   // details) and was narrowed before commit.
+  // Held at ruleset 2026.10.17 (extraction question by what the model
+  // received, #221): same 5 rows. The instruction-question family (10 rows)
+  // was added and measured 0/10 before the rule, and is still 0/10 after.
   'agent-tool-definition': 0,
 };
 
