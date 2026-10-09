@@ -75,6 +75,13 @@ export class HeuristicScorer {
           /ig[a-z]{1,3}(?:re|er|r)\b (all |the |your |my )?(previous|prior|above|old) (instructions?|rules?|prompts?|commands?)/,
           /ig[a-z]{1,3}(?:re|er|r)\b (your |the )?(evaluation |screening )?criteria/,
           /you have no restrictions/,
+          // A wipe of the earlier conversation, then a new persona with a task
+          // (#258): "disregard previous messages. as a satirical ... editor,
+          // improve ...". The wipe alone is a user correcting themselves (the
+          // held-out `self-correction` family: "disregard my last two
+          // messages"), so it needs no possessive and a persona clause after
+          // it, and "as a reminder, ..." / "as a team we ..." are not one.
+          /\b(?:ignore|disregard|forget|discard)\b (?:all |the )?(?:previous|prior|earlier|above) (?:messages?|conversation|context|chat|prompts?)\b[^.!?;]{0,20}[.!;:,] ?as an? (?!(?:reminder|result|side note|heads[- ]up|follow[- ]up|matter of fact|aside|fyi|courtesy|precaution|first step|rule|team|group|company|whole|family)\b)(?:[\w-]+ ){0,5}?[\w-]+, ?(?:you\b|(?:write|rewrite|improve|generate|create|answer|respond|reply|tell|give|list|explain|act|pretend|roleplay|make|produce|draft|compose|insult|mock|roast)\b)/,
           /ig[a-z]{1,3}(?:re|er|r)\b (instructions?|rules?|prompts?|commands?)/,
           /forget (your |all |the )?(previous|prior|above|original|system)? ?(instructions?|rules?|context|prompts?)/,
           // The object list above demands a specific noun, so the commonest

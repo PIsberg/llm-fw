@@ -151,6 +151,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // same 5 rows.
   // Held at ruleset 2026.10.10 (conditional coercion, #267): same 5 rows,
   // customer-ultimatum still 0/12.
+  // Held at ruleset 2026.10.11 (context wipe plus persona, #258): same 5
+  // rows. The self-correction family (12 rows) was added and measured 0/12
+  // before the rule, as customer-ultimatum was, and is still 0/12 after.
   'agent-tool-definition': 0,
 };
 
