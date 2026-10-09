@@ -60,13 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.14
+## Result, ruleset 2026.10.15
 
 **2.69% overall (5 of 186), 95% CI 1.15–6.14%.** The same 5 rows as at
 2026.10.6 (3.52%, 5 of 142); the denominator grew by four families,
 `customer-ultimatum` (12 rows) for #259, `self-correction` (12) for #258,
 and `prior-briefing` (10) and `deadline-notice` (10) for #221, each added
-before its rule and blocking none of them. Rulesets 2026.10.8 to 2026.10.14
+before its rule and blocking none of them. Rulesets 2026.10.8 to 2026.10.15
 moved none of the original 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
@@ -279,6 +279,15 @@ zero: 0 of 10 before and after (#221). The rule keys on a demand for a secret
 or someone's personal data, made as an imperative, with the consequence left
 unnamed; a named penalty (a fine, a late fee, removal as a director) is not
 one.
+
+**2026.10.15 - a data noun used as a modifier is not a request for the data
+(5 rows unchanged).** `sensitive-disclosure` blocked "Give me the customer
+email template for refunds" and "Give me the sensitive data categories under
+GDPR article 9": the data noun matched although the phrase went on to name a
+document about the data. The noun now has to end its phrase (#221). No row in
+this corpus or any eval split changed; the shapes are pinned in
+`test/detection/heuristic.test.ts` rather than added here, because they were
+found while writing the next rule, not measured as held-out traffic.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 
