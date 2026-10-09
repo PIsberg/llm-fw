@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { stratifiedSample } from '../../scripts/fetch-eval-data.js'
+import { execFileSync } from 'node:child_process'
+import { relative } from 'node:path'
+import { stratifiedSample, DOLLY_FULL_FILE } from '../../scripts/fetch-eval-data.js'
 
 // The Dolly-15k sample is a held-out benign corpus for the false-positive gate
 // (#245). Two properties make it a measurement rather than a claim: the sample
@@ -64,5 +66,19 @@ describe('test/eval/data/dolly-15k-sample.json', () => {
       'Give me a bulleted list of first person shooter games on PS4',
       'Which institute is known as International money laundering watch dog?',
     ]) expect(texts.has(t)).toBe(false)
+  })
+})
+
+describe('the full Dolly-15k set (#256)', () => {
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+
+  it('is written under test/eval/data/, to a path git ignores', () => {
+    // 15,011 rows fetched fresh by the nightly job. Committed, it would be a
+    // second copy of the dataset to keep licensed and in sync, and a tempting
+    // corpus to tune against.
+    const rel = relative(root, DOLLY_FULL_FILE).replace(/\\/g, '/')
+    expect(rel).toMatch(/^test\/eval\/data\//)
+    // `git check-ignore` exits 0 when the path is ignored, 1 when it is not.
+    expect(() => execFileSync('git', ['check-ignore', '-q', rel], { cwd: root })).not.toThrow()
   })
 })

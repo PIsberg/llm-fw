@@ -24,10 +24,10 @@
  * Usage:  node --import tsx/esm scripts/fetch-eval-data.ts [name ...]
  *         (no args = fetch all; names = subset, e.g. `jbb-behaviors harmbench`)
  */
-import { writeFileSync } from 'node:fs'
+import { writeFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname, resolve, isAbsolute } from 'node:path'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dir, '..', 'test', 'eval', 'data')
@@ -103,7 +103,9 @@ function csvObjects(text: string): Record<string, string>[] {
 
 function write(file: string, source: string, revision: string, threat: Threat, rows: Row[], extra: Record<string, string> = {}) {
   const out = { _source: source, _revision: revision, _fetched: new Date().toISOString().slice(0, 10), _threat: threat, ...extra, rows }
-  writeFileSync(join(dataDir, file), JSON.stringify(out, null, 1) + '\n')
+  const path = isAbsolute(file) ? file : join(dataDir, file)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify(out, null, 1) + '\n')
   console.log(`  wrote ${file}  n=${rows.length}  rev=${revision.slice(0, 12)}`)
 }
 
@@ -140,6 +142,12 @@ export function stratifiedSample<T extends { text: string; class?: string }>(row
  * benign half (NLP task templates) represents (#245).
  */
 const DOLLY_REVISION = 'bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a'
+const DOLLY_LICENSE = 'CC BY-SA 3.0. Source: databricks-dolly-15k, Copyright (2023) Databricks, Inc., https://huggingface.co/datasets/databricks/databricks-dolly-15k. This derived file (instruction field only, sampled) is distributed under the same licence.'
+/**
+ * Every Dolly instruction, for the nightly report-only scan (#256). Gitignored
+ * under test/eval/data/local/: fetched fresh each run, never committed.
+ */
+export const DOLLY_FULL_FILE = join(dataDir, 'local', 'dolly-15k-full.json')
 const DOLLY_SAMPLE_SIZE = 2000
 /**
  * Line indices (0-based, at DOLLY_REVISION) of the 15 rows the default
@@ -164,7 +172,19 @@ const FETCHERS: Record<string, () => Promise<void>> = {
     write('dolly-15k-sample.json',
       `databricks/databricks-dolly-15k: a fixed ${DOLLY_SAMPLE_SIZE}-row stratified sample (by Dolly category, lowest sha256 of the instruction within each) of the ${all.length} human-written instructions, label 0 (benign-only, FPR-only). HELD OUT: never tune detection against it. The ${DOLLY_SURVEY_ROWS.size} rows blocked in the 2026-10-08 survey are excluded, because fixes were written against them. Regenerate with scripts/fetch-eval-data.ts dolly-15k-sample.`,
       DOLLY_REVISION, 'injection', rows,
-      { _license: 'CC BY-SA 3.0. Source: databricks-dolly-15k, Copyright (2023) Databricks, Inc., https://huggingface.co/datasets/databricks/databricks-dolly-15k. This derived file (instruction field only, sampled) is distributed under the same licence.' })
+      { _license: DOLLY_LICENSE })
+  },
+
+  /** databricks-dolly-15k: every instruction, for the nightly report-only scan. Not committed. */
+  'dolly-15k-full': async () => {
+    const text = await getText(`https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/${DOLLY_REVISION}/databricks-dolly-15k.jsonl`)
+    const rows = text.split('\n').filter(Boolean)
+      .map(l => JSON.parse(l) as { instruction: string; category: string })
+      .map(r => ({ text: r.instruction, label: 0, class: r.category }))
+    write(DOLLY_FULL_FILE,
+      `databricks/databricks-dolly-15k: all ${rows.length} human-written instructions, label 0 (benign-only, FPR-only). Report-only in the nightly job, gitignored. HELD OUT: never tune detection against it.`,
+      DOLLY_REVISION, 'injection', rows,
+      { _license: DOLLY_LICENSE.replace('sampled', 'all rows') })
   },
 
   /** deepset/prompt-injections — full test split. Independent public injection set (noisy labels). */

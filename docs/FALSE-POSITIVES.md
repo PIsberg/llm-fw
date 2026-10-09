@@ -303,6 +303,18 @@ The Dolly sample has its own overall SLO of **0.5%** (`FPR_DOLLY_SLO`) and the
 same per-category rule: every Dolly category is gated at zero, so the first
 false positive in open_qa, brainstorming or any other category fails the build.
 
+All 15,011 Dolly rows run every night instead, report-only (#256): the nightly
+workflow fetches them into the gitignored `test/eval/data/local/` and runs
+`npm run fpr -- --only=dolly-15k-full`. They find the misfires that are too rare
+for a 2,000-row sample, using the same 0.5% SLO and zero ceilings, but a breach
+is printed in the job log rather than failing it. Only a scan that read no rows
+fails. To run it locally:
+
+```bash
+node --import tsx/esm scripts/fetch-eval-data.ts dolly-15k-full
+npm run fpr -- --only=dolly-15k-full
+```
+
 The production target is **0.1%**. A clean run would need about **3,838** benign
 rows to support that claim at 95% confidence; the corpus has 142. That number is
 printed on every run so a small clean sample is never read as a passing grade.
