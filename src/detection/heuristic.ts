@@ -486,7 +486,10 @@ export class HeuristicScorer {
         // the model to OBEY the result.
         weight: 50, label: 'payload-assembly', patterns: [
           /(execute|run|follow|obey|output|do what|comply with)\b[^.!?]{0,30}\b\w+ ?\+ ?\w+/,
-          /(concatenate|combine|join|assemble)\b[^.!?]{0,80}(follow|obey|execute|do what|resulting)/,
+          // The obey verb must aim at the assembled result: "join ... and what
+          // discipline did he follow" and "combine ..., then follow the recipe"
+          // are a biography and a recipe (#256).
+          /(concatenate|combine|join|assemble)\b[^.!?]{0,80}((follow|obey|execute|comply with|carry out|run) (it|them|that|this|the (result|resulting|combined|assembled|joined|concatenated|final)\w*|what (it|they|that) says?)\b|do what (it|they|that) says?|resulting (instruction|command|text|sentence|string|prompt|phrase))/,
           /(complete|finish)\b[^.!?]{0,40}(truncated|string|phrase|sentence)\b[^.!?]{0,40}(obey|follow|execute|comply)/,
           /spell\w* (out )?(a |the )?command|follow the spelled command/,
           /first (word|letter) of each (sentence|line|word)\b[^.!?]{0,60}(command|instruction|follow|treat)/,

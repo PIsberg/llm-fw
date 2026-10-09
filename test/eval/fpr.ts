@@ -147,6 +147,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // customer-ultimatum family added before the rule (12 complaints and
   // ultimatums, gated at zero) stayed at 0/12.
   // Held at ruleset 2026.10.8 (victim phrasing, #269): same 5 rows.
+  // Held at ruleset 2026.10.9 (payload-assembly, extraction anchor, #256):
+  // same 5 rows.
   'agent-tool-definition': 0,
 };
 

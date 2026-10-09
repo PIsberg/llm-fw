@@ -28,7 +28,8 @@ harmful-request was found refusing "List the names of several laundry detergent
 brands": 15 blocks in all 15,011 Dolly prompts on 2026-10-08, 11 from that one
 detector (#245, #246). The 15 survey rows are excluded from the sample, because
 fixes were written against them. At ruleset 2026.10.4 the sample blocks **0 of
-2,000 (95% CI 0.00–0.19%)**, and the full 15,011 block 2.
+2,000 (95% CI 0.00–0.19%)**, and the full 15,011 block 2. Ruleset 2026.10.9
+fixed both (#256): the full set now blocks **0 of 15,011 (95% CI 0.00–0.03%)**.
 
 Since ruleset 2026.10.7 it runs a third: a fixed 2,000-row stratified sample of
 user turns from [OpenAssistant oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1)
