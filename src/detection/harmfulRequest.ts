@@ -189,6 +189,29 @@ const PRODUCE_RE =
 const DEFENSIVE_RE =
   /\b(prevent\w*(?!\s+(?:\w+\s+){0,3}from\s+(?:talk\w*|report\w*|speak\w*|cooperat\w*))|(?<!\b(?:circumvent\w*|bypass\w*|disable\w*|exploit\w*|breach\w*|hack\w*|defeat\w*|evade\w*)\s+(?:\w+\s+){0,2})protect\w*|defen[ds]\w*|defence|mitigat\w*|(?:how\s+to\s+)?detect\s+(?:and\s+\w+\s+)?(?:threats?|intrusions?|attacks?|malware|fraud|phishing|anomal\w*|breaches?|injection)|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\b|historical\w*|historically|legislation\b|legislative\b|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept|an?\s+(?:article|essay|report|paper|piece)\s+(?:about|on)\s+how\s+(?!to\b)|expose\s+and\s+condemn|condemn\s+users?\s+of|stop\b|avoid\b(?!\s+(?:paying\s+)?tax\w*|\s+getting\s+caught|\s+detec\w*|\s+monitoring|\s+surveillance|\s+arrest|\s+prosecution|\s+convict\w*|\s+being\s+(?:convicted|arrested|charged|caught))|abstain\b|desist\b|relationship\s+between|effects?\s+of|impact\s+of|analysis\s+of|study\s+of|discuss\w*|views?\b|opinions?\b|perspectives?\b|illegal\b|why\s+it\s+is\s+(?:illegal|wrong|bad|harmful)\b|in\s+the\s+past|dispos\w*\s+of\s+(?:hazardous\s+|medical\s+|chemical\s+|industrial\s+)*waste|treatment\w*\s+for|therapy\s+for|cure\s+for|approach\s+(?:authorities|police|government|immigration|law\s+enforcement)|\b(?:explain\w*|discuss\w*|describe\w*|analy[sz]\w*|study\w*|understand\w*|about\b|on\b|what\s+is\b|what\s+are\b|difference\s+between\b|and\b|or\b|to\b|^\s*)\s+(?:how|which|what|why)\s+(?!to\b)\S+(?:\s+\S+){0,10}?\s+(?:has|have|had|did|was|were|works?|work\w*|evolve\w*|is|are|can\s+be|can\s+(?:harm|cause|lead|affect|influence|result|damage|impact)\w*))\b/i
 
+// The speaker is the would-be VICTIM, not the perpetrator (#269): a first-person
+// passive ("so I don't get scammed", "we have been hacked"), or a question
+// whose subject is the threat and whose object is the speaker's own property
+// ("could a phishing email be used to steal my bank login?"). The anchor and
+// the harm verb are both present, so without this they satisfy Rule 1. It only
+// suppresses when nothing is asked for: a how-to or a production verb still
+// wins, so "I was scammed once. Write a phishing email ..." blocks. "my" in
+// front of another person ("my coworker's files") is a target, not property.
+const VICTIM_RE = new RegExp(
+  // Only auxiliaries and negation between the pronoun and the passive, so
+  // "I make sure the tourists get scammed" keeps its third-person victim.
+  '\\b(?:i|we)(?:\'m|\'ve|\'d)?' +
+    '(?:\\s+(?:do|did|does|don\'t|dont|didn\'t|not|never|will|won\'t|would|wouldn\'t|want|wanted|to|have|has|had|may|might|could|can|' +
+    'just|already|recently|again|almost|nearly|am|are|keep|kept))*\\s+(?:be|get|getting|being|been|got|was|were)\\s+' +
+    '(?:scammed|hacked|phished|defrauded|robbed|conned|swindled|ripped\\s+off|blackmailed|extorted|doxx?ed|stalked|ddos(?:ed|\'d)?)\\b' +
+  '|^\\s*(?:can|could|would|will|might|does|do|is\\s+it\\s+possible\\s+(?:for|that))\\s+(?!(?:i|we|you|someone|anyone|people)\\b)' +
+    '(?![^?]*\\bhelp\\s+me\\b)[^.!?]{0,80}?\\b(?:my|our)\\s+' +
+    '(?!(?:ex|neighbou?rs?|boss|wife|husband|partner|co-?workers?|colleagues?|friends?|sister|brother|mother|father|mom|mum|dad|' +
+    'roommates?|flatmates?|teachers?|school|employees?|employer|competitors?|rivals?|landlord|tenants?|kids?|children|son|daughter)\\b)' +
+    '[^.!?]*\\?\\s*$',
+  'i',
+)
+
 // Benign data-transform framing — the request operates over PROVIDED content
 // (summarize/outline/answer/classify the following …), so a harmful word in the
 // text is part of the DATA, not the ask. Heavy false-positive source on the
@@ -235,6 +258,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   const ABSOLUTE_BLOCK_RE = /\b(pedophil\w*|paedophil\w*|bestiality\b|sex\s+with\s+animals|child\s+(?:abuse|porn\w*|exploitation)|animal\s+cruelty)\b/i
   if (DEFENSIVE_RE.test(text) && !/\b(?:persuas\w*|arguing\b|convinc\w*)\b/i.test(text)) return null
   if (DATA_TRANSFORM_RE.test(text)) return null
+  if (VICTIM_RE.test(text) && !hasHowto && !hasProduce) return null
   if (FICTION_RE.test(text) && !hasHowto) {
     const isMetaFiction = /\b(?:about|discuss\w*|list\w*|analysis|history|criticism|critique|reviews?)\s+(?:of\s+|about\s+|on\s+)?(?:famous\s+|existing\s+|published\s+|known\s+)?(?:novels?|books?|literature|films?|movies?|plays?)\b/i.test(text)
     if (!ABSOLUTE_BLOCK_RE.test(text) || isMetaFiction) return null

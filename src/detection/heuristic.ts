@@ -343,7 +343,8 @@ export class HeuristicScorer {
           /i am (your )?developer/,
           /as your developer/,
           /i am the (auditor|operator|admin(istrator)?)/,
-          /testing (you |your )/,
+          // "testing your <safety layer>", not "testing your memory" (#269).
+          /testing (you |your (safety|filters?|guardrails?|restrictions?|limits|boundaries|rules|polic(y|ies)|alignment|compliance|content)\b)/,
           /disable (your )?(safety |filters|restrictions)/,
           /disable (your |the |all )?(refusal|safety|content) (layers?|systems?|filters?|polic(?:y|ies))/,
           /skip (your |all )?(safety|content) (polic(?:y|ies)|filters?|disclaimers?|checks)/,

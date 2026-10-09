@@ -38,8 +38,9 @@ single-turn instructions; this is conversational traffic, where second-person
 phrasing ("your goal for this quarter") lives, the shape #247's false positives
 had. Only user turns, and only those the dataset's own reviewers passed. First
 measured at 2026.10.7: **3 of 2,000 (0.15%, 95% CI 0.05–0.44%)**, all English
-follow-up turns, gated at that count with a 0.5% SLO (`FPR_OASST_SLO`). The 3
-rows are tracked in #269.
+follow-up turns, gated at that count with a 0.5% SLO (`FPR_OASST_SLO`). Ruleset
+2026.10.8 fixed all 3 against rows of their own shape (#269), so the sample now
+blocks **0 of 2,000** and every class is gated at zero.
 
 Two rules make the number mean something:
 

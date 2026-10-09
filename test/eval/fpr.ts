@@ -146,6 +146,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.7 (coercion, #259): same 5 rows, and the
   // customer-ultimatum family added before the rule (12 complaints and
   // ultimatums, gated at zero) stayed at 0/12.
+  // Held at ruleset 2026.10.8 (victim phrasing, #269): same 5 rows.
   'agent-tool-definition': 0,
 };
 
@@ -183,10 +184,15 @@ const DOLLY_CATEGORY_CEILINGS: Record<string, number> = {};
  * harmful-request hits on scam and DDoS questions). A record, not an
  * endorsement; lower it as they are fixed. Held out like the others: those
  * fixes get their own corpus rows, never rows from this file.
+ * Lowered to 0 at ruleset 2026.10.8 (#269): `testing your` needs a safety
+ * noun, and harmful-request steps aside for a speaker who is the victim. The
+ * fixes were written against new rows of the same shape in
+ * test/detection/heuristic.test.ts and harmfulRequest.test.ts; every other
+ * row of every eval split was unchanged.
  */
 const OASST_CORPUS = join(HERE, 'data', 'oasst1-sample.json');
 const OASST_SLO_PCT = parseFloat(process.env.FPR_OASST_SLO ?? '0.5');
-const OASST_CATEGORY_CEILINGS: Record<string, number> = { 'en-follow-up': 3 };
+const OASST_CATEGORY_CEILINGS: Record<string, number> = {};
 
 type Row = EvalRow;
 
