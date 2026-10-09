@@ -300,6 +300,13 @@ export interface NonTextConfig {
   // pasted screenshot) that would otherwise be uninspectable. Off by default:
   // it adds ~0.2–2s per image and a lazy ~12 MB model/lang download.
   ocr?: boolean;
+  // Opt-in speech transcription (issue #82). When true, opaque WAV/PCM AUDIO
+  // (OpenAI input_audio, Gemini audio/* inlineData) is transcribed locally
+  // with Whisper via @huggingface/transformers and the transcript is scanned
+  // by the normal pipeline, so an instruction SPOKEN in a clip can block.
+  // Compressed formats (MP3, AAC, Ogg, FLAC) stay opaque. Off by default: a
+  // ~40 MB model download on first use, and transcription time per clip.
+  transcribe?: boolean;
 }
 
 // A non-text content block found in a request payload. `text` is present when
@@ -310,9 +317,10 @@ export interface MediaBlock {
   mimeType?: string | undefined;
   sizeBytes?: number;
   text?: string;
-  // Raw base64 payload, retained ONLY for opaque raster images so the optional
-  // OCR stage can read the pixels. Never serialized into events (callers that
-  // emit blocks map fields explicitly). Absent for text-bearing / remote blocks.
+  // Raw base64 payload, retained ONLY for opaque raster images and audio so
+  // the optional OCR and transcription stages can read them. Never serialized
+  // into events (callers that emit blocks map fields explicitly). Absent for
+  // text-bearing / remote blocks.
   data?: string;
 }
 

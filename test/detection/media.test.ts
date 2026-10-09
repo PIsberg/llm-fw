@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { decodeMediaText, parseDataUrl, extractPrintableRuns, summarizeOpaque } from '../../src/detection/media.js'
 import { AnthropicParser, OpenAIParser, GeminiParser, CohereParser } from '../../src/detection/parsers.js'
 import { Pipeline } from '../../src/detection/pipeline.js'
@@ -117,6 +117,16 @@ describe('extractMediaBlocks — provider parsers', () => {
     expect(blocks).toHaveLength(2)
     expect(blocks[0]?.text).toBe(INJECTION)
     expect(blocks[1]).toMatchObject({ kind: 'audio', mimeType: 'audio/wav' })
+    // The payload is kept so the opt-in transcription stage can read it (#82).
+    expect(blocks[1]?.data).toBe('AAAA')
+  })
+
+  it('Gemini: inlineData audio keeps its payload for transcription', () => {
+    const body = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: 'AAAA' } }] }],
+    })
+    const blocks = new GeminiParser().extractMediaBlocks(body)
+    expect(blocks[0]).toMatchObject({ kind: 'audio', mimeType: 'audio/wav', data: 'AAAA' })
   })
 
   it('OpenAI: Responses input_file with a PDF data URL surfaces appended text', () => {
@@ -210,6 +220,115 @@ describe('pipeline — non-text content (issue #60)', () => {
     expect(result.action).toBe('block')
     expect(result.stage).toBe('non-text')
     expect(events[0]?.kind).toBe('non-text')
+  })
+
+  // Issue #82: speech in an audio clip is transcribed (opt-in) and scanned
+  // like a document. The model itself is mocked; transcribe.test.ts covers
+  // decoding and transcribe.model.test.ts the real model (RUN_TRANSCRIBE).
+  describe('audio transcription (nonText.transcribe)', () => {
+    const audioBody = JSON.stringify({
+      model: 'gpt-4o-audio-preview',
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: 'Please answer the question in this voice memo.' },
+        { type: 'input_audio', input_audio: { data: 'UklGRgAAAABXQVZF', format: 'wav' } },
+      ] }],
+    })
+    const openaiMeta = { target: 'api.openai.com', method: 'POST', path: '/v1/chat/completions' }
+
+    it('blocks an injection spoken in a WAV clip when transcription is on', async () => {
+      vi.resetModules()
+      vi.doMock('../../src/detection/transcribe.js', async (orig) => ({
+        ...(await orig<typeof import('../../src/detection/transcribe.js')>()),
+        transcribeAudio: vi.fn(async () => INJECTION),
+      }))
+      const { Pipeline: P } = await import('../../src/detection/pipeline.js')
+      const events: Omit<BlockEvent, 'id' | 'timestamp'>[] = []
+      const pipeline = new P({ ...cfg('audit'), nonText: { enabled: true, mode: 'audit', transcribe: true } }, e => events.push(e))
+      const result = await pipeline.run('/v1/chat/completions', audioBody, openaiMeta)
+      vi.doUnmock('../../src/detection/transcribe.js')
+      vi.resetModules()
+      expect(result.action).toBe('block')
+      expect(events[0]?.payload_preview).toContain('[document]')
+    })
+
+    it('leaves audio opaque and never transcribes when the option is off', async () => {
+      vi.resetModules()
+      const transcribeAudio = vi.fn(async () => INJECTION)
+      vi.doMock('../../src/detection/transcribe.js', async (orig) => ({
+        ...(await orig<typeof import('../../src/detection/transcribe.js')>()),
+        transcribeAudio,
+      }))
+      const { Pipeline: P } = await import('../../src/detection/pipeline.js')
+      const events: Omit<BlockEvent, 'id' | 'timestamp'>[] = []
+      const pipeline = new P(cfg('audit'), e => events.push(e))
+      const result = await pipeline.run('/v1/chat/completions', audioBody, openaiMeta)
+      vi.doUnmock('../../src/detection/transcribe.js')
+      vi.resetModules()
+      expect(transcribeAudio).not.toHaveBeenCalled()
+      expect(result.action).toBe('pass')
+      expect(events.find(e => e.kind === 'non-text')?.mediaSummary).toBe('audio/wav')
+    })
+
+    it('block mode refuses an audio part whose bytes pose as a PDF', async () => {
+      // The provider plays this as audio; the firewall must not decide it is
+      // an inspected document because the bytes start with %PDF-.
+      const body = JSON.stringify({
+        model: 'gpt-4o-audio-preview',
+        messages: [{ role: 'user', content: [
+          { type: 'input_audio', input_audio: { data: b64('%PDF-1.4 a perfectly ordinary document'), format: 'wav' } },
+        ] }],
+      })
+      const pipeline = new Pipeline(cfg('block'))
+      const result = await pipeline.run('/v1/chat/completions', body, openaiMeta)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('non-text')
+    })
+
+    it('Gemini: an audio/* part whose bytes pose as a PDF stays opaque', () => {
+      const body = JSON.stringify({
+        contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: b64('%PDF-1.4 a perfectly ordinary document') } }] }],
+      })
+      const blocks = new GeminiParser().extractMediaBlocks(body)
+      expect(blocks[0]?.text).toBeUndefined()
+    })
+
+    it('transcribes at most MAX_TRANSCRIBE_CLIPS clips per request', async () => {
+      vi.resetModules()
+      const transcribeAudio = vi.fn(async () => 'What is the weather like?')
+      vi.doMock('../../src/detection/transcribe.js', async (orig) => ({
+        ...(await orig<typeof import('../../src/detection/transcribe.js')>()),
+        transcribeAudio,
+      }))
+      const { Pipeline: P } = await import('../../src/detection/pipeline.js')
+      const { MAX_TRANSCRIBE_CLIPS } = await import('../../src/detection/transcribe.js')
+      const clip = { type: 'input_audio', input_audio: { data: 'UklGRgAAAABXQVZF', format: 'wav' } }
+      const body = JSON.stringify({
+        model: 'gpt-4o-audio-preview',
+        messages: [{ role: 'user', content: Array.from({ length: MAX_TRANSCRIBE_CLIPS + 5 }, () => clip) }],
+      })
+      const pipeline = new P({ ...cfg('audit'), nonText: { enabled: true, mode: 'audit', transcribe: true } })
+      await pipeline.run('/v1/chat/completions', body, openaiMeta)
+      vi.doUnmock('../../src/detection/transcribe.js')
+      vi.resetModules()
+      expect(transcribeAudio).toHaveBeenCalledTimes(MAX_TRANSCRIBE_CLIPS)
+    })
+
+    it('block mode still refuses a transcribed clip whose speech is benign', async () => {
+      vi.resetModules()
+      vi.doMock('../../src/detection/transcribe.js', async (orig) => ({
+        ...(await orig<typeof import('../../src/detection/transcribe.js')>()),
+        transcribeAudio: vi.fn(async () => 'What is the weather like in Stockholm today?'),
+      }))
+      const { Pipeline: P } = await import('../../src/detection/pipeline.js')
+      const pipeline = new P({ ...cfg('block'), nonText: { enabled: true, mode: 'block', transcribe: true } })
+      const result = await pipeline.run('/v1/chat/completions', audioBody, openaiMeta)
+      vi.doUnmock('../../src/detection/transcribe.js')
+      vi.resetModules()
+      // Transcription adds a reading; it does not make the clip inspected, or
+      // noise speech would be a way past block mode.
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('non-text')
+    })
   })
 
   it('disabled: image-only request passes with no events', async () => {

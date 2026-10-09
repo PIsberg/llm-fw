@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-08-30T18:50:10.299Z",
+  "timestamp": "2026-10-08T23:06:38.347Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -17,61 +17,13 @@
       "fn": 0
     },
     "perClass": {
-      "social-engineering": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "skeleton-key": {
-        "tp": 3,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "policy-puppetry": {
-        "tp": 3,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "obfuscation-encoding": {
-        "tp": 12,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "prompt-exfil": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "direct-override": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
       "benign": {
         "tp": 0,
         "fn": 0,
         "tn": 78,
         "fp": 0
       },
-      "roleplay-fiction": {
-        "tp": 10,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "indirect-injection": {
+      "payload-splitting": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
@@ -83,20 +35,62 @@
         "tn": 0,
         "fp": 0
       },
-      "payload-splitting": {
+      "delimiter-confusion": {
+        "tp": 6,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "roleplay-fiction": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "multilingual": {
+        "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "prompt-exfil": {
         "tp": 8,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "prefix-injection": {
-        "tp": 4,
+      "exfiltration-markdown": {
+        "tp": 6,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "delimiter-confusion": {
-        "tp": 6,
+      "obfuscation-encoding": {
+        "tp": 12,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "indirect-injection": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "social-engineering": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "direct-override": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "skeleton-key": {
+        "tp": 3,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -107,14 +101,20 @@
         "tn": 0,
         "fp": 0
       },
-      "many-shot": {
-        "tp": 2,
+      "policy-puppetry": {
+        "tp": 3,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "exfiltration-markdown": {
-        "tp": 6,
+      "prefix-injection": {
+        "tp": 4,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "many-shot": {
+        "tp": 2,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -122,10 +122,10 @@
     },
     "fpr": 0,
     "tpr": 100,
-    "avgLatencyMs": 57.8,
-    "p50LatencyMs": 50,
-    "p95LatencyMs": 97,
-    "p99LatencyMs": 226,
+    "avgLatencyMs": 44.5,
+    "p50LatencyMs": 36,
+    "p95LatencyMs": 98,
+    "p99LatencyMs": 192,
     "errCount": 0
   },
   "passed": true,

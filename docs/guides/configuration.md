@@ -85,6 +85,20 @@ URL and DoS stages still running — the same outcome as any other model-load
 failure, so an unreachable HuggingFace degrades detection rather than blocking
 startup.
 
+**Audio transcription.** OpenAI's audio models (`input_audio` parts) and Gemini
+(`inlineData` with an `audio/*` type) accept speech in an ordinary chat
+request, and will follow an instruction spoken in the clip. By default such a
+clip is opaque: `nonText.mode` decides whether it is audited or refused.
+`nonText.transcribe: true` (or `LLM_FW_NONTEXT_TRANSCRIBE=true`) transcribes WAV
+clips locally with Whisper (`Xenova/whisper-tiny`, about 40 MB, cached in
+`LLM_FW_MODEL_DIR` beside the embedding model) and scans the transcript like a
+document, so a spoken injection can block. Only uncompressed WAV/PCM is
+decoded; MP3, AAC, Ogg and FLAC clips stay opaque. At most three clips per
+request, and the first 120 s of each, are transcribed. A transcribed clip
+still counts as opaque media, so block
+mode refuses it whatever it says: a transcript adds a reading, it does not
+certify the audio.
+
 ## Logging
 
 Structured JSON to `stdout` for informational records and `stderr` for
@@ -124,7 +138,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_82 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_83 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -189,6 +203,7 @@ _82 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_NONTEXT_ENABLED` | `nonText.enabled` | `true` |
 | `LLM_FW_NONTEXT_MODE` | `nonText.mode` | `audit` |
 | `LLM_FW_NONTEXT_OCR` | `nonText.ocr` | `false` |
+| `LLM_FW_NONTEXT_TRANSCRIBE` | `nonText.transcribe` | `false` |
 | `LLM_FW_OLLAMA_URL` | `detection.ollamaUrl` | `http://localhost:11434` |
 | `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |
 | `LLM_FW_PROXY_MODE` | `proxy.mode` | `proxy` |

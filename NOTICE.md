@@ -78,6 +78,15 @@ reports them as non-permissive or copyleft.
 - `argparse@2.0.1`, reached through `cosmiconfig` and `js-yaml`, is `Python-2.0`.
   That is a permissive license, but it is absent from most allowlists.
 
+## Repository test data (not in the npm package)
+
+`test/eval/data/dolly-15k-sample.json` is a 2,000-row sample of the
+`instruction` field of databricks-dolly-15k, Copyright (2023) Databricks, Inc.,
+licensed CC BY-SA 3.0. That file, as a derivative, is distributed under the same
+licence; its `_license` field carries the attribution. It is evaluation data for
+the false-positive gate, lives only in the repository, and is not shipped in the
+package (`files` in `package.json` lists `dist`, `data` and `NOTICE.md`).
+
 ## Optional peer dependency
 
 `tesseract.js` (Apache-2.0) is an optional peer dependency, not a runtime

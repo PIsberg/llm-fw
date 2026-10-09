@@ -10,9 +10,15 @@
 # Downloading ~30 MB on first request instead would make the first call after
 # every rollout slow, and would make the image unusable on an air-gapped
 # network — which is exactly the kind of network that wants this product.
+#
+# Every stage starts from the same base, pinned by digest with the tag kept for
+# readability: a tag can be re-pushed, a digest cannot, so two builds of one
+# commit get the same Node and Debian. Dependabot's docker ecosystem proposes
+# digest bumps; keep all three FROM lines identical
+# (test/ci/dockerPinning.test.ts).
 
 # ---------- build ----------
-FROM node:22-bookworm-slim AS build
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -25,7 +31,7 @@ RUN npm run build
 # ---------- model warm ----------
 # Separate stage so the (large) model cache is copied into the runtime image
 # without dragging in dev dependencies or the TypeScript sources.
-FROM node:22-bookworm-slim AS models
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS models
 WORKDIR /app
 ENV LLM_FW_MODEL_DIR=/models
 
@@ -37,7 +43,7 @@ COPY docker/warm-models.mjs ./docker/warm-models.mjs
 RUN node docker/warm-models.mjs
 
 # ---------- runtime ----------
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

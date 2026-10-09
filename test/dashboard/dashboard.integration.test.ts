@@ -529,6 +529,8 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(s.nonText).toBe(true)
     expect(s.nonTextMode).toBe('audit')
     expect(s.nonTextOcr).toBe(false)
+    // Speech transcription (#82) is opt-in too.
+    expect(s.nonTextTranscribe).toBe(false)
     // Advanced numeric/text tuning is exposed too.
     expect(s.heuristicBlockThreshold).toBe(50)
     expect(s.embeddingBlockThreshold).toBeCloseTo(0.86)
@@ -574,6 +576,11 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
 
   it('POST /api/settings rejects an invalid nonTextMode with 400', async () => {
     const res = await req(server, 'POST', '/api/settings', '{"nonTextMode":"shred"}')
+    expect(res.status).toBe(400)
+  })
+
+  it('POST /api/settings rejects a wrong-typed nonTextTranscribe with 400', async () => {
+    const res = await req(server, 'POST', '/api/settings', '{"nonTextTranscribe":"on"}')
     expect(res.status).toBe(400)
   })
 
