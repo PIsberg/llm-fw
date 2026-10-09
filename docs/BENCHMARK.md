@@ -149,10 +149,12 @@ double dagger rather than presented as current.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 3.01% (5/166) at ruleset `2026.10.11`. The second
+`benign-realistic` — 3.01% (5/166) at ruleset `2026.10.12`. The second
 false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000),
 and the third, `oasst1-sample`, at 0% (0/2,000) since ruleset `2026.10.8`
-(0.15%, 3/2,000, at `2026.10.7`; #269).
+(0.15%, 3/2,000, at `2026.10.7`; #269). That is the Windows figure; the
+Linux CI runner blocks 1 more row that sits on the embedding block line
+(#272).
 Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
@@ -173,7 +175,7 @@ claim, not a measurement; regenerate this table when detection changes.
 | deepset (noisy labels) | 116 | 26.7% (16/60) / 0% (0/56) | 41.7% / 0% ‡ |
 | heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
 | dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | not measured |
-| oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000) at `2026.10.8` | not measured |
+| oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000) at `2026.10.8`; 0.05% (1/2,000) on Linux CI, #272 | not measured |
 
 ‡‡ Re-measured at ruleset `2026.08.12`, before the cheap column's last five
 rulesets.

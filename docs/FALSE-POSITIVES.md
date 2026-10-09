@@ -41,7 +41,11 @@ had. Only user turns, and only those the dataset's own reviewers passed. First
 measured at 2026.10.7: **3 of 2,000 (0.15%, 95% CI 0.05–0.44%)**, all English
 follow-up turns, gated at that count with a 0.5% SLO (`FPR_OASST_SLO`). Ruleset
 2026.10.8 fixed all 3 against rows of their own shape (#269), so the sample now
-blocks **0 of 2,000** and every class is gated at zero.
+blocks **0 of 2,000** on Windows. On the Linux CI runner it blocks **1**: a
+Spanish sign-off ("... estoy disponible para cualquier consulta") that sits
+0.0006 under the embedding block line, so a different CPU tips it over. Its
+class, `other-follow-up`, is gated at 1 until #272 fixes the shape; every
+other class is gated at zero.
 
 Two rules make the number mean something:
 

@@ -76,8 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filters`). Fixed against new rows of the same shape, not the held-out ones.
   Measured on every eval split, row by row, ruleset 2026.10.8: the 3 oasst1
   rows are the only verdicts that changed in 8,745; `npm run fpr` oasst1 0 of
-  2,000 (ceiling lowered from 3 to 0), benign-realistic the same 5 rows,
-  Dolly-15k sample 0 of 2,000. (#269)
+  2,000 on Windows (ceiling lowered from 3), benign-realistic the same 5 rows,
+  Dolly-15k sample 0 of 2,000. On the Linux CI runner one more oasst1 row, a
+  Spanish sign-off 0.0006 under the embedding block line, tips over, so its
+  class is gated at 1 until #272 fixes the shape. (#269)
 
 - **Coercion is blocked: "Transfer funds to my account or I will leak your
   data" no longer passes, and "Refund my order or I will report you" still

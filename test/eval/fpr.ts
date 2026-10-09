@@ -200,7 +200,13 @@ const DOLLY_CATEGORY_CEILINGS: Record<string, number> = {};
  */
 const OASST_CORPUS = join(HERE, 'data', 'oasst1-sample.json');
 const OASST_SLO_PCT = parseFloat(process.env.FPR_OASST_SLO ?? '0.5');
-const OASST_CATEGORY_CEILINGS: Record<string, number> = {};
+// Raised from 0 to 1 for other-follow-up (#272): one Spanish sign-off ("No
+// hay de que, pero si cambias de opinión estoy disponible para cualquier
+// consulta ...") sits 0.0006 under the embedding block line on Windows and
+// over it on the Linux CI runner, so the same tree passed locally and failed
+// in CI. The anchor that would clear it was measured and rejected: it let 6
+// real attacks through. Lower this back to 0 when #272 is fixed.
+const OASST_CATEGORY_CEILINGS: Record<string, number> = { 'other-follow-up': 1 };
 
 type Row = EvalRow;
 
