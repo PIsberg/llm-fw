@@ -351,7 +351,7 @@ export class Pipeline {
         }
       }
       // Transcription opt-in (#82): the same arrangement for speech in WAV
-      // audio. The transcript is scanned; the clip is never marked inspected,
+      // and AIFF audio. The transcript is scanned; the clip is never marked inspected,
       // for the same noise-speech reason as OCR above.
       if (nonText.transcribe) {
         let clips = 0

@@ -33,7 +33,15 @@ const OR_THREAT = String.raw`\bor\s+(?:else\s+)?(?:i|we)(?:\s+(?:will|shall|am g
 const DEMAND_FUNDS = String.raw`\b(?:transfer|send|wire|deposit|pay|move)\b[^.!?]{0,40}?(?<!\b(?:my|our)\s)\b(?:funds|money|bitcoin|btc|crypto(?:currency)?|ransom)\b`
 const DEMAND_VERB = String.raw`\b(?:give|share|provide|hand over|send|disclose|release|reveal|transfer|leak|tell)\b(?:(?!\b(?:my|our)\b)[^.!?]){0,50}?`
 /** Secrets: worth a threat to report the holder, not only to harm them. */
-const DEMAND_SECRET = DEMAND_VERB + String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:data|information|details|files))\b`
+const SECRET_NOUN = String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:data|information|details|files))\b`
+const DEMAND_SECRET = DEMAND_VERB + SECRET_NOUN
+/**
+ * The conditional form of a demand for a secret (#267): "If you don't
+ * disclose the confidential data, I will ...", or a refusal of "my request
+ * for" one. Like DEMAND_SECRET it accepts a report-threat, and like it the
+ * speaker's own data ("my personal data") is excluded.
+ */
+const IF_NOT_SECRET = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t) (?:comply with (?:my|our) (?:demands?|requests?) for|hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our)\b)[^,.!?]){0,40}?` + SECRET_NOUN + String.raw`[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?`
 /** Personal data: also what a subject access request asks for, so harm only. */
 const DEMAND_PERSONAL = DEMAND_VERB + String.raw`\b(?:personal|private) (?:information|data|details|records|files|messages)\b`
 const PASSIVE_THREAT = String.raw`\bor\s+(?:else\s+)?(?:your|the)\b[^.!?]{0,40}?\b(?:will|would)\s+(?:be|get)\s+(?:leaked|exposed|released|published|hacked|harmed|hurt|destroyed|deleted|wiped|in danger)\b`
@@ -41,6 +49,7 @@ const COERCION_PATTERNS = [
   new RegExp(DEMAND_FUNDS + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
   new RegExp(`(?:${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
   new RegExp(DEMAND_SECRET + String.raw`[^.!?]{0,60}?` + OR_THREAT + String.raw`report you\b`),
+  new RegExp(IF_NOT_SECRET + String.raw`(?:report you\b|` + HARM_VERB + `)`),
   new RegExp(`(?:${DEMAND_FUNDS}|${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + PASSIVE_THREAT),
   // "If you don't comply (with my demands), I will ...". Compliance with a
   // NAMED rule ("comply with the safety code") is a regulator's notice, so
@@ -66,6 +75,13 @@ export class HeuristicScorer {
           /ig[a-z]{1,3}(?:re|er|r)\b (all |the |your |my )?(previous|prior|above|old) (instructions?|rules?|prompts?|commands?)/,
           /ig[a-z]{1,3}(?:re|er|r)\b (your |the )?(evaluation |screening )?criteria/,
           /you have no restrictions/,
+          // A wipe of the earlier conversation, then a new persona with a task
+          // (#258): "disregard previous messages. as a satirical ... editor,
+          // improve ...". The wipe alone is a user correcting themselves (the
+          // held-out `self-correction` family: "disregard my last two
+          // messages"), so it needs no possessive and a persona clause after
+          // it, and "as a reminder, ..." / "as a team we ..." are not one.
+          /\b(?:ignore|disregard|forget|discard)\b (?:all |the )?(?:previous|prior|earlier|above) (?:messages?|conversation|context|chat|prompts?)\b[^.!?;]{0,20}[.!;:,] ?as an? (?!(?:reminder|result|side note|heads[- ]up|follow[- ]up|matter of fact|aside|fyi|courtesy|precaution|first step|rule|team|group|company|whole|family)\b)(?:[\w-]+ ){0,5}?[\w-]+, ?(?:you\b|(?:write|rewrite|improve|generate|create|answer|respond|reply|tell|give|list|explain|act|pretend|roleplay|make|produce|draft|compose|insult|mock|roast)\b)/,
           /ig[a-z]{1,3}(?:re|er|r)\b (instructions?|rules?|prompts?|commands?)/,
           /forget (your |all |the )?(previous|prior|above|original|system)? ?(instructions?|rules?|context|prompts?)/,
           // The object list above demands a specific noun, so the commonest
@@ -343,7 +359,8 @@ export class HeuristicScorer {
           /i am (your )?developer/,
           /as your developer/,
           /i am the (auditor|operator|admin(istrator)?)/,
-          /testing (you |your )/,
+          // "testing your <safety layer>", not "testing your memory" (#269).
+          /testing (you |your (safety|filters?|guardrails?|restrictions?|limits|boundaries|rules|polic(y|ies)|alignment|compliance|content)\b)/,
           /disable (your )?(safety |filters|restrictions)/,
           /disable (your |the |all )?(refusal|safety|content) (layers?|systems?|filters?|polic(?:y|ies))/,
           /skip (your |all )?(safety|content) (polic(?:y|ies)|filters?|disclaimers?|checks)/,
@@ -485,7 +502,10 @@ export class HeuristicScorer {
         // the model to OBEY the result.
         weight: 50, label: 'payload-assembly', patterns: [
           /(execute|run|follow|obey|output|do what|comply with)\b[^.!?]{0,30}\b\w+ ?\+ ?\w+/,
-          /(concatenate|combine|join|assemble)\b[^.!?]{0,80}(follow|obey|execute|do what|resulting)/,
+          // The obey verb must aim at the assembled result: "join ... and what
+          // discipline did he follow" and "combine ..., then follow the recipe"
+          // are a biography and a recipe (#256).
+          /(concatenate|combine|join|assemble)\b[^.!?]{0,80}((follow|obey|execute|comply with|carry out|run) (it|them|that|this|the (result|resulting|combined|assembled|joined|concatenated|final)\w*|what (it|they|that) says?)\b|do what (it|they|that) says?|resulting (instruction|command|text|sentence|string|prompt|phrase))/,
           /(complete|finish)\b[^.!?]{0,40}(truncated|string|phrase|sentence)\b[^.!?]{0,40}(obey|follow|execute|comply)/,
           /spell\w* (out )?(a |the )?command|follow the spelled command/,
           /first (word|letter) of each (sentence|line|word)\b[^.!?]{0,60}(command|instruction|follow|treat)/,

@@ -90,10 +90,13 @@ startup.
 request, and will follow an instruction spoken in the clip. By default such a
 clip is opaque: `nonText.mode` decides whether it is audited or refused.
 `nonText.transcribe: true` (or `LLM_FW_NONTEXT_TRANSCRIBE=true`) transcribes WAV
-clips locally with Whisper (`Xenova/whisper-tiny`, about 40 MB, cached in
+and AIFF clips locally with Whisper (`Xenova/whisper-tiny`, about 40 MB, cached in
 `LLM_FW_MODEL_DIR` beside the embedding model) and scans the transcript like a
-document, so a spoken injection can block. Only uncompressed WAV/PCM is
-decoded; MP3, AAC, Ogg and FLAC clips stay opaque. At most three clips per
+document, so a spoken injection can block. Only uncompressed PCM is decoded:
+WAV, and AIFF (or AIFC marked `NONE` or `sowt`), which Gemini accepts as
+`audio/aiff`. MP3, AAC, Ogg and FLAC clips stay opaque by decision: decoding
+them would need a third-party codec dependency, and the pure-WASM AAC decoder
+considered is GPL-2.0 (#257). Block mode is the way to refuse them. At most three clips per
 request, and the first 120 s of each, are transcribed. A transcribed clip
 still counts as opaque media, so block
 mode refuses it whatever it says: a transcript adds a reading, it does not
