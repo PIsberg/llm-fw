@@ -305,6 +305,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enumerated in full so a reader can check it against a run rather than trust
   the prose.
 
+### Security
+
+- **13 of the 14 open Dependabot alerts closed.** `adm-zip` 0.6.0 to 0.6.1
+  (7 advisories, including symlink-following extraction and two
+  decompression-bomb bypasses) and `sharp` 0.35.3 to 0.35.5 (libheif and
+  librsvg), both pulled in by `@huggingface/transformers` and raised through
+  `overrides`; `brace-expansion`, `browserslist`, `smol-toml` and
+  `source-map-js` in dev tooling. `npm audit` goes from 12 findings to 1. Every
+  resolved version was published at least 7 days ago (`npm install
+  --before=2026-10-02`), matching the Dependabot cooldown, rather than the
+  newest available. Folds in Dependabot #229, #236, #238, #239, #241 and #244.
+
+  The one left is `node-forge` (GHSA-86w9-cpqp-85rv, no patched release). It
+  concerns RSA PKCS#1 v1.5 signature *verification*; llm-fw uses node-forge
+  only to issue its CA and leaf certificates and calls no verify path.
+
 ### Internal
 
 - **The Semgrep lock moved from `.github/workflows/semgrep-requirements.txt` to
