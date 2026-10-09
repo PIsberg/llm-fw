@@ -87,6 +87,12 @@ licence; its `_license` field carries the attribution. It is evaluation data for
 the false-positive gate, lives only in the repository, and is not shipped in the
 package (`files` in `package.json` lists `dist`, `data` and `NOTICE.md`).
 
+`test/eval/data/oasst1-sample.json` is a 2,000-row sample of user-turn text from
+OpenAssistant oasst1 (https://huggingface.co/datasets/OpenAssistant/oasst1),
+licensed Apache-2.0, redistributed under the same licence with its attribution
+in the file's `_license` field. Same status as the Dolly sample: evaluation data
+for the false-positive gate, repository only, not in the package.
+
 ## Optional peer dependency
 
 `tesseract.js` (Apache-2.0) is an optional peer dependency, not a runtime

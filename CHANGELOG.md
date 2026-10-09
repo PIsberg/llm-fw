@@ -325,6 +325,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The false-positive gate gains a conversational benign corpus: 2,000 user
+  turns from OpenAssistant oasst1.** Dolly is single-turn instructions, and the
+  second-person, multi-turn phrasing that #247's false positives lived in
+  ("your goal for this quarter") was barely represented by any gated corpus.
+  `test/eval/data/oasst1-sample.json` (Apache 2.0, pinned revision, regenerated
+  by `scripts/fetch-eval-data.ts oasst1-sample`) is a stratified sample of user
+  turns only, keeping only what the dataset's own reviewers passed, classed by
+  English versus other languages and by opening turn versus follow-up. First
+  measurement, ruleset 2026.10.7: 3 of 2,000 blocked (0.15%), all English
+  follow-ups, so `npm run fpr` gates it at a 0.5% SLO (`FPR_OASST_SLO`) with
+  the `en-follow-up` ceiling at 3 and every other class at zero. The 3 rows are
+  #269. (#256)
+
 - **All 15,011 Dolly-15k instructions now run through the false-positive gate
   every night, report-only.** The PR gate scans a 2,000-row sample, which
   cannot show a detector that misfires once in several thousand ordinary

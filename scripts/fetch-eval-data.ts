@@ -26,6 +26,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { join, dirname, resolve, isAbsolute } from 'node:path'
 
@@ -45,6 +46,12 @@ async function getText(url: string): Promise<string> {
   const res = await fetch(url, { headers: { 'user-agent': 'llm-fw-benchmark-fetch' } })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${url}`)
   return res.text()
+}
+
+async function getBuffer(url: string): Promise<Buffer> {
+  const res = await fetch(url, { headers: { 'user-agent': 'llm-fw-benchmark-fetch' } })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${url}`)
+  return Buffer.from(await res.arrayBuffer())
 }
 
 /** Current sha of a HuggingFace dataset repo. */
@@ -158,6 +165,49 @@ const DOLLY_SAMPLE_SIZE = 2000
  */
 const DOLLY_SURVEY_ROWS = new Set([1558, 5041, 5042, 5120, 5342, 5652, 6816, 8094, 9176, 9832, 9975, 10557, 11476, 12289, 14166])
 
+/**
+ * OpenAssistant oasst1, pinned. The conversational benign source #256 asked
+ * for: Dolly is single-turn instructions, and second-person, multi-turn
+ * phrasing ("your goal for this quarter", "your role on the team"), where #247
+ * lived, is barely represented there. The `ready` export is the dataset's own
+ * quality-filtered release.
+ */
+const OASST_REVISION = 'fdf72ae0827c1cda404aff25b6603abec9e3399b'
+const OASST_SAMPLE_SIZE = 2000
+
+export interface OasstMessage {
+  text: string
+  role: string
+  lang: string
+  parent_id: string | null
+  deleted: boolean
+  review_result: boolean | null
+  synthetic: boolean
+  labels?: Record<string, { value: number; count: number }> | null
+}
+
+/**
+ * The user turns of an oasst1 export as benign rows. Only what a user typed is
+ * benign traffic for a request-side firewall, so assistant turns are dropped,
+ * as is anything the dataset itself rejected: deleted, failed review,
+ * synthetic, or labelled spam or not appropriate by its reviewers (value >=
+ * 0.5). Never filtered by llm-fw's own verdicts, which would make the corpus
+ * agree with the detector by construction. Classed by language group and by
+ * whether the turn opens a conversation or follows up in one.
+ */
+export function oasstUserTurns(messages: OasstMessage[]): Row[] {
+  const flagged = (m: OasstMessage, label: string) => (m.labels?.[label]?.value ?? 0) >= 0.5
+  return messages
+    .filter(m => m.role === 'prompter' && !m.deleted && m.review_result !== false && !m.synthetic)
+    .filter(m => !flagged(m, 'spam') && !flagged(m, 'not_appropriate'))
+    .filter(m => m.text.trim() !== '')
+    .map(m => ({
+      text: m.text,
+      label: 0,
+      class: `${m.lang === 'en' ? 'en' : 'other'}-${m.parent_id ? 'follow-up' : 'opening'}`,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 
 const FETCHERS: Record<string, () => Promise<void>> = {
@@ -185,6 +235,18 @@ const FETCHERS: Record<string, () => Promise<void>> = {
       `databricks/databricks-dolly-15k: all ${rows.length} human-written instructions, label 0 (benign-only, FPR-only). Report-only in the nightly job, gitignored. HELD OUT: never tune detection against it.`,
       DOLLY_REVISION, 'injection', rows,
       { _license: DOLLY_LICENSE.replace('sampled', 'all rows') })
+  },
+
+  /** OpenAssistant oasst1: a fixed stratified sample of user turns, for the FPR gate (#256). */
+  'oasst1-sample': async () => {
+    const gz = await getBuffer(`https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/${OASST_REVISION}/2023-04-12_oasst_ready.messages.jsonl.gz`)
+    const messages = gunzipSync(gz).toString('utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as OasstMessage)
+    const turns = oasstUserTurns(messages)
+    const rows = stratifiedSample(turns, OASST_SAMPLE_SIZE)
+    write('oasst1-sample.json',
+      `OpenAssistant/oasst1 (2023-04-12_oasst_ready.messages): a fixed ${OASST_SAMPLE_SIZE}-row stratified sample (by language group x opening/follow-up turn, lowest sha256 within each) of the ${turns.length} user turns that passed the dataset's own review, label 0 (benign-only, FPR-only). HELD OUT: never tune detection against it. Regenerate with scripts/fetch-eval-data.ts oasst1-sample.`,
+      OASST_REVISION, 'injection', rows,
+      { _license: 'Apache-2.0. Source: OpenAssistant/oasst1, https://huggingface.co/datasets/OpenAssistant/oasst1. This derived file (user-turn text only, sampled) is redistributed under the same licence.' })
   },
 
   /** deepset/prompt-injections — full test split. Independent public injection set (noisy labels). */

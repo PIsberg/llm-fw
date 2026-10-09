@@ -30,6 +30,17 @@ detector (#245, #246). The 15 survey rows are excluded from the sample, because
 fixes were written against them. At ruleset 2026.10.4 the sample blocks **0 of
 2,000 (95% CI 0.00–0.19%)**, and the full 15,011 block 2.
 
+Since ruleset 2026.10.7 it runs a third: a fixed 2,000-row stratified sample of
+user turns from [OpenAssistant oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1)
+(`test/eval/data/oasst1-sample.json`, Apache 2.0), classed by English versus
+other languages and by opening turn versus follow-up (#256). Dolly is
+single-turn instructions; this is conversational traffic, where second-person
+phrasing ("your goal for this quarter") lives, the shape #247's false positives
+had. Only user turns, and only those the dataset's own reviewers passed. First
+measured at 2026.10.7: **3 of 2,000 (0.15%, 95% CI 0.05–0.44%)**, all English
+follow-up turns, gated at that count with a 0.5% SLO (`FPR_OASST_SLO`). The 3
+rows are tracked in #269.
+
 Two rules make the number mean something:
 
 1. **The corpus is never tuned against.** A corpus the detector has been fitted

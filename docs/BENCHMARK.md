@@ -38,6 +38,11 @@ across groups would be dishonest, because they test different jobs:
   `scripts/fetch-eval-data.ts dolly-15k-sample`. Held out: it is also the second
   corpus of the false-positive gate (`npm run fpr`), see
   [FALSE-POSITIVES.md](FALSE-POSITIVES.md).
+- **oasst1-sample** — a fixed 2,000-row stratified sample of user turns from
+  `OpenAssistant/oasst1` (rev `fdf72ae0827c`, Apache 2.0), conversational and
+  multilingual, benign only, so FPR-only. Regenerate with
+  `scripts/fetch-eval-data.ts oasst1-sample`. Held out: the third corpus of the
+  false-positive gate.
 - **heldout** — 52 self-authored novel phrasings (31 attacks / 21 benign),
   deliberately *not* drawn from the tuning corpus. The hardest set on purpose:
   semantic-only jailbreaks (no keyword signature) and injection-adjacent benign
@@ -142,7 +147,8 @@ double dagger rather than presented as current.
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
 `benign-realistic` — 3.25% (5/154) at ruleset `2026.10.7`. The second
-false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000).
+false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000),
+and the third, `oasst1-sample`, at 0.15% (3/2,000).
 Both harnesses now
 build requests through one shared helper (`test/eval/lib/surfaces.ts`). They previously disagreed by
 two blocks on that corpus, because this runner had no case for the `system` and
@@ -163,6 +169,7 @@ claim, not a measurement; regenerate this table when detection changes.
 | deepset (noisy labels) | 116 | 26.7% (16/60) / 0% (0/56) | 41.7% / 0% ‡ |
 | heldout (hardest, adversarial benign) | 52 | 61.3% (19/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
 | dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | not measured |
+| oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0.15% (3/2,000) | not measured |
 
 ‡‡ Re-measured at ruleset `2026.08.12`, before the cheap column's last five
 rulesets.
