@@ -18,7 +18,7 @@
 # (test/ci/dockerPinning.test.ts).
 
 # ---------- build ----------
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -31,7 +31,7 @@ RUN npm run build
 # ---------- model warm ----------
 # Separate stage so the (large) model cache is copied into the runtime image
 # without dragging in dev dependencies or the TypeScript sources.
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS models
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS models
 WORKDIR /app
 ENV LLM_FW_MODEL_DIR=/models
 
@@ -43,7 +43,7 @@ COPY docker/warm-models.mjs ./docker/warm-models.mjs
 RUN node docker/warm-models.mjs
 
 # ---------- runtime ----------
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
