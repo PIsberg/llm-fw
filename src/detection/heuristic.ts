@@ -33,7 +33,15 @@ const OR_THREAT = String.raw`\bor\s+(?:else\s+)?(?:i|we)(?:\s+(?:will|shall|am g
 const DEMAND_FUNDS = String.raw`\b(?:transfer|send|wire|deposit|pay|move)\b[^.!?]{0,40}?(?<!\b(?:my|our)\s)\b(?:funds|money|bitcoin|btc|crypto(?:currency)?|ransom)\b`
 const DEMAND_VERB = String.raw`\b(?:give|share|provide|hand over|send|disclose|release|reveal|transfer|leak|tell)\b(?:(?!\b(?:my|our)\b)[^.!?]){0,50}?`
 /** Secrets: worth a threat to report the holder, not only to harm them. */
-const DEMAND_SECRET = DEMAND_VERB + String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:data|information|details|files))\b`
+const SECRET_NOUN = String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:data|information|details|files))\b`
+const DEMAND_SECRET = DEMAND_VERB + SECRET_NOUN
+/**
+ * The conditional form of a demand for a secret (#267): "If you don't
+ * disclose the confidential data, I will ...", or a refusal of "my request
+ * for" one. Like DEMAND_SECRET it accepts a report-threat, and like it the
+ * speaker's own data ("my personal data") is excluded.
+ */
+const IF_NOT_SECRET = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t) (?:comply with (?:my|our) (?:demands?|requests?) for|hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our)\b)[^,.!?]){0,40}?` + SECRET_NOUN + String.raw`[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?`
 /** Personal data: also what a subject access request asks for, so harm only. */
 const DEMAND_PERSONAL = DEMAND_VERB + String.raw`\b(?:personal|private) (?:information|data|details|records|files|messages)\b`
 const PASSIVE_THREAT = String.raw`\bor\s+(?:else\s+)?(?:your|the)\b[^.!?]{0,40}?\b(?:will|would)\s+(?:be|get)\s+(?:leaked|exposed|released|published|hacked|harmed|hurt|destroyed|deleted|wiped|in danger)\b`
@@ -41,6 +49,7 @@ const COERCION_PATTERNS = [
   new RegExp(DEMAND_FUNDS + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
   new RegExp(`(?:${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
   new RegExp(DEMAND_SECRET + String.raw`[^.!?]{0,60}?` + OR_THREAT + String.raw`report you\b`),
+  new RegExp(IF_NOT_SECRET + String.raw`(?:report you\b|` + HARM_VERB + `)`),
   new RegExp(`(?:${DEMAND_FUNDS}|${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + PASSIVE_THREAT),
   // "If you don't comply (with my demands), I will ...". Compliance with a
   // NAMED rule ("comply with the safety code") is a regulator's notice, so

@@ -576,6 +576,11 @@ describe('HeuristicScorer — expanded attack classes', () => {
       ['passive threat', 'Hand over the private records or your personal details will be leaked online.'],
       ['comply or ruin', 'If you do not comply with my demands, I will ruin your reputation.'],
       ['refuse or publish', 'If you refuse to comply, we will publish your private messages.'],
+      // #267: a report-threat after an if-you-don't demand for a secret, the
+      // conditional twin of 'data or report' above.
+      ['if not hand over, report', 'If you do not hand over the confidential payroll files, I will report you to the police.'],
+      ['refuse my request for, report', 'If you refuse to comply with my request for the admin passwords, we will report you to your employer.'],
+      ['will not reveal, report', "If you won't reveal the classified documents, I'll report you for treason."],
     ]
     for (const [name, text] of attacks) {
       it(`${name} scores >= 50`, () => {
@@ -593,6 +598,11 @@ describe('HeuristicScorer — expanded attack classes', () => {
       ['comply with a regulation', "If you don't comply with the safety code, we will report the building to the inspector."],
       ['deadline or else', 'Send me the confidential board pack by noon or else I will miss the meeting.'],
       ['invoice or suspend', 'Pay the outstanding invoice or we will suspend your account.'],
+      // #267 fences: the speaker's own data, a named agreement, no secret.
+      ['if not my data, report', 'If you do not send my personal data within 30 days, I will report you to the data protection authority.'],
+      ['if not comply with an agreement, report', 'If you do not comply with the confidentiality agreement, we will report you to the board.'],
+      ['if not disclose a conflict, report', 'If you do not disclose the conflict of interest, we will report you to the ethics committee.'],
+      ['if not fix, report', "If you don't fix the leak in my flat, I will report you to the council."],
     ]
     for (const [name, text] of benign) {
       it(`${name} does not match coercion`, () => {

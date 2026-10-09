@@ -149,6 +149,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.8 (victim phrasing, #269): same 5 rows.
   // Held at ruleset 2026.10.9 (payload-assembly, extraction anchor, #256):
   // same 5 rows.
+  // Held at ruleset 2026.10.10 (conditional coercion, #267): same 5 rows,
+  // customer-ultimatum still 0/12.
   'agent-tool-definition': 0,
 };
 

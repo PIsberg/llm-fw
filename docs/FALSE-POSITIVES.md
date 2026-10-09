@@ -56,11 +56,12 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.7
+## Result, ruleset 2026.10.10
 
 **3.25% overall (5 of 154), 95% CI 1.39–7.37%.** The same 5 rows as at
 2026.10.6 (3.52%, 5 of 142); the denominator grew by the 12-row
 `customer-ultimatum` family added for #259, which blocks none of them.
+Rulesets 2026.10.8 to 2026.10.10 moved none of the 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
 
@@ -222,6 +223,21 @@ or someone else's personal data) and on a threat of harm rather than of a
 complaint. After it: still 0 of 12, the same 5 rows elsewhere, Dolly-15k 0 of
 2,000, and safeguard's benign half unchanged at 1 block, while safeguard
 recall went 419 to 444 of 650.
+
+**2026.10.8 — the victim of a scam is not asking for one (5 rows unchanged;
+oasst1 3 to 0).** The oasst1 sample's 3 blocks were harmful-request hits on a
+speaker who is the would-be victim ("I don't want to be scammed!") and
+`testing your` matching "testing your mental reasoning ability". Fixed against
+new rows of the same shape (#269); the 3 oasst1 rows were the only verdicts
+that changed across all 8,745 eval rows.
+
+**2026.10.9 — the last two Dolly-15k blocks (5 rows unchanged; full Dolly 2
+to 0).** A join-then-follow biography question and a product-manual
+extraction (#256). No row in any eval split or benign corpus changed.
+
+**2026.10.10 — conditional coercion and attack requests (5 rows unchanged).**
+Seven safeguard coercion attacks blocked (#267); every benign row of every
+corpus unchanged, `customer-ultimatum` still 0 of 12.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 
