@@ -171,6 +171,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.17 (extraction question by what the model
   // received, #221): same 5 rows. The instruction-question family (10 rows)
   // was added and measured 0/10 before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.18 (secrets through a creative wrapper, #221):
+  // same 5 rows. The creative-request family (10 rows) was added and
+  // measured 0/10 before the rule, and is still 0/10 after.
   'agent-tool-definition': 0,
 };
 
