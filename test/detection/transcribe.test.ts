@@ -56,6 +56,58 @@ function makeWav(spec: WavSpec): Buffer {
 
 const ramp = (n: number) => Array.from({ length: n }, (_, i) => [(i % 10) / 10 - 0.5])
 
+interface AiffSpec { sampleRate: number; channels: number; bits: 8 | 16 | 24 | 32; compression?: string; frames: number[][] }
+
+/** 80-bit IEEE 754 extended, big-endian: AIFF's sample-rate encoding. */
+function extended80(rate: number): Buffer {
+  const b = Buffer.alloc(10)
+  const e = Math.floor(Math.log2(rate))
+  b.writeUInt16BE(16383 + e, 0)
+  b.writeBigUInt64BE(BigInt(rate) << BigInt(63 - e), 2)
+  return b
+}
+
+/** Build an AIFF (or AIFC, when `compression` is set) file from per-frame samples. */
+function makeAiff(spec: AiffSpec): Buffer {
+  const bytesPer = spec.bits / 8
+  const le = spec.compression === 'sowt'
+  const data = Buffer.alloc(spec.frames.length * spec.channels * bytesPer)
+  let o = 0
+  for (const frame of spec.frames) {
+    for (let ch = 0; ch < spec.channels; ch++) {
+      const v = frame[ch] ?? frame[0] ?? 0
+      if (spec.bits === 8) data.writeInt8(Math.round(v * 127), o)
+      else if (spec.bits === 16) le ? data.writeInt16LE(Math.round(v * 32767), o) : data.writeInt16BE(Math.round(v * 32767), o)
+      else if (spec.bits === 24) le ? data.writeIntLE(Math.round(v * 8388607), o, 3) : data.writeIntBE(Math.round(v * 8388607), o, 3)
+      else le ? data.writeInt32LE(Math.round(v * 2147483647), o) : data.writeInt32BE(Math.round(v * 2147483647), o)
+      o += bytesPer
+    }
+  }
+  const comm = Buffer.concat([
+    Buffer.from([0, 0, 0, 0, 0, 0, 0, 0]),
+    extended80(spec.sampleRate),
+    spec.compression ? Buffer.concat([Buffer.from(spec.compression, 'latin1'), Buffer.from([0])]) : Buffer.alloc(0),
+  ])
+  comm.writeUInt16BE(spec.channels, 0)
+  comm.writeUInt32BE(spec.frames.length, 2)
+  comm.writeUInt16BE(spec.bits, 6)
+  const chunk = (id: string, body: Buffer) => {
+    const h = Buffer.alloc(8)
+    h.write(id, 0, 'latin1')
+    h.writeUInt32BE(body.length, 4)
+    return Buffer.concat([h, body, body.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)])
+  }
+  const ssnd = Buffer.concat([Buffer.alloc(8), data]) // offset 0, blockSize 0
+  const body = Buffer.concat([
+    Buffer.from(spec.compression ? 'AIFC' : 'AIFF', 'latin1'),
+    chunk('COMM', comm), chunk('ANNO', Buffer.from('junk', 'latin1')), chunk('SSND', ssnd),
+  ])
+  const form = Buffer.alloc(8)
+  form.write('FORM', 0, 'latin1')
+  form.writeUInt32BE(body.length, 4)
+  return Buffer.concat([form, body])
+}
+
 beforeEach(() => { vi.resetModules() })
 afterEach(() => {
   vi.doUnmock('@huggingface/transformers')
@@ -111,6 +163,53 @@ describe('decodeWav', () => {
   })
 })
 
+// #257: Gemini accepts audio/aiff. AIFF is uncompressed PCM like WAV, only
+// big-endian with an 80-bit sample rate, so it needs no codec dependency.
+describe('decodeAiff', () => {
+  it('decodes 16-bit mono AIFF at 8 kHz to normalised samples', async () => {
+    const { decodeAiff } = await import('../../src/detection/transcribe.js')
+    const out = decodeAiff(makeAiff({ sampleRate: 8000, channels: 1, bits: 16, frames: [[0.5], [-0.5], [0]] }))
+    expect(out?.sampleRate).toBe(8000)
+    expect(Array.from(out?.samples ?? []).map(v => Math.round(v * 100) / 100)).toEqual([0.5, -0.5, 0])
+  })
+
+  it('mixes stereo down to mono and reads 8, 24 and 32-bit signed PCM', async () => {
+    const { decodeAiff } = await import('../../src/detection/transcribe.js')
+    const stereo = decodeAiff(makeAiff({ sampleRate: 44100, channels: 2, bits: 16, frames: [[0.5, -0.5], [0.25, 0.75]] }))
+    expect(stereo?.sampleRate).toBe(44100)
+    expect(stereo?.samples[0]).toBeCloseTo(0, 3)
+    expect(stereo?.samples[1]).toBeCloseTo(0.5, 3)
+    for (const bits of [8, 24, 32] as const) {
+      const out = decodeAiff(makeAiff({ sampleRate: 22050, channels: 1, bits, frames: [[0.5], [-0.5]] }))
+      expect(out?.samples[0], `${bits}-bit`).toBeCloseTo(0.5, 1)
+      expect(out?.samples[1], `${bits}-bit`).toBeCloseTo(-0.5, 1)
+    }
+  })
+
+  it('reads AIFC with no compression, big-endian or little-endian (sowt)', async () => {
+    const { decodeAiff } = await import('../../src/detection/transcribe.js')
+    for (const compression of ['NONE', 'sowt']) {
+      const out = decodeAiff(makeAiff({ sampleRate: 16000, channels: 1, bits: 16, compression, frames: [[0.5], [-0.25]] }))
+      expect(out?.samples[0], compression).toBeCloseTo(0.5, 3)
+      expect(out?.samples[1], compression).toBeCloseTo(-0.25, 3)
+    }
+  })
+
+  it('stops decoding at the frame cap', async () => {
+    const { decodeAiff } = await import('../../src/detection/transcribe.js')
+    const out = decodeAiff(makeAiff({ sampleRate: 8000, channels: 1, bits: 16, frames: ramp(1000) }), { frames: 100 })
+    expect(out?.samples.length).toBe(100)
+  })
+
+  it('returns null for compressed AIFC, an implausible rate, or anything that is not AIFF', async () => {
+    const { decodeAiff } = await import('../../src/detection/transcribe.js')
+    expect(decodeAiff(makeAiff({ sampleRate: 8000, channels: 1, bits: 16, compression: 'ulaw', frames: ramp(10) }))).toBeNull()
+    expect(decodeAiff(makeAiff({ sampleRate: 1000, channels: 1, bits: 16, frames: ramp(10) }))).toBeNull()
+    expect(decodeAiff(makeWav({ sampleRate: 8000, channels: 1, bits: 16, frames: ramp(10) }))).toBeNull()
+    expect(decodeAiff(Buffer.from('FORM'))).toBeNull()
+  })
+})
+
 describe('resampleTo16k', () => {
   it('resamples to 16 kHz with the expected length and keeps 16 kHz input as is', async () => {
     const { resampleTo16k } = await import('../../src/detection/transcribe.js')
@@ -124,10 +223,10 @@ describe('resampleTo16k', () => {
 })
 
 describe('isTranscribeCandidate', () => {
-  it('accepts the WAV mime types and nothing else', async () => {
+  it('accepts the WAV and AIFF mime types and nothing else', async () => {
     const { isTranscribeCandidate } = await import('../../src/detection/transcribe.js')
-    for (const m of ['audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave', 'audio/WAV; codecs=1']) expect(isTranscribeCandidate(m), m).toBe(true)
-    for (const m of ['audio/mp3', 'audio/mpeg', 'audio/ogg', 'image/png', undefined]) expect(isTranscribeCandidate(m), String(m)).toBe(false)
+    for (const m of ['audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave', 'audio/WAV; codecs=1', 'audio/aiff', 'audio/x-aiff', 'audio/aif']) expect(isTranscribeCandidate(m), m).toBe(true)
+    for (const m of ['audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac', 'audio/aac', 'image/png', undefined]) expect(isTranscribeCandidate(m), String(m)).toBe(false)
   })
 })
 
@@ -148,6 +247,18 @@ describe('transcribeAudio', () => {
     expect(calls[0]?.task).toBe('automatic-speech-recognition')
     // 800 frames at 8 kHz is 0.1 s, which is 1600 samples at 16 kHz.
     expect(calls[0]?.audio.length).toBe(1600)
+  })
+
+  it('transcribes an AIFF clip the same way', async () => {
+    let seen = 0
+    vi.doMock('@huggingface/transformers', () => ({
+      env: {},
+      pipeline: vi.fn(async () => async (audio: Float32Array) => { seen = audio.length; return { text: 'spoken' } }),
+    }))
+    const { transcribeAudio } = await import('../../src/detection/transcribe.js')
+    const aiff = makeAiff({ sampleRate: 8000, channels: 1, bits: 16, frames: ramp(800) }).toString('base64')
+    await expect(transcribeAudio(aiff, 'audio/aiff')).resolves.toBe('spoken')
+    expect(seen).toBe(1600)
   })
 
   it('never loads the model for a format it cannot decode', async () => {

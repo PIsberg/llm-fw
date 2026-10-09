@@ -1224,7 +1224,7 @@ const SETTINGS_SCHEMA = [
     { key: 'nonText', label: 'Non-text content scanning', sub: 'Inspect/track image, PDF, document, and audio attachments rather than letting them pass uninspected' },
     { key: 'nonTextMode', label: 'Opaque media mode', type: 'select', options: ['audit', 'block'], sub: 'audit: forward + warn · block: refuse uninspectable media' },
     { key: 'nonTextOcr', label: 'OCR raster images', sub: 'Read injection text rendered as pixels and scan it (WASM, no Python; ~12 MB first-run download, ~0.2–2s/image)' },
-    { key: 'nonTextTranscribe', label: 'Transcribe WAV audio', sub: 'Transcribe speech in WAV clips locally with Whisper and scan it (~40 MB first-run download). MP3/AAC/Ogg/FLAC stay opaque' },
+    { key: 'nonTextTranscribe', label: 'Transcribe WAV/AIFF audio', sub: 'Transcribe speech in WAV and AIFF clips locally with Whisper and scan it (~40 MB first-run download). MP3/AAC/Ogg/FLAC stay opaque' },
   ]},
   { group: 'Tools & Agents (MCP)', desc: 'Tool allow/deny policy and shell-command guardrails for agentic / MCP traffic.', rows: [
     { key: 'mcp', label: 'MCP tool policy', sub: 'Allow/deny tool calls by name and inspect tool definitions for poisoning' },

@@ -300,7 +300,7 @@ export interface NonTextConfig {
   // pasted screenshot) that would otherwise be uninspectable. Off by default:
   // it adds ~0.2–2s per image and a lazy ~12 MB model/lang download.
   ocr?: boolean;
-  // Opt-in speech transcription (issue #82). When true, opaque WAV/PCM AUDIO
+  // Opt-in speech transcription (issue #82). When true, opaque WAV or AIFF AUDIO
   // (OpenAI input_audio, Gemini audio/* inlineData) is transcribed locally
   // with Whisper via @huggingface/transformers and the transcript is scanned
   // by the normal pipeline, so an instruction SPOKEN in a clip can block.

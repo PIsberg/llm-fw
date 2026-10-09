@@ -56,12 +56,12 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.11
+## Result, ruleset 2026.10.12
 
 **3.01% overall (5 of 166), 95% CI 1.29–6.86%.** The same 5 rows as at
 2026.10.6 (3.52%, 5 of 142); the denominator grew by two 12-row families,
 `customer-ultimatum` for #259 and `self-correction` for #258, each added
-before its rule and blocking none of them. Rulesets 2026.10.8 to 2026.10.11
+before its rule and blocking none of them. Rulesets 2026.10.8 to 2026.10.12
 moved none of the original 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
@@ -249,6 +249,10 @@ changing earlier instructions went into this corpus as `self-correction`,
 gated at zero: 0 of 12, and still 0 of 12 after (#258). Two of its rows were
 written to test whether the two short gandalf misses could be separated from
 benign traffic; they cannot, so no rule was written for those.
+
+**2026.10.12 — opt-in transcription reads AIFF too, no default verdict moved
+(5 rows unchanged).** `nonText.transcribe` stays off by default (#257);
+every corpus here and every eval split re-measured identical.
 
 Net across all of it, against the pre-2026.08.7 baseline:
 

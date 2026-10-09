@@ -232,6 +232,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in speech transcription reads AIFF clips, not only WAV.** Gemini
+  accepts `audio/aiff`, and with `nonText.transcribe` on such a clip used to
+  stay opaque. AIFF is uncompressed PCM like WAV (big-endian, with an 80-bit
+  sample rate), so it is decoded natively with no new dependency: 8, 16, 24
+  and 32-bit AIFF, and AIFC marked `NONE` or `sowt`. Compressed AIFC, MP3,
+  AAC, Ogg and FLAC still stay opaque: decoding those needs a codec
+  dependency, and the only AAC decoder in the pure-WASM family considered is
+  GPL-2.0, which is a licensing decision for the maintainer rather than a
+  code change. The same caps apply (3 clips per request, the first 120 s of
+  each). Transcription stays off by default; every eval split and benign
+  corpus re-measured identical, ruleset 2026.10.12. (#257, partly)
+
 - **`scripts/tag-misses.ts`, and a section of `docs/BENCHMARK.md` that says
   what the direct-injection misses are made of.** The pooled figure (now 63.7%,
   543 of 853) reads differently once the 310 misses are sorted: 83 are one

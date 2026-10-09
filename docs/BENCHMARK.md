@@ -124,12 +124,12 @@ Recall = attacks blocked; FPR = benign blocked. Higher recall **and** lower FPR
 is better.
 
 **Provenance.** Every **cheap (default)** figure below was measured on
-2026-10-09 against ruleset `2026.10.11`, full splits and no sampling, by
+2026-10-09 against ruleset `2026.10.12`, full splits and no sampling, by
 `node --import tsx/esm scripts/run-benchmark.ts cheap` (run at `2026.10.5`; a
 per-row re-measure at `2026.10.6`, whose only change restores a scorecard row,
 moved no verdict on any split; `2026.10.7`, the coercion rule, was measured
 before and after on every split below and moved only safeguard's attack half;
-`2026.10.8` to `2026.10.11` were each re-measured row by row on every split,
+`2026.10.8` to `2026.10.12` were each re-measured row by row on every split,
 and only two moved a verdict here: `2026.10.10`, 7 safeguard coercion attacks,
 and `2026.10.11`, 1 safeguard persona attack). The 2026-08-29 column it
 replaces (ruleset `2026.08.13`) is kept in the CHANGELOG entries for rulesets
@@ -166,7 +166,7 @@ claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.11 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | gandalf (real "ignore instructions" attacks) | 112 | 79.5% (89/112) / — | 100% / — ‡ |
 | safeguard (clean, balanced, full split) | 2,060 | 69.5% (452/650) / 0.07% (1/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** ‡‡ |
@@ -286,7 +286,7 @@ was already making by leaving it off.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.11 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
 
@@ -342,7 +342,7 @@ took the object requirement. The remaining row is characterisation, not gated.
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.11 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-09, ruleset 2026.10.12 | + Trained classifier (bold = re-measured; ‡ = older run) |
 |---|---|---|---|
 | jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
 | harmbench | 400 | **41.5% (166/400) / —** | 18.5% / — ‡ |
