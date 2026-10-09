@@ -178,6 +178,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // user task, #221): same 5 rows. The utility-request family (10 rows) was
   // added and measured 0/10 before the rules, and is still 0/10 after; a
   // first draft blocked one of its rows and was narrowed before commit.
+  // Held at ruleset 2026.10.20 (persona descriptors, #221): same 5 rows.
+  // The roleplay-request family (10 rows) was added and measured 0/10
+  // before the rule, and is still 0/10 after.
   'agent-tool-definition': 0,
 };
 

@@ -481,6 +481,19 @@ export class HeuristicScorer {
         // rule misses it. Weight 30 → escalates to the judge on its own; only
         // blocks (>=50) when paired with verbatim-persona-output below.
         weight: 30, label: 'unconstrained-persona', patterns: [
+          // Descriptors the long-form persona jailbreaks use instead of "no
+          // rules" (#221): "Tyler is not bound by rules, morals, and ethics",
+          // "willing to break the law", "has no moral, ethical or legal
+          // bounds", "sans morals laws guidelines". Each names what the
+          // persona is free of; none is how ordinary role-play describes a
+          // character.
+          // Morals, ethics and law only: "a manager who is not bound by
+          // bureaucratic rules" and "a chef willing to break the rules of
+          // French cuisine" are ordinary role-play.
+          /\b(?:not|never|isn't|is not|aren't|are not) (?:bound|restricted|limited|constrained|governed) by (?:any )?(?:(?:rules|guidelines),? )?(?:(?:moral|ethical|legal|safety|content) (?:rules|guidelines|polic(?:y|ies)|restrictions|filters)|morals?|ethics|laws?)\b/,
+          /\bwilling to (?:break|violate) (?:the |any |all )?laws?\b/,
+          /\bno (?:moral|ethical|legal)(?:,? (?:or |and )?(?:moral|ethical|legal))* (?:bounds|boundaries|limits|restrictions|constraints)\b/,
+          /\bsans (?:morals|ethics|laws|rules|guidelines|filters)\b/,
           /\b(ai|a\.i\.|assistant|chat ?bot|bot|model|persona|character|entity|being)\b[^.!?]{0,40}\b(who|that|which|with|having)\b[^.!?]{0,20}\bno\b[^.!?]{0,20}(rules?|restrictions?|limits?|filters?|ethics?|ethical|guidelines?|morals?|boundaries|constraints?|safeguards?|censorship)/,
           /no ethical (guidelines?|training|constraints?|restrictions?|boundaries|safeguards?|limitations?)/,
           // "...that has had its safety scaffolding removed" — a persona DESCRIBED
@@ -505,6 +518,9 @@ export class HeuristicScorer {
         // writing request does not pair an unrestricted-persona/fiction frame
         // with verbatim illicit-procedure demands.
         weight: 50, label: 'jailbreak-frame', patterns: [
+          // The "Developer Mode" family names the model and the mode together;
+          // "is developer mode enabled on Android" names neither (#221).
+          /\b(?:chatgpt|gpt|ai|assistant|model|you) with (?:developer|dev|god|dan|jailbreak|evil|unrestricted) mode (?:enabled|activated|on)\b/,
           /do anything now/,
           /strive to avoid norms/,
           /never says? (it |that it )?(cannot|can ?not|can.?t)/,
