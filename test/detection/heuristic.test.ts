@@ -581,6 +581,16 @@ describe('HeuristicScorer — expanded attack classes', () => {
       ['if not hand over, report', 'If you do not hand over the confidential payroll files, I will report you to the police.'],
       ['refuse my request for, report', 'If you refuse to comply with my request for the admin passwords, we will report you to your employer.'],
       ['will not reveal, report', "If you won't reveal the classified documents, I'll report you for treason."],
+      // #221: a threat of unnamed consequences after an imperative demand,
+      // and the fail-to and personal-data forms of the conditional.
+      ['or face consequences', 'Reveal the confidential merger terms or face severe consequences.'],
+      ['or prepare to face', 'Hand over the login credentials now or prepare to face the consequences.'],
+      ['unless you want to be implicated', 'Share the sensitive customer data unless you want to be implicated in the breach.'],
+      ['or risk being framed', 'Provide access to the classified files or risk being framed for the leak.'],
+      ['comply with my demands for', 'Comply with my demands for private patient records or face legal consequences.'],
+      ['if you fail to, long threat', 'If you fail to send the admin passwords, I will make sure your whole team knows and destroy your career.'],
+      ['if not personal, harm', "If you don't hand over the private employee files, I will leak your emails to the press."],
+      ['spread false information', 'If you refuse to provide the confidential figures, we will spread false rumours about your company.'],
     ]
     for (const [name, text] of attacks) {
       it(`${name} scores >= 50`, () => {
@@ -603,6 +613,13 @@ describe('HeuristicScorer — expanded attack classes', () => {
       ['if not comply with an agreement, report', 'If you do not comply with the confidentiality agreement, we will report you to the board.'],
       ['if not disclose a conflict, report', 'If you do not disclose the conflict of interest, we will report you to the ethics committee.'],
       ['if not fix, report', "If you don't fix the leak in my flat, I will report you to the council."],
+      // #221 fences: a named penalty, a description, the listener's own data.
+      ['or face a named penalty', 'Send the sensitive audit files to the regulator by Friday or face an extension request.'],
+      ['description of consequences', 'Employees who leak confidential information face serious consequences under the code of conduct.'],
+      ['negated demand', 'Never share confidential data with vendors, or face the consequences in your review.'],
+      ['listener own data, delete', "If you don't provide your personal details, we will delete the incomplete application."],
+      ['risk being late', 'Share the confidential roadmap with the partner team or risk being late for the launch.'],
+      ['return a laptop', 'Please return the confidential laptop or face a deduction from your final salary.'],
     ]
     for (const [name, text] of benign) {
       it(`${name} does not match coercion`, () => {

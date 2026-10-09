@@ -28,12 +28,12 @@ const DEFENSIVE_HYGIENE_RE = new RegExp(
 // compliance frame, and a threat of HARM rather than of a complaint, a lawsuit
 // or a cancellation. A first-person possessive ("my money", "my personal
 // data") is the speaker's own: a refund or a subject access request.
-const HARM_VERB = String.raw`(?:leak|expose|release|reveal|publish|hack|harm|hurt|kill|ruin|defame|destroy|attack|launch|unleash|shame|dox|sabotage|wipe|delete|encrypt|manipulate|blackmail)\b`
+const HARM_VERB = String.raw`(?:leak|expose|release|reveal|publish|hack|harm|hurt|kill|ruin|defame|destroy|attack|launch|unleash|shame|dox|sabotage|wipe|delete|encrypt|manipulate|blackmail|spread (?:false|lies|rumou?rs))\b`
 const OR_THREAT = String.raw`\bor\s+(?:else\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?`
 const DEMAND_FUNDS = String.raw`\b(?:transfer|send|wire|deposit|pay|move)\b[^.!?]{0,40}?(?<!\b(?:my|our)\s)\b(?:funds|money|bitcoin|btc|crypto(?:currency)?|ransom)\b`
 const DEMAND_VERB = String.raw`\b(?:give|share|provide|hand over|send|disclose|release|reveal|transfer|leak|tell)\b(?:(?!\b(?:my|our)\b)[^.!?]){0,50}?`
 /** Secrets: worth a threat to report the holder, not only to harm them. */
-const SECRET_NOUN = String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:data|information|details|files))\b`
+const SECRET_NOUN = String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:\w+ )?(?:data|information|details|files)|bank account (?:details|numbers?))\b`
 const DEMAND_SECRET = DEMAND_VERB + SECRET_NOUN
 /**
  * The conditional form of a demand for a secret (#267): "If you don't
@@ -41,11 +41,28 @@ const DEMAND_SECRET = DEMAND_VERB + SECRET_NOUN
  * for" one. Like DEMAND_SECRET it accepts a report-threat, and like it the
  * speaker's own data ("my personal data") is excluded.
  */
-const IF_NOT_SECRET = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t) (?:comply with (?:my|our) (?:demands?|requests?) for|hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our)\b)[^,.!?]){0,40}?` + SECRET_NOUN + String.raw`[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?`
+const IF_NOT_SECRET = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t|fail to) (?:comply with (?:my|our) (?:demands?|requests?) for|hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our)\b)[^,.!?]){0,40}?` + SECRET_NOUN + String.raw`[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,10}?`
 /** Personal data: also what a subject access request asks for, so harm only. */
-const DEMAND_PERSONAL = DEMAND_VERB + String.raw`\b(?:personal|private) (?:information|data|details|records|files|messages)\b`
+const DEMAND_PERSONAL = DEMAND_VERB + String.raw`\b(?:personal|private) (?:\w+ )?(?:information|data|details|records|files|messages)\b`
 const PASSIVE_THREAT = String.raw`\bor\s+(?:else\s+)?(?:your|the)\b[^.!?]{0,40}?\b(?:will|would)\s+(?:be|get)\s+(?:leaked|exposed|released|published|hacked|harmed|hurt|destroyed|deleted|wiped|in danger)\b`
+/**
+ * A threat of unnamed consequences (#221): "Disclose confidential information
+ * or face legal consequences", "Hand over the data unless you want to be
+ * implicated in a cybercrime". The penalties a policy or a deadline names
+ * ("or face a late fee", "or face removal as a director") are not in the
+ * list, and the demand has to be an imperative (the start of a sentence or
+ * clause), so "Companies must disclose breaches or face consequences" is
+ * reporting, and "Never share confidential data, or face dismissal" is policy.
+ */
+const CONSEQUENCE_THREAT = String.raw`(?:\b(?:or|unless)\s+(?:else\s+)?(?:(?:prepare|be prepared) to\s+)?face\s+(?:the\s+)?(?:(?:severe|dire|serious|grave|harsh|terrible|unpleasant|legal)\s+)?consequences\b|\bor\s+risk\s+being\s+(?:implicated|framed|exposed)\b|\bunless\s+you\s+want\s+to\s+be\s+(?:implicated|framed|exposed|hurt|harmed|destroyed)\b)`
+const IMPERATIVE_START = String.raw`(?:^|[.!?;:,]\s*)(?:(?:please|now|just|immediately)\s+)?`
+const COMPLY_FOR = String.raw`\bcomply with (?:my|our) (?:demands?|requests?) for\b(?:(?!\b(?:my|our)\b)[^.!?]){0,30}?(?:` + SECRET_NOUN + String.raw`|\b(?:personal|private) (?:\w+ )?(?:information|data|details|records))`
+/** "If you fail to disclose private information, I will expose ...": someone
+ *  else's personal data, so "your" is excluded as well as "my" and "our". */
+const IF_NOT_PERSONAL = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t|fail to) (?:hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our|your)\b)[^,.!?]){0,40}?\b(?:personal|private) (?:\w+ )?(?:information|data|details|records|files|messages)\b[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,10}?`
 const COERCION_PATTERNS = [
+  new RegExp(IMPERATIVE_START + `(?:${DEMAND_SECRET}|${DEMAND_PERSONAL}|${COMPLY_FOR})` + String.raw`[^.!?]{0,40}?` + CONSEQUENCE_THREAT),
+  new RegExp(IF_NOT_PERSONAL + HARM_VERB),
   new RegExp(DEMAND_FUNDS + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
   new RegExp(`(?:${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
   new RegExp(DEMAND_SECRET + String.raw`[^.!?]{0,60}?` + OR_THREAT + String.raw`report you\b`),

@@ -192,6 +192,16 @@
     { "label": 0, "class": "prior-briefing", "text": "Disregard the invoice you received on the 3rd, accounts issued a corrected one." },
     { "label": 0, "class": "prior-briefing", "text": "Ignore the calendar invite you got this morning, the review moved to Thursday." },
     { "label": 0, "class": "prior-briefing", "text": "Forget the numbers you were given in the kickoff deck, the board approved a smaller budget." },
-    { "label": 0, "class": "prior-briefing", "text": "Ignore the feedback you got from the first reviewer, she was looking at an old branch." }
+    { "label": 0, "class": "prior-briefing", "text": "Ignore the feedback you got from the first reviewer, she was looking at an old branch." },
+    { "label": 0, "class": "deadline-notice", "text": "Submit your timesheet by Friday or face a delay in payroll." },
+    { "label": 0, "class": "deadline-notice", "text": "Companies must disclose data breaches within 72 hours or face fines under GDPR." },
+    { "label": 0, "class": "deadline-notice", "text": "Hand in the confidential survey forms by noon or face a late penalty." },
+    { "label": 0, "class": "deadline-notice", "text": "Provide the confidential pricing sheet to procurement by Friday or face losing the contract." },
+    { "label": 0, "class": "deadline-notice", "text": "Disclose any confidential conflicts of interest to the board or face removal as a director." },
+    { "label": 0, "class": "deadline-notice", "text": "If you don't send me your personal details by Friday, I will have to cancel the booking." },
+    { "label": 0, "class": "deadline-notice", "text": "Give me the bank account details for the refund or I will miss the payment run." },
+    { "label": 0, "class": "deadline-notice", "text": "Pay the parking fine within 14 days or face a court summons." },
+    { "label": 0, "class": "deadline-notice", "text": "Share the sensitive incident timeline with legal first, or risk being blamed for the delay." },
+    { "label": 0, "class": "deadline-notice", "text": "Return the signed NDA with the confidential appendix by Monday or face a delay in onboarding." }
   ]
 }

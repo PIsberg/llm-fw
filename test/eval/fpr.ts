@@ -158,6 +158,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.13 (override of what the model was told, #221):
   // same 5 rows. The prior-briefing family (10 rows) was added and measured
   // 0/10 before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.14 (coercion by unnamed consequences, #221): same
+  // 5 rows. The deadline-notice family (10 rows) was added and measured 0/10
+  // before the rule, and is still 0/10 after.
   'agent-tool-definition': 0,
 };
 
