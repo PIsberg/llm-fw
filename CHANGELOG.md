@@ -421,6 +421,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `en-follow-up` ceiling at 3 and every other class at zero. The 3 rows are
   #269. (#256)
 
+- **Mutation testing runs on Stryker 10.** `npm run mutation` moves
+  `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` to 10.0.0
+  together: the runner requires core at exactly its own version, so the
+  runner bump alone failed `npm ci` with ERESOLVE on every CI job (#212).
+  Stryker 10 drops Node.js 20 (llm-fw already requires 22) and adds an
+  empty-expression mutator, so the weekly score is measured on a slightly
+  larger mutant set from here on. Nothing in the default test gate uses
+  Stryker; `npm audit` reports the same single advisory before and after.
+
 - **All 15,011 Dolly-15k instructions now run through the false-positive gate
   every night, report-only.** The PR gate scans a 2,000-row sample, which
   cannot show a detector that misfires once in several thousand ordinary
