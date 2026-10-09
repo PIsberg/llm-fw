@@ -305,6 +305,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enumerated in full so a reader can check it against a run rather than trust
   the prose.
 
+### Internal
+
+- **All 15,011 Dolly-15k instructions now run through the false-positive gate
+  every night, report-only.** The PR gate scans a 2,000-row sample, which
+  cannot show a detector that misfires once in several thousand ordinary
+  prompts. The nightly job fetches the full set into the gitignored
+  `test/eval/data/local/` (`scripts/fetch-eval-data.ts dolly-15k-full`) and runs
+  `npm run fpr -- --only=dolly-15k-full`, which prints the per-category table
+  and any breach without failing; only a scan of zero rows fails. It runs even
+  on a night the drift gate failed. First run, ruleset 2026.10.6: 2 of 15,011
+  blocked (0.01%), both `information_extraction`, the same 2 rows #256 recorded.
+  `npm run fpr` also gains `--only=<corpus>[,<corpus>]`. (#256)
+
 ### Security
 
 - **13 of the 14 open Dependabot alerts closed.** `adm-zip` 0.6.0 to 0.6.1

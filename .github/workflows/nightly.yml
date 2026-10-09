@@ -135,3 +135,18 @@ jobs:
         run: |
           echo "::error::Benchmark drift gate failed — recall/FPR regressed beyond tolerance vs. the last-7-run median. See the 'Run benchmark + drift gate' step log above for per-split detail."
           exit 1
+
+      # The PR gate scans a fixed 2,000-row Dolly-15k sample. All 15,011 rows
+      # find the rarer misfires the sample cannot show, but take several
+      # minutes, so they run here (#256). Fetched fresh into the gitignored
+      # test/eval/data/local/, never committed. Report-only: the per-category
+      # table and any breaches land in this step's log, and only a scan of zero
+      # rows fails it. !cancelled() so the report still runs on a night the
+      # drift gate above failed, which is when it is most wanted.
+      - name: Fetch the full Dolly-15k set
+        if: ${{ !cancelled() }}
+        run: node --import tsx/esm scripts/fetch-eval-data.ts dolly-15k-full
+
+      - name: Full Dolly-15k false-positive report (not a gate)
+        if: ${{ !cancelled() }}
+        run: npm run fpr -- --only=dolly-15k-full

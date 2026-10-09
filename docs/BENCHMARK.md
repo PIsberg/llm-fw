@@ -90,6 +90,10 @@ is written back by the workflow itself (`github-actions[bot]`) regardless of
 pass/fail, since a regressed run is still a valid data point for future
 medians.
 
+The same job then scans all 15,011 Dolly-15k instructions through the false
+positive gate, report-only, even on a night the drift gate failed. See
+[FALSE-POSITIVES.md](FALSE-POSITIVES.md#the-gate).
+
 That history lives on the orphan branch
 [`bench-trend-data`](https://github.com/PIsberg/llm-fw/blob/bench-trend-data/bench-trend.jsonl),
 one JSONL file at its root, not on `main`. `main` requires a pull request and

@@ -30,8 +30,14 @@
  *   FPR_SLO=0.5 npm run fpr      # tighter SLO, percent
  *   FPR_DOLLY_SLO=0.2 npm run fpr  # tighter SLO for the Dolly sample
  *   FPR_OUTPUT_FILE=x.json ...   # machine-readable results
+ *   npm run fpr -- --only=dolly-15k-full   # the full Dolly-15k set, report-only
+ *
+ * `--only=<name>[,<name>]` scans just the named corpora. The full Dolly-15k set
+ * is opt-in and report-only (#256): fetch it first with
+ * `node --import tsx/esm scripts/fetch-eval-data.ts dolly-15k-full`. The nightly
+ * workflow does both.
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pipeline } from '../../src/detection/pipeline.js';
@@ -39,7 +45,8 @@ import { DEFAULT_CONFIG } from '../../src/config/config.js';
 import { RULESET_VERSION } from '../../src/detection/ruleset.js';
 import type { Config } from '../../src/types.js';
 import { wilsonInterval, sampleNeededFor, formatInterval } from './lib/wilson.js';
-import { evaluateFprGate } from './lib/fprGate.js';
+import { selectCorpora, corpusVerdict } from './lib/fprCorpora.js';
+import { DOLLY_FULL_FILE } from '../../scripts/fetch-eval-data.js';
 import { anthropicRequestFor, type EvalRow } from './lib/surfaces.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -183,11 +190,27 @@ interface GatedCorpus {
   file: string;
   sloPct: number;
   ceilings: Record<string, number>;
+  /** Scanned only when named by `--only`. */
+  optIn?: boolean;
+  /** Breaches are printed, not failed (except an empty scan). */
+  reportOnly?: boolean;
+  /** How to produce `file` when it is not committed. */
+  fetch?: string;
 }
 
 const CORPORA: GatedCorpus[] = [
   { name: 'benign-realistic', file: CORPUS, sloPct: SLO_PCT, ceilings: CATEGORY_CEILINGS },
   { name: 'dolly-15k-sample', file: DOLLY_CORPUS, sloPct: DOLLY_SLO_PCT, ceilings: DOLLY_CATEGORY_CEILINGS },
+  // All 15,011 Dolly rows (#256): finds the once-per-several-thousand misfires
+  // the 2,000-row sample cannot show. Too slow for the PR gate and not
+  // committed, so the nightly workflow fetches it and reports on it. Same SLO
+  // and zero ceilings as the sample, so a breach reads the same way, but it
+  // does not fail: nobody has decided yet what this corpus should gate.
+  {
+    name: 'dolly-15k-full', file: DOLLY_FULL_FILE, sloPct: DOLLY_SLO_PCT, ceilings: DOLLY_CATEGORY_CEILINGS,
+    optIn: true, reportOnly: true,
+    fetch: 'node --import tsx/esm scripts/fetch-eval-data.ts dolly-15k-full',
+  },
 ];
 
 interface CorpusResult {
@@ -200,6 +223,11 @@ interface CorpusResult {
 }
 
 async function scanCorpus(pipeline: Pipeline, corpus: GatedCorpus): Promise<CorpusResult> {
+  if (!existsSync(corpus.file)) {
+    console.error(`fpr: corpus ${corpus.name} not found at ${corpus.file}.` +
+      (corpus.fetch ? ` Fetch it first: ${corpus.fetch}` : ''));
+    process.exit(1);
+  }
   const parsed = JSON.parse(readFileSync(corpus.file, 'utf8')) as { rows: Row[] };
   const rows = parsed.rows.filter(r => r.label === 0);
   if (rows.length === 0) {
@@ -256,10 +284,13 @@ async function scanCorpus(pipeline: Pipeline, corpus: GatedCorpus): Promise<Corp
   console.log(`  n for a ${TARGET_PCT}% claim  ${sampleNeededFor(TARGET_PCT / 100)} benign rows (have ${scanned})`);
   console.log(`  n for a ${corpus.sloPct}% claim  ${sampleNeededFor(corpus.sloPct / 100)} benign rows (have ${scanned})`);
 
-  const verdict = evaluateFprGate({
+  const verdict = corpusVerdict(corpus, {
     perClass, blocked, scanned, expected: rows.length,
     sloPct: corpus.sloPct, ceilings: corpus.ceilings,
   });
+  if (corpus.reportOnly) {
+    for (const r of verdict.reported) console.log(`  report-only, not failed: ${r}`);
+  }
   for (const cls of verdict.improved) {
     const c = perClass[cls];
     console.log(`  note: '${cls}' now blocks ${c?.blocked ?? 0} (ceiling ${corpus.ceilings[cls]}) — lower the ceiling to keep the improvement.`);
@@ -272,6 +303,9 @@ async function main(): Promise<void> {
   console.log('║  llm-fw  •  False-positive SLO gate                  ║');
   console.log('╚══════════════════════════════════════════════════════╝');
   console.log(`  ruleset: ${RULESET_VERSION}  |  production target ${TARGET_PCT}%`);
+  // Before the model loads, so a mistyped --only fails in a second, not a minute.
+  const selected = selectCorpora(CORPORA, process.argv.slice(2));
+  console.log(`  corpora: ${selected.map(c => c.name + (c.reportOnly ? ' (report-only)' : '')).join(', ')}`);
 
   // The shipped default configuration, judge off — what an operator actually
   // runs. Measuring a tuned-down config would make the number meaningless.
@@ -284,7 +318,7 @@ async function main(): Promise<void> {
   console.log('Ready. Scanning…');
 
   const results: CorpusResult[] = [];
-  for (const corpus of CORPORA) results.push(await scanCorpus(pipeline, corpus));
+  for (const corpus of selected) results.push(await scanCorpus(pipeline, corpus));
   await pipeline.close();
 
   const failures = results.flatMap(r => r.failures);
@@ -307,6 +341,7 @@ async function main(): Promise<void> {
     mkdirSync(dirname(OUTPUT_FILE), { recursive: true });
     // The held-out hand-written corpus stays at the top level, where existing
     // consumers of fpr.json read it; every further corpus is keyed by name.
+    // With --only, the first named corpus takes the top level instead.
     writeFileSync(OUTPUT_FILE, JSON.stringify({
       ruleset: RULESET_VERSION,
       ...summary(primary!),

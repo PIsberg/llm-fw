@@ -30,6 +30,11 @@ reports/mutation/
 # writing here must never be committed back into the tracked tree.
 docs/load-results/bench-trend.jsonl
 
+# Eval corpora fetched at run time rather than committed: the full Dolly-15k set
+# the nightly job scans report-only (#256). Regenerate with
+# scripts/fetch-eval-data.ts dolly-15k-full.
+test/eval/data/local/
+
 # Offline-licence signing material and issued files. The signing key belongs on
 # the operator machine only (docs/LICENSING.md); committing it would let anyone
 # mint licences that the released build accepts. Issued .lfw-license files are
