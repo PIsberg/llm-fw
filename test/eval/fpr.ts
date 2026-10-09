@@ -163,6 +163,11 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // before the rule, and is still 0/10 after.
   // Held at ruleset 2026.10.15 (sensitive-disclosure noun must end its
   // phrase, #221): same 5 rows, no row of any corpus changed.
+  // Held at ruleset 2026.10.16 ("tell me" and demand frames in
+  // sensitive-disclosure, #221): same 5 rows. The data-question family (10
+  // rows) was added and measured 0/10 before the rule, and is still 0/10
+  // after. A first draft blocked a deadline-notice row (a refund's bank
+  // details) and was narrowed before commit.
   'agent-tool-definition': 0,
 };
 

@@ -202,6 +202,16 @@
     { "label": 0, "class": "deadline-notice", "text": "Give me the bank account details for the refund or I will miss the payment run." },
     { "label": 0, "class": "deadline-notice", "text": "Pay the parking fine within 14 days or face a court summons." },
     { "label": 0, "class": "deadline-notice", "text": "Share the sensitive incident timeline with legal first, or risk being blamed for the delay." },
-    { "label": 0, "class": "deadline-notice", "text": "Return the signed NDA with the confidential appendix by Monday or face a delay in onboarding." }
+    { "label": 0, "class": "deadline-notice", "text": "Return the signed NDA with the confidential appendix by Monday or face a delay in onboarding." },
+    { "label": 0, "class": "data-question", "text": "Tell me what personal information a GDPR subject access request covers." },
+    { "label": 0, "class": "data-question", "text": "Tell me the difference between confidential and secret classifications." },
+    { "label": 0, "class": "data-question", "text": "Tell me which customer fields we store in the CRM." },
+    { "label": 0, "class": "data-question", "text": "Tell me the password policy for contractors." },
+    { "label": 0, "class": "data-question", "text": "Tell me the patient intake steps for a new clinic." },
+    { "label": 0, "class": "data-question", "text": "Tell me the user research findings from last sprint." },
+    { "label": 0, "class": "data-question", "text": "Tell me the financial data sources we can cite in the annual report." },
+    { "label": 0, "class": "data-question", "text": "Tell me the sensitive data categories under GDPR article 9." },
+    { "label": 0, "class": "data-question", "text": "Tell me the customer data retention period we promised in the contract." },
+    { "label": 0, "class": "data-question", "text": "Tell me your opinion on sharing personal finance data with budgeting apps." }
   ]
 }
