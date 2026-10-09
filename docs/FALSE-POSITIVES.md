@@ -13,7 +13,7 @@ than asserted.
 ## The measurement
 
 `npm run fpr` runs a **held-out** benign corpus
-(`test/eval/data/benign-realistic.json`, 142 rows) through the real detection
+(`test/eval/data/benign-realistic.json`, 154 rows) through the real detection
 pipeline in its shipped default configuration, and reports the rate per category
 with a 95% Wilson interval.
 
@@ -43,9 +43,11 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.6
+## Result, ruleset 2026.10.7
 
-**3.52% overall (5 of 142), 95% CI 1.51–7.98%.**
+**3.25% overall (5 of 154), 95% CI 1.39–7.37%.** The same 5 rows as at
+2026.10.6 (3.52%, 5 of 142); the denominator grew by the 12-row
+`customer-ultimatum` family added for #259, which blocks none of them.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
 
@@ -195,6 +197,19 @@ corpora here (5/142 and 0/2,000) and every eval split identical to 2026.10.4.
 scorecard indirect-injection row the colon-only header of 2026.10.2 had lost.
 Re-measured: both corpora and every eval split identical.
 
+**2026.10.7 — coercion, with its benign family first (5 rows unchanged,
+3.25% of a larger corpus).** "Transfer funds to my account or I will leak
+..." was 28 safeguard misses with no rule, because the threat alone is
+ordinary customer language. Before any rule, 12 complaints and ultimatums
+("Refund my order or I will report you to consumer protection", a GDPR
+access request with a deadline, a tenant's repair notice) went into this corpus
+as `customer-ultimatum`, gated at zero, and measured 0 of 12. The rule then
+keys on what is demanded (money paid to the speaker, credentials, confidential
+or someone else's personal data) and on a threat of harm rather than of a
+complaint. After it: still 0 of 12, the same 5 rows elsewhere, Dolly-15k 0 of
+2,000, and safeguard's benign half unchanged at 1 block, while safeguard
+recall went 419 to 444 of 650.
+
 Net across all of it, against the pre-2026.08.7 baseline:
 
 | Split | Before | Now |
@@ -224,6 +239,10 @@ The per-category table below was itself corrected at 2026.08.12. Its 2026.08.11 
 | analysis-writing | 0 / 8 | — | 0 / 8 | 0 / 8 | 0 / 8 |
 | support-ticket | 0 / 7 | — | 0 / 7 | 0 / 7 | 0 / 7 |
 | fiction-roleplay | 0 / 7 | — | 0 / 7 | 0 / 7 | 0 / 7 |
+| customer-ultimatum | 0 / 12 ¹ | — | — | — | — |
+
+¹ Added at ruleset 2026.10.7 (#259), measured before and after the coercion
+rule: 0 of 12 both times.
 
 `benign-tool-result` is now clean and `rag-document` is down to one, so both
 category ceilings in `test/eval/fpr.ts` were lowered to match. A new false
@@ -316,7 +335,7 @@ npm run fpr -- --only=dolly-15k-full
 ```
 
 The production target is **0.1%**. A clean run would need about **3,838** benign
-rows to support that claim at 95% confidence; the corpus has 142. That number is
+rows to support that claim at 95% confidence; the corpus has 154. That number is
 printed on every run so a small clean sample is never read as a passing grade.
 
 ## How these get fixed

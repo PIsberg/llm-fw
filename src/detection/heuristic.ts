@@ -19,6 +19,35 @@ const DEFENSIVE_HYGIENE_RE = new RegExp(
   'gi',
 )
 
+// Coercion (#259): a demand backed by a threat ("Transfer funds to my account
+// or I will leak ..."). The threat alone is ordinary customer language:
+// "Refund my order or I will report you" is a complaint, and the held-out
+// customer-ultimatum family in test/eval/data/benign-realistic.json keeps it
+// passing. So every pattern needs WHAT is demanded (money paid to the speaker,
+// credentials, confidential or someone else's personal data) or a demand-
+// compliance frame, and a threat of HARM rather than of a complaint, a lawsuit
+// or a cancellation. A first-person possessive ("my money", "my personal
+// data") is the speaker's own: a refund or a subject access request.
+const HARM_VERB = String.raw`(?:leak|expose|release|reveal|publish|hack|harm|hurt|kill|ruin|defame|destroy|attack|launch|unleash|shame|dox|sabotage|wipe|delete|encrypt|manipulate|blackmail)\b`
+const OR_THREAT = String.raw`\bor\s+(?:else\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?`
+const DEMAND_FUNDS = String.raw`\b(?:transfer|send|wire|deposit|pay|move)\b[^.!?]{0,40}?(?<!\b(?:my|our)\s)\b(?:funds|money|bitcoin|btc|crypto(?:currency)?|ransom)\b`
+const DEMAND_VERB = String.raw`\b(?:give|share|provide|hand over|send|disclose|release|reveal|transfer|leak|tell)\b(?:(?!\b(?:my|our)\b)[^.!?]){0,50}?`
+/** Secrets: worth a threat to report the holder, not only to harm them. */
+const DEMAND_SECRET = DEMAND_VERB + String.raw`\b(?:credentials?|passwords?|login details|access codes?|classified|confidential|corporate secrets|trade secrets|secrets|compromising|sensitive (?:data|information|details|files))\b`
+/** Personal data: also what a subject access request asks for, so harm only. */
+const DEMAND_PERSONAL = DEMAND_VERB + String.raw`\b(?:personal|private) (?:information|data|details|records|files|messages)\b`
+const PASSIVE_THREAT = String.raw`\bor\s+(?:else\s+)?(?:your|the)\b[^.!?]{0,40}?\b(?:will|would)\s+(?:be|get)\s+(?:leaked|exposed|released|published|hacked|harmed|hurt|destroyed|deleted|wiped|in danger)\b`
+const COERCION_PATTERNS = [
+  new RegExp(DEMAND_FUNDS + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
+  new RegExp(`(?:${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + OR_THREAT + HARM_VERB),
+  new RegExp(DEMAND_SECRET + String.raw`[^.!?]{0,60}?` + OR_THREAT + String.raw`report you\b`),
+  new RegExp(`(?:${DEMAND_FUNDS}|${DEMAND_SECRET}|${DEMAND_PERSONAL})` + String.raw`[^.!?]{0,60}?` + PASSIVE_THREAT),
+  // "If you don't comply (with my demands), I will ...". Compliance with a
+  // NAMED rule ("comply with the safety code") is a regulator's notice, so
+  // only a bare "comply" or one aimed at the speaker's own demands counts.
+  new RegExp(String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t) comply(?: with (?:my|our) (?:demands?|requests?|instructions?)(?: for [^,.!?]{0,40})?)?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?` + HARM_VERB),
+]
+
 export class HeuristicScorer {
   private rules: WeightedRule[]
 
@@ -349,6 +378,10 @@ export class HeuristicScorer {
           /testumgebung/,
           /沙盒测试环境/
         ]
+      },
+      {
+        // A demand backed by a threat of harm. See COERCION_PATTERNS.
+        weight: 50, label: 'coercion', patterns: COERCION_PATTERNS,
       },
       {
         // Indirect "fictional unrestricted AI" framing (DAN, "Do Anything Now",
