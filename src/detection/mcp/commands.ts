@@ -54,8 +54,19 @@ export class CommandScanner {
     d: {
       name: 'Developer Tools & Infrastructure',
       patterns: [
-        /git\s+push\s+.*--force/i,
-        /git\s+push\s+.*-f/i,
+        // Force push: --force and its variants, or a short flag starting with
+        // f (-f, -fu), anywhere after `git push` on the line, as the old rule
+        // read it. The one change is that the flag must be its own token: not
+        // preceded by a letter, digit, _, /, . or -. Matching the bare
+        // substring "-f" refused branch names like fix/login-form and
+        // feature/add-filters, and --follow-tags. Any other character may
+        // precede it (space, quote, backslash, brace), and the line is not
+        // split at | ; & because those can sit inside a quoted URL or ref;
+        // a narrower "one command" reading was tried and let quoted and
+        // escaped force pushes through. -uf and +refspec were never matched
+        // and still are not, so this only removes false positives.
+        /\bgit\s+push\b.*(?<![\w/.-])--force\b/i,
+        /\bgit\s+push\b.*(?<![\w/.-])-f[a-z]*(?![\w-])/i,
         // Any hard reset is destructive (discards working tree), not just
         // `HEAD~N`: also catches `--hard origin/main`, bare `--hard`.
         /git\s+reset\s+--hard\b/i,

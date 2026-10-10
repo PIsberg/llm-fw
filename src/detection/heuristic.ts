@@ -781,20 +781,32 @@ export class HeuristicScorer {
     ]
   }
 
+  /**
+   * The rule score over every normalization candidate, WITHOUT the
+   * high-entropy bonus that score() adds. The bonus says the text is dense, not
+   * that it instructs anything; a caller asking "does this text issue
+   * instructions" (the RAG boundary check) wants this.
+   */
+  scoreRules(input: string): HeuristicResult {
+    let maxScore = 0
+    const allMatches = new Set<string>()
+    for (const candidate of extractCandidates(input)) {
+      const res = this.score(candidate.text, candidate.source)
+      if (res.score > maxScore) {
+        maxScore = res.score
+      }
+      for (const m of res.matches) {
+        allMatches.add(m)
+      }
+    }
+    return { score: maxScore, matches: Array.from(allMatches) }
+  }
+
   score(input: string, source?: string): HeuristicResult {
     if (source === undefined) {
-      const candidates = extractCandidates(input)
-      let maxScore = 0
-      const allMatches = new Set<string>()
-      for (const candidate of candidates) {
-        const res = this.score(candidate.text, candidate.source)
-        if (res.score > maxScore) {
-          maxScore = res.score
-        }
-        for (const m of res.matches) {
-          allMatches.add(m)
-        }
-      }
+      const { score, matches } = this.scoreRules(input)
+      let maxScore = score
+      const allMatches = new Set(matches)
 
       // Add High Entropy detection
       const entropy = calculateEntropy(input)

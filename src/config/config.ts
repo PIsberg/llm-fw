@@ -193,7 +193,14 @@ export const DEFAULT_CONFIG: Config = {
   dos: {
     enabled: true,
     maxRequestsPerMinute: 60,
-    maxTokensPerSession: 500000,
+    // Counted as request body plus streamed response, chars / 4, and an agent
+    // resends its whole context on every call: one hour of one Claude Code
+    // session counts about 7.2M. The old 500,000 cut that session off at its
+    // 12th call and kept it blocked for the rest of the hour. 50M leaves room
+    // for several agents behind one proxy and still stops a runaway loop at
+    // the default request rate within about six minutes. Both are pinned in
+    // test/detection/dos/quota.test.ts.
+    maxTokensPerSession: 50_000_000,
     loopDetectionEnabled: true,
     tokenBudgetWindowMs: 3_600_000, // auto-reset the token budget hourly
   },

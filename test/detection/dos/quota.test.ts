@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { QuotaManager } from '../../../src/detection/dos/quota.js'
 import { DosConfig } from '../../../src/types.js'
+import { DEFAULT_CONFIG } from '../../../src/config/config.js'
 
 function makeConfig(overrides: Partial<DosConfig> = {}): DosConfig {
   return {
@@ -148,6 +149,41 @@ describe('QuotaManager — rolling token budget window', () => {
     q.addTokens(120, t)
     expect(q.sessionExceeded(t + 60_000)).toBe(true)     // within the hour
     expect(q.sessionExceeded(t + 3_600_000)).toBe(false) // after the hour → reset
+  })
+})
+
+// A coding agent resends its whole context on every call, and the proxy counts
+// every request body (chars / 4) plus every streamed response. The shape below
+// is the Claude Code session that wrote this test: about 80 calls in an hour,
+// the context growing from about 30k to 130k tokens. Each response is counted
+// at 10k: roughly 1k output tokens inflated by the SSE event framing the
+// proxy measures. That is about 7.2M counted tokens for one developer's hour.
+describe('QuotaManager — the default budget against real agent traffic', () => {
+  const HOUR_START = 10_000_000
+  const CALLS = 80
+  const contextAt = (i: number) => 30_000 + Math.round((i * 100_000) / (CALLS - 1))
+  const RESPONSE = 10_000
+
+  it('lets one hour of an ordinary coding-agent session through', () => {
+    const q = new QuotaManager({ ...DEFAULT_CONFIG.dos })
+    for (let i = 0; i < CALLS; i++) {
+      const now = HOUR_START + i * 45_000
+      expect(q.sessionExceeded(now), `call ${i + 1}, ${q.tokensUsed()} tokens counted`).toBe(false)
+      q.addTokens(contextAt(i) + RESPONSE, now)
+    }
+  })
+
+  it('still stops a runaway loop at the default request rate within ten minutes', () => {
+    const q = new QuotaManager({ ...DEFAULT_CONFIG.dos })
+    const perMinute = DEFAULT_CONFIG.dos.maxRequestsPerMinute
+    let trippedAtMinute: number | null = null
+    for (let call = 0; call < perMinute * 60 && trippedAtMinute === null; call++) {
+      const now = HOUR_START + Math.floor((call * 60_000) / perMinute)
+      if (q.sessionExceeded(now)) trippedAtMinute = (now - HOUR_START) / 60_000
+      else q.addTokens(contextAt(CALLS - 1) + RESPONSE, now)
+    }
+    expect(trippedAtMinute).not.toBeNull()
+    expect(trippedAtMinute!).toBeLessThan(10)
   })
 })
 

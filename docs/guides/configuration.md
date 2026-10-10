@@ -165,7 +165,7 @@ _83 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_DLP_MODE` | `dlp.mode` | `redact` |
 | `LLM_FW_DOS_ENABLED` | `dos.enabled` | `true` |
 | `LLM_FW_DOS_MAX_RPM` | `dos.maxRequestsPerMinute` | `60` |
-| `LLM_FW_DOS_MAX_TOKENS_PER_SESSION` | `dos.maxTokensPerSession` | `500000` |
+| `LLM_FW_DOS_MAX_TOKENS_PER_SESSION` | `dos.maxTokensPerSession` | `50000000` |
 | `LLM_FW_DOS_TOKEN_WINDOW_MS` | `dos.tokenBudgetWindowMs` | `3600000` |
 | `LLM_FW_EMBEDDING_BLOCK_THRESHOLD` | `detection.embeddingBlockThreshold` | `0.86` |
 | `LLM_FW_EMBEDDING_MARGIN` | `detection.embeddingMarginThreshold` | `0.02` |

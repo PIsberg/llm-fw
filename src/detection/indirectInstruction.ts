@@ -204,6 +204,48 @@ const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
 const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/i
 const EXFIL_PROXIMITY = 200
 
+// A contact instruction: how a HUMAN reaches somebody ("send an email to
+// security@acme.io", "For questions, email maintainers@widget.dev", "Please
+// email us at help@shop.example"). Every README, SECURITY.md, auto-reply and
+// order confirmation carries one, and each of them put a send-class verb next
+// to an address, so the exfil-target rule blocked the whole request. The verb's
+// object here is a NEW message, or the address itself; nothing is being sent
+// out of the agent's context.
+//
+// Narrow on purpose: the clause must open a sentence or clause (or follow
+// please/kindly), so "to my backup email amy.watson@gmail.com" is still a
+// destination; and the sentence around it must name no data to send
+// (CONTACT_DATA_RE), so "send an email to X with my saved passwords" and "take
+// my records and send an email to X" still fire. A clause that passes both is
+// blanked before any rule runs, which also keeps the polite and multilingual
+// rules from re-matching "please email us at".
+const CONTACT_CLAUSE_RE = new RegExp(
+  '(^|[.!?:;,]\\s*|\\n\\s*|\\b(?:please|kindly)\\s+)(' +
+  '(?:send|write|drop|shoot)\\s+(?:us\\s+|me\\s+|them\\s+)?(?:an?\\s+)?(?:quick\\s+|short\\s+|brief\\s+)?(?:e-?mail|message|note|line|mail)\\s+(?:to|at)' +
+  '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
+  '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +
+  ')\\s+[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',
+  'gi',
+)
+
+// The data an exfiltration names: the same object list the bare imperative
+// requires (a first-person claim, customer or medical records, credentials, an
+// account or card number, a URL, another address).
+const CONTACT_DATA_RE = IMPERATIVE_OBJECT_RE
+
+function blankContactClauses(text: string): string {
+  return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
+    const start = offset + lead.length
+    const end = offset + match.length
+    const sentenceStart = Math.max(text.lastIndexOf('\n', start - 1), ...['. ', '! ', '? '].map(p => text.lastIndexOf(p, start - 1))) + 1
+    const tailMatch = /[.!?](?:\s|$)|\n/.exec(text.slice(end))
+    const sentenceEnd = tailMatch ? end + tailMatch.index : text.length
+    const around = text.slice(sentenceStart, start) + ' ' + text.slice(end, sentenceEnd)
+    if (CONTACT_DATA_RE.test(around)) return match
+    return lead + ' '.repeat(match.length - lead.length)
+  })
+}
+
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 40)
   const end = Math.min(text.length, index + len + 60)
@@ -658,8 +700,9 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
  * Callers MUST restrict this to the tool_result / document surfaces — on the
  * user-prompt surface an imperative is normal input, not an injection.
  */
-export function detectIndirectInstruction(text: string): IndirectInstructionFinding | null {
-  if (!text || text.length < 8) return null
+export function detectIndirectInstruction(input: string): IndirectInstructionFinding | null {
+  if (!input || input.length < 8) return null
+  const text = blankContactClauses(input)
 
   // Strongest signal first: a send-class verb pointed at an email/account
   // target. Catches the data-stealing class even when framing is loose ("… and

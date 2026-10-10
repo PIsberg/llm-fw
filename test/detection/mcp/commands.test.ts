@@ -130,6 +130,47 @@ describe('CommandScanner Heuristic Engine', () => {
       expect(scanner.scan('aws ec2 delete-volume --volume-id vol-123', allEnabled).isBlocked).toBe(true)
     })
 
+    // The force-push rule matched the substring "-f" after `git push`, so a
+    // branch name with a hyphenated word starting in f and --follow-tags were
+    // refused as force pushes.
+    it('does not read a branch name or --follow-tags as a force push', () => {
+      for (const command of [
+        'git push origin fix/login-form',
+        'git push -u origin feature/add-filters',
+        'git push --set-upstream origin chore/bump-fastify',
+        'git push --follow-tags',
+        'git push origin fix--force-redirect',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+      }
+    })
+
+    it('still blocks the force pushes it blocked before', () => {
+      for (const command of [
+        'git push -f',
+        'git push -fu origin main',
+        'git push --force-with-lease origin feature/x',
+        'git push origin main --force',
+        // A flag right before shell punctuation, or quoted: the old substring
+        // rule caught these, and the first narrowing let them through.
+        'git push origin main -f;',
+        'git push -f&& echo done',
+        'git push -f|tee push.log',
+        'git push origin main -f)',
+        'git push "-f" origin main',
+        "git push origin main '--force'",
+        'git push origin "--force-with-lease"',
+        // Shell separators inside a quoted URL must not end the command, and
+        // an escaped or redirected flag is still a flag.
+        'git push "https://git.example/r.git?a=1&b=2" -f',
+        'git push origin "a;b" --force',
+        'git push origin main \\-f',
+        'git push origin main -f>push.log',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
     it('allows benign git/sql/cloud commands', () => {
       expect(scanner.scan('git push origin main', allEnabled).isBlocked).toBe(false)
       expect(scanner.scan('git reset HEAD', allEnabled).isBlocked).toBe(false)

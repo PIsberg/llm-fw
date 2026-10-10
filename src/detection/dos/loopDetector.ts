@@ -29,6 +29,23 @@ export class LoopDetector {
   }
 
   /**
+   * Drop the most recent record of this body. Called when the upstream rejected
+   * the attempt (an error status or no answer): provider SDKs retry exactly
+   * that case with the identical body, and a retry of a call that never
+   * completed is not an agent going round in circles. Nothing was billed for
+   * it either, which is what the circuit breaker exists to bound.
+   */
+  forget(body: string): void {
+    const hash = LoopDetector.hash(body)
+    for (let i = this.ring.length - 1; i >= 0; i--) {
+      if (this.ring[i]!.hash === hash) {
+        this.ring.splice(i, 1)
+        return
+      }
+    }
+  }
+
+  /**
    * True when the same body hash appears more than three times (counting this
    * occurrence) within the trailing 10s window — i.e. a tight recursive loop.
    */

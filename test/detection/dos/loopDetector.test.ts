@@ -60,6 +60,31 @@ describe('LoopDetector — exact-match loop detection', () => {
     expect(ld.isLooping(BODY, t + 300)).toBe(false)
   })
 
+  it('forget withdraws one attempt, so retries of a failed call never add up', () => {
+    const ld = new LoopDetector()
+    const t = 1_000_000
+    for (let attempt = 0; attempt < 6; attempt++) {
+      expect(ld.isLooping(BODY, t + attempt * 100), `attempt ${attempt + 1}`).toBe(false)
+      ld.record(BODY, t + attempt * 100)
+      ld.forget(BODY)
+    }
+  })
+
+  it('forget removes only one record of that body and none of another', () => {
+    const ld = new LoopDetector()
+    const t = 1_000_000
+    ld.record(BODY, t)
+    ld.record(BODY, t + 100)
+    ld.record(BODY, t + 200)
+    ld.record(OTHER, t + 300)
+    ld.forget(BODY)
+    ld.forget(OTHER)
+    // Two of BODY remain: one more is the third, not the fourth.
+    expect(ld.isLooping(BODY, t + 400)).toBe(false)
+    ld.record(BODY, t + 400)
+    expect(ld.isLooping(BODY, t + 500)).toBe(true)
+  })
+
   it('defaults now to wall-clock time when omitted', () => {
     const ld = new LoopDetector()
     ld.record(BODY)

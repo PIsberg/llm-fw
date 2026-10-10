@@ -44,7 +44,9 @@ beforeEach(() => {
   mockClassifierClassify = vi.fn().mockResolvedValue(null)
 
   ;(HeuristicScorer as unknown as MockFn).mockImplementation(function() {
-    return { score: mockScore }
+    // scoreRules is score() without the entropy bonus (the RAG stage uses it);
+    // the mock has no entropy bonus, so one function serves both.
+    return { score: mockScore, scoreRules: mockScore }
   })
   ;(EmbeddingChecker as unknown as MockFn).mockImplementation(function() {
     return {

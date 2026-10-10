@@ -127,11 +127,15 @@ export function ragInjectionScore(prompt: string, scorer: HeuristicScorer): Heur
   const blocks = extractRagContext(prompt)
   if (!blocks.length) return { score: 0, matches: [] }
 
-  // Highest standard-heuristic score across all isolated data blocks.
+  // Highest standard-heuristic score across all isolated data blocks. Rules
+  // only: the high-entropy bonus is not an instruction, and a pasted .env file
+  // clears it on its own (entropy 5.03 to 5.06 against the 5.0 line), so
+  // tripling it blocked ordinary "is my config right?" questions. An encoded
+  // instruction is still caught here through its decoded candidate.
   let maxBlockScore = 0
   const matches = new Set<string>()
   for (const { block } of blocks) {
-    const h = scorer.score(block)
+    const h = scorer.scoreRules(block)
     if (h.score > maxBlockScore) maxBlockScore = h.score
     for (const m of h.matches) matches.add(m)
   }
