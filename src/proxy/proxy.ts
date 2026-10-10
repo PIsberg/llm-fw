@@ -776,7 +776,10 @@ export class ProxyServer {
       // Stage 0.5 — Behavioral loop detection. Only LLM JSON requests (those
       // with a registered parser) are tracked, mirroring DLP scoping. An
       // agent stuck resending the identical body trips the circuit breaker.
-      if (this.config.dos.enabled && this.config.dos.loopDetectionEnabled && getParser(dlpPath) !== null) {
+      // The record is withdrawn again below if the upstream rejects the call,
+      // so an SDK retrying a 429/5xx/529 is never mistaken for a loop.
+      const loopTracked = this.config.dos.enabled && this.config.dos.loopDetectionEnabled && getParser(dlpPath) !== null
+      if (loopTracked) {
         if (this.loop.isLooping(body)) {
           innerRes.writeHead(429, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'Agent Loop Detected' }))
@@ -976,7 +979,14 @@ export class ProxyServer {
 
       const isLlmRequest = getParser(innerReq.url ?? '/') !== null
 
-      const bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
+      let bytesReceived: number
+      try {
+        bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
+      } catch (err) {
+        if (loopTracked) this.loop.forget(body)
+        throw err
+      }
+      if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when
       // a finding triggered redact mode, so no raw secret is exposed to the UI.
       const bodyTruncated = body.length > TRAFFIC_BODY_CAP

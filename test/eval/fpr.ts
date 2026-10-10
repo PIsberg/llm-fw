@@ -191,6 +191,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.23 (RAG amplifies rule hits, not entropy): same
   // 5 rows. The pasted-config family (10 rows) measured 3/10 before the fix
   // and 0/10 after.
+  // Held at ruleset 2026.10.24 (loop breaker forgets failed attempts; no
+  // pipeline code changed): same 5 rows.
   'agent-tool-definition': 0,
 };
 

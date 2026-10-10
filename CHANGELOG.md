@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SDK retries of a call the provider rejected no longer trip the loop
+  breaker.** The Anthropic and OpenAI SDKs retry a 429, 5xx or 529 with the
+  identical body, and Claude Code retries an overloaded call up to 10 times.
+  Four attempts inside 10 seconds is the loop detector's trip condition, so
+  during a provider incident the fourth retry got llm-fw's own `429 Agent
+  Loop Detected`, which reads as the firewall blocking the request. An
+  attempt the upstream answers with an error status, or never answers, is
+  now withdrawn from the count; four successful identical calls still trip
+  it. Verified by an end-to-end case that sends six retries against an
+  upstream answering 529 (the fourth was answered 429 before the change) and
+  by the unchanged case that trips on the fourth successful repeat. Ruleset
+  2026.10.24 (the digest covers `src/detection/dos/`); no detection verdict
+  can change, and benign-realistic re-measured at the same 5 of 266.
+
 - **Pasting a `.env` file or a short config snippet in a code fence no
   longer blocks.** The RAG stage triples the heuristic score of anything
   inside a fence, and the heuristic adds 30 for high character entropy, which

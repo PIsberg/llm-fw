@@ -13,6 +13,8 @@ Autonomous agents (AutoGPT, LangChain, CrewAI, …) can fall into recursive tool
 
 Agents stuck in a loop tend to resend an identical request body. The detector keeps a ring buffer of the last ~20 request-body SHA-256 hashes with timestamps. If the **same** body hash appears **more than 3 times (≥4) within a 10-second window**, the circuit trips and the proxy returns `429 { "error": "Agent Loop Detected" }`. Loop detection only runs on recognised LLM JSON requests (those with a registered parser).
 
+An attempt the upstream rejects (any `4xx`/`5xx` status, including a provider's `429` or `529 overloaded`, or no answer at all) is withdrawn from the count. Provider SDKs retry exactly those failures with the identical body, Claude Code up to 10 times with a backoff that starts near half a second, so counting them made the breaker answer the fourth retry of a provider outage with its own `429`. A failed call is not billed and is not an agent making progress-free calls, so it is not what the breaker guards against.
+
 When any breaker trips, a critical `dos` event is logged to the dashboard (shown under the **Rate Limit / DoS** badge with a `dos` stage chip). Well-behaved clients honour `Retry-After` and back off; aggressive loops are broken outright.
 
 ### Configuration

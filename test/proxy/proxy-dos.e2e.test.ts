@@ -13,12 +13,23 @@ import { CertFactory } from '../../src/proxy/certs.js'
 
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
 
+// A request body containing this marker gets the provider's "overloaded"
+// answer (HTTP 529) from the stubbed upstream, which every provider SDK retries
+// with the identical body.
+const UPSTREAM_OVERLOADED = 'upstream-is-overloaded'
+
 // Stub the upstream hop: respond 200 without leaving the host. Keeps the test
 // focused on the DoS circuit breaker; client→proxy TLS validates against the
 // test CA so no certificate-validation disabling is needed.
 vi.spyOn(ProxyServer.prototype as unknown as { forwardRequest: unknown }, 'forwardRequest')
   .mockImplementation(async (..._args: unknown[]) => {
+    const body = _args[3] as Buffer
     const res = _args[4] as http.ServerResponse
+    if (body.toString('utf-8').includes(UPSTREAM_OVERLOADED)) {
+      res.writeHead(529, { 'Content-Type': 'application/json' })
+      res.end('{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}')
+      return
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end('{"ok":true}')
   })
@@ -133,6 +144,23 @@ describe('Proxy DoS circuit breaker (E2E)', { timeout: 30000 }, () => {
       const blocked = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body)
       expect(blocked.statusCode).toBe(429)
       expect(JSON.parse(blocked.body).error).toBe('Agent Loop Detected')
+    })
+
+    // The Anthropic and OpenAI SDKs retry a 429, 5xx or 529 with the SAME body,
+    // and Claude Code retries an overloaded call up to 10 times with a backoff
+    // that starts near half a second. Four attempts land well inside 10s, so
+    // the loop breaker used to answer the fourth retry of a provider outage
+    // with its own 429, which reads as llm-fw blocking the request.
+    it('forwards every retry of a call the upstream failed, however many there are', async () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'claude-3-5-sonnet',
+        messages: [{ role: 'user', content: `summarize the changelog (${UPSTREAM_OVERLOADED})` }],
+      }), 'utf-8')
+
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body)
+        expect(res.statusCode, `attempt ${attempt}`).toBe(529)
+      }
     })
   })
 
