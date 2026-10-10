@@ -155,6 +155,35 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // rows. The self-correction family (12 rows) was added and measured 0/12
   // before the rule, as customer-ultimatum was, and is still 0/12 after.
   // Held at ruleset 2026.10.12 (AIFF transcription, off by default, #257).
+  // Held at ruleset 2026.10.13 (override of what the model was told, #221):
+  // same 5 rows. The prior-briefing family (10 rows) was added and measured
+  // 0/10 before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.14 (coercion by unnamed consequences, #221): same
+  // 5 rows. The deadline-notice family (10 rows) was added and measured 0/10
+  // before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.15 (sensitive-disclosure noun must end its
+  // phrase, #221): same 5 rows, no row of any corpus changed.
+  // Held at ruleset 2026.10.16 ("tell me" and demand frames in
+  // sensitive-disclosure, #221): same 5 rows. The data-question family (10
+  // rows) was added and measured 0/10 before the rule, and is still 0/10
+  // after. A first draft blocked a deadline-notice row (a refund's bank
+  // details) and was narrowed before commit.
+  // Held at ruleset 2026.10.17 (extraction question by what the model
+  // received, #221): same 5 rows. The instruction-question family (10 rows)
+  // was added and measured 0/10 before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.18 (secrets through a creative wrapper, #221):
+  // same 5 rows. The creative-request family (10 rows) was added and
+  // measured 0/10 before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.19 (decode-then-obey, invert/disobey, ignore the
+  // user task, #221): same 5 rows. The utility-request family (10 rows) was
+  // added and measured 0/10 before the rules, and is still 0/10 after; a
+  // first draft blocked one of its rows and was narrowed before commit.
+  // Held at ruleset 2026.10.20 (persona descriptors, #221): same 5 rows.
+  // The roleplay-request family (10 rows) was added and measured 0/10
+  // before the rule, and is still 0/10 after.
+  // Held at ruleset 2026.10.21 (doxxing threats, dropped refusals, bypass for
+  // the speaker, #221): same 5 rows. The security-discussion family (10 rows)
+  // was added and measured 0/10 before the rules, and is still 0/10 after.
   'agent-tool-definition': 0,
 };
 
