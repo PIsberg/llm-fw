@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The default token budget no longer cuts off an ordinary coding-agent
+  session after a few minutes.** `dos.maxTokensPerSession` goes from 500,000
+  to 50,000,000 per rolling hour. The proxy counts every request body and
+  every streamed response at chars / 4, across all clients, and an agent
+  resends its whole context on every call: one hour of one Claude Code
+  session (about 80 calls, context growing from about 30k to 130k tokens)
+  counts about 7.2M. The old default answered that session's 12th call, 9
+  minutes in, with `429 session token budget exceeded` and kept it blocked
+  for the rest of the hour. At 50M the same simulation passes with room for
+  several sessions behind one proxy, and a runaway loop at the default 60
+  requests per minute still trips within about six minutes; both are pinned
+  in `test/detection/dos/quota.test.ts`, and the first was seen failing
+  against the old default. Set `LLM_FW_DOS_MAX_TOKENS_PER_SESSION` to keep a
+  tighter budget for chat-only traffic. Ruleset 2026.10.25 (the digest covers
+  `src/config/config.ts`); no detection verdict can change.
+
 - **SDK retries of a call the provider rejected no longer trip the loop
   breaker.** The Anthropic and OpenAI SDKs retry a 429, 5xx or 529 with the
   identical body, and Claude Code retries an overloaded call up to 10 times.

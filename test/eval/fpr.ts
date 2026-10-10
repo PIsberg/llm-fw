@@ -193,6 +193,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // and 0/10 after.
   // Held at ruleset 2026.10.24 (loop breaker forgets failed attempts; no
   // pipeline code changed): same 5 rows.
+  // Held at ruleset 2026.10.25 (default token budget 500k to 50M; the
+  // pipeline does not read it): same 5 rows.
   'agent-tool-definition': 0,
 };
 

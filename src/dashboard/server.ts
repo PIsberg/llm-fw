@@ -1249,7 +1249,7 @@ const SETTINGS_SCHEMA = [
     { key: 'embeddingWarnThreshold', label: 'Embedding warn threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Similarity at/above which a prompt warns and (if enabled) routes to the judge (default 0.80)' },
     { key: 'classifierThreshold', label: 'Classifier block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'INJECTION probability at/above which the trained classifier blocks (default 0.90). Lower = more recall, more false positives' },
     { key: 'dosMaxRpm', label: 'Max requests / minute', type: 'number', min: 1, max: 1000000, step: 1, sub: 'Requests allowed per rolling minute before rate-limiting (default 60)' },
-    { key: 'dosMaxTokens', label: 'Max tokens / session', type: 'number', min: 1, max: 1000000000, step: 1000, sub: 'Rolling per-session token budget before the cost circuit-breaker trips (default 500,000)' },
+    { key: 'dosMaxTokens', label: 'Max tokens / session', type: 'number', min: 1, max: 1000000000, step: 1000, sub: 'Rolling per-session token budget before the cost circuit-breaker trips (default 50,000,000)' },
     { key: 'judgeModel', label: 'Judge model (Ollama)', type: 'text', sub: 'Ollama model tag the Stage 3 judge uses, e.g. qwen2.5:3b. Pull it first: ollama pull <model>' },
   ]},
 ];
@@ -1622,7 +1622,7 @@ function readSettings(config: Config): SettingsView {
     embeddingBlockThreshold: config.detection?.embeddingBlockThreshold ?? 0.86,
     embeddingWarnThreshold: config.detection?.embeddingWarnThreshold ?? 0.80,
     dosMaxRpm: config.dos?.maxRequestsPerMinute ?? 60,
-    dosMaxTokens: config.dos?.maxTokensPerSession ?? 500_000,
+    dosMaxTokens: config.dos?.maxTokensPerSession ?? 50_000_000,
     judgeModel: config.detection?.judgeModel ?? 'qwen2.5:3b',
   }
 }
