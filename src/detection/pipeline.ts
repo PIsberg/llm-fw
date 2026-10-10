@@ -90,6 +90,28 @@ function classifierScansSurface(config: Config, source: ScanSource): boolean {
   return !scoped || scoped.includes(source)
 }
 
+// Prompt-surface wording action (issue #287). Fallbacks for an absent tier,
+// chosen from a sweep over every eval split plus the full Dolly-15k: heuristic
+// 60 (above a single rule's 50) or an embedding match at cosine >= 0.88 with
+// margin >= 0.05 kept the most direct-injection blocks (340/853) of the tiers
+// that left at most 2 benign blocks. See PromptSurfaceConfig in types.ts.
+const PROMPT_HIGH_CONFIDENCE = { heuristic: 60, similarity: 0.88, margin: 0.05 } as const
+
+/**
+ * Null when wording matches on this surface block as usual. Otherwise the tier
+ * a heuristic score or embedding match must clear to still block; anything
+ * under it is demoted to a warn. Only the user prompt is ever demoted.
+ */
+function promptWordingTier(config: Config, source: ScanSource): { heuristic: number; similarity: number; margin: number } | null {
+  const p = config.detection.surfaces?.prompt
+  if (source !== 'prompt' || p?.wordingAction !== 'warn') return null
+  return {
+    heuristic: p.highConfidenceHeuristic ?? PROMPT_HIGH_CONFIDENCE.heuristic,
+    similarity: p.highConfidenceSimilarity ?? PROMPT_HIGH_CONFIDENCE.similarity,
+    margin: p.highConfidenceMargin ?? PROMPT_HIGH_CONFIDENCE.margin,
+  }
+}
+
 function resolveClassifierBlockThreshold(config: Config, source: ScanSource): number {
   const override = (source === 'tool_result' || source === 'document')
     ? config.detection.surfaces?.[source]?.classifierBlockThreshold
@@ -391,6 +413,7 @@ export class Pipeline {
       // item since `source` doesn't change across its candidates below.
       const heuristicBlockThreshold = resolveHeuristicBlockThreshold(this.config, source)
       const embeddingMarginThreshold = resolveEmbeddingMarginThreshold(this.config, source)
+      const wordingTier = promptWordingTier(this.config, source)
 
       // Stage S — ASCII smuggling. Invisible-character instruction smuggling
       // (Unicode Tags block, bidi overrides, plane-14 variation selectors).
@@ -708,7 +731,11 @@ export class Pipeline {
         
         if (h.score >= heuristicBlockThreshold) {
           const result: PipelineResult = { action: 'block', stage: 'heuristic', score: h.score, similarity: 0, prompt: candidate.text, heuristicMatches: h.matches }
-          if (this.isSuppressed(prompt, source)) {
+          if (wordingTier && h.score < wordingTier.heuristic) {
+            // Demoted, not dropped: keep scanning, since a later candidate or
+            // the embedding check below may still clear the tier and block.
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt, source }
+          } else if (this.isSuppressed(prompt, source)) {
             if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
           } else {
             this.emit(result, meta, prompt, source)
@@ -746,7 +773,9 @@ export class Pipeline {
 
           if (eSim >= embeddingBlockThreshold && eMargin >= embeddingMarginThreshold) {
             const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: eSim, prompt: candidate.text, nearestTemplate: eNearest }
-            if (this.isSuppressed(prompt, source)) {
+            if (wordingTier && (eSim < wordingTier.similarity || eMargin < wordingTier.margin)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt, source }
+            } else if (this.isSuppressed(prompt, source)) {
               if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
             } else {
               this.emit(result, meta, prompt, source)
@@ -859,10 +888,14 @@ export class Pipeline {
 
     for (const prompt of prompts) {
       const source: ScanSource = 'prompt'
+      // A prompt-surface match under the wording tier is only a warn, and the
+      // full scan of the complete body records it; aborting here would turn it
+      // back into a block.
+      const blockAt = Math.max(heuristicBlockThreshold, promptWordingTier(this.config, source)?.heuristic ?? 0)
       const candidates = extractCandidates(prompt)
       for (const candidate of candidates) {
         const h = this.heuristic.score(candidate.text, candidate.source)
-        if (h.score >= heuristicBlockThreshold) {
+        if (h.score >= blockAt) {
           const result: PipelineResult = {
             action: 'block',
             stage: 'heuristic',

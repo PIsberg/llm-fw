@@ -867,6 +867,92 @@ describe('Pipeline', () => {
       expect(result.action).not.toBe('block')
     })
   })
+
+  describe('prompt-surface wording action (issue #287)', () => {
+    // Plain text: no sensitive verb, no email, no self-reference, so only the
+    // mocked heuristic/embedding scores decide the verdict.
+    const TEXT = 'Summarise the attached quarterly report in three bullet points.'
+    const promptBody = JSON.stringify({ messages: [{ role: 'user', content: TEXT }] })
+    const toolBody = JSON.stringify({
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: TEXT }] }],
+    })
+    const warnPolicy = (extra: Record<string, number> = {}) =>
+      makeConfig({ surfaces: { prompt: { wordingAction: 'warn', ...extra } } })
+    const heuristicOf = (score: number) => () => ({ score, matches: ['x'] })
+    const embeddingOf = (similarity: number, margin: number) =>
+      () => Promise.resolve({ similarity, benignSimilarity: similarity - margin, nearest: 'anchor', chunkCount: 1 })
+
+    it('default: a single heuristic rule on the user prompt still blocks', async () => {
+      mockScore.mockImplementation(heuristicOf(50))
+      const result = await new Pipeline(makeConfig()).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('heuristic')
+    })
+
+    it('warn: a single heuristic rule on the user prompt warns and records the event as warned', async () => {
+      mockScore.mockImplementation(heuristicOf(50))
+      const events: { action: string; stage: string }[] = []
+      const pipeline = new Pipeline(warnPolicy(), e => { events.push(e) })
+      const result = await pipeline.run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('warn')
+      expect(result.stage).toBe('heuristic')
+      expect(events).toEqual([expect.objectContaining({ action: 'warned', stage: 'heuristic' })])
+    })
+
+    it('warn: a heuristic score at the high-confidence tier (default 60) still blocks', async () => {
+      mockScore.mockImplementation(heuristicOf(60))
+      const result = await new Pipeline(warnPolicy()).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('block')
+    })
+
+    it('warn: highConfidenceHeuristic moves the heuristic tier', async () => {
+      mockScore.mockImplementation(heuristicOf(60))
+      const result = await new Pipeline(warnPolicy({ highConfidenceHeuristic: 100 })).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('warn')
+    })
+
+    it('warn: the same text in a tool_result still blocks (untrusted surface keeps blocking)', async () => {
+      mockScore.mockImplementation(heuristicOf(50))
+      const result = await new Pipeline(warnPolicy()).run('/v1/messages', toolBody, META)
+      expect(result.action).toBe('block')
+    })
+
+    it('warn: an embedding block below the similarity tier warns', async () => {
+      mockCheck.mockImplementation(embeddingOf(0.87, 0.1))
+      const result = await new Pipeline(warnPolicy()).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('warn')
+      expect(result.stage).toBe('embedding')
+    })
+
+    it('warn: an embedding block below the margin tier warns', async () => {
+      mockCheck.mockImplementation(embeddingOf(0.9, 0.03))
+      const result = await new Pipeline(warnPolicy()).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('warn')
+    })
+
+    it('warn: an embedding match clearing both tiers (0.88 / 0.05 by default) still blocks', async () => {
+      mockCheck.mockImplementation(embeddingOf(0.9, 0.06))
+      const result = await new Pipeline(warnPolicy()).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('embedding')
+    })
+
+    it('warn: a demoted heuristic match does not stop a high-confidence embedding block', async () => {
+      mockScore.mockImplementation(heuristicOf(50))
+      mockCheck.mockImplementation(embeddingOf(0.9, 0.06))
+      const result = await new Pipeline(warnPolicy()).run('/v1/messages', promptBody, META)
+      expect(result.action).toBe('block')
+      expect(result.stage).toBe('embedding')
+    })
+
+    it('warn: the streaming early-abort applies the same tier', async () => {
+      const partial = '{"messages":[{"role":"user","content":"' + TEXT
+      mockScore.mockImplementation(heuristicOf(50))
+      expect(await new Pipeline(warnPolicy()).checkPartial('/v1/messages', partial, META)).toBeNull()
+      mockScore.mockImplementation(heuristicOf(60))
+      expect((await new Pipeline(warnPolicy()).checkPartial('/v1/messages', partial, META))?.action).toBe('block')
+    })
+  })
 })
 
 describe('the embedding stage is not spent on order-scrambled candidates', () => {

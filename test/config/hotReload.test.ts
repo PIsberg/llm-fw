@@ -67,6 +67,21 @@ describe('applyHotReload (pure diff/apply, no fs)', () => {
     expect(live.detection.heuristicBlockThreshold).toBe(5)
   })
 
+  it('applies the prompt-surface wording action live (issue #287)', () => {
+    const live: Config = structuredClone(DEFAULT_CONFIG)
+    const incoming: Config = structuredClone(DEFAULT_CONFIG)
+    incoming.detection.surfaces = { prompt: { wordingAction: 'warn', highConfidenceHeuristic: 100 } }
+
+    const { applied, restartRequired } = applyHotReload(live, incoming, () => {})
+
+    expect(applied).toEqual(expect.arrayContaining([
+      'detection.surfaces.prompt.wordingAction',
+      'detection.surfaces.prompt.highConfidenceHeuristic',
+    ]))
+    expect(restartRequired).toEqual([])
+    expect(live.detection.surfaces?.prompt).toEqual({ wordingAction: 'warn', highConfidenceHeuristic: 100 })
+  })
+
   it('does not apply a cold key (proxy.port) and reports it as restart-required', () => {
     const live: Config = structuredClone(DEFAULT_CONFIG)
     const incoming: Config = structuredClone(DEFAULT_CONFIG)

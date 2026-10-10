@@ -46,10 +46,11 @@ Environment overrides:
 
 By default, the heuristic block threshold and embedding margin are global — the same numbers apply whether the text came from the user prompt or from a tool result an attacker might control. Since `tool_result` and `document` are the two surfaces an attacker can influence *without* ever talking to your model directly (the indirect-injection vector), you can tune them independently — tighter or looser — without touching prompt-surface sensitivity for your actual users.
 
-Only two knobs are exposed per surface, and only for `tool_result`/`document`:
+Three threshold knobs are exposed for `tool_result`/`document` (the user prompt has its own setting, below):
 
 - `heuristicBlockThreshold` — the Stage 1 score at which that surface blocks.
 - `embeddingMarginThreshold` — the minimum contrastive margin required (the gap between the top injection-anchor cosine and the top benign-anchor cosine) for that surface's Stage 2 to act on an embedding match; overrides the global default (`0.02`) for this surface only.
+- `classifierBlockThreshold` — the opt-in classifier's block threshold on that surface, for when the classifier is enabled.
 
 (The embedding stage's absolute block/warn cosines stay global e5-calibration constants — only the contrastive margin requirement is overridable per surface.) Leaving `detection.surfaces` unset is **bit-identical** to prior behavior.
 
@@ -76,3 +77,33 @@ Environment overrides:
 | Variable | Effect |
 |----------|--------|
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | integer — overrides `detection.surfaces.tool_result.heuristicBlockThreshold` only; the rest of the per-surface config is file-only |
+| `LLM_FW_PROMPT_WORDING_ACTION` | `block` or `warn` — sets `detection.surfaces.prompt.wordingAction`; any other value is ignored |
+
+### Warn instead of block on the user's own prompt
+
+Prompt injection does its damage when untrusted content (a web page, an email, a tool result) steers an agent. On the user-prompt surface the user is the principal, and that surface is where nearly all of the remaining false positives come from. `detection.surfaces.prompt.wordingAction: "warn"` turns a heuristic (Stage 1) or embedding (Stage 2) match on the user's prompt into a warn event, and the request is forwarded, unless the match clears a high-confidence tier:
+
+- `highConfidenceHeuristic` — heuristic score at or above which the prompt still blocks. Default `60`; most single rules score `50`, so this asks for more than one.
+- `highConfidenceSimilarity` and `highConfidenceMargin` — an embedding match at or above both still blocks. Defaults `0.88` and `0.05`; the normal block point is `0.86` and `0.02`.
+
+Unaffected: `tool_result`, `document`, recalled memory and a scanned system prompt keep blocking, and so do the stages on the prompt that are not wording matches (harmful-request, RAG data blocks, ASCII smuggling, many-shot, crescendo, the classifier and the judge). A request let through this way still shows in Live Traffic as a warn.
+
+```json
+{
+  "detection": {
+    "surfaces": {
+      "prompt": { "wordingAction": "warn" }
+    }
+  }
+}
+```
+
+It is off by default because the trade is steep. Measured on 2026-10-10 over every eval split plus the full Dolly-15k (23,938 rows), with the default tier:
+
+| | `block` (default) | `warn` |
+| --- | --- | --- |
+| Direct injection blocked (gandalf, safeguard, deepset, heldout) | 635 / 853 | 340 / 853 |
+| Benign rows blocked | 12 / 20,971 | 2 / 20,971 |
+| `benign-realistic` blocked | 9 / 336 | 1 / 336 |
+
+The heuristic score counts rules rather than measuring confidence: "Ignore all previous instructions" matches one rule and scores 50, so gandalf's textbook overrides fall from 97 to 50 blocked. Turn it on when a user jailbreaking their own assistant is not a threat you need the firewall to stop, for example an internal tool whose model provider already enforces its own policy, and when agent traffic (tool results, documents) is the exposure you care about. See [False positives: deciding by surface](../FALSE-POSITIVES.md#deciding-by-surface-instead-of-by-wording) for the full sweep.

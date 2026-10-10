@@ -137,7 +137,7 @@ export interface DetectionConfig {
     heuristicBlockThreshold?: number;
     embeddingMarginThreshold?: number;
     classifierBlockThreshold?: number;
-  } };
+  } } & { prompt?: PromptSurfaceConfig };
   // What happens to a request when Pipeline.run() itself THROWS (a bug in a
   // parser/normalizer/stage, not a detected injection) — Task C2. Before this
   // setting existed the behavior was IMPLICIT: the throw propagated out of
@@ -160,6 +160,32 @@ export interface DetectionConfig {
   // same dtype, same single-text (never batched) calls — see embedding.ts's
   // q8 calibration note. Also LLM_FW_WORKER_INFERENCE.
   workerInference?: boolean;
+}
+
+// What a WORDING match (Stage 1 heuristic, Stage 2 embedding) does on the
+// user's own prompt (issue #287). On the prompt surface the user is the
+// principal: a user jailbreaking their own assistant is mostly the model
+// provider's problem, and that surface is where nearly all remaining false
+// positives come from. 'warn' records the match as a warn event and forwards
+// the request, unless the match clears the high-confidence tier, which still
+// blocks. tool_result, document, memory and system keep blocking either way,
+// and so do the non-wording prompt stages (harmful-request, RAG blocks,
+// ASCII smuggling, many-shot, crescendo, classifier, judge).
+//
+// Opt-in because the measured trade is steep (2026-10-10, 23,938 eval rows
+// including the full Dolly-15k): with the default tier, direct injection
+// blocked falls from 635/853 to 340/853 while benign blocks fall from 12 to
+// 2. See docs/FALSE-POSITIVES.md. Absent, or 'block', is
+// identical to the behaviour before this setting existed. wordingAction is
+// also settable via LLM_FW_PROMPT_WORDING_ACTION; the tier is file-config only.
+export interface PromptSurfaceConfig {
+  wordingAction?: 'block' | 'warn';
+  /** Under 'warn', heuristic score at/above which the prompt still blocks. Default 60. */
+  highConfidenceHeuristic?: number;
+  /** Under 'warn', embedding cosine at/above which the prompt still blocks, with the margin below. Default 0.88. */
+  highConfidenceSimilarity?: number;
+  /** Under 'warn', contrastive margin the high-confidence embedding block also needs. Default 0.05. */
+  highConfidenceMargin?: number;
 }
 
 export interface ClassifierConfig {

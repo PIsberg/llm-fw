@@ -229,6 +229,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // whole line, closing the bypass the first narrowing opened): same rows.
   // Held at ruleset 2026.10.29 (DLP card numbers need an issuer digit; DLP
   // is not part of this pipeline): same rows.
+  // Held at ruleset 2026.10.31 (opt-in prompt-surface wording action, off by
+  // default, #287): same rows, 9/336 overall, both samples 0/2000.
   'agent-tool-definition': 0,
 };
 

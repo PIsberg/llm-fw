@@ -143,6 +143,23 @@ describe('loadConfig env overrides', () => {
     delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
   })
 
+  it('LLM_FW_PROMPT_WORDING_ACTION=warn sets only the prompt wording action', async () => {
+    process.env.LLM_FW_PROMPT_WORDING_ACTION = 'warn'
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.prompt?.wordingAction).toBe('warn')
+    // The tier stays unset, so the pipeline's measured defaults apply.
+    expect(cfg.detection.surfaces?.prompt?.highConfidenceHeuristic).toBeUndefined()
+    expect(cfg.detection.surfaces?.tool_result).toBeUndefined()
+    delete process.env.LLM_FW_PROMPT_WORDING_ACTION
+  })
+
+  it('ignores an LLM_FW_PROMPT_WORDING_ACTION value other than block or warn', async () => {
+    process.env.LLM_FW_PROMPT_WORDING_ACTION = 'off'
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.prompt?.wordingAction).toBeUndefined()
+    delete process.env.LLM_FW_PROMPT_WORDING_ACTION
+  })
+
   it('defaults classifier.surfaces to everything except the trusted system/tool_definition surfaces', async () => {
     const cfg = await loadConfig()
     expect(cfg.detection.classifier?.surfaces).toEqual(['prompt', 'memory', 'tool_result', 'document'])
