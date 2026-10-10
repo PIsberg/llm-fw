@@ -218,6 +218,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // rows, plus the 1 contact-instruction row recorded above.
   // Held at ruleset 2026.10.27 (force-push command rule; runs on the model's
   // tool calls, not in this pipeline): same 6 rows.
+  // Held at ruleset 2026.10.28 (force-push flag read as a token over the
+  // whole line, closing the bypass the first narrowing opened): same rows.
   'agent-tool-definition': 0,
 };
 

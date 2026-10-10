@@ -9,16 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`git push origin fix/login-form`, `git push --follow-tags` and `git
-  push origin main && rm -f build.log` are no longer refused as force
-  pushes.** The MCP guardrail for an agent's `bash`, `ctx_shell` or
-  `powershell` tool call matched `-f` anywhere after `git push`, so a
-  hyphenated branch name, a long flag starting with f, or a later command on
-  the same line stripped the model's tool call. The rule now reads the flags
-  of that one command: `--force` and its variants, or a short flag starting
-  with `f`. It blocks a strict subset of what the old pattern blocked, so
-  nothing newly blocks. Unit tests pin both lists; the benign one was seen
-  failing first. Ruleset 2026.10.27; no pipeline verdict can change.
+- **`git push origin fix/login-form` and `git push --follow-tags` are no
+  longer refused as force pushes.** The MCP guardrail for an agent's
+  `bash`, `ctx_shell` or `powershell` tool call matched the substring `-f`
+  anywhere after `git push`, so a hyphenated branch name or a long flag
+  starting with f stripped the model's tool call. The flag must now be its
+  own token (`-f`, `-fu`, `--force` and its variants, quoted or escaped
+  included). A first version also split the line at `|`, `;` and `&`; a
+  security review found that let `git push "https://host/r?a=1&b=2" -f`,
+  `git push origin main -f;` and `git push "-f"` through, so the line is
+  read whole again, as before, and `git push ... && rm -f x` still blocks.
+  Fuzzed against the old rule over 200,000 generated commands: none newly
+  blocked, and none of the ones that stopped blocking carries a force flag.
+  Rulesets 2026.10.27 and 2026.10.28; no pipeline verdict can change.
 
 - **A README, security policy, auto-reply or order confirmation that tells a
   person to email somebody no longer blocks an agent reading it.** The
