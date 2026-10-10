@@ -207,6 +207,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // pipeline does not read it): same 5 rows.
   // Held at ruleset 2026.10.26 (contact clauses in tool results): same 5
   // rows, plus the 1 contact-instruction row recorded above.
+  // Held at ruleset 2026.10.27 (force-push command rule; runs on the model's
+  // tool calls, not in this pipeline): same 6 rows.
   'agent-tool-definition': 0,
 };
 

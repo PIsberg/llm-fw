@@ -130,6 +130,32 @@ describe('CommandScanner Heuristic Engine', () => {
       expect(scanner.scan('aws ec2 delete-volume --volume-id vol-123', allEnabled).isBlocked).toBe(true)
     })
 
+    // The force-push rule matched "-f" ANYWHERE after `git push`, so a branch
+    // name with a hyphenated word starting in f, --follow-tags, and a later
+    // command in the same line were all refused as force pushes.
+    it('does not read a branch name, --follow-tags or a later command as a force push', () => {
+      for (const command of [
+        'git push origin fix/login-form',
+        'git push -u origin feature/add-filters',
+        'git push --set-upstream origin chore/bump-fastify',
+        'git push --follow-tags',
+        'git push origin main && rm -f build.log',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+      }
+    })
+
+    it('still blocks the force pushes it blocked before', () => {
+      for (const command of [
+        'git push -f',
+        'git push -fu origin main',
+        'git push --force-with-lease origin feature/x',
+        'git push origin main --force',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
     it('allows benign git/sql/cloud commands', () => {
       expect(scanner.scan('git push origin main', allEnabled).isBlocked).toBe(false)
       expect(scanner.scan('git reset HEAD', allEnabled).isBlocked).toBe(false)

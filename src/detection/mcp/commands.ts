@@ -54,8 +54,15 @@ export class CommandScanner {
     d: {
       name: 'Developer Tools & Infrastructure',
       patterns: [
-        /git\s+push\s+.*--force/i,
-        /git\s+push\s+.*-f/i,
+        // Force push, read as a flag of that ONE command (no |, ;, & or
+        // newline in between): --force and its variants, or a short flag
+        // starting with f (-f, -fu). Matching "-f" anywhere after `git push`
+        // refused branch names like fix/login-form, --follow-tags, and an
+        // `rm -f` later on the same line. Deliberately no wider than the old
+        // rule: -uf and +refspec force pushes were never matched and still
+        // are not, so this change only removes false positives.
+        /\bgit\s+push\b[^|;&\n]*\s--force\b/i,
+        /\bgit\s+push\b[^|;&\n]*\s-f[a-z]*(?=\s|$)/i,
         // Any hard reset is destructive (discards working tree), not just
         // `HEAD~N`: also catches `--hard origin/main`, bare `--hard`.
         /git\s+reset\s+--hard\b/i,

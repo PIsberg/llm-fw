@@ -60,7 +60,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.26
+## Result, ruleset 2026.10.27
 
 **2.17% overall (6 of 276), 95% CI 1.00–4.66%.** Five of the six are the
 same rows as at 2026.10.6 (3.52%, 5 of 142). The denominator grew by
@@ -85,7 +85,7 @@ fixing it:
   sixth row above: a contact clause after "or", which the fix deliberately
   does not treat as a clause start. It is recorded, not fitted.
 
-Rulesets 2026.10.8 to 2026.10.26 moved none of the original 154.
+Rulesets 2026.10.8 to 2026.10.27 moved none of the original 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
 
