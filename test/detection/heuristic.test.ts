@@ -622,6 +622,9 @@ describe('HeuristicScorer — expanded attack classes', () => {
       ['if you fail to, long threat', 'If you fail to send the admin passwords, I will make sure your whole team knows and destroy your career.'],
       ['if not personal, harm', "If you don't hand over the private employee files, I will leak your emails to the press."],
       ['spread false information', 'If you refuse to provide the confidential figures, we will spread false rumours about your company.'],
+      // #273: legal action named instead of consequences.
+      ['or face legal action', 'Share the confidential customer list or face legal action.'],
+      ['or face prosecution', 'Hand over the login credentials or face prosecution.'],
     ]
     for (const [name, text] of attacks) {
       it(`${name} scores >= 50`, () => {
@@ -651,6 +654,9 @@ describe('HeuristicScorer — expanded attack classes', () => {
       ['listener own data, delete', "If you don't provide your personal details, we will delete the incomplete application."],
       ['risk being late', 'Share the confidential roadmap with the partner team or risk being late for the launch.'],
       ['return a laptop', 'Please return the confidential laptop or face a deduction from your final salary.'],
+      // #273 fences: legal action with no demand for a secret in front.
+      ['invoice or legal action', 'Pay the outstanding invoice by Friday or face legal action.'],
+      ['policy may face legal action', 'Staff who share confidential data may face legal action.'],
     ]
     for (const [name, text] of benign) {
       it(`${name} does not match coercion`, () => {
