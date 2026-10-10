@@ -22,6 +22,12 @@
 // appear in legitimate multilingual and emoji text and would be false
 // positives. They are still reported in `ranges` for visibility and stripped by
 // normalize(), just not treated as blockworthy on their own.
+//
+// Two legitimate users of the blockworthy ranges are exempted by exact shape
+// (LEGITIMATE_SEQUENCE_RE below), because both blocked ordinary text:
+//   • the England, Scotland and Wales flag emoji, which ARE tag sequences;
+//   • ideographic variation sequences, one plane-14 selector after one CJK
+//     ideograph, which Japanese names and place names need.
 
 export type HiddenCharRange =
   | 'unicode-tags'
@@ -47,6 +53,23 @@ const BLOCKWORTHY: ReadonlySet<HiddenCharRange> = new Set<HiddenCharRange>([
   'variation-selector',
 ])
 
+// Removed before scanning, so neither shape counts as smuggling:
+//
+// 1. The three RGI subdivision flags: U+1F3F4 BLACK FLAG, the tag letters of
+//    gbeng / gbsct / gbwls, U+E007F CANCEL TAG. Exact sequences only, so they
+//    carry no free text. Any other tag run, including one dressed up as a
+//    flag or appended after a real one, still blocks. Non-RGI subdivision
+//    flags (e.g. a US state) also still block: no major platform renders them,
+//    so legitimate text does not contain them.
+// 2. An ideographic variation sequence (Unicode IVD): one ideograph followed
+//    by exactly ONE selector from U+E0100–U+E01EF. The byte-encoding smuggling
+//    technique hangs a RUN of selectors on a single base character, one per
+//    payload byte; the negative lookahead keeps any run of two or more
+//    blockworthy. Residual capacity is one selector per visible ideograph, in
+//    a payload the model would have to be told how to decode.
+const LEGITIMATE_SEQUENCE_RE =
+  /\u{1F3F4}\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F}|(\p{Ideographic})[\u{E0100}-\u{E01EF}](?![\u{E0100}-\u{E01EF}])/gu
+
 /**
  * Scan text for invisible-character smuggling channels.
  *
@@ -60,7 +83,7 @@ export function detectHiddenChars(text: string): HiddenCharResult {
   const ranges = new Set<HiddenCharRange>()
   let decoded = ''
 
-  for (const ch of text) {
+  for (const ch of text.replace(LEGITIMATE_SEQUENCE_RE, (_m, ideograph?: string) => ideograph ?? '')) {
     const cp = ch.codePointAt(0)
     if (cp === undefined) continue
 

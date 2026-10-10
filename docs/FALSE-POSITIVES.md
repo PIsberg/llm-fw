@@ -60,16 +60,20 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.21
+## Result, ruleset 2026.10.22
 
-**2.03% overall (5 of 246), 95% CI 0.87–4.67%.** The same 5 rows as at
-2026.10.6 (3.52%, 5 of 142); the denominator grew by ten families,
+**1.95% overall (5 of 256), 95% CI 0.84–4.49%.** The same 5 rows as at
+2026.10.6 (3.52%, 5 of 142); the denominator grew by eleven families,
 `customer-ultimatum` (12 rows) for #259, `self-correction` (12) for #258,
-and `prior-briefing`, `deadline-notice`, `data-question`,
+`prior-briefing`, `deadline-notice`, `data-question`,
 `instruction-question`, `creative-request`, `utility-request`,
 `roleplay-request` and `security-discussion` (10 each) for #221, each added
-before its rule and blocking none of them. Rulesets 2026.10.8 to 2026.10.21
-moved none of the original 154.
+before its rule and blocking none of them, and `ordinary-unicode` (10) at
+2026.10.22. That one is different: it was added because it DID block, 5 of
+10 (the England, Scotland and Wales flag emoji and two Japanese names with
+an ideographic variation selector, all at the ascii-smuggling stage), and
+2026.10.22 took it to 0 of 10. Rulesets 2026.10.8 to 2026.10.22 moved none
+of the original 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
 
