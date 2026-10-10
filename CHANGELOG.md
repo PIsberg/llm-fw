@@ -535,6 +535,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in: warn instead of block on the user's own prompt.**
+  `detection.surfaces.prompt.wordingAction: "warn"` (or
+  `LLM_FW_PROMPT_WORDING_ACTION=warn`) turns a heuristic or embedding match
+  on the user prompt into a warn event and forwards the request, unless it
+  clears a high-confidence tier (`highConfidenceHeuristic` 60,
+  `highConfidenceSimilarity` 0.88 with `highConfidenceMargin` 0.05). Tool
+  results, documents, recalled memory and the non-wording stages keep
+  blocking. It is for deployments where agent traffic is the exposure and a
+  user jailbreaking their own assistant is not, and it is off by default
+  because the measured trade is steep (#287): over 23,938 eval rows
+  including the full Dolly-15k, direct injection blocked falls from 635/853
+  to 340/853 while benign blocks fall from 12 to 2 (`benign-realistic` 9/336
+  to 1/336). With the setting absent every verdict is unchanged, verified
+  row by row over the same 23,938 rows. Ruleset 2026.10.31.
+
 - **Opt-in speech transcription reads AIFF clips, not only WAV.** Gemini
   accepts `audio/aiff`, and with `nonText.transcribe` on such a clip used to
   stay opaque. AIFF is uncompressed PCM like WAV (big-endian, with an 80-bit

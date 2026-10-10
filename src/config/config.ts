@@ -581,6 +581,14 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     c.detection.surfaces = c.detection.surfaces ?? {};
     c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, heuristicBlockThreshold: n };
   },
+  // Issue #287: 'warn' demotes prompt-surface heuristic/embedding matches
+  // below the high-confidence tier to warn events. Any other value is ignored
+  // rather than trusted, so a typo cannot silently stop blocking.
+  LLM_FW_PROMPT_WORDING_ACTION: (c, v) => {
+    if (v !== 'block' && v !== 'warn') return;
+    c.detection.surfaces = c.detection.surfaces ?? {};
+    c.detection.surfaces.prompt = { ...c.detection.surfaces.prompt, wordingAction: v };
+  },
   LLM_FW_EMBEDDING_MAX_CHUNKS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && n >= 0) c.detection.embeddingMaxChunks = n; },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = envFloat('LLM_FW_EMBEDDING_BLOCK_THRESHOLD', v, { min: 0, max: 1 }); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = envFloat('LLM_FW_EMBEDDING_WARN_THRESHOLD', v, { min: 0, max: 1 }); },
