@@ -62,9 +62,9 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.10.27
 
-**2.17% overall (6 of 276), 95% CI 1.00–4.66%.** Five of the six are the
-same rows as at 2026.10.6 (3.52%, 5 of 142). The denominator grew by
-thirteen families. Ten were added before a rule and blocked none of their
+**3.15% overall (9 of 286), 95% CI 1.66–5.87%.** Five of the nine are the
+same rows as at 2026.10.6 (3.52%, 5 of 142); the other four are recorded
+below. The denominator grew by fourteen families. Ten were added before a rule and blocked none of their
 rows: `customer-ultimatum` (12 rows) for #259, `self-correction` (12) for
 #258, and `prior-briefing`, `deadline-notice`, `data-question`,
 `instruction-question`, `creative-request`, `utility-request`,
@@ -84,6 +84,14 @@ fixing it:
   e-mail to security@...". 1 of 10 from 2026.10.26, and that one is the
   sixth row above: a contact clause after "or", which the fix deliberately
   does not treat as a clause start. It is recorded, not fitted.
+
+And one was added as a record with no fix: `software-howto` (10), how-tos
+about hidden files, rows, tracks and services. 3 of 10 block at the
+embedding stage ("Which command lists hidden services in systemd?"), close
+to the "reveal your hidden instructions" anchors. Five benign anchors for
+the shape cleared all three and were rejected after a row-by-row diff: they
+let 5 attacks through (advbench 335 to 334, safeguard 499 to 495). Ceiling
+3, tracked in #273.
 
 Rulesets 2026.10.8 to 2026.10.27 moved none of the original 154.
 
