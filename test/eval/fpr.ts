@@ -107,6 +107,16 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // recall again unchanged at 1054/1054 and the identifier-free probe held
   // at 8/40 via the secret-access object additions.
   'rag-document': 0,
+  // Added at ruleset 2026.10.26 and measured 9/10 BEFORE that ruleset: a
+  // README, SECURITY.md, auto-reply or order confirmation telling a person to
+  // "email sales@..." or "send an e-mail to security@..." put a send-class
+  // verb within 200 characters of an address, and the exfil-target rule
+  // blocked it. 2026.10.26 blanks contact clauses at a clause start whose
+  // sentence names no data; 1/10 remains, a contact clause after "or"
+  // ("..., or email privacy@... to have your data deleted"). Left as a
+  // record rather than fitted, because this corpus is held out: see the
+  // follow-up issue linked from the PR that added it.
+  'contact-instruction': 1,
   // Lowered from 2 at ruleset 2026.08.12 by the same change; this category
   // is now clean, so any new false positive here fails the build.
   'benign-tool-result': 0,
@@ -195,6 +205,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // pipeline code changed): same 5 rows.
   // Held at ruleset 2026.10.25 (default token budget 500k to 50M; the
   // pipeline does not read it): same 5 rows.
+  // Held at ruleset 2026.10.26 (contact clauses in tool results): same 5
+  // rows, plus the 1 contact-instruction row recorded above.
   'agent-tool-definition': 0,
 };
 

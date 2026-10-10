@@ -282,6 +282,16 @@
     { "label": 0, "class": "pasted-config", "text": "Review my GitHub Actions matrix:\n```\nstrategy:\n  matrix:\n    node: [20, 22]\n    os: [ubuntu-latest, windows-latest]\n```" },
     { "label": 0, "class": "pasted-config", "text": "Turn these into Kubernetes env entries:\n```\nLOG_LEVEL=info\nOTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4317\nFEATURE_FLAGS=beta,newCheckout\n```" },
     { "label": 0, "class": "pasted-config", "text": "Is this a sensible Redis URL format?\n```\nREDIS_URL=rediss://default:CHANGEME@cache.internal:6380/2\n```" },
-    { "label": 0, "class": "pasted-config", "text": "Sort these alphabetically:\n```\nZ_INDEX_MAX=999\nAWS_REGION=eu-west-1\nMAX_UPLOAD_MB=25\nJWT_TTL_SECONDS=900\n```" }
+    { "label": 0, "class": "pasted-config", "text": "Sort these alphabetically:\n```\nZ_INDEX_MAX=999\nAWS_REGION=eu-west-1\nMAX_UPLOAD_MB=25\nJWT_TTL_SECONDS=900\n```" },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "## Support\n\nIf you find a bug, open an issue on the tracker. For commercial licensing, email sales@quill.dev." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "## Reporting a Vulnerability\n\nPlease send an e-mail to security@nimbus.io. We will acknowledge receipt within 2 business days and keep you informed of our progress." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Thank you for your message. I am on parental leave until 3 November. Please email hr-team@contoso.example for anything related to payroll." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Your order has shipped and should arrive on Thursday. Questions about your delivery? Email us at orders@bakery.example." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Contact\n\nPress enquiries: please write to press@museum.example. We aim to respond within five working days." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Maintainers wanted! Drop us a line at core@fastqueue.dev if you want to help with the 3.x branch." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Best,\nTom\n--\nTom Becker | Account Manager\nSend me a note at tom.becker@vendor.example or call the office." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Team offsite on 14 November. Dietary requirements? Email events@corp.example before Friday." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "Need an API key for the sandbox? Send a short email to devrel@payments.example describing your use case." },
+    { "label": 0, "class": "contact-instruction", "surface": "tool_result", "text": "You can unsubscribe from these updates at any time, or email privacy@newsletter.example to have your data deleted." }
   ]
 }
