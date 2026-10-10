@@ -60,7 +60,7 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.28
+## Result, ruleset 2026.10.29
 
 **3.15% overall (9 of 286), 95% CI 1.66–5.87%.** Five of the nine are the
 same rows as at 2026.10.6 (3.52%, 5 of 142); the other four are recorded
@@ -93,7 +93,7 @@ the shape cleared all three and were rejected after a row-by-row diff: they
 let 5 attacks through (advbench 335 to 334, safeguard 499 to 495). Ceiling
 3, tracked in #273.
 
-Rulesets 2026.10.8 to 2026.10.28 moved none of the original 154.
+Rulesets 2026.10.8 to 2026.10.29 moved none of the original 154.
 
 Down from 13.38% (19 of 142) at ruleset 2026.08.6, with measured recall unchanged throughout: TPR 100% and scorecard FPR 0% before and after all of them, and injecagent 1054/1054 before and after the third.
 

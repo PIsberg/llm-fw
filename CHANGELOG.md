@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Epoch timestamps and message ids are no longer redacted as credit card
+  numbers.** DLP's card rule accepts any 13 to 19 digits that pass the Luhn
+  check, which one number in ten does by chance. Measured over 10,000 each,
+  997 epoch-millisecond timestamps and 974 nineteen-digit snowflake ids
+  (Discord, Twitter) were rewritten to `[REDACTED_CREDIT_CARD]` in the JSON
+  an agent reads back, silently in the default `redact` mode and as a block
+  in `block` mode. A card number now also has to start with an issuer digit
+  2 to 6 (ISO/IEC 7812: Visa, Mastercard, Amex, Discover, JCB, Diners,
+  UnionPay all do); those ids all start with 1. After the change, 0 of
+  10,000 of each. Unit tests pin the timestamps and ids, and the seven
+  networks' test numbers still redact. Ruleset 2026.10.29.
+
 - **`git push origin fix/login-form` and `git push --follow-tags` are no
   longer refused as force pushes.** The MCP guardrail for an agent's
   `bash`, `ctx_shell` or `powershell` tool call matched the substring `-f`

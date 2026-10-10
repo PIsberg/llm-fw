@@ -220,6 +220,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // tool calls, not in this pipeline): same 6 rows.
   // Held at ruleset 2026.10.28 (force-push flag read as a token over the
   // whole line, closing the bypass the first narrowing opened): same rows.
+  // Held at ruleset 2026.10.29 (DLP card numbers need an issuer digit; DLP
+  // is not part of this pipeline): same rows.
   'agent-tool-definition': 0,
 };
 

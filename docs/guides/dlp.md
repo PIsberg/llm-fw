@@ -41,7 +41,7 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 | `connection_uri` | Any `scheme://user:password@host` connection string (Postgres/MySQL/Redis/AMQP/HTTP basic-auth) |
 | `jwt` | JSON Web Tokens (`eyJ….eyJ….…`) |
 | `entropy` | High-entropy generic secrets adjacent to credential keywords (`password=`/`pwd=`/`secret:`/`token=`/`api_key=`/`access_key=`/`auth:`/`credential=`/`key=`, Shannon entropy > 4.0, length > 20) **and** `Authorization: Bearer <token>` headers (the `Bearer` keyword alone is sufficient, no entropy gate) |
-| `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm) |
+| `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm, and starting with a card-network digit 2 to 6, so epoch timestamps and snowflake ids, which start with 1, are left alone) |
 
 Each detected secret maps to a provider-specific redaction marker such as `[REDACTED_OPENAI_KEY]`, `[REDACTED_ANTHROPIC_KEY]`, `[REDACTED_GOOGLE_API_KEY]`, `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_BEARER_TOKEN]`, or `[REDACTED_SECRET]`. Redaction patches each secret **at its exact matched offset** (not a global string replace), so a token that also appears elsewhere as benign data is never redacted by coincidence.
 

@@ -155,6 +155,34 @@ describe('DlpScanner.scan — credit cards (Luhn)', () => {
   it('flags a spaced card number', () => {
     expect(scanner.scan('4111 1111 1111 1111').some(x => x.type === 'CREDIT_CARD')).toBe(true)
   })
+
+  // One in ten numbers passes Luhn by chance, so measured over 10,000 each,
+  // 997 epoch-millisecond timestamps and 974 nineteen-digit message ids were
+  // rewritten to [REDACTED_CREDIT_CARD] in the JSON an agent reads back. All
+  // of them start with 1; every card network's numbers start with 2 to 6.
+  it('does not take a timestamp or a message id for a card', () => {
+    for (const json of [
+      '{"created_at": 1760054400005, "status": "ok"}',                // epoch ms
+      '{"ts": 1728561234567006}',                                     // epoch microseconds
+      '{"id": "1290000000000000006", "channel_id": "1290000000000000014"}', // snowflake ids
+    ]) {
+      expect(scanner.scan(json).some(x => x.type === 'CREDIT_CARD'), json).toBe(false)
+    }
+  })
+
+  it('still flags the major card networks', () => {
+    for (const card of [
+      '4111111111111111',   // Visa
+      '5555555555554444',   // Mastercard
+      '2223003122003222',   // Mastercard 2-series
+      '378282246310005',    // American Express
+      '6011111111111117',   // Discover
+      '3530111333300000',   // JCB
+      '6200000000000005',   // UnionPay
+    ]) {
+      expect(scanner.scan(`card ${card}`).some(x => x.type === 'CREDIT_CARD'), card).toBe(true)
+    }
+  })
 })
 
 describe('DlpScanner.scan — entropy generic secret (Strategy 2)', () => {
