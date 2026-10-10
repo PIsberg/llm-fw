@@ -188,6 +188,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // sequences pass ascii-smuggling): same 5 rows. The ordinary-unicode family
   // (10 rows) was added and measured 5/10 BEFORE the fix, which is the false
   // positive it records, and 0/10 after.
+  // Held at ruleset 2026.10.23 (RAG amplifies rule hits, not entropy): same
+  // 5 rows. The pasted-config family (10 rows) measured 3/10 before the fix
+  // and 0/10 after.
   'agent-tool-definition': 0,
 };
 

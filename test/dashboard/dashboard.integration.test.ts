@@ -23,7 +23,8 @@ vi.mock('../../src/detection/pipeline.js', () => ({
 
 vi.mock('../../src/detection/heuristic.js', () => ({
   HeuristicScorer: vi.fn().mockImplementation(function() {
-    return { score: vi.fn().mockReturnValue({ score: 0, matches: [] }) }
+    const score = vi.fn().mockReturnValue({ score: 0, matches: [] })
+    return { score, scoreRules: score }
   }),
 }))
 

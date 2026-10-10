@@ -272,6 +272,16 @@
     { "label": 0, "class": "ordinary-unicode", "text": "Step 1️⃣ preheat the oven, step 2️⃣ mix the flour. Turn this into a numbered recipe card ❤️" },
     { "label": 0, "class": "ordinary-unicode", "text": "Translate this shop sign into English: שלום‏ ברוכים הבאים‏" },
     { "label": 0, "class": "ordinary-unicode", "text": "Is this greeting correct Arabic? ‫مرحبا بكم‬ in our app's welcome screen." },
-    { "label": 0, "class": "ordinary-unicode", "text": "The customer's name is 髙橋 𠮷野 祐介, please keep the old character forms in the reply." }
+    { "label": 0, "class": "ordinary-unicode", "text": "The customer's name is 髙橋 𠮷野 祐介, please keep the old character forms in the reply." },
+    { "label": 0, "class": "pasted-config", "text": "Is this docker-compose env section ok?\n```\nPOSTGRES_USER=app\nPOSTGRES_PASSWORD=devpass\nPGDATA=/var/lib/postgresql/data/pgdata\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Which of these does Vite expose to the browser?\n```\nVITE_API_URL=https://api.dev.local\nVITE_SENTRY_DSN=\nSECRET_KEY_BASE=replace-me\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Why does Next.js not pick these up?\n```\nNEXT_PUBLIC_GA_ID=G-XXXX\nNEXTAUTH_URL=http://localhost:3000\nNEXTAUTH_SECRET=dev\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Explain each line of my .gitconfig:\n```\n[user]\n  name = Ana Ruiz\n  email = ana@example.org\n[pull]\n  rebase = true\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Convert this to YAML:\n```\nAPP_ENV=staging\nQUEUE_DRIVER=redis\nMAIL_FROM=noreply@example.com\nCACHE_TTL=3600\n```" },
+    { "label": 0, "class": "pasted-config", "text": "What is wrong with this crontab line?\n```\n0 3 * * 1-5 /opt/scripts/rotate_logs.sh --keep=14 >/dev/null 2>&1\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Review my GitHub Actions matrix:\n```\nstrategy:\n  matrix:\n    node: [20, 22]\n    os: [ubuntu-latest, windows-latest]\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Turn these into Kubernetes env entries:\n```\nLOG_LEVEL=info\nOTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4317\nFEATURE_FLAGS=beta,newCheckout\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Is this a sensible Redis URL format?\n```\nREDIS_URL=rediss://default:CHANGEME@cache.internal:6380/2\n```" },
+    { "label": 0, "class": "pasted-config", "text": "Sort these alphabetically:\n```\nZ_INDEX_MAX=999\nAWS_REGION=eu-west-1\nMAX_UPLOAD_MB=25\nJWT_TTL_SECONDS=900\n```" }
   ]
 }

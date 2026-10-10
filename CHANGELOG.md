@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pasting a `.env` file or a short config snippet in a code fence no
+  longer blocks.** The RAG stage triples the heuristic score of anything
+  inside a fence, and the heuristic adds 30 for high character entropy, which
+  a mixed-case env file clears on its own (5.03 to 5.06 against the 5.0
+  line), so "Here is my .env.example, does it look right?" was blocked at 90.
+  The amplified score now counts the injection rules only; an encoded
+  instruction in a fence is still caught through its decoded form. A
+  held-out `pasted-config` family of 10 rows went into the false-positive
+  corpus first and measured 3 of 10 blocked; after the fix, 0 of 10. The RAG
+  score, old against new, row by row over every eval split and all 15,011
+  Dolly-15k rows, ruleset 2026.10.23: no attack row changed; benign-realistic
+  the same 5 pre-existing blocks, now of 266 (1.88%).
+
 - **The England, Scotland and Wales flag emoji, and Japanese names written
   with an ideographic variation selector, no longer block.** Each of the
   three flags is a black flag followed by invisible Unicode Tag characters,
