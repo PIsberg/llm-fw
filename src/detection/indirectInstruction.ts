@@ -188,6 +188,12 @@ const POLITE_OBJECT_GATED_VERBS = new Set([
   'complete', 'confirm', 'submit', 'apply', 'register', 'subscribe', 'fill', 'forward',
 ])
 
+// "you can / will / may <verb>" tells the reader about an option more often
+// than it orders anything: "You can unsubscribe at any time", "you may cancel
+// within 14 days" (#282). Those three modals take the same object requirement
+// as the bare imperative. No injecagent row uses them (0 of 1071).
+const PERMISSIVE_MODAL_RE = /^you\s+(?:can|will|may)\b/i
+
 const DIRECTIVE_RE = new RegExp(
   '\\b(?:you\\s+(?:should|must|need\\s+to|have\\s+to|are\\s+(?:required|requested|instructed)\\s+to|can|will|may|are\\s+to)|' +
   'make\\s+sure\\s+to|be\\s+sure\\s+to|i\\s+(?:need|want|would\\s+like)\\s+you\\s+to|your\\s+task\\s+is\\s+to)\\s+' +
@@ -213,14 +219,16 @@ const EXFIL_PROXIMITY = 200
 // out of the agent's context.
 //
 // Narrow on purpose: the clause must open a sentence or clause (or follow
-// please/kindly), so "to my backup email amy.watson@gmail.com" is still a
-// destination; and the sentence around it must name no data to send
+// please/kindly, or "or" offering a second route: "unsubscribe at any time, or
+// email privacy@...", #281), so "to my backup email amy.watson@gmail.com" is
+// still a destination. "and" is not an opener: "... and email X" is how an
+// exfiltration chains a send onto a data step. The sentence around it must name no data to send
 // (CONTACT_DATA_RE), so "send an email to X with my saved passwords" and "take
 // my records and send an email to X" still fire. A clause that passes both is
 // blanked before any rule runs, which also keeps the polite and multilingual
 // rules from re-matching "please email us at".
 const CONTACT_CLAUSE_RE = new RegExp(
-  '(^|[.!?:;,]\\s*|\\n\\s*|\\b(?:please|kindly)\\s+)(' +
+  '(^|[.!?:;,]\\s*|\\n\\s*|\\b(?:please|kindly|or)\\s+)(' +
   '(?:send|write|drop|shoot)\\s+(?:us\\s+|me\\s+|them\\s+)?(?:an?\\s+)?(?:quick\\s+|short\\s+|brief\\s+)?(?:e-?mail|message|note|line|mail)\\s+(?:to|at)' +
   '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
   '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +
@@ -382,9 +390,9 @@ const ML_MARKERS = [
 
 // Send-class verbs — the exfiltration / disclosure family. A hit near an email
 // or account target is treated as exfiltration regardless of phrasing.
+const ML_SEND_VERBS_EN = ['send', 'forward', 'share', 'transfer', 'wire', 'upload', 'export', 'disclose', 'reveal', 'leak', 'post', 'publish', 'deliver']
 const ML_SEND_VERBS = [
-  // English
-  'send', 'forward', 'share', 'transfer', 'wire', 'upload', 'export', 'disclose', 'reveal', 'leak', 'post', 'publish', 'deliver',
+  ...ML_SEND_VERBS_EN,
   // German
   'senden', 'sende', 'schicken', 'schicke', 'weiterleiten', 'leiten', 'überweisen', 'überweise', 'teilen', 'teile', 'hochladen', 'exportieren', 'offenlegen', 'preisgeben',
   // French
@@ -500,9 +508,9 @@ const ML_SEND_VERBS = [
 
 // Other sensitive, side-effecting verbs — access grants, destructive and
 // money-out actions. A hit near a request marker is an embedded instruction.
+const ML_OTHER_VERBS_EN = ['grant', 'authorize', 'authorise', 'enable', 'unlock', 'delete', 'erase', 'remove', 'revoke', 'disable', 'pay', 'purchase', 'buy', 'refund', 'withdraw', 'give']
 const ML_OTHER_VERBS = [
-  // English
-  'grant', 'authorize', 'authorise', 'enable', 'unlock', 'delete', 'erase', 'remove', 'revoke', 'disable', 'pay', 'purchase', 'buy', 'refund', 'withdraw', 'give',
+  ...ML_OTHER_VERBS_EN,
   // German
   'gewähren', 'gewähre', 'aktivieren', 'löschen', 'lösche', 'entfernen', 'entferne', 'widerrufen', 'deaktivieren', 'zahlen', 'zahle', 'bezahlen', 'kaufen', 'kaufe', 'geben', 'gib', 'abheben',
   // French
@@ -617,6 +625,15 @@ const ML_VERBS = Array.from(new Set([...ML_SEND_VERBS, ...ML_OTHER_VERBS]))
 const ML_MARKER_SET = Array.from(new Set(ML_MARKERS))
 const ML_SEND_SET = new Set(ML_SEND_VERBS)
 
+// An English verb word used as a NOUN: "your refund of $42.10 has been
+// processed. Please allow 5-7 business days", "Your purchase is ready to
+// download. Please enjoy" (#282). A determiner or possessive, optionally with
+// one adjective ("your partial refund"), puts the word in noun position, where
+// the marker beside it is not asking for it. English only: Spanish "a pagar"
+// is a verb after a preposition.
+const ML_ENGLISH_VERB_SET = new Set([...ML_SEND_VERBS_EN, ...ML_OTHER_VERBS_EN])
+const ML_NOUN_POSITION_RE = /\b(?:a|an|the|your|my|our|their|his|her|its|this|that)\s+(?:[a-z]+\s+)?$/
+
 // Max chars between a request marker and the verb it governs. Word order varies
 // (marker-first in "bitte überweisen", verb-first/marker-last in Japanese
 // "…送金し…してください"), so we test proximity in EITHER direction.
@@ -680,6 +697,7 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
     for (const mi of mlIndices(hay, marker)) {
       for (const { i, v } of verbHits) {
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
+          if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue
           // The benign-prone English verbs keep their object requirement in
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
@@ -755,7 +773,9 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
 
   // "you should/must … <verb>" directive form.
   DIRECTIVE_RE.lastIndex = 0
-  if ((m = DIRECTIVE_RE.exec(text)) !== null) {
+  while ((m = DIRECTIVE_RE.exec(text)) !== null) {
+    const end = m.index + m[0].length
+    if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(text.slice(end - 1, end + OBJECT_WINDOW))) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
