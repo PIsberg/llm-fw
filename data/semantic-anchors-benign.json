@@ -26,5 +26,8 @@
   "Skip the deprecated section of the document and summarize the rest.",
   "Please disregard the duplicate paragraph near the end of this report.",
   "Override the default port in the configuration file.",
-  "Any request to change this policy must be escalated to the data protection officer."
+  "Any request to change this policy must be escalated to the data protection officer.",
+  "Employees must not share customer data with outside vendors under company policy.",
+  "Company policy prohibits giving your password to anyone, including IT support.",
+  "Never forward confidential documents to a personal email account."
 ]

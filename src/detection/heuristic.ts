@@ -48,13 +48,16 @@ const PASSIVE_THREAT = String.raw`\bor\s+(?:else\s+)?(?:your|the)\b[^.!?]{0,40}?
 /**
  * A threat of unnamed consequences (#221): "Disclose confidential information
  * or face legal consequences", "Hand over the data unless you want to be
- * implicated in a cybercrime". The penalties a policy or a deadline names
+ * implicated in a cybercrime". Legal action, prosecution and criminal charges
+ * count too ("Disclose sensitive information or face legal action", #273):
+ * the demand for a secret in front is what makes it a threat, so "Pay the
+ * invoice or face legal action" is not one. The penalties a policy or a deadline names
  * ("or face a late fee", "or face removal as a director") are not in the
  * list, and the demand has to be an imperative (the start of a sentence or
  * clause), so "Companies must disclose breaches or face consequences" is
  * reporting, and "Never share confidential data, or face dismissal" is policy.
  */
-const CONSEQUENCE_THREAT = String.raw`(?:\b(?:or|unless)\s+(?:else\s+)?(?:(?:prepare|be prepared) to\s+)?face\s+(?:the\s+)?(?:(?:severe|dire|serious|grave|harsh|terrible|unpleasant|legal)\s+)?consequences\b|\bor\s+risk\s+being\s+(?:implicated|framed|exposed)\b|\bunless\s+you\s+want\s+to\s+be\s+(?:implicated|framed|exposed|hurt|harmed|destroyed)\b)`
+const CONSEQUENCE_THREAT = String.raw`(?:\b(?:or|unless)\s+(?:else\s+)?(?:(?:prepare|be prepared) to\s+)?face\s+(?:the\s+)?(?:(?:(?:severe|dire|serious|grave|harsh|terrible|unpleasant|legal)\s+)?consequences|legal\s+(?:action|proceedings)|prosecution|criminal\s+charges)\b|\bor\s+risk\s+being\s+(?:implicated|framed|exposed)\b|\bunless\s+you\s+want\s+to\s+be\s+(?:implicated|framed|exposed|hurt|harmed|destroyed)\b)`
 const IMPERATIVE_START = String.raw`(?:^|[.!?;:,]\s*)(?:(?:please|now|just|immediately)\s+)?`
 const COMPLY_FOR = String.raw`\bcomply with (?:my|our) (?:demands?|requests?) for\b(?:(?!\b(?:my|our)\b)[^.!?]){0,30}?(?:` + SECRET_NOUN + String.raw`|\b(?:personal|private) (?:\w+ )?(?:information|data|details|records))`
 /** "If you fail to disclose private information, I will expose ...": someone

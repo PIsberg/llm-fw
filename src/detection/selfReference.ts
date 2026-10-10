@@ -59,6 +59,21 @@ const SELF_INSTRUCTION_PATTERNS: RegExp[] = [
   /\byour\s+(?:refusals?|restrictions?|filters?|limitations?|boundaries)\b/i,
 ]
 
+// "you were given / told / got <from a named third party>": the rules came from
+// somebody other than the model's operator, so the text is updating a briefing,
+// not overriding the model ("Ignore the figures you were given in the first
+// email", "the directions you were given by the old GPS", #273). Such a phrase
+// is set aside before the patterns run. The provenance must name no word from
+// the operator family below, so "the rules you were given by your developers"
+// and "the instructions you got in the system prompt" still count.
+const PROVENANCE_RE = /\b(?:you|they)\s+(?:were\s+(?:given|told|sent)|got|received)\s+(?:about\s+)?(?:by|from|in|for|at|during)\s+((?:[\w'-]+\s*){1,5})/gi
+const OPERATOR_WORD_RE = /\b(?:system|prompts?|developers?|devs?|operators?|creators?|makers?|owners?|programmers?|admins?|administrators?|openai|anthropic|company|employer|organi[sz]ation|training|setup|start|beginning|outset|conversation|chat|session|context|tasks?|job|role|assignment|mission|purpose|persona|assistant|ai|model|bot|chatbot|llm|config\w*|instructions?|rules?|guidelines?|polic(?:y|ies)|earlier|before|previously|me|us|you|your|yourself)\b/i
+
+function withoutThirdPartyProvenance(text: string): string {
+  return text.replace(PROVENANCE_RE, (match: string, provenance: string) =>
+    OPERATOR_WORD_RE.test(provenance) ? match : ' ')
+}
+
 /**
  * True when the text references the assistant's own instructions, rules or
  * configuration — the case where a benign contrastive anchor must not be
@@ -66,7 +81,8 @@ const SELF_INSTRUCTION_PATTERNS: RegExp[] = [
  */
 export function referencesModelInstructions(text: string): boolean {
   if (!text) return false
-  return SELF_INSTRUCTION_PATTERNS.some(re => re.test(text))
+  const scoped = withoutThirdPartyProvenance(text)
+  return SELF_INSTRUCTION_PATTERNS.some(re => re.test(scoped))
 }
 
 /**

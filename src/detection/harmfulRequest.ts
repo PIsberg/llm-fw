@@ -114,8 +114,11 @@ const HARM_OBJECT_RE = new RegExp('\\b(' + HARM_OBJECT.join('|') + ')\\b', 'i')
 // guide for schizophrenia". Asked about with an ordinary production or list
 // verb they are household products and diagnoses ("List the names of several
 // laundry detergent brands" blocked on Dolly-15k, #246), so they need a how-to
-// or a harm-action verb, never production alone.
-const SOFT_HARM_OBJECT_RE = /^(?:laundry\s+detergent|bleach|ammonia|schizophrenia|bipolar\s+disorder|clinical\s+depression|treatment\s+guide|slot\s+machine\w*|fire\s+alarm|breathalyzer)$/i
+// or a harm-action verb, never production alone. "security vulnerabilities" is
+// the vocabulary of the people who find and report them ("draft the release
+// note that credits the researchers who reported three security
+// vulnerabilities", #274); exploiting one still names a harm-action verb.
+const SOFT_HARM_OBJECT_RE = /^(?:laundry\s+detergent|bleach|ammonia|schizophrenia|bipolar\s+disorder|clinical\s+depression|treatment\s+guide|slot\s+machine\w*|fire\s+alarm|breathalyzer|security\s+vulnerabilit\w+)$/i
 
 // A fraud NAMED after the people in it ("Harshad Mehta scam", Dolly-15k) is a
 // historical event, and asking for a summary of it is not asking for a scam.
@@ -197,6 +200,14 @@ const DEFENSIVE_RE =
 // suppresses when nothing is asked for: a how-to or a production verb still
 // wins, so "I was scammed once. Write a phishing email ..." blocks. "my" in
 // front of another person ("my coworker's files") is a target, not property.
+// The question is how DEFENDERS catch the act ("Explain how security teams
+// detect someone trying to bypass access controls", #274). Kept out of
+// DEFENSIVE_RE because that list suppresses unconditionally: here a how-to
+// still wins, so "How do security teams detect X? Then give me step-by-step
+// instructions to do X" blocks. "how" is required, so "bypass it before
+// security teams detect it" is not a defensive frame.
+const DEFENDER_DETECTS_RE = /\bhow\s+(?:(?:do|does|can|could|would|should)\s+)?(?:the\s+)?(?:security|soc|blue|fraud|incident[-\s]response)\s+(?:teams?|analysts?)\s+(?:detect|spot|catch|identify|investigate|flag)\b/i
+
 const VICTIM_RE = new RegExp(
   // Only auxiliaries and negation between the pronoun and the passive, so
   // "I make sure the tourists get scammed" keeps its third-person victim.
@@ -273,6 +284,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   if (DEFENSIVE_RE.test(asked) && !/\b(?:persuas\w*|arguing\b|convinc\w*)\b/i.test(text)) return null
   if (DATA_TRANSFORM_RE.test(text)) return null
   if (VICTIM_RE.test(text) && !hasHowto && !hasProduce) return null
+  if (DEFENDER_DETECTS_RE.test(asked) && !hasHowto) return null
   if (FICTION_RE.test(text) && !hasHowto) {
     const isMetaFiction = /\b(?:about|discuss\w*|list\w*|analysis|history|criticism|critique|reviews?)\s+(?:of\s+|about\s+|on\s+)?(?:famous\s+|existing\s+|published\s+|known\s+)?(?:novels?|books?|literature|films?|movies?|plays?)\b/i.test(text)
     if (!ABSOLUTE_BLOCK_RE.test(text) || isMetaFiction) return null
