@@ -52,20 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   customer list" was missed; both spellings now match. 0 of 23,938 eval
   verdicts changed. Ruleset 2026.10.42.
 
-- **The shell-command guardrails no longer refuse a quoted search pattern or
-  a PowerShell file write as if it were a command.** `grep -rn "git reset
-  --hard" src/` was refused as a hard reset, and so was `Set-Content x.md
-  -Value @'...'@` with such text in the here-string. For the developer-tool
-  patterns (force push, hard reset, `DROP TABLE`, cloud teardown), a quoted
-  argument holding a space is now text when every command in the call is a
-  program with no option that runs a command (grep, echo, a git commit
-  message, a gh PR body); `bash -c`, `psql -c`, `sed .../e`, `awk`,
-  `find -exec`, `rg --pre` and `git rebase -x` keep it scanned,
-  and a quoted single token such as `"--force"` is still a flag.
-  PowerShell here-strings written by `Set-Content`, `Add-Content` or
-  `Out-File` to a file the call does not run are skipped like data heredocs.
-  Replaying 49,954 real Claude Code shell calls, refusals went from 45 to 44,
-  none added. Ruleset 2026.10.41.
+- **The shell-command guardrails no longer refuse a PowerShell file write
+  as if it were a command.** `Set-Content x.md -Value @'...'@` with
+  `git reset --hard` in the here-string was refused as a hard reset. A
+  here-string that `Set-Content`, `Add-Content` or `Out-File` writes to a
+  plain file path no later command in the call mentions or could run is now
+  skipped like a data heredoc; a variable target, a target without a path,
+  or any runner later in the call keeps it scanned. A quoted search pattern
+  (`grep -rn "git reset --hard" src/`) is still refused: treating quoted
+  text as data was tried and removed, because seven security-review rounds
+  each found a way its parse diverged from the shell's, and replaying 50,408
+  real Claude Code shell calls it cleared none. Rulesets 2026.10.41 and
+  2026.10.46 to 2026.10.52.
 
 - **An agent can read a security document that quotes a memory-poisoning
   payload without the request being refused.** Reading llm-fw's own README

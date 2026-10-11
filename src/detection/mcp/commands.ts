@@ -72,72 +72,6 @@ export function stripDataHeredocs(command: string): string {
 // PowerShell's own ways to run text, beside the RUNS_INPUT programs.
 const RUNS_TEXT = /^(?:invoke-expression|iex|invoke-command|start-process)$/i
 
-// One quoted argument, shell-style: double quotes honour backslash escapes,
-// single quotes run to the next single quote.
-const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g
-
-// Programs with no option that runs a command, so a quoted argument to them
-// is only ever text. An allowlist, because the list of programs that CAN run
-// text is open-ended: sed's e flag, awk's system(), find -exec, rg --pre,
-// sort --compress-program, git rebase -x, git fetch --upload-pack, git grep
-// -O, a git alias via -c, sudo, env, make (security reviews of #298's first
-// two cuts, which listed runners and then allowed too much).
-const TEXT_ONLY = new Set([
-  'grep', 'egrep', 'fgrep', 'echo', 'printf', 'cat', 'head', 'tail', 'wc', 'uniq', 'cut', 'tr',
-  'cd', 'pwd', 'ls', 'true',
-  'select-string', 'findstr', 'write-host', 'write-output', 'out-null', 'get-content', 'set-location',
-])
-// git and gh subcommands that take a message or body and run none of it.
-const TEXT_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
-  git: /^commit$/,
-  gh: /^(?:pr|issue)$/,
-}
-
-// SEPARATORS plus a lone `&` (a background job starts a second command) and
-// `|&`, so one allowlisted program cannot vouch for the command after it. An
-// `&` inside a redirect (`2>&1`, `&>`) is not a separator.
-const COMMAND_SPLIT = /\n|\|&|\|\|?|&&|(?<![<>])&(?!>)|;|\$\(|`|\(/
-
-// A redirect to a real file: quoted text written there can run later (a git
-// hook the allowlisted `git commit` triggers, a shell rc file). Redirects to
-// /dev/null or another descriptor write nothing anywhere.
-function redirectsToFile(blanked: string): boolean {
-  return [...blanked.matchAll(/>{1,2}\s*/g)].some((m) => !/^(?:&\d|\/dev\/null\b)/.test(blanked.slice((m.index ?? 0) + m[0].length)))
-}
-
-/** True when every simple command in `blanked` is one that cannot run its arguments. */
-function onlyTextPrograms(blanked: string): boolean {
-  return blanked.split(COMMAND_SPLIT).every((command) => {
-    const w = command.trim().split(/\s+/).filter(Boolean)
-    if (!w.length) return true
-    const program = (w[0] ?? '').replace(/^.*[\\/]/, '').toLowerCase()
-    if (TEXT_ONLY.has(program)) return true
-    const sub = TEXT_ONLY_SUBCOMMANDS[program]
-    // `git -c ...` can define an alias that runs a shell; anything before the
-    // subcommand disqualifies it.
-    return !!sub && sub.test((w[1] ?? '').toLowerCase()) && !w.includes('-c')
-  })
-}
-
-/**
- * Blank every quoted argument that holds whitespace, when every command in
- * the call is a known text-only program (TEXT_ONLY, or a message-taking git
- * or gh subcommand). A quoted argument with a space in it is never a git flag
- * or an SQL statement such a program runs, so `grep "git reset --hard"` and
- * `git commit -m "... DROP TABLE ..."` are text, while `git push "--force"`
- * (one token), `bash -c "git reset --hard"` and `sed 's/x/.../e'` stay
- * scanned (#298). Command substitution keeps everything scanned. Applied to
- * Category D only: the A and B patterns (`rm -rf ~`, `curl | sh`) keep reading
- * the whole line.
- */
-export function stripQuotedText(command: string): string {
-  if (/\$\(|`|<\(/.test(command)) return command
-  // A span crossing a line is left alone: it may be a here-string the call
-  // runs rather than an argument.
-  const blanked = command.replace(QUOTED, (q) => (/\s/.test(q) && !q.includes('\n') ? ' '.repeat(q.length) : q))
-  return onlyTextPrograms(blanked) && !redirectsToFile(blanked) ? blanked : command
-}
-
 // PowerShell cmdlets that only write what they are given to a file.
 const WRITES_TEXT = new Set(['set-content', 'add-content', 'out-file'])
 
@@ -270,13 +204,12 @@ export class CommandScanner {
 
   scan(command: string, enabledCategories: { a: boolean; b: boolean; c: boolean; d: boolean }): CommandScanResult {
     command = stripDataHereStrings(stripDataHeredocs(command))
-    const unquoted = stripQuotedText(command)
     for (const [key, cat] of Object.entries(this.categories) as [('a' | 'b' | 'c' | 'd'), typeof this.categories['a']][]) {
       if (!enabledCategories[key]) {
         continue;
       }
       for (const pattern of cat.patterns) {
-        if (pattern.test(key === 'd' ? unquoted : command)) {
+        if (pattern.test(command)) {
           return {
             isBlocked: true,
             category: key.toUpperCase() as 'A' | 'B' | 'C' | 'D',

@@ -60,6 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.52
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+removes the MCP shell guardrails' quoted-text allowance: quoted text is
+scanned like the rest of the line again. No eval row reaches it. Replaying
+50,408 real Claude Code shell calls: 48 refusals before and after.
+
 ## Result, ruleset 2026.10.51
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps

@@ -272,21 +272,19 @@ describe('CommandScanner Heuristic Engine', () => {
     })
   })
 
-  // #298: in a 48,488-call replay, 2 of the 17 text-not-command refusals were
-  // a quoted grep pattern or sed replacement. A quoted argument holding
-  // several words is text unless something in the call can run it.
+  // #298 item 1 tried treating a quoted multi-word argument as text. Seven
+  // security-review rounds each found a way the regex parse diverged from
+  // the shell's, and replaying 50,395 real shell calls it cleared none, so
+  // it was removed: quoted text is scanned like the rest of the line.
   describe('quoted text in Category D', () => {
-    it('does not read a multi-word quoted argument as a git or SQL command', () => {
+    it('scans quoted text, including in a search pattern', () => {
       for (const command of [
         'grep -rn "git reset --hard" src/',
-        'grep -rn "DROP TABLE" migrations/',
-        "grep -rn 'git push --force ' scripts/ | head -5",
-        'grep -rn "git reset --hard" src/ 2>&1 > /dev/null',
-        'git commit -m "docs: never run git reset --hard on main"',
-        'gh pr create --title "Guard migrations" --body "Refuse TRUNCATE TABLE outside tests"',
-        "Select-String -Pattern 'terraform destroy' -Path *.md",
+        // The parser differential that ended the allowance: bash reads
+        // \\" as a literal quote, so the ; split commands and the reset runs.
+        'grep \\"x; git reset --hard; echo \\"',
       ]) {
-        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
       }
     })
 
