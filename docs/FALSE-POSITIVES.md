@@ -60,6 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.51
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps
+quoted text scanned by the MCP shell guardrails whenever the call redirects
+output to a real file, since text written there can run later (a git hook,
+a shell rc file). No eval row reaches it.
+
 ## Result, ruleset 2026.10.50
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset

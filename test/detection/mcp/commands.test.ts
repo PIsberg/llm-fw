@@ -281,6 +281,7 @@ describe('CommandScanner Heuristic Engine', () => {
         'grep -rn "git reset --hard" src/',
         'grep -rn "DROP TABLE" migrations/',
         "grep -rn 'git push --force ' scripts/ | head -5",
+        'grep -rn "git reset --hard" src/ 2>&1 > /dev/null',
         'git commit -m "docs: never run git reset --hard on main"',
         'gh pr create --title "Guard migrations" --body "Refuse TRUNCATE TABLE outside tests"',
         "Select-String -Pattern 'terraform destroy' -Path *.md",
@@ -326,6 +327,10 @@ describe('CommandScanner Heuristic Engine', () => {
         'git fetch --upload-pack="git reset --hard" origin',
         'git grep -O"git reset --hard" pattern',
         'grep x f.txt & bash -c "git push --force"',
+        // Third review: quoted text written to a file that runs later, here
+        // a hook the allowlisted `git commit` then triggers.
+        'echo "git reset --hard" > .git/hooks/pre-commit && git commit -m x',
+        'echo "git push --force" >> ~/.bashrc',
       ]) {
         expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
       }

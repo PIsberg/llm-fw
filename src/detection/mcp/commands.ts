@@ -94,8 +94,16 @@ const TEXT_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
 }
 
 // SEPARATORS plus a lone `&` (a background job starts a second command) and
-// `|&`, so one allowlisted program cannot vouch for the command after it.
-const COMMAND_SPLIT = /\n|\|&|\|\|?|&&?|;|\$\(|`|\(/
+// `|&`, so one allowlisted program cannot vouch for the command after it. An
+// `&` inside a redirect (`2>&1`, `&>`) is not a separator.
+const COMMAND_SPLIT = /\n|\|&|\|\|?|&&|(?<![<>])&(?!>)|;|\$\(|`|\(/
+
+// A redirect to a real file: quoted text written there can run later (a git
+// hook the allowlisted `git commit` triggers, a shell rc file). Redirects to
+// /dev/null or another descriptor write nothing anywhere.
+function redirectsToFile(blanked: string): boolean {
+  return [...blanked.matchAll(/>{1,2}\s*/g)].some((m) => !/^(?:&\d|\/dev\/null\b)/.test(blanked.slice((m.index ?? 0) + m[0].length)))
+}
 
 /** True when every simple command in `blanked` is one that cannot run its arguments. */
 function onlyTextPrograms(blanked: string): boolean {
@@ -127,7 +135,7 @@ export function stripQuotedText(command: string): string {
   // A span crossing a line is left alone: it may be a here-string the call
   // runs rather than an argument.
   const blanked = command.replace(QUOTED, (q) => (/\s/.test(q) && !q.includes('\n') ? ' '.repeat(q.length) : q))
-  return onlyTextPrograms(blanked) ? blanked : command
+  return onlyTextPrograms(blanked) && !redirectsToFile(blanked) ? blanked : command
 }
 
 // PowerShell cmdlets that only write what they are given to a file.
