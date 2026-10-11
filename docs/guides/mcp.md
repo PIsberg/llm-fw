@@ -27,6 +27,8 @@ The guardrails cover 4 key threat categories:
 ### 4. Result Scanning & DLP (Outbound)
 When a safe tool returns data (e.g., `read_file`), that result is sent back to the LLM in the next turn. `llm-fw` extracts the `tool_result` content and subjects it to the standard Data Loss Prevention (DLP) engine. If a tool accidentally reads your `~/.aws/credentials`, the firewall blocks it from being uploaded.
 
+The same text goes through the injection pipeline on the `tool_result` surface. An MCP tool returns its content as an array of blocks; their text is read as the model reads it, one block per line with its own line breaks, and only a block with no text (an image, a `json` block) is scanned as JSON.
+
 ### Configuration
 
 ```json
