@@ -354,7 +354,7 @@ const ATTACKER_TARGET_RE = new RegExp([
   '\\b\\d{6,}\\b',
   '\\b0x[0-9a-fA-F]{6,}\\b',
   '\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b',
-].join('|'))
+].join('|'), 'i')
 
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 40)

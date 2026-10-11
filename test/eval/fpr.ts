@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.49 (trusted-recipient veto case-insensitive; list
+  // empty by default): 9/336, both samples 0/2000.
   // Held at ruleset 2026.10.48 (MCP quoted-text allowance limited to
   // text-only programs; no eval row reaches it): 9/336, both samples 0/2000.
   // Held at ruleset 2026.10.47 (trusted-recipient boundary allowlist and

@@ -60,6 +60,12 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.49
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset makes
+the trusted-recipient veto case-insensitive (`HTTPS://`, a lowercase IBAN).
+The list is empty by default, so no eval verdict can move.
+
 ## Result, ruleset 2026.10.48
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
