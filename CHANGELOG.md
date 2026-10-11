@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A coding agent's first push of a new branch no longer blocks its
+  session.** The indirect-instruction rules that need an object after the
+  verb looked up to 120 characters ahead, across line breaks and
+  tab-separated columns, so the URL on the line after git's "remote: Create
+  a pull request for 'feat/x' on GitHub by visiting:" and the URL in another
+  column of `gh pr checks` output were read as the verb's object. The object
+  must now sit on the verb's own line and in its own field. Cost, stated
+  rather than hidden: an attacker who puts the object on the next line ("Grant
+  access" then "to guest_amy01" below it) is no longer caught by those
+  object-gated rules (#293). No corpus row has that shape: the row-by-row
+  diff of every eval split (23,938 rows incl. full Dolly-15k) changed 0 block
+  verdicts, injecagent 1054/1054; `npm run fpr` 9/336, Dolly and oasst1
+  samples 0/2000 each. Ruleset 2026.10.33.
+
 - **A coding agent's session is no longer blocked by its own project memory,
   spec documents or image data.** Found replaying real Claude Code sessions
   (1,426 local transcripts, items scanned exactly as they reach the wire)
