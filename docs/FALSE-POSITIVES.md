@@ -60,6 +60,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.38
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset makes
+two scan costs linear in the length of a long whitespace-free string, which
+let one 200 KB prompt hold the event loop for 195 s: the leetspeak gate's email
+filter now tests one token at a time, and embedding chunks are capped at 4,096
+characters. Prose never reaches the cap, so its chunks are unchanged. A
+row-by-row run over every eval split (8,927 rows, cheap preset) changed 0
+verdicts and 0 deciding stages; `npm run fpr` reports 0 of 2,000 on both the
+Dolly and oasst1 samples.
+
 ## Result, ruleset 2026.10.37
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only

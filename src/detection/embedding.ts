@@ -68,6 +68,13 @@ const CACHE_MAX_ENTRIES = 512
 // vectors of 384 floats is about 6 MB.
 const CHUNK_CACHE_MAX_ENTRIES = 4096
 
+// Longest text handed to the tokenizer at once, and the longest single word
+// kept intact; see chunk(). Far above an ordinary 230-word window or URL, far
+// below where the tokenizer's quadratic cost shows.
+const MAX_CHUNK_CHARS = 4096
+const MAX_WORD_CHARS = 256
+const MAX_WORD_PIECE = new RegExp(`[\\s\\S]{1,${MAX_WORD_CHARS}}`, 'g')
+
 export class EmbeddingChecker {
   private extractor: FeatureExtractor | null = null
   private templateEmbeddings: Float32Array[] = []
@@ -282,20 +289,48 @@ export class EmbeddingChecker {
     return Math.min(1, Math.max(0, dot / (normA * normB)))
   }
 
+  /**
+   * Split text into overlapping windows of at most `chunkSize` words AND at
+   * most MAX_CHUNK_CHARS characters.
+   *
+   * The character budget exists because transformers.js's Unigram tokenizer is
+   * quadratic in the length of the text it is given (populate_nodes re-slices
+   * the remainder at every position), and the model truncates to 512 tokens
+   * only AFTER tokenizing. Counting words alone sent a 200 KB prompt with no
+   * spaces to it as one chunk and held the event loop for 188 s. Prose never
+   * reaches the budget, so its windows, and therefore its vectors and the
+   * calibrated thresholds, are unchanged.
+   */
   private chunk(text: string): string[] {
-    const words = text.split(/\s+/)
+    const split = text.split(/\s+/)
+    // A word longer than the budget could never fit a window; cut it first.
+    const hasLongWord = split.some(w => w.length > MAX_WORD_CHARS)
+    const words = hasLongWord
+      ? split.flatMap(w => (w.length > MAX_WORD_CHARS ? w.match(MAX_WORD_PIECE) ?? [w] : [w]))
+      : split
     const estimated = words.length * 1.3
-    if (estimated <= this.config.chunkTokenLimit) return [text]
+    if (estimated <= this.config.chunkTokenLimit && text.length <= MAX_CHUNK_CHARS) {
+      return [hasLongWord ? words.join(' ') : text]
+    }
 
     const chunkSize = Math.floor(this.config.chunkTokenLimit / 1.3)
-    const chunkOverlap = Math.floor(chunkSize * 0.2)
-    const step = chunkSize - chunkOverlap
     const chunks: string[] = []
 
-    for (let start = 0; start < words.length; start += step) {
-      const slice = words.slice(start, start + chunkSize)
-      chunks.push(slice.join(' '))
-      if (start + chunkSize >= words.length) break
+    for (let start = 0; start < words.length;) {
+      let end = start
+      let chars = 0
+      while (end < words.length && end - start < chunkSize) {
+        const next = chars + (end > start ? 1 : 0) + words[end]!.length
+        if (end > start && next > MAX_CHUNK_CHARS) break
+        chars = next
+        end++
+      }
+      chunks.push(words.slice(start, end).join(' '))
+      if (end >= words.length) break
+      // 20% overlap, as a share of this window: identical to the old fixed
+      // step whenever the word limit, not the character budget, closed it.
+      const size = end - start
+      start += Math.max(1, size - Math.floor(size * 0.2))
     }
 
     return chunks

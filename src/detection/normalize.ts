@@ -32,6 +32,11 @@ function decodeLeetspeak(text: string): string {
 const LEET_INSIDE_WORD = /[a-z][013457@$!8]+[a-z]/i
 // Words that mix letters and digits without hiding one: hashes and hex.
 const HEX_RUN = /^(?:0x)?[0-9a-f]{7,}$/i
+// An email address, tested against one whitespace-delimited token at a time.
+// Anchored, and neither run may cross an '@', so a token costs time linear in
+// its length. The unanchored /\S+@\S+\.[a-z]{2,}/ it replaces backtracked from
+// every start position: 53 s on one 200 KB token with no '@'.
+const EMAIL_TOKEN = /^[^@]+@[^@]+\.[a-z]{2,}/i
 
 /**
  * True when some word carries leetspeak between letters. Only then is the
@@ -43,7 +48,9 @@ const HEX_RUN = /^(?:0x)?[0-9a-f]{7,}$/i
  */
 function hasLeetWord(text: string): boolean {
   return text
-    .replace(/\S+@\S+\.[a-z]{2,}/gi, ' ')
+    .split(/\s+/)
+    .filter(token => !(token.includes('@') && EMAIL_TOKEN.test(token)))
+    .join(' ')
     .split(/[^A-Za-z0-9@$!]+/)
     .some(word => LEET_INSIDE_WORD.test(word) && !HEX_RUN.test(word))
 }

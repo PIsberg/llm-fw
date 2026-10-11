@@ -246,6 +246,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // samples 0/2000.
   // Held at ruleset 2026.10.37 (403 docs link only; no verdict path): same
   // rows, 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.38 (linear email filter in the leetspeak gate;
+  // embedding chunks capped at 4,096 characters): same rows, 9/336, both
+  // samples 0/2000.
   'agent-tool-definition': 0,
 };
 
