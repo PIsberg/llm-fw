@@ -42,6 +42,7 @@ describe('loadConfig env overrides', () => {
     'LLM_FW_JUDGE_ENABLED', 'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DLP_MODE',
     'LLM_FW_DASHBOARD_PORT', 'LLM_FW_PROXY_BIND', 'LLM_FW_DASHBOARD_BIND',
     'LLM_FW_EXTRA_TARGETS', 'LLM_FW_INTERCEPT_DOMAINS', 'LLM_FW_SUPPRESSIONS_ENABLED',
+    'LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS',
   ]
   afterEach(() => { for (const k of ENV_KEYS) delete process.env[k] })
 
@@ -97,6 +98,13 @@ describe('loadConfig env overrides', () => {
     process.env.LLM_FW_INTERCEPT_DOMAINS = 'llm.corp.internal'
     const cfg = await loadConfig()
     expect(cfg.proxy.interceptDomains).toEqual(['llm.corp.internal'])
+  })
+
+  it('reads trusted recipient domains from a comma-separated env list (#282)', async () => {
+    expect(DEFAULT_CONFIG.indirectInstruction?.trustedRecipientDomains).toEqual([])
+    process.env.LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS = ' acme.com, Corp.Example ,'
+    const cfg = await loadConfig()
+    expect(cfg.indirectInstruction?.trustedRecipientDomains).toEqual(['acme.com', 'corp.example'])
   })
 
   it('appends LLM_FW_EXTRA_TARGETS to the existing targets without replacing them', async () => {

@@ -33,6 +33,11 @@ export interface IndirectInstructionConfig {
   mode: 'audit' | 'block'
 }
 
+export interface IndirectInstructionOptions {
+  /** See `indirectInstruction.trustedRecipientDomains` in src/types.ts. */
+  trustedRecipientDomains?: readonly string[]
+}
+
 export interface IndirectInstructionFinding {
   /** The sensitive action verb that fired (lowercased). */
   verb: string
@@ -307,6 +312,21 @@ function blankContactClauses(text: string): string {
     const around = text.slice(sentenceStart, start) + ' ' + text.slice(end, sentenceEnd)
     if (CONTACT_DATA_RE.test(around)) return match
     return lead + ' '.repeat(match.length - lead.length)
+  })
+}
+
+/**
+ * Blank every address on a trusted domain (or a subdomain of one), keeping
+ * offsets, so the rules below neither see it as an exfil target nor count it
+ * as an instruction's object. "send the Q3 numbers to finance@acme.com" and
+ * "... to amy.watson@gmail.com" are the same sentence; only the operator knows
+ * which recipient is theirs (#282).
+ */
+function blankTrustedAddresses(text: string, domains: readonly string[]): string {
+  if (!domains.length) return text
+  return text.replace(EMAIL_RE, (addr) => {
+    const domain = addr.slice(addr.lastIndexOf('@') + 1).toLowerCase()
+    return domains.some((d) => domain === d || domain.endsWith(`.${d}`)) ? ' '.repeat(addr.length) : addr
   })
 }
 
@@ -726,7 +746,7 @@ function mlIndices(haystack: string, needle: string): number[] {
  * Language-agnostic fallback for the major world scripts. Runs only after the
  * English-anchored paths find nothing. Returns the first finding or null.
  */
-function detectMultilingualIndirect(text: string): IndirectInstructionFinding | null {
+function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: number) => boolean): IndirectInstructionFinding | null {
   // Casefold for Latin/Cyrillic/Greek; identity for CJK/Arabic/Brahmic (no case).
   const hay = text.toLowerCase()
 
@@ -758,6 +778,7 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
           if (POLITE_OBJECT_GATED_VERBS.has(v) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, i + v.length))) continue
+          if (onlyTrustedObject(i + v.length)) continue
           return { verb: v, reason: 'imperative', snippet: snippetAround(text, Math.min(mi, i), marker.length) }
         }
       }
@@ -774,9 +795,16 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
  * Callers MUST restrict this to the tool_result / document surfaces — on the
  * user-prompt surface an imperative is normal input, not an injection.
  */
-export function detectIndirectInstruction(input: string): IndirectInstructionFinding | null {
+export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  const text = blankContactClauses(input)
+  const original = blankContactClauses(input)
+  const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
+  const text = blankTrustedAddresses(original, trusted)
+  // The ungated rules (polite, directive) fire on the verb alone. When the
+  // verb's object window held a trusted address and nothing else an attacker
+  // would name, the instruction is to the operator's own recipient.
+  const onlyTrustedObject = (end: number): boolean =>
+    text !== original && objectWindow(text, end) !== objectWindow(original, end) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))
 
   // Strongest signal first: a send-class verb pointed at an email/account
   // target. Catches the data-stealing class even when framing is loose ("… and
@@ -808,6 +836,7 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
       const end = m.index + m[0].length
       if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     }
+    if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
@@ -832,10 +861,11 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
   while ((m = DIRECTIVE_RE.exec(text)) !== null) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    if (onlyTrustedObject(end)) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
   // Non-English fallback: the same instruction shapes in the major world scripts.
-  return detectMultilingualIndirect(text)
+  return detectMultilingualIndirect(text, onlyTrustedObject)
 }

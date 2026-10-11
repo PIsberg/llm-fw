@@ -143,6 +143,7 @@ const HOT_PATHS: Path[] = [
   ['crescendo', 'crossRequest'],
   ['indirectInstruction', 'enabled'],
   ['indirectInstruction', 'mode'],
+  ['indirectInstruction', 'trustedRecipientDomains'],
   ['harmfulRequest', 'enabled'],
   ['harmfulRequest', 'mode'],
   ['responseScan', 'enabled'],

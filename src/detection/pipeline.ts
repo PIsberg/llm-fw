@@ -546,7 +546,7 @@ export class Pipeline {
       // to the untrusted-data surfaces only: on the user-prompt surface an
       // imperative is normal input, so running it there would false-positive.
       if (this.config.indirectInstruction?.enabled && (source === 'tool_result' || source === 'document')) {
-        const ind = detectIndirectInstruction(prompt)
+        const ind = detectIndirectInstruction(prompt, this.config.indirectInstruction)
         if (ind) {
           if (this.config.indirectInstruction.mode === 'block') {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }

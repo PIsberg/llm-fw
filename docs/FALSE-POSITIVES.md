@@ -60,6 +60,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.44
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset adds
+`indirectInstruction.trustedRecipientDomains`, empty by default, so the
+shipped configuration is unchanged by construction: the detector's verdict
+changed on 0 of 23,938 eval rows and `npm run fpr` cannot move. What it does
+when set is measured on InjecAgent: listing an operator's own domain removes
+nothing, while listing `gmail.com` (the attacker's provider in that split)
+drops the stage from 1,054 to 771 of 1,054, which is why the guide says to
+list only domains you control.
+
 ## Result, ruleset 2026.10.43
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset lets

@@ -870,6 +870,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`indirectInstruction.trustedRecipientDomains` lets an inbox or CRM agent
+  read ordinary business mail that asks for data to be sent to your own
+  people.** "Hi team, please send the Q3 numbers to finance@acme.com by
+  Friday" is, word for word, the exfiltration instruction the
+  indirect-instruction stage exists to block; only the recipient differs, and
+  the text cannot say whether it is yours. List your own domains (or set
+  `LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS=acme.com,acme.co.uk`) and an
+  address on one of them, or a subdomain, is no longer an exfiltration target;
+  an instruction whose only object is such an address no longer fires. A
+  lookalike (`finance@acme.com.evil.example`), any other address, a URL or a
+  sensitive object in the same clause still blocks. Empty by default and
+  hot-reloaded. List only domains you control: with `gmail.com` listed, the
+  stage catches 771 of InjecAgent's 1,054 attacks instead of all of them.
+  Ruleset 2026.10.44.
+
 - **Opt-in: warn instead of block on the user's own prompt.**
   `detection.surfaces.prompt.wordingAction: "warn"` (or
   `LLM_FW_PROMPT_WORDING_ACTION=warn`) turns a heuristic or embedding match

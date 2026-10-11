@@ -286,6 +286,9 @@ export const DEFAULT_CONFIG: Config = {
   indirectInstruction: {
     enabled: true,
     mode: 'block',
+    // The organisation's own mail domains, so an inbox agent reading "please
+    // send the Q3 numbers to finance@<own domain>" is not refused (#282).
+    trustedRecipientDomains: [],
   },
   // Memory poisoning — injection written once and replayed as trusted context
   // in every later session. Blocks by default because the payloads it looks
@@ -656,6 +659,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_CRESCENDO_CROSS_REQUEST: (c, v) => { if (c.crescendo) c.crescendo.crossRequest = v === 'true'; },
   LLM_FW_INDIRECT_INSTRUCTION_ENABLED: (c, v) => { if (c.indirectInstruction) c.indirectInstruction.enabled = v === 'true'; },
   LLM_FW_INDIRECT_INSTRUCTION_MODE: (c, v) => { if (c.indirectInstruction && (v === 'audit' || v === 'block')) c.indirectInstruction.mode = v; },
+  LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS: (c, v) => { if (c.indirectInstruction) c.indirectInstruction.trustedRecipientDomains = splitList(v).map(d => d.toLowerCase()); },
   LLM_FW_HARMFUL_REQUEST_ENABLED: (c, v) => { if (c.harmfulRequest) c.harmfulRequest.enabled = v === 'true'; },
   LLM_FW_HARMFUL_REQUEST_MODE: (c, v) => { if (c.harmfulRequest && (v === 'audit' || v === 'block')) c.harmfulRequest.mode = v; },
   // Explicit detection failMode (Task C2) — see DetectionConfig.failMode.

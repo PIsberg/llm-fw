@@ -67,6 +67,18 @@ describe('applyHotReload (pure diff/apply, no fs)', () => {
     expect(live.detection.heuristicBlockThreshold).toBe(5)
   })
 
+  it('applies trusted recipient domains live (#282)', () => {
+    const live: Config = structuredClone(DEFAULT_CONFIG)
+    const incoming: Config = structuredClone(DEFAULT_CONFIG)
+    incoming.indirectInstruction = { ...incoming.indirectInstruction!, trustedRecipientDomains: ['acme.com'] }
+
+    const { applied, restartRequired } = applyHotReload(live, incoming, () => {})
+
+    expect(applied).toContain('indirectInstruction.trustedRecipientDomains')
+    expect(restartRequired).toEqual([])
+    expect(live.indirectInstruction?.trustedRecipientDomains).toEqual(['acme.com'])
+  })
+
   it('applies the prompt-surface wording action live (issue #287)', () => {
     const live: Config = structuredClone(DEFAULT_CONFIG)
     const incoming: Config = structuredClone(DEFAULT_CONFIG)

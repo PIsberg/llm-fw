@@ -102,6 +102,23 @@ still counts as opaque media, so block
 mode refuses it whatever it says: a transcript adds a reading, it does not
 certify the audio.
 
+**Trusted recipients for indirect injection.** The indirect-instruction
+stage blocks a tool result that tells the agent to send data or money to an
+address, which is how an injected email or web page exfiltrates. An inbox or
+CRM agent also reads ordinary mail that says exactly that ("please send the Q3
+numbers to finance@acme.com by Friday"), and the text cannot say whether the
+recipient is yours. `indirectInstruction.trustedRecipientDomains` (or
+`LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS=acme.com,acme.co.uk`) lists the
+domains that are: an address on one of them, or on a subdomain, is no longer
+an exfiltration target, and an instruction whose only object is such an
+address does not fire. A lookalike (`finance@acme.com.evil.example`), any other
+address, a URL or a sensitive object such as customer records in the same
+clause still blocks. Empty by default, and hot-reloaded. It does not cover
+payment instructions to an IBAN or account number: those name no domain.
+List only domains you control. Never list a public mail provider: InjecAgent's
+attacks send to a gmail.com address, and with `gmail.com` trusted the stage
+catches 771 of its 1,054 instead of all of them.
+
 ## Logging
 
 Structured JSON to `stdout` for informational records and `stderr` for
@@ -141,7 +158,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_84 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_85 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -188,6 +205,7 @@ _84 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_HTTPS_PORT` | `proxy.httpsPort` | `8443` |
 | `LLM_FW_INDIRECT_INSTRUCTION_ENABLED` | `indirectInstruction.enabled` | `true` |
 | `LLM_FW_INDIRECT_INSTRUCTION_MODE` | `indirectInstruction.mode` | `block` |
+| `LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS` | `indirectInstruction.trustedRecipientDomains` | `0 entries` |
 | `LLM_FW_INTENT_MENTION_ENABLED` | `detection.intentMention` | `true` |
 | `LLM_FW_INTERCEPT_DOMAINS` | `proxy.interceptDomains` | `2 entries` |
 | `LLM_FW_JUDGE_BLOCK` | `detection.judgeBlock` | `false` |
