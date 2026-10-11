@@ -504,7 +504,11 @@ you run `--standalone` without `--gateway`, your options are a TCP connect to
 `/metrics` on the dashboard port serves Prometheus text exposition behind the
 same auth gate as every other dashboard route. Counters:
 `llmfw_requests_total{surface}`, `llmfw_blocks_total{stage}`,
-`llmfw_warns_total{stage}`, `llmfw_events_total{kind}`. A histogram
+`llmfw_warns_total{stage}`, `llmfw_events_total{kind}`. `llmfw_warns_total`
+counts warn events, and a warning history item that an agent resends on every
+request raises one, not one per request. Under observe mode the same holds for
+`llmfw_blocks_total`: it counts distinct would-be blocks, not the requests that
+carried them. A histogram
 `llmfw_scan_duration_ms` (buckets 5 to 2500 ms) tracks pipeline scan latency.
 Gauges `llmfw_model_loaded{model="embedding"|"classifier"}` report whether each
 model has finished initialising. On by default; disable with

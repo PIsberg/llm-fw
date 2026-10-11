@@ -9,6 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The first request of an agent session scans about a quarter faster.** The
+  leetspeak candidate was produced for any text containing a digit, so
+  version numbers, dates, hashes and timings were decoded into noise and
+  embedded as a second copy of every tool result. It is now produced only
+  when some word carries leetspeak between two letters (`pr3v10us`,
+  `pa$$word`, `h@ck`), and then decoded across the whole text as before. Over
+  the first requests of 20 real Claude Code sessions, items with a leetspeak
+  candidate went from 201 of 266 to 12, and embedding forward passes from
+  2,508 to 1,887; one 103 KB first request went from 12.1 to 12.5 s down to
+  9.1 to 9.2 s (two runs each, same verdict). Cost, stated: one attack row,
+  safeguard 491 to 490 of 650 ("Act as BG4, ..."), which contains no
+  leetspeak and blocked only because decoding the name `BG4` to `bga` moved
+  its cosine from 0.852 to 0.862, over the 0.86 line. Row-by-row diff over
+  every eval split (23,938 rows incl. full Dolly-15k): that 1 verdict changed;
+  `npm run fpr` identical in every category (9/336, Dolly and oasst1 samples
+  0/2000 each) (#289). Ruleset 2026.10.35.
+
+- **The shell-command guardrails now cover Claude Code.** They only ran on
+  tool calls named exactly `execute_command`, `bash`, `ctx_shell` or
+  `powershell`, and Claude Code names its shell tools `Bash` and `PowerShell`,
+  so `rm -rf ~` or `curl ... | sh` issued by Claude Code was never checked. Tool
+  names are now compared case-insensitively, and `shell` and
+  `run_shell_command` are added. To keep this from refusing ordinary agent
+  work, two rules narrow at the same time: `git push --force-with-lease` is no
+  longer treated as a force push (it refuses to overwrite work it has not
+  seen), and a heredoc body written out as data (`cat > file <<'EOF'`, a
+  `git commit -F -` message) is not scanned as a command; a body fed to a
+  shell, an interpreter or a database client, or written to a file the same
+  call then runs, still is. `git reset --hard` and plain `--force` stay
+  blocked. Replaying 48,488 real Claude Code shell calls with the tool name
+  matched: 107 would have been refused under the old patterns, 44 now, none
+  newly. Of the 44, 27 are real force pushes and hard resets (20 in PR-rebase
+  loops), 15 are code run through python or a written-then-run file, and 2 are
+  quoted grep or sed arguments (#285). Ruleset 2026.10.35.
+
+- **A pasted screenshot, or a false positive under observe mode, no longer
+  raises an event on every later request.** Both stayed in the resent history
+  and were reported again each time: three requests carrying one image gave
+  three `non-text` warn events, and a tool result that would have blocked under
+  `enforcement: observe` gave three would-be block events. Each is now reported
+  once per process (the image per distinct set of media; the block per tenant,
+  surface, stage and matched text), and again after a config change. Under
+  observe, `llmfw_blocks_total` therefore counts distinct would-be blocks.
+  Verdicts do not change, and enforced blocks are all still reported (#295).
+
+- **A warning history item is reported once, not on every request.** An
+  agent resends its whole history on every call, so one item that warned (in
+  practice the harness reminder Claude Code injects as user text) raised a
+  warn event on every request for the rest of the session: 30 of 30 requests
+  of one replayed real session. The request still returns `warn` each time;
+  the dashboard event log, the SSE stream and `llmfw_warns_total` hear about it
+  once, and again only after a config change or cache eviction. On the same
+  replayed session warn events went from 30 to 4, one per distinct warning
+  item. No verdict changes (#290).
+
+- **The container image runs Node 24 LTS again, not Node 23.** A Dependabot
+  base-image bump (#280) had moved every stage to `node:23-bookworm-slim`, a
+  non-LTS line that reached end-of-life in June 2025 and that no CI job runs
+  (the matrix is 22 and 24). Dependabot now proposes digest and minor updates
+  within the current Node major only, and `test/ci/dockerPinning.test.ts` fails
+  if the image's major is not one the CI matrix tests.
+
 - **An indirect injection in a tool result whose content is an array of
   blocks is now caught like the same text as a string.** That is the shape
   MCP tools return. Every parser JSON-stringified array content, so a line

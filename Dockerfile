@@ -16,9 +16,13 @@
 # commit get the same Node and Debian. Dependabot's docker ecosystem proposes
 # digest bumps; keep all three FROM lines identical
 # (test/ci/dockerPinning.test.ts).
+#
+# The Node major is an LTS line the CI matrix runs (22 or 24), and only a
+# human moves it: Dependabot once moved this image to node:23, a non-LTS line
+# already past end-of-life that no CI job had ever run.
 
 # ---------- build ----------
-FROM node:23-bookworm-slim@sha256:86191b94d2a163be41f3dc7fe5e5fcaca8ba2f1be7275d98a06343483c17414a AS build
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -31,7 +35,7 @@ RUN npm run build
 # ---------- model warm ----------
 # Separate stage so the (large) model cache is copied into the runtime image
 # without dragging in dev dependencies or the TypeScript sources.
-FROM node:23-bookworm-slim@sha256:86191b94d2a163be41f3dc7fe5e5fcaca8ba2f1be7275d98a06343483c17414a AS models
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS models
 WORKDIR /app
 ENV LLM_FW_MODEL_DIR=/models
 
@@ -43,7 +47,7 @@ COPY docker/warm-models.mjs ./docker/warm-models.mjs
 RUN node docker/warm-models.mjs
 
 # ---------- runtime ----------
-FROM node:23-bookworm-slim@sha256:86191b94d2a163be41f3dc7fe5e5fcaca8ba2f1be7275d98a06343483c17414a AS runtime
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

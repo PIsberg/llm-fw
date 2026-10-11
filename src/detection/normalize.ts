@@ -28,6 +28,26 @@ function decodeLeetspeak(text: string): string {
   return text.split('').map(char => leetMap[char] || char).join('')
 }
 
+// A leetspeak run between two letters: pr3v10us, pa$$word, h@ck, m41nfr4me.
+const LEET_INSIDE_WORD = /[a-z][013457@$!8]+[a-z]/i
+// Words that mix letters and digits without hiding one: hashes and hex.
+const HEX_RUN = /^(?:0x)?[0-9a-f]{7,}$/i
+
+/**
+ * True when some word carries leetspeak between letters. Only then is the
+ * leetspeak candidate worth producing: a digit elsewhere (a version, a date,
+ * sha256, utf8, 10ms) decodes to noise that hides nothing, and on the first
+ * request of a real agent session that noise cost 29% of the embedding
+ * stage's forward passes (#289). Email addresses are left out, since every
+ * `name@domain` would otherwise read as h@ck.
+ */
+function hasLeetWord(text: string): boolean {
+  return text
+    .replace(/\S+@\S+\.[a-z]{2,}/gi, ' ')
+    .split(/[^A-Za-z0-9@$!]+/)
+    .some(word => LEET_INSIDE_WORD.test(word) && !HEX_RUN.test(word))
+}
+
 function decodeBase64Candidates(text: string): { text: string; source: string }[] {
   const matches = text.match(/([A-Za-z0-9+/]{4,}=*)/g) || []
   const results: { text: string; source: string }[] = []
@@ -411,9 +431,13 @@ export function extractCandidates(text: string): { text: string; source: string 
     candidates.push({ text: semantic, source: 'semantic' })
   }
 
-  const decodedLeet = normalize(decodeLeetspeak(text))
-  if (decodedLeet !== originalNormalized) {
-    candidates.push({ text: decodedLeet, source: 'leetspeak' })
+  // Decoded across the whole text, as before, once any word carries
+  // leetspeak: '4ll' and '4nd' only decode because pr3v10us beside them did.
+  if (hasLeetWord(text)) {
+    const decodedLeet = normalize(decodeLeetspeak(text))
+    if (decodedLeet !== originalNormalized) {
+      candidates.push({ text: decodedLeet, source: 'leetspeak' })
+    }
   }
 
   const decoders = [

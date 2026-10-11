@@ -4,6 +4,71 @@ export interface CommandScanResult {
   reason?: string;
 }
 
+// A heredoc's opening operator. Not `<<<`, which is a here-string.
+const HEREDOC = /(?<!<)<<(-?)[ \t]*(['"]?)([A-Za-z_][\w.-]*)\2/g
+
+// Programs that run what they are given. A heredoc whose opening line names
+// one of these as a word, or pipes onward, feeds a command and stays scanned.
+const RUNS_INPUT = /^(?:bash|sh|zsh|ksh|dash|fish|eval|exec|source|\.|python[\d.]*|node|deno|bun|perl|ruby|php|psql|mysql|sqlite3|sqlcmd|mongosh|redis-cli|pwsh|powershell|cmd|osascript|ssh|xargs)$/
+
+function words(text: string): string[] {
+  return text.split(/[\s|;&()`"'$<>]+/).filter(Boolean).map((w) => w.replace(/^.*\//, ''))
+}
+
+function feedsCommand(line: string): boolean {
+  return line.includes('|') || words(line).some((w) => RUNS_INPUT.test(w))
+}
+
+// Programs that only store what they read: cat and tee write it out, git
+// takes it as a commit message or a patch, gh as a body. None runs it.
+const STORES_INPUT = new Set(['cat', 'tee', 'git', 'gh'])
+
+const SEPARATORS = /\n|\|\|?|&&|;|\$\(|`|\(/
+
+/** True when one simple command in `rest` runs `target`, directly or through an interpreter. */
+function runsFile(rest: string, target: string): boolean {
+  const name = target.replace(/^.*\//, '')
+  return rest.split(SEPARATORS).some((command) => {
+    const w = words(command)
+    return command.includes(target.replace(/^\.\//, '')) && (w[0] === name || w.some((x) => RUNS_INPUT.test(x)))
+  })
+}
+
+/**
+ * Drop the body of every heredoc that is written out as data: read by a
+ * program that only stores it (cat, tee, git, gh), on an opening line that
+ * runs and pipes nothing, into a file no later command then runs. Replaying 47,556 real Claude
+ * Code shell calls, every DROP TABLE and curl | sh match outside a real
+ * command was the text of a test, a document or a commit message being
+ * written this way (#285). A body fed to a shell, an interpreter or a database
+ * client is still scanned, and so is every line outside a body.
+ */
+export function stripDataHeredocs(command: string): string {
+  const lines = command.split('\n')
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    out.push(line)
+    const opened = [...line.matchAll(HEREDOC)]
+    if (opened.length !== 1) continue
+    const [, dash, , delimiter] = opened[0] as RegExpExecArray
+    const end = lines.findIndex((l, j) => j > i && (dash ? l.replace(/^\t+/, '') : l) === delimiter)
+    if (end === -1) continue
+    const before = line.slice(0, (opened[0] as RegExpExecArray).index)
+    const program = words(before.split(SEPARATORS).pop() ?? '')[0] ?? ''
+    if (!STORES_INPUT.has(program) || feedsCommand(line)) continue
+    const targets = [
+      ...[...line.matchAll(/>>?\s*(['"]?)([^\s'";&|)]+)\1/g)].map((m) => m[2] ?? ''),
+      ...(program === 'tee' ? words(before.slice(before.lastIndexOf('tee') + 3)).filter((w) => !w.startsWith('-')) : []),
+    ].filter((t) => t && t !== '/dev/null')
+    const rest = lines.slice(end + 1).join('\n')
+    if (targets.some((t) => runsFile(rest, t))) continue
+    out.push(lines[end] ?? '')
+    i = end
+  }
+  return out.join('\n')
+}
+
 export class CommandScanner {
   private categories = {
     a: {
@@ -71,7 +136,9 @@ export class CommandScanner {
         // a narrower "one command" reading was tried and let quoted and
         // escaped force pushes through. -uf and +refspec were never matched
         // and still are not, so this only removes false positives.
-        /\bgit\s+push\b.*(?<![\w/.-])--force\b/i,
+        // --force-with-lease (and --force-if-includes beside it) refuses to
+        // overwrite a remote ref it has not seen, so it is not matched (#285).
+        /\bgit\s+push\b.*(?<![\w/.-])--force(?![\w-])/i,
         // Case-sensitive: git's short flags are, and with /i a later
         // `awk -F'\t'` on the same line read as a force push.
         /\bgit\s+push\b.*(?<![\w/.-])-f[a-z]*(?![\w-])/,
@@ -88,6 +155,7 @@ export class CommandScanner {
   };
 
   scan(command: string, enabledCategories: { a: boolean; b: boolean; c: boolean; d: boolean }): CommandScanResult {
+    command = stripDataHeredocs(command)
     for (const [key, cat] of Object.entries(this.categories) as [('a' | 'b' | 'c' | 'd'), typeof this.categories['a']][]) {
       if (!enabledCategories[key]) {
         continue;

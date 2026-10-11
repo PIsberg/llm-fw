@@ -238,6 +238,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // own line and field): same rows, 9/336 overall, both samples 0/2000.
   // Held at ruleset 2026.10.34 (array tool_result content read as text, Go's
   // HTTP client error not an order): same rows, 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.35 (leetspeak candidate only where a word carries
+  // leetspeak, #289; shell guardrails on Claude Code's tools, #285): same
+  // rows, 9/336, both samples 0/2000.
   'agent-tool-definition': 0,
 };
 

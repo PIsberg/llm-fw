@@ -30,11 +30,20 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
  * carries signal. `caesar` is additionally gated on override keywords already
  * appearing in the shifted text, and fired on 0 of the 97 corpus texts.
  */
+// A deferred warn. `reported` is set once its event has been emitted, and the
+// record is shared with the item cache, so a history item an agent resends on
+// every call warns in the event log once rather than once per request (#290).
+interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean }
 // Outcome of one scan item that did not block (see Pipeline.itemCache).
 interface ItemOutcome {
-  warn: { result: PipelineResult; prompt: string; source: ScanSource } | null
+  warn: PendingWarn | null
   score: number
   sim: number
+}
+
+/** The first warn wins, except that one already reported yields to one that is not. */
+function firstWarn(a: PendingWarn | null, b: PendingWarn | null): PendingWarn | null {
+  return a && !(a.reported && b && !b.reported) ? a : b
 }
 // About one long agent session's worth of distinct history items, several
 // times over; an entry is a hash and a few numbers unless the item warned.
@@ -162,6 +171,12 @@ export class Pipeline {
   // as an LRU, bounded at ITEM_CACHE_MAX entries.
   private itemCache = new Map<string, ItemOutcome>()
   private itemCacheFingerprint = ''
+  // Events that describe something an agent resends on every request rather
+  // than something the request did: the opaque media in the history, and a
+  // block under observe (forwarded anyway, so it stays in the history). Each
+  // is reported once (#295). Consulted only for the event, never the verdict;
+  // cleared with the item cache, and bounded the same way.
+  private reportedOnce = new Set<string>()
   private suppressionHits = 0
 
   constructor(
@@ -257,6 +272,7 @@ export class Pipeline {
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
+    this.syncConfigFingerprint()
 
     // A warn is the WEAKEST positive verdict. It must never short-circuit the
     // scan: a different candidate (e.g. the base64-DECODED form of the same
@@ -268,7 +284,7 @@ export class Pipeline {
     // payload — encoded attacks slipped through as warns.) Declared here (before
     // the crescendo check below) so an operator-suppressed crescendo block can
     // downgrade into it too.
-    let pendingWarn: { result: PipelineResult; prompt: string; source: ScanSource } | null = null
+    let pendingWarn: PendingWarn | null = null
 
     // Stage C — Multi-turn crescendo. Operates on the WHOLE conversation (the
     // request resends every turn), not a single surface, so it runs once here
@@ -381,7 +397,7 @@ export class Pipeline {
     const nonText = this.config.nonText
     // Summary of opaque media for a deferred audit warn (emitted only if no
     // content stage blocks below, so an OCR-recovered injection wins instead).
-    let opaqueAuditSummary: string | null = null
+    let opaqueAudit: { summary: string; key: string } | null = null
     if (nonText?.enabled && parser.extractMediaBlocks) {
       const media = parser.extractMediaBlocks(body)
       for (const m of media) {
@@ -419,12 +435,16 @@ export class Pipeline {
           this.emit({ ...result, mediaSummary: summary }, meta, `unscannable non-text content: ${summary}`, 'document')
           return result
         }
-        opaqueAuditSummary = summary
+        // Keyed on the whole set, not each block: a URL image has no bytes, so
+        // per-block keys would fold every URL image into one.
+        const key = createHash('sha256')
+        for (const m of opaque) key.update(`${m.kind}|${m.mimeType ?? ''}|${m.sizeBytes ?? ''}|${m.data ?? ''}\0`)
+        opaqueAudit = { summary, key: key.digest('hex') }
       }
     }
 
     if (!scanItems.length) {
-      if (opaqueAuditSummary) this.emitNonTextWarn(opaqueAuditSummary, meta)
+      if (opaqueAudit) this.emitNonTextWarn(opaqueAudit, meta)
       return this.pass(0, 0)
     }
 
@@ -439,16 +459,6 @@ export class Pipeline {
     // returns ERROR and the scan carries on, and that outcome must not be
     // remembered as clean.
     const itemCacheOn = !judgeEnabled
-    if (itemCacheOn) {
-      const fingerprint = createHash('sha256')
-        .update(JSON.stringify(this.config))
-        .update(`|${this.embedding.isInitialized()}|${this.classifier.isInitialized()}`)
-        .digest('hex')
-      if (fingerprint !== this.itemCacheFingerprint) {
-        this.itemCache.clear()
-        this.itemCacheFingerprint = fingerprint
-      }
-    }
 
     for (const { text: prompt, source } of scanItems) {
       const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(prompt).digest('hex') : ''
@@ -456,7 +466,7 @@ export class Pipeline {
       if (cached) {
         this.itemCache.delete(itemKey)
         this.itemCache.set(itemKey, cached)
-        if (!pendingWarn && cached.warn) pendingWarn = cached.warn
+        pendingWarn = firstWarn(pendingWarn, cached.warn)
         lastScore = Math.max(lastScore, cached.score)
         lastSim = Math.max(lastSim, cached.sim)
         continue
@@ -929,7 +939,7 @@ export class Pipeline {
           if (oldest !== undefined) this.itemCache.delete(oldest)
         }
       }
-      pendingWarn = warnBeforeItem ?? pendingWarn
+      pendingWarn = firstWarn(warnBeforeItem, pendingWarn)
       lastScore = Math.max(scoreBeforeItem, lastScore)
       lastSim = Math.max(simBeforeItem, lastSim)
     }
@@ -937,18 +947,47 @@ export class Pipeline {
     // No candidate blocked. Surface the deferred opaque-media warn (an opaque
     // image was present and OCR, if on, recovered nothing that blocked) and the
     // embedding warn if any candidate crossed the warn threshold; otherwise pass.
-    if (opaqueAuditSummary) this.emitNonTextWarn(opaqueAuditSummary, meta)
+    if (opaqueAudit) this.emitNonTextWarn(opaqueAudit, meta)
     if (pendingWarn) {
-      this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
+      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
+      pendingWarn.reported = true
       return pendingWarn.result
     }
 
     return this.pass(lastScore, lastSim)
   }
 
-  /** Emit the audit warn for opaque media that the pipeline could not inspect. */
-  private emitNonTextWarn(summary: string, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; }): void {
-    this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: summary }, meta, `non-text content not scanned: ${summary}`, 'document')
+  /** Emit the audit warn for opaque media that the pipeline could not inspect, once per set of media. */
+  private emitNonTextWarn(audit: { summary: string; key: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; tenant?: string; }): void {
+    if (!this.firstReport(`non-text\0${meta.tenant ?? ''}\0${audit.key}`)) return
+    this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: audit.summary }, meta, `non-text content not scanned: ${audit.summary}`, 'document')
+  }
+
+  /**
+   * Clear what the pipeline remembers about items it has seen when the live
+   * config or a model's loaded state changed: hot reload mutates the config
+   * object in place, so a remembered outcome or report may no longer hold.
+   */
+  private syncConfigFingerprint(): void {
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify(this.config))
+      .update(`|${this.embedding.isInitialized()}|${this.classifier.isInitialized()}`)
+      .digest('hex')
+    if (fingerprint === this.itemCacheFingerprint) return
+    this.itemCache.clear()
+    this.reportedOnce.clear()
+    this.itemCacheFingerprint = fingerprint
+  }
+
+  /** True the first time `key` is seen since the last clear. */
+  private firstReport(key: string): boolean {
+    if (this.reportedOnce.has(key)) return false
+    this.reportedOnce.add(key)
+    if (this.reportedOnce.size > ITEM_CACHE_MAX) {
+      const oldest = this.reportedOnce.values().next().value
+      if (oldest !== undefined) this.reportedOnce.delete(oldest)
+    }
+    return true
   }
 
   async checkPartial(
@@ -1071,6 +1110,12 @@ export class Pipeline {
 
   private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; }, prompt: string, source: ScanSource = 'prompt'): void {
     if (!this.onBlock) return
+    const observing = isObserving(this.config.enforcement, meta.enforcement)
+    // Under observe a block is forwarded, so the item stays in the history and
+    // blocks again on every later request of the session (#295). Enforced
+    // blocks are all reported: each one refused a request.
+    if (observing && result.action === 'block'
+      && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${source}\0${result.stage}\0${prompt}`).digest('hex'))) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
     // existing Live Traffic UI without a schema change.
@@ -1090,7 +1135,7 @@ export class Pipeline {
       // the request was forwarded anyway. Keeping the verdict truthful is what
       // makes the observation period usable: an operator needs to count what
       // WOULD have been blocked, not read a log of warnings.
-      ...(isObserving(this.config.enforcement, meta.enforcement) ? { enforced: false } : {}),
+      ...(observing ? { enforced: false } : {}),
       ...(meta.tenant ? { tenant: meta.tenant } : {}),
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,

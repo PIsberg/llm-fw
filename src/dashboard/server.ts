@@ -725,7 +725,7 @@ const PG_DESC = {
   rag: 'Detects context poisoning — active instructions smuggled inside retrieved data blocks (<document>, <context>, <search_results>, code fences). Passive data should never issue system overrides, so any imperative confined to a data block is blocked.',
   dlp: 'Scans outbound text for secrets and PII (cloud keys, tokens, private keys, credit cards) before it leaves your machine. Default mode redacts in place; configurable to block or audit. The raw secret is never logged.',
   mcp: 'Enforces a tool allow/deny policy. Tools on the blocklist are refused before the agent can expose them to the model or invoke them. Enter one or more tool names (comma-separated).',
-  guardrails: 'Evaluates tool arguments on execution context tools (bash, execute_command, ctx_shell, powershell) to intercept and block catastrophic shell commands, database drops, and infrastructure tear-downs before execution.',
+  guardrails: 'Evaluates tool arguments on execution context tools (bash, execute_command, ctx_shell, powershell, shell, run_shell_command, in any capitalisation) to intercept and block catastrophic shell commands, database drops, and infrastructure tear-downs before execution.',
   url: 'Screens outbound destinations for exfiltration: known sinks (webhook.site, ngrok, requestbin), high-entropy/DGA domains, and suspicious data-carrying query strings.',
   dos: 'Behavioral circuit breaker against denial-of-wallet: per-minute rate limits, a rolling token budget, and identical-request loop detection. These are stateful — they trip across real traffic, not a single test prompt.',
 };
