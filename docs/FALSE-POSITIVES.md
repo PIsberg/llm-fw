@@ -60,6 +60,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.34
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset reads
+a tool result whose content is an array of blocks as the text of those blocks
+rather than as JSON (#292), and stops reading Go's HTTP client error (`Post
+"<url>": ...`, printed by gh) as an order, which that change exposed in real
+traffic. String content is unchanged by construction; the one rule change can
+only stop a match. `npm run fpr` reports 0 of 2,000 on both the Dolly and
+oasst1 samples.
+
 ## Result, ruleset 2026.10.33
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps

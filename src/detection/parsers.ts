@@ -20,6 +20,27 @@ function mediaBlockFromUrl(kind: MediaBlock['kind'], url: unknown): MediaBlock |
   return { kind }
 }
 
+/**
+ * The text of a tool result's content, as the model reads it. Array content
+ * (what MCP tools return, and Converse's `toolResult.content`) is a list of
+ * blocks: their text is joined one block per line, and a nested `content`
+ * array is read the same way. Only a block with no text (an image, a `json`
+ * payload) keeps its JSON form. Stringifying the whole array instead turned
+ * every line break into the two characters `\n`, so a detector anchored on a
+ * line start never saw one and an injection on its own line passed (#292).
+ */
+function toolResultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (content === undefined) return ''
+  if (!Array.isArray(content)) return JSON.stringify(content)
+  return content.map((b: any) => {
+    if (typeof b === 'string') return b
+    if (typeof b?.text === 'string') return b.text
+    if (Array.isArray(b?.content)) return toolResultText(b.content)
+    return JSON.stringify(b)
+  }).join('\n')
+}
+
 class AnthropicParser implements PayloadParser {
   supports(path: string): boolean {
     // Strip the query string before matching: real Anthropic traffic appends
@@ -101,7 +122,7 @@ class AnthropicParser implements PayloadParser {
           if (msg.role === 'user' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
               if (block.type === 'tool_result') {
-                const resText = typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+                const resText = toolResultText(block.content)
                 // Anthropic tool_result blocks only carry the tool_use_id, not the tool name.
                 results.push({ toolUseId: block.tool_use_id || 'unknown', result: resText })
               }
@@ -309,7 +330,7 @@ class OpenAIParser implements PayloadParser {
       if (Array.isArray(data.messages)) {
         for (const msg of data.messages) {
           if (msg.role === 'tool') {
-            const resText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+            const resText = toolResultText(msg.content)
             results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
           }
         }
@@ -543,7 +564,7 @@ class CohereParser implements PayloadParser {
           const name = tr.call?.name
           results.push({
             toolUseId: typeof name === 'string' ? name : 'unknown',
-            result: JSON.stringify(tr.outputs ?? tr),
+            result: toolResultText(tr.outputs ?? tr),
           })
         }
       }
@@ -552,7 +573,7 @@ class CohereParser implements PayloadParser {
       if (Array.isArray(data.messages)) {
         for (const msg of data.messages) {
           if (msg.role !== 'tool') continue
-          const resText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          const resText = toolResultText(msg.content)
           results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
         }
       }
@@ -701,7 +722,7 @@ class GeminiParser implements PayloadParser {
           for (const part of content.parts) {
             const fr = part?.functionResponse
             if (fr && typeof fr === 'object') {
-              const resText = typeof fr.response === 'string' ? fr.response : JSON.stringify(fr.response ?? fr)
+              const resText = toolResultText(fr.response ?? fr)
               results.push({ toolUseId: typeof fr.name === 'string' ? fr.name : 'unknown', result: resText })
             }
           }
@@ -865,7 +886,7 @@ class BedrockParser implements PayloadParser {
             if (tr && typeof tr === 'object') {
               results.push({
                 toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
-                result: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content ?? tr),
+                result: toolResultText(tr.content ?? tr),
               })
             }
           }

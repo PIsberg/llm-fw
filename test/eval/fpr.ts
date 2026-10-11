@@ -236,6 +236,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // same rows, 9/336 overall, both samples 0/2000.
   // Held at ruleset 2026.10.33 (an object-gated verb's object stays on its
   // own line and field): same rows, 9/336 overall, both samples 0/2000.
+  // Held at ruleset 2026.10.34 (array tool_result content read as text, Go's
+  // HTTP client error not an order): same rows, 9/336, both samples 0/2000.
   'agent-tool-definition': 0,
 };
 
