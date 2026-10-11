@@ -60,6 +60,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.54
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps
+the `semantic` candidate whenever it splits into different words from
+`original` (normalize() deletes backticks, carets and middle dots without a
+space). Its candidate set lies between the two measured ones (all semantic
+candidates, and 2026.10.53's narrower gate), which both changed 0 of 23,938
+eval verdicts, so no verdict can move.
+
 ## Result, ruleset 2026.10.53
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset adds
