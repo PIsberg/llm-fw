@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/require-await */
+import { createHash } from 'node:crypto'
 import { Config, PipelineResult, BlockEvent, ScanSource } from '../types.js'
 import { isObserving } from '../config/config.js'
 import { getParser, extractPartialPrompts, extractToolDescriptions } from './parsers.js'
@@ -29,6 +30,16 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
  * carries signal. `caesar` is additionally gated on override keywords already
  * appearing in the shifted text, and fired on 0 of the 97 corpus texts.
  */
+// Outcome of one scan item that did not block (see Pipeline.itemCache).
+interface ItemOutcome {
+  warn: { result: PipelineResult; prompt: string; source: ScanSource } | null
+  score: number
+  sim: number
+}
+// About one long agent session's worth of distinct history items, several
+// times over; an entry is a hash and a few numbers unless the item warned.
+const ITEM_CACHE_MAX = 20_000
+
 function skipsEmbedding(source: string): boolean {
   return source === 'rot13' || source.startsWith('reversed-')
 }
@@ -136,6 +147,22 @@ export class Pipeline {
   // Lives for the lifetime of this Pipeline instance — the same lifetime as
   // the proxy's other per-process session state (QuotaManager, TaintTracker).
   private crescendoMemory = new CrescendoSessionMemory()
+  // Per-item outcome cache. An agent resends its whole conversation on every
+  // call, and every history item used to go through every stage again:
+  // replaying real Claude Code sessions, the first request (103 KB, mostly the
+  // CLAUDE.md and skill reminders the harness injects) took over two minutes
+  // and later requests 10 to 143 s each, mostly in the embedding stage, whose
+  // own 512-entry chunk cache a long history overflows. An item's verdict
+  // depends only on its text, its surface and the config, so a clean or warn
+  // outcome is reused. Blocks are never cached (they end the request, and a
+  // suppression may be added or removed in between), nor is any item whose
+  // verdict consulted a matching suppression. Keyed by SHA-256 of surface and
+  // text; cleared whenever the live config or a model's loaded state changes,
+  // since hot reload mutates the config object in place. Insertion-ordered Map
+  // as an LRU, bounded at ITEM_CACHE_MAX entries.
+  private itemCache = new Map<string, ItemOutcome>()
+  private itemCacheFingerprint = ''
+  private suppressionHits = 0
 
   constructor(
     config: Config,
@@ -408,7 +435,42 @@ export class Pipeline {
     const { heuristicBlockThreshold: ragBlockThreshold } = this.config.detection
     const ragEnabled = this.config.rag?.enabled
 
+    // Item cache (see itemCache). Off with the judge: a judge call that fails
+    // returns ERROR and the scan carries on, and that outcome must not be
+    // remembered as clean.
+    const itemCacheOn = !judgeEnabled
+    if (itemCacheOn) {
+      const fingerprint = createHash('sha256')
+        .update(JSON.stringify(this.config))
+        .update(`|${this.embedding.isInitialized()}|${this.classifier.isInitialized()}`)
+        .digest('hex')
+      if (fingerprint !== this.itemCacheFingerprint) {
+        this.itemCache.clear()
+        this.itemCacheFingerprint = fingerprint
+      }
+    }
+
     for (const { text: prompt, source } of scanItems) {
+      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(prompt).digest('hex') : ''
+      const cached = itemKey ? this.itemCache.get(itemKey) : undefined
+      if (cached) {
+        this.itemCache.delete(itemKey)
+        this.itemCache.set(itemKey, cached)
+        if (!pendingWarn && cached.warn) pendingWarn = cached.warn
+        lastScore = Math.max(lastScore, cached.score)
+        lastSim = Math.max(lastSim, cached.sim)
+        continue
+      }
+      // Track this item's own outcome separately so it can be cached; merged
+      // back below (the first warn across all items still wins).
+      const warnBeforeItem = pendingWarn
+      const scoreBeforeItem = lastScore
+      const simBeforeItem = lastSim
+      const suppressionHitsBeforeItem = this.suppressionHits
+      pendingWarn = null
+      lastScore = 0
+      lastSim = 0
+
       // Per-surface sensitivity overrides (Task B3) — resolved once per scan
       // item since `source` doesn't change across its candidates below.
       const heuristicBlockThreshold = resolveHeuristicBlockThreshold(this.config, source)
@@ -724,9 +786,11 @@ export class Pipeline {
       }
 
       const candidates = extractCandidates(prompt)
+      let plainMatches: string[] | undefined
       for (const candidate of candidates) {
         // Stage 1: heuristic
-        const h = this.heuristic.score(candidate.text, candidate.source)
+        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
+        if (candidate.source === 'original') plainMatches = h.matches
         lastScore = Math.max(lastScore, h.score)
         
         if (h.score >= heuristicBlockThreshold) {
@@ -856,6 +920,18 @@ export class Pipeline {
         // embedding/judge didn't flag it, it's considered safe. We continue
         // evaluating other candidates, eventually passing.
       }
+
+      // This item did not block. Remember its outcome, then merge it back.
+      if (itemKey && this.suppressionHits === suppressionHitsBeforeItem) {
+        this.itemCache.set(itemKey, { warn: pendingWarn, score: lastScore, sim: lastSim })
+        if (this.itemCache.size > ITEM_CACHE_MAX) {
+          const oldest = this.itemCache.keys().next().value
+          if (oldest !== undefined) this.itemCache.delete(oldest)
+        }
+      }
+      pendingWarn = warnBeforeItem ?? pendingWarn
+      lastScore = Math.max(scoreBeforeItem, lastScore)
+      lastSim = Math.max(simBeforeItem, lastSim)
     }
 
     // No candidate blocked. Surface the deferred opaque-media warn (an opaque
@@ -893,8 +969,10 @@ export class Pipeline {
       // back into a block.
       const blockAt = Math.max(heuristicBlockThreshold, promptWordingTier(this.config, source)?.heuristic ?? 0)
       const candidates = extractCandidates(prompt)
+      let plainMatches: string[] | undefined
       for (const candidate of candidates) {
-        const h = this.heuristic.score(candidate.text, candidate.source)
+        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
+        if (candidate.source === 'original') plainMatches = h.matches
         if (h.score >= blockAt) {
           const result: PipelineResult = {
             action: 'block',
@@ -932,7 +1010,11 @@ export class Pipeline {
   private isSuppressed(text: string, source: ScanSource): boolean {
     if (source !== 'prompt' && source !== 'system') return false
     if (this.config.detection.suppressions === false) return false
-    return this.suppressions.isSuppressed(text)
+    const hit = this.suppressions.isSuppressed(text)
+    // An item whose verdict leaned on a suppression is never put in the item
+    // cache: removing the suppression has to make it block again.
+    if (hit) this.suppressionHits++
+    return hit
   }
 
   // Max concurrent specialized-judge queries for RAG data blocks. A prompt with

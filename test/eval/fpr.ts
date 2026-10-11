@@ -231,6 +231,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // is not part of this pipeline): same rows.
   // Held at ruleset 2026.10.31 (opt-in prompt-surface wording action, off by
   // default, #287): same rows, 9/336 overall, both samples 0/2000.
+  // Held at ruleset 2026.10.32 (false positives found replaying real agent
+  // traffic, obfuscation bonus only for revealed rules, pig-latin gate):
+  // same rows, 9/336 overall, both samples 0/2000.
   'agent-tool-definition': 0,
 };
 

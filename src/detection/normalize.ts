@@ -210,6 +210,41 @@ function decodeCaesarCandidates(text: string): { text: string; source: string }[
   return results
 }
 
+// Common English words that end in "ay", which pig latin rarely produces.
+const ENGLISH_AY_WORDS = new Set([
+  'away', 'today', 'way', 'say', 'may', 'day', 'play', 'stay', 'pay', 'okay',
+  'display', 'delay', 'array', 'gateway', 'relay', 'overlay', 'replay', 'anyway',
+  'essay', 'yesterday', 'holiday', 'birthday', 'monday', 'tuesday', 'wednesday',
+  'thursday', 'friday', 'saturday', 'sunday', 'everyday', 'midway', 'halfway',
+  'pathway', 'runway', 'highway', 'railway', 'subway', 'giveaway', 'takeaway',
+  'gray', 'tray', 'spray', 'pray', 'decay', 'portray', 'betray', 'dismay',
+])
+
+/**
+ * Pig latin is decoded only where the text reads as pig latin: three words
+ * ending in "ay" among any six consecutive words, not counting common English
+ * words that end that way. Every word ending in "ay" used to produce candidates
+ * (several per text, one per consonant-cluster reading), and every one was
+ * embedded again: in a real agent's first request they were 116 of 317
+ * embedding forward passes, more than the text itself, and the near-identical
+ * copy re-matched whatever rules the plain text matched. A windowed test keeps
+ * a pig-latin payload buried in a long benign document decodable.
+ */
+function looksLikePigLatin(text: string): boolean {
+  const words = text.toLowerCase().match(/[a-z]+/g) ?? []
+  let inWindow = 0
+  const flags: boolean[] = []
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!
+    const f = w.length >= 4 && w.endsWith('ay') && !ENGLISH_AY_WORDS.has(w)
+    flags.push(f)
+    if (f) inWindow++
+    if (i >= 6 && flags[i - 6]) inWindow--
+    if (inWindow >= 3) return true
+  }
+  return false
+}
+
 function decodePigLatin(text: string): string[] {
   const commonClusters = [
     'str', 'scr', 'spr', 'thr',
@@ -418,7 +453,7 @@ export function extractCandidates(text: string): { text: string; source: string 
     }
   } catch {}
 
-  try {
+  if (looksLikePigLatin(text)) try {
     const plList = decodePigLatin(text)
     for (const pl of plList) {
       const normPl = normalize(pl)

@@ -135,12 +135,13 @@ describe('EmbeddingChecker', () => {
     expect(second).toEqual(first)
   })
 
-  it('check() evicts the least-recently-used entry once the cache is full', async () => {
+  it('check() evicts the least-recently-used entry once the caches are full', async () => {
     const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection)
     await checker.init()
     await checker.check('input number 0')
-    // Fill the cache past its 512-entry cap so entry 0 is evicted.
-    for (let i = 1; i <= 512; i++) await checker.check(`input number ${i}`)
+    // Fill past the 512-entry result cap AND the 4096-entry chunk-vector cap
+    // (a short input is one chunk), so entry 0 is gone from both.
+    for (let i = 1; i <= 4096; i++) await checker.check(`input number ${i}`)
     mockExtractor.mockClear()
     await checker.check('input number 0')
     expect(mockExtractor).toHaveBeenCalledTimes(1)
@@ -302,6 +303,26 @@ describe('the embedding stage caps how much of a long text it encodes', () => {
     // the text was sampled rather than read whole.
     expect(result.chunksTotal).toBeGreaterThan(8)
     expect(mockExtractor).toHaveBeenCalledTimes(8)
+  })
+
+  // The result cache is keyed on the whole text, so the leetspeak, semantic and
+  // other near-copies of a long document the pipeline also checks were
+  // re-encoded chunk by chunk although most of their chunks were identical.
+  it('encodes a chunk it has already encoded only once, across different texts', async () => {
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 0 })
+    await checker.init()
+    mockExtractor.mockClear()
+
+    const base = longText(40)
+    await checker.check(base)
+    const first = mockExtractor.mock.calls.length
+    expect(first).toBeGreaterThan(4)
+
+    mockExtractor.mockClear()
+    // Same document with its last word changed: only the final chunk(s) differ.
+    await checker.check(base.replace(/headcount\s*$/, 'payroll'))
+    expect(mockExtractor.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(mockExtractor.mock.calls.length).toBeLessThanOrEqual(2)
   })
 
   it('leaves a text that fits under the cap completely alone', async () => {

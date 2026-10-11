@@ -12,8 +12,14 @@ export class CommandScanner {
         // Recursive delete of root / home / glob, tolerant of flag order and
         // splitting: `rm -rf /`, `rm -f -r /`, `rm --recursive --force /`,
         // `rm -rf ~`, `rm -fr *`. A relative target (`rm -rf ./build`) is left
-        // alone to avoid flagging routine cleanup.
-        /rm\s+(?:-{1,2}[a-z]+\s+)*-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z]+\s+)*[/*~]/i,
+        // alone to avoid flagging routine cleanup, and so is a deep absolute
+        // path: the target used to be the class [/*~], which matched the first
+        // character of ANY absolute path, so agents cleaning a scratch
+        // directory (`rm -rf /c/Users/me/AppData/Local/Temp/...`) or one cached
+        // artifact (`rm -rf ~/.m2/repository/...`) were refused. The target must
+        // now BE root, home, a bare glob, a Git Bash drive root (/c/) or a
+        // top-level system directory, optionally quoted and globbed.
+        /rm\s+(?:-{1,2}[a-z]+\s+)*-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*["']?(?:\/(?:bin|boot|dev|etc|home|lib|lib64|opt|proc|root|run|sbin|srv|sys|usr|var|Users|System|Library|Applications|Windows)\/?\*?|\/[a-z]\/?\*?|\/\*?|~\/?\*?|\$\{?HOME\}?\/?\*?|\*)["']?(?=\s|$|[;&|)])/i,
         /del\s+\/s\s+\/q\s+[A-Za-z]:\\*/i,
         /mkfs\..*/i,
         // Raw-disk overwrite (disk wipe) — match writing to a block device
@@ -66,7 +72,9 @@ export class CommandScanner {
         // escaped force pushes through. -uf and +refspec were never matched
         // and still are not, so this only removes false positives.
         /\bgit\s+push\b.*(?<![\w/.-])--force\b/i,
-        /\bgit\s+push\b.*(?<![\w/.-])-f[a-z]*(?![\w-])/i,
+        // Case-sensitive: git's short flags are, and with /i a later
+        // `awk -F'\t'` on the same line read as a force push.
+        /\bgit\s+push\b.*(?<![\w/.-])-f[a-z]*(?![\w-])/,
         // Any hard reset is destructive (discards working tree), not just
         // `HEAD~N`: also catches `--hard origin/main`, bare `--hard`.
         /git\s+reset\s+--hard\b/i,

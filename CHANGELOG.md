@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A coding agent's session is no longer blocked by its own project memory,
+  spec documents or image data.** Found replaying real Claude Code sessions
+  (1,426 local transcripts, items scanned exactly as they reach the wire)
+  through the default pipeline. Because every request resends the whole
+  history, one blocked item ended the session: one project's sessions were
+  blocked from their first request. Fixed in Stage 1: `payload-assembly` read
+  "run" as a noun followed two clauses later by an unrelated "+" in a
+  CLAUDE.md ("rows fixed before run; event pollution + quiescence gate"), and
+  matched the verb inside base64 image data ("...6jrun+jlaa..."); the verb now
+  needs a word boundary, may not cross `;`, `:` or a line, and takes two short
+  operands. `policy-puppetry` read tool output ("panel guardrails: no
+  level_comic_defs entry") as a config switched off; the value must now end
+  the setting. Indirect-instruction treated the closing backtick of an inline
+  code span as a clause start ("`--uninstall` and `--no-board` remove the
+  board only when ... (D6-A)"); a quote now counts only when it opens a
+  string. Row-by-row diff of every eval split (23,938 rows incl. full
+  Dolly-15k): no benign verdict changed, injecagent 1054/1054.
+  Ruleset 2026.10.32.
+
+- **The obfuscation bonus no longer fires on text that was never
+  obfuscated.** A decoded or transformed candidate added +20 to the
+  heuristic score whenever it matched any rule, but most transforms leave the
+  text as it was (one `%20` escape yields a `urlencoded` candidate, any word
+  ending in "ay" a `piglatin` one), so a rule the plain text already matched
+  collected +20 for nothing. In real traffic it lifted a Java tool result
+  from 30 to a block at 50. The bonus now applies only to a rule the plain
+  text did not match. Cost, stated rather than hidden: 7 safeguard attacks go
+  from block to warn (safeguard 498 to 491 of 650). All seven are long persona
+  jailbreaks that matched `unconstrained-persona` (30) and nothing else, and
+  blocked only because a word such as "say" produced a pig-latin candidate.
+  No benign verdict changed. Ruleset 2026.10.32.
+
+- **Agent sessions no longer wait tens of seconds on every request.** Every
+  history item was rescanned on every call and the embedding stage re-encoded
+  near-identical copies of each long text. Replaying one real session, its
+  first 30 requests went from 149.6 s to 41.4 s in total, the first request
+  (103 KB) from 51.1 s to 17.1 s, and the median request to 154 ms; a request
+  that adds nothing new scans in 3 to 9 ms. The pipeline now remembers the
+  outcome of every item that did not block (never a block, never an item that
+  leaned on a suppression, cleared on any config change, off while the judge
+  is on), the embedding stage caches chunk vectors, and a pig-latin candidate
+  is produced only where the text reads as pig latin. See
+  [detection-stages.md](docs/guides/detection-stages.md#agent-traffic-the-whole-conversation-on-every-request).
+
+- **MCP command guardrails no longer refuse routine cleanup.** Category A
+  matched `rm -rf` followed by ANY absolute path, so `rm -rf
+  /c/Users/me/AppData/Local/Temp/.../scratchpad` and `rm -rf
+  ~/.m2/repository/...` were refused as file-system devastation; the target
+  must now be root, home, a bare glob, a drive root or a top-level system
+  directory (`rm -rf "$HOME"`, previously missed, is now caught). The
+  force-push rule is case-sensitive, so another program's `-F` later on a
+  line with `git push` (`awk -F'\t'`, `gh issue create -F body.md`) is not a
+  force push. Over 47,556 real shell calls: 45 `rm` and 2
+  `-F` refusals to 0. Today these guardrails do not see Claude Code's
+  capitalised `Bash` tool at all (#285).
+
 - **A workplace rule against leaking secrets no longer blocks as a threat,
   and a briefing from a named third party is no longer read as the model's
   own instructions.** "Do not share confidential information with vendors or
