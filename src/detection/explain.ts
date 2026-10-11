@@ -33,7 +33,8 @@ export interface BlockExplanation {
   docs: string;
 }
 
-const DOCS_URL = 'https://github.com/PIsberg/llm-fw#false-positive-suppression-list';
+// Pinned by test/detection/explain.test.ts: the file and heading must exist.
+const DOCS_URL = 'https://github.com/PIsberg/llm-fw/blob/main/docs/guides/tuning.md#false-positive-suppression-list';
 
 /** Longest single matched fragment echoed back. */
 const MATCH_CAP = 120;
