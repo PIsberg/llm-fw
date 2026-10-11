@@ -30,11 +30,20 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
  * carries signal. `caesar` is additionally gated on override keywords already
  * appearing in the shifted text, and fired on 0 of the 97 corpus texts.
  */
+// A deferred warn. `reported` is set once its event has been emitted, and the
+// record is shared with the item cache, so a history item an agent resends on
+// every call warns in the event log once rather than once per request (#290).
+interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean }
 // Outcome of one scan item that did not block (see Pipeline.itemCache).
 interface ItemOutcome {
-  warn: { result: PipelineResult; prompt: string; source: ScanSource } | null
+  warn: PendingWarn | null
   score: number
   sim: number
+}
+
+/** The first warn wins, except that one already reported yields to one that is not. */
+function firstWarn(a: PendingWarn | null, b: PendingWarn | null): PendingWarn | null {
+  return a && !(a.reported && b && !b.reported) ? a : b
 }
 // About one long agent session's worth of distinct history items, several
 // times over; an entry is a hash and a few numbers unless the item warned.
@@ -268,7 +277,7 @@ export class Pipeline {
     // payload — encoded attacks slipped through as warns.) Declared here (before
     // the crescendo check below) so an operator-suppressed crescendo block can
     // downgrade into it too.
-    let pendingWarn: { result: PipelineResult; prompt: string; source: ScanSource } | null = null
+    let pendingWarn: PendingWarn | null = null
 
     // Stage C — Multi-turn crescendo. Operates on the WHOLE conversation (the
     // request resends every turn), not a single surface, so it runs once here
@@ -456,7 +465,7 @@ export class Pipeline {
       if (cached) {
         this.itemCache.delete(itemKey)
         this.itemCache.set(itemKey, cached)
-        if (!pendingWarn && cached.warn) pendingWarn = cached.warn
+        pendingWarn = firstWarn(pendingWarn, cached.warn)
         lastScore = Math.max(lastScore, cached.score)
         lastSim = Math.max(lastSim, cached.sim)
         continue
@@ -929,7 +938,7 @@ export class Pipeline {
           if (oldest !== undefined) this.itemCache.delete(oldest)
         }
       }
-      pendingWarn = warnBeforeItem ?? pendingWarn
+      pendingWarn = firstWarn(warnBeforeItem, pendingWarn)
       lastScore = Math.max(scoreBeforeItem, lastScore)
       lastSim = Math.max(simBeforeItem, lastSim)
     }
@@ -939,7 +948,8 @@ export class Pipeline {
     // embedding warn if any candidate crossed the warn threshold; otherwise pass.
     if (opaqueAuditSummary) this.emitNonTextWarn(opaqueAuditSummary, meta)
     if (pendingWarn) {
-      this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
+      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
+      pendingWarn.reported = true
       return pendingWarn.result
     }
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A warning history item is reported once, not on every request.** An
+  agent resends its whole history on every call, so one item that warned (in
+  practice the harness reminder Claude Code injects as user text) raised a
+  warn event on every request for the rest of the session: 30 of 30 requests
+  of one replayed real session. The request still returns `warn` each time;
+  the dashboard event log, the SSE stream and `llmfw_warns_total` hear about it
+  once, and again only after a config change or cache eviction. On the same
+  replayed session warn events went from 30 to 4, one per distinct warning
+  item. No verdict changes (#290).
+
 - **The container image runs Node 24 LTS again, not Node 23.** A Dependabot
   base-image bump (#280) had moved every stage to `node:23-bookworm-slim`, a
   non-LTS line that reached end-of-life in June 2025 and that no CI job runs

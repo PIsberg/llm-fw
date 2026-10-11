@@ -1054,6 +1054,45 @@ describe('history items are not rescanned on every request', () => {
     expect(second.stage).toBe('embedding')
   })
 
+  // #290: replaying one real Claude Code session, 30 of 30 requests emitted an
+  // embedding warn for the same harness reminder, because the history (and the
+  // warning item in it) is resent on every call. The verdict stays a warn; the
+  // event log hears about the item once.
+  it('reports a warn for a resent history item once, while still returning warn', async () => {
+    mockCheck.mockImplementation(async (t: string) => ({ similarity: t.includes('borderline') ? 0.83 : 0, nearest: 'x', chunkCount: 1 }))
+    const onBlock = vi.fn()
+    const pipeline = new Pipeline(makeConfig(), onBlock)
+    const results = [
+      await pipeline.run('/v1/messages', user('A borderline sentence.'), META),
+      await pipeline.run('/v1/messages', user('A borderline sentence.', 'Carry on.'), META),
+      await pipeline.run('/v1/messages', user('A borderline sentence.', 'Carry on.', 'And again.'), META),
+    ]
+    expect(results.map(r => r.action)).toEqual(['warn', 'warn', 'warn'])
+    expect(onBlock).toHaveBeenCalledOnce()
+    expect(onBlock.mock.calls[0][0].action).toBe('warned')
+  })
+
+  it('reports a new warning item even when an already-reported one comes first', async () => {
+    mockCheck.mockImplementation(async (t: string) => ({ similarity: t.includes('borderline') ? 0.83 : 0, nearest: 'x', chunkCount: 1 }))
+    const onBlock = vi.fn()
+    const pipeline = new Pipeline(makeConfig(), onBlock)
+    await pipeline.run('/v1/messages', user('A borderline sentence.'), META)
+    await pipeline.run('/v1/messages', user('A borderline sentence.', 'Another borderline line.'), META)
+    expect(onBlock).toHaveBeenCalledTimes(2)
+    expect(onBlock.mock.calls[1][0].payload_full).toContain('Another borderline line.')
+  })
+
+  it('reports the warn again after a config change clears what was seen', async () => {
+    mockCheck.mockImplementation(async (t: string) => ({ similarity: t.includes('borderline') ? 0.83 : 0, nearest: 'x', chunkCount: 1 }))
+    const onBlock = vi.fn()
+    const config = makeConfig()
+    const pipeline = new Pipeline(config, onBlock)
+    await pipeline.run('/v1/messages', user('A borderline sentence.'), META)
+    config.detection.embeddingWarnThreshold = 0.81
+    await pipeline.run('/v1/messages', user('A borderline sentence.'), META)
+    expect(onBlock).toHaveBeenCalledTimes(2)
+  })
+
   it('re-evaluates a blocked item on every request instead of caching the block', async () => {
     mockScore.mockImplementation((t: string) => t.includes('ignore all previous') ? { score: 60, matches: ['system-override'] } : { score: 0, matches: [] })
     const pipeline = new Pipeline(makeConfig())

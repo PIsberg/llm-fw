@@ -86,7 +86,7 @@ export class MetricsRegistry {
       lines.push(`llmfw_blocks_total{stage="${escapeLabel(stage)}"} ${count}`)
     }
 
-    lines.push('# HELP llmfw_warns_total Total requests warned (audit-mode or weak-signal), by detection stage.')
+    lines.push('# HELP llmfw_warns_total Total warn events (audit-mode or weak-signal), by detection stage. A history item an agent resends is counted once, not per request.')
     lines.push('# TYPE llmfw_warns_total counter')
     for (const [stage, count] of this.warnsTotal) {
       lines.push(`llmfw_warns_total{stage="${escapeLabel(stage)}"} ${count}`)
