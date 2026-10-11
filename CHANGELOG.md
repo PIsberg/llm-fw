@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its cosine from 0.852 to 0.862, over the 0.86 line. Row-by-row diff over
   every eval split (23,938 rows incl. full Dolly-15k): that 1 verdict changed;
   `npm run fpr` identical in every category (9/336, Dolly and oasst1 samples
-  0/2000 each) (#289).
+  0/2000 each) (#289). Ruleset 2026.10.35.
 
 - **The shell-command guardrails now cover Claude Code.** They only ran on
   tool calls named exactly `execute_command`, `bash`, `ctx_shell` or
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matched: 107 would have been refused under the old patterns, 44 now, none
   newly. Of the 44, 27 are real force pushes and hard resets (20 in PR-rebase
   loops), 15 are code run through python or a written-then-run file, and 2 are
-  quoted grep or sed arguments (#285).
+  quoted grep or sed arguments (#285). Ruleset 2026.10.35.
 
 - **A pasted screenshot, or a false positive under observe mode, no longer
   raises an event on every later request.** Both stayed in the resent history

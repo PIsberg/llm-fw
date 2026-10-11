@@ -60,6 +60,20 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.35
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+produces the leetspeak candidate only when some word carries leetspeak between
+two letters (#289), so version numbers, dates and hashes are no longer decoded
+and embedded a second time. A row-by-row run over every eval split and all
+15,011 Dolly-15k rows (23,938 rows) changed 1 block verdict, an attack: a
+persona prompt naming "BG4" had blocked only because decoding the name to
+"bga" moved its cosine over the line. `npm run fpr` reports 0 of 2,000 on both
+the Dolly and oasst1 samples. The same ruleset turns the shell-command
+guardrails on for Claude Code's `Bash` and `PowerShell` tools (#285), which no
+eval split exercises; replaying 48,488 real Claude Code shell calls, it refuses
+44 where the old patterns would have refused 107, and none that they would not.
+
 ## Result, ruleset 2026.10.34
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset reads
