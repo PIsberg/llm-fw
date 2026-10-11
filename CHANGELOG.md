@@ -915,6 +915,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The test suite no longer skips anything: 23 tests that had never run in CI
+  now do.** The OCR content suite (18 tests, `RUN_OCR`) and the real-model
+  speech transcription suite (4, `RUN_TRANSCRIBE`) were opt-in behind flags
+  nothing set, and the Stage 3 judge suite skipped whenever Ollama was
+  unreachable, which was every CI run. All of them passed when enabled
+  locally. OCR and transcription now run in the default suite (about 33 s;
+  CI's model cache key gains `-whisper` so the Whisper model is cached with the
+  embedding model). The judge suite moved to `npm run test:judge`, which
+  fails instead of skipping without Ollama, and runs in the new
+  `.github/workflows/judge.yml` against a pinned Ollama container with the
+  default judge model, nightly and on pull requests that touch the judge.
+
 - **The false-positive gate gains a conversational benign corpus: 2,000 user
   turns from OpenAssistant oasst1.** Dolly is single-turn instructions, and the
   second-person, multi-turn phrasing that #247's false positives lived in

@@ -26,6 +26,7 @@ not run them:
 | `npm run test:load:perf` | Load Tests | p99 latency ceiling |
 | `npm run test:load:accuracy` | Load Tests | FPR ceiling, TPR floor, under concurrency |
 | `npm run scorecard` | Load Tests | deterministic sweep, per-class recall |
+| `npm run test:judge` | Stage 3 Judge (`judge.yml`), nightly and on PRs touching the judge | Stage 3 coverage: each `stage3-corpus.json` prompt passes Stages 1 and 2 and the judge blocks it. Needs a running Ollama and fails without one (`LLM_FW_JUDGE_MODEL=qwen2.5:3b`) |
 | `npm run fpr` | Load Tests | false-positive SLO on three HELD-OUT benign corpora: hand-written agent traffic, a 2,000-row Dolly-15k sample and a 2,000-row oasst1 sample of conversational user turns. The full 15,011 rows run nightly, report-only (`--only=dolly-15k-full`) |
 
 The last one is the half that is easy to forget. Recall has always been gated;

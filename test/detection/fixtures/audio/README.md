@@ -1,6 +1,6 @@
 # Audio fixtures
 
-Used by `test/detection/transcribe.model.test.ts` (opt-in, `RUN_TRANSCRIBE=1`)
+Used by `test/detection/transcribe.model.test.ts` (runs in the default suite)
 for the speech transcription stage (`nonText.transcribe`, issue #82).
 
 | File | Spoken text |

@@ -20,9 +20,12 @@
  * test/load/data/malicious.json) — there they would register as misses and break
  * those gates' recall floors. They belong here, behind a live judge.
  *
- * Requires a running Ollama with a usable model. CI has neither, so the suite
- * SKIPS when Ollama is unreachable — it is a local/opt-in gate, never a CI
- * blocker. The judge runs at temperature 0, so a given model's verdicts are
+ * Requires a running Ollama with a usable model, so it is not part of the
+ * default run: `npm run test:judge` runs it (vitest.judge.config.ts), and the
+ * nightly workflow does so against a pinned Ollama container. It used to skip
+ * itself when Ollama was unreachable, which made it a permanent skip in every
+ * run that existed; now it fails, so a broken judge setup cannot pass as
+ * green. The judge runs at temperature 0, so a given model's verdicts are
  * effectively deterministic; the prompts are unambiguous jailbreaks that any
  * competent judge model should flag. Point at a specific model with
  * LLM_FW_JUDGE_MODEL (defaults to the first model the local Ollama reports).
@@ -66,10 +69,11 @@ const meta = { target: 'stage3', method: 'POST', path: '/v1/messages' }
 
 describe('Stage 3 judge coverage', async () => {
   const judgeModel = await resolveJudgeModel()
-  const describeOrSkip = judgeModel ? describe : describe.skip
 
   if (!judgeModel) {
-    it.skip('Ollama unavailable — Stage 3 coverage skipped (set up Ollama to run)', () => {})
+    it('needs a reachable Ollama with at least one model', () => {
+      throw new Error(`No Ollama model at ${OLLAMA}. Start Ollama and pull one (e.g. ollama pull qwen2.5:3b), or set LLM_FW_JUDGE_MODEL.`)
+    })
     return
   }
 
@@ -94,7 +98,7 @@ describe('Stage 3 judge coverage', async () => {
     await Promise.all([cheap.init(), withJudge.init()])
   }, 180_000)
 
-  describeOrSkip(`against ${judgeModel}`, () => {
+  describe(`against ${judgeModel}`, () => {
     it.each(corpus)('[$class] slips past cheap stages but is blocked at Stage 3', async ({ prompt }) => {
       // Judge off: the cheap stages must NOT block — otherwise it never reaches
       // Stage 3 and belongs in the judge-off corpus instead.

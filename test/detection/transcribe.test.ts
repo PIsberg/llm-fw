@@ -6,8 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // crossed the firewall as an opaque blob: audited or refused, never read.
 //
 // The model is mocked here so the suite needs no download. The real-model
-// round trip is test/detection/transcribe.model.test.ts, gated on
-// RUN_TRANSCRIBE like the OCR suite is on RUN_OCR.
+// round trip is test/detection/transcribe.model.test.ts.
 
 interface WavSpec { sampleRate: number; channels: number; bits: 8 | 16 | 24 | 32; float?: boolean; extensible?: boolean; frames: number[][] }
 

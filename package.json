@@ -49,6 +49,7 @@
     "test": "vitest",
     "test:run": "vitest run && vitest run --config vitest.e2e.config.ts",
     "test:coverage": "vitest run --coverage",
+    "test:judge": "vitest run --config vitest.judge.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:proxy": "vitest run --config vitest.e2e.config.ts",
     "test:load:perf": "node --import tsx/esm test/load/performance.ts",

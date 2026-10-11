@@ -26,6 +26,7 @@ export default defineConfig({
       'test/detection/inferenceIsolation.test.ts',
       'test/detection/image-attacks.test.ts',
       'test/detection/media.test.ts',
+      'test/detection/transcribe.model.test.ts',
     ],
   },
 });

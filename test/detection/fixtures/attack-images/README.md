@@ -17,8 +17,8 @@ Consumed by `test/detection/image-attacks.test.ts`:
   `nonText.mode = 'block'` refuses every one (the designed defense for media the
   firewall can't inspect); `nonText.mode = 'audit'` (default) passes but emits a
   `non-text` warn, so unscanned content reaching the model is never silent.
-- **`RUN_OCR=1` (opt-in `nonText.ocr`):** OCR reads the pixels and the recovered
+- **With `nonText.ocr` (run by `image-attacks.test.ts` in every CI run):** OCR reads the pixels and the recovered
   text is scanned like any prompt. 13 of the 16 block on **content** even in
   audit mode; `attack2/3/5` hide the imperative in base64 / HTML-entity encoding
   OCR can't cleanly recover, so block mode's opacity refusal backstops them.
-  Gated because the first run downloads ~12 MB of tesseract.js core + lang data.
+  The first run downloads ~12 MB of tesseract.js core + lang data.
