@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A coding agent's session is no longer blocked by its own project memory,
+  spec documents or image data.** Found replaying real Claude Code sessions
+  (1,426 local transcripts, items scanned exactly as they reach the wire)
+  through the default pipeline. Because every request resends the whole
+  history, one blocked item ended the session: one project's sessions were
+  blocked from their first request. Fixed in Stage 1: `payload-assembly` read
+  "run" as a noun followed two clauses later by an unrelated "+" in a
+  CLAUDE.md ("rows fixed before run; event pollution + quiescence gate"), and
+  matched the verb inside base64 image data ("...6jrun+jlaa..."); the verb now
+  needs a word boundary, may not cross `;`, `:` or a line, and takes two short
+  operands. `policy-puppetry` read tool output ("panel guardrails: no
+  level_comic_defs entry") as a config switched off; the value must now end
+  the setting. Indirect-instruction treated the closing backtick of an inline
+  code span as a clause start ("`--uninstall` and `--no-board` remove the
+  board only when ... (D6-A)"); a quote now counts only when it opens a
+  string. Row-by-row diff of every eval split (23,938 rows incl. full
+  Dolly-15k): no benign verdict changed, injecagent 1054/1054.
+  Ruleset 2026.10.32.
+
 - **A workplace rule against leaking secrets no longer blocks as a threat,
   and a briefing from a named third party is no longer read as the model's
   own instructions.** "Do not share confidential information with vendors or

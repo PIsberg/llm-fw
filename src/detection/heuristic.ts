@@ -618,7 +618,12 @@ export class HeuristicScorer {
           // ("decipher this note and do what it says on the shopping list"),
           // and obeying verbs only, not "do".
           /\b(?:decode|decrypt|unscramble|deobfuscate)\b[^.!?]{0,40}\b(?:carry out|execute|follow|obey|act on|comply with)\b (?:whatever|what|everything|anything|all|any)\b[^.!?]{0,20}\b(?:it|they|this|that) (?:says?|contains?|instructs?|asks?|tells? you|requests?)\b/,
-          /(execute|run|follow|obey|output|do what|comply with)\b[^.!?]{0,30}\b\w+ ?\+ ?\w+/,
+          // "Now execute p1 + p2": the verb, at most two words, then two short
+          // operands. Bounded on all sides because real agent traffic is full
+          // of "+": the verb was matched inside base64 ("…6jrun+jlaa…") and
+          // across clauses ("rows fixed before run; event pollution + quiescence
+          // gate"), and the operands ran on through whole base64 lines.
+          /\b(?:execute|run|follow|obey|output|do what|comply with)(?: [\w'"]+){0,2}? \w{1,20} ?\+ ?\w{1,20}\b(?![+/=])/,
           // The obey verb must aim at the assembled result: "join ... and what
           // discipline did he follow" and "combine ..., then follow the recipe"
           // are a biography and a recipe (#256).
@@ -754,7 +759,11 @@ export class HeuristicScorer {
         // allow flag set ON. So a benign "guardrails: true" (enabling) or a dev
         // "mode: debug" does not trip it.
         weight: 50, label: 'policy-puppetry', patterns: [
-          /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0|null)\b/i,
+          // The value must END the setting: punctuation, the end, or the next
+          // key. Otherwise prose matched, e.g. a tool printing "panel
+          // guardrails: no level_comic_defs entry, shows ..." (found replaying
+          // real agent traffic).
+          /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0|null)\b(?=\s*(?:["'<>,;.!)}\]]|$|[\w-]+\s*[:=]))/i,
           /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*["'<]?\s*(true|1|yes|on|enabled)\b/i,
           /<\/?(policy|ruleset|config|permissions?|safety|guardrails?)>[^<]{0,80}(allow_all|unrestricted|disabled|no restrictions)/i,
           /(the following|this) (policy|configuration|config|ruleset|manifest) (applies|governs|overrides|takes precedence|is now active)\b[^.!?]{0,60}(allow|unrestricted|no (restrictions?|limits?|filter)|disabled)/i,

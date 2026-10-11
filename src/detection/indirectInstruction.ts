@@ -104,8 +104,14 @@ const POLITE_IMPERATIVE_RE = new RegExp(
 // rather than an instruction, and the trailing `\s+\S` requires the verb to lead
 // a real clause ("grant permanent access") rather than be a terminal one-word
 // field value ('status': 'Update'), which keeps benign data from firing.
+// A quote counts only when it OPENS a string: after whitespace, a bracket, "="
+// or the backslash of a JSON-escaped \". A closing quote or backtick ends a code
+// span, and the verb after it has that span as its subject: an agent reading
+// its own spec ("`--uninstall` and `--no-board` remove the board only when ...
+// (D6-A)") was blocked as an indirect injection (found replaying real agent
+// traffic).
 const SENTENCE_IMPERATIVE_RE = new RegExp(
-  '(?:^|[.!?\\n]\\s*|[:,]\\s*[\'"`]?|[\'"`]\\s*)' +
+  '(?:^|[.!?\\n]\\s*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
   '(?:also\\s+|then\\s+|immediately\\s+|now\\s+|first\\s+)*' +
   `(${VERB_ALT})\\b(?![\'"\`]?\\s*:)\\s+\\S`,
   'gim',
