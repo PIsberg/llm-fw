@@ -60,6 +60,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.45
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+closes two bypasses in `indirectInstruction.trustedRecipientDomains` found by
+a security review: a trusted address beside the verb no longer vouches for an
+untrusted address elsewhere in the text, and an address touching an
+invisible format character is not trusted. The list is empty by default, so
+the detector's verdict changed on 0 of 23,938 eval rows and `npm run fpr`
+cannot move.
+
 ## Result, ruleset 2026.10.44
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset adds

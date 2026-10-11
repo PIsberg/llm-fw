@@ -322,11 +322,18 @@ function blankContactClauses(text: string): string {
  * "... to amy.watson@gmail.com" are the same sentence; only the operator knows
  * which recipient is theirs (#282).
  */
+//
+// An address touching an invisible format character is never trusted: in
+// "finance@acme.com<U+200B>.evil.example" the regex stops at acme.com while a
+// mail client that strips the character delivers to acme.com.evil.example.
+const FORMAT_CHAR_RE = /[\p{Cf}\u00AD\u034F]/u
 function blankTrustedAddresses(text: string, domains: readonly string[]): string {
   if (!domains.length) return text
-  return text.replace(EMAIL_RE, (addr) => {
+  return text.replace(EMAIL_RE, (addr: string, offset: number) => {
     const domain = addr.slice(addr.lastIndexOf('@') + 1).toLowerCase()
-    return domains.some((d) => domain === d || domain.endsWith(`.${d}`)) ? ' '.repeat(addr.length) : addr
+    const touchesFormatChar = FORMAT_CHAR_RE.test(text.charAt(offset - 1)) || FORMAT_CHAR_RE.test(text.charAt(offset + addr.length))
+    const trusted = !touchesFormatChar && domains.some((d) => domain === d || domain.endsWith(`.${d}`))
+    return trusted ? ' '.repeat(addr.length) : addr
   })
 }
 
@@ -803,8 +810,13 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // The ungated rules (polite, directive) fire on the verb alone. When the
   // verb's object window held a trusted address and nothing else an attacker
   // would name, the instruction is to the operator's own recipient.
+  // An untrusted address anywhere in the text vetoes this: a trusted one
+  // beside the verb must not vouch for an attacker's address further on.
+  EMAIL_RE.lastIndex = 0
+  const untrustedAddress = EMAIL_RE.test(text)
+  EMAIL_RE.lastIndex = 0
   const onlyTrustedObject = (end: number): boolean =>
-    text !== original && objectWindow(text, end) !== objectWindow(original, end) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))
+    text !== original && !untrustedAddress && objectWindow(text, end) !== objectWindow(original, end) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))
 
   // Strongest signal first: a send-class verb pointed at an email/account
   // target. Catches the data-stealing class even when framing is loose ("… and
