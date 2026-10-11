@@ -85,7 +85,7 @@ Once candidates are normalized, they are scored against a highly refined set of 
 *   **Multi-Lingual Rules**: Includes localized checks for Spanish, French, German, Chinese, Russian, Portuguese, and Italian.
 *   **Spelling Resilience**: Regexes match common typos and character swaps (e.g. matching `igmore` or `ignere` instead of `ignore`).
 *   **Social Engineering Authority Blockers**: Scores weightings heavily to block sandboxed jailbreaks, developer override simulations, subscription privilege escalations, and fake emergency prompts.
-*   **Obfuscation Penalties**: Any decoded candidate adds an automatic `obfuscation-signal` penalty to prevent evasion via ciphers.
+*   **Obfuscation Penalties**: A decoded or transformed candidate adds a `+20` `obfuscation-signal` penalty when it matches a rule the plain text did not, which is what a decode that uncovers a hidden instruction looks like. A transform that leaves the text mostly as it was (one `%20` escape yields a `urlencoded` candidate, any word ending in "ay" a `piglatin` one) re-matches the rules the plain text already matched, and earns nothing for it.
 
 If the aggregate score crosses the default threshold of `50`, the request is immediately blocked (403).
 

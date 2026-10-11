@@ -28,6 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Dolly-15k): no benign verdict changed, injecagent 1054/1054.
   Ruleset 2026.10.32.
 
+- **The obfuscation bonus no longer fires on text that was never
+  obfuscated.** A decoded or transformed candidate added +20 to the
+  heuristic score whenever it matched any rule, but most transforms leave the
+  text as it was (one `%20` escape yields a `urlencoded` candidate, any word
+  ending in "ay" a `piglatin` one), so a rule the plain text already matched
+  collected +20 for nothing. In real traffic it lifted a Java tool result
+  from 30 to a block at 50. The bonus now applies only to a rule the plain
+  text did not match. Cost, stated rather than hidden: 7 safeguard attacks go
+  from block to warn (safeguard 498 to 491 of 650). All seven are long persona
+  jailbreaks that matched `unconstrained-persona` (30) and nothing else, and
+  blocked only because a word such as "say" produced a pig-latin candidate.
+  No benign verdict changed. Ruleset 2026.10.32.
+
 - **A workplace rule against leaking secrets no longer blocks as a threat,
   and a briefing from a named third party is no longer read as the model's
   own instructions.** "Do not share confidential information with vendors or

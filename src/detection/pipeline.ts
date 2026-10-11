@@ -724,9 +724,11 @@ export class Pipeline {
       }
 
       const candidates = extractCandidates(prompt)
+      let plainMatches: string[] | undefined
       for (const candidate of candidates) {
         // Stage 1: heuristic
-        const h = this.heuristic.score(candidate.text, candidate.source)
+        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
+        if (candidate.source === 'original') plainMatches = h.matches
         lastScore = Math.max(lastScore, h.score)
         
         if (h.score >= heuristicBlockThreshold) {
@@ -893,8 +895,10 @@ export class Pipeline {
       // back into a block.
       const blockAt = Math.max(heuristicBlockThreshold, promptWordingTier(this.config, source)?.heuristic ?? 0)
       const candidates = extractCandidates(prompt)
+      let plainMatches: string[] | undefined
       for (const candidate of candidates) {
-        const h = this.heuristic.score(candidate.text, candidate.source)
+        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
+        if (candidate.source === 'original') plainMatches = h.matches
         if (h.score >= blockAt) {
           const result: PipelineResult = {
             action: 'block',

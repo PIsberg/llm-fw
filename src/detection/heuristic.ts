@@ -802,8 +802,10 @@ export class HeuristicScorer {
   scoreRules(input: string): HeuristicResult {
     let maxScore = 0
     const allMatches = new Set<string>()
+    let plain: readonly string[] | undefined
     for (const candidate of extractCandidates(input)) {
-      const res = this.score(candidate.text, candidate.source)
+      const res = this.score(candidate.text, candidate.source, plain)
+      if (candidate.source === 'original') plain = res.matches
       if (res.score > maxScore) {
         maxScore = res.score
       }
@@ -814,7 +816,12 @@ export class HeuristicScorer {
     return { score: maxScore, matches: Array.from(allMatches) }
   }
 
-  score(input: string, source?: string): HeuristicResult {
+  /**
+   * `plainMatches` is the rule list the 'original' candidate of the same text
+   * matched. A transformed candidate earns the obfuscation bonus only for a
+   * rule the plain text did not already match (see below).
+   */
+  score(input: string, source?: string, plainMatches?: readonly string[]): HeuristicResult {
     if (source === undefined) {
       const { score, matches } = this.scoreRules(input)
       let maxScore = score
@@ -856,7 +863,14 @@ export class HeuristicScorer {
     // ORIGINAL prompt (for the embedding stage), not an obfuscation channel —
     // it must not earn the obfuscation bonus that decoded/transformed
     // candidates do.
-    if (source !== 'original' && source !== 'leetspeak' && source !== 'semantic' && totalScore > 0) {
+    // The bonus says the decode REVEALED an instruction. Most transforms leave
+    // the bulk of the text as it was (one %20 escape yields a 'urlencoded'
+    // candidate, any word ending in "ay" a 'piglatin' one), so a rule the
+    // plain text already matched re-matches there and used to collect +20 for
+    // nothing: found replaying real agent traffic, where it lifted a 50-point
+    // match in a base64 image to 70 and a project memory file from 75 to 95.
+    const revealed = plainMatches === undefined || matches.some(m => !plainMatches.includes(m))
+    if (source !== 'original' && source !== 'leetspeak' && source !== 'semantic' && totalScore > 0 && revealed) {
       totalScore += 20
       matches.push('obfuscation-signal')
     }
