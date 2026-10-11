@@ -59,6 +59,15 @@ export async function embedRaw(extractor: FeatureExtractor, text: string): Promi
 // bit-identical.
 const CACHE_MAX_ENTRIES = 512
 
+// Chunk vectors, keyed by chunk text. The result cache above is keyed on the
+// WHOLE input, but the pipeline checks several near-copies of one text (its
+// leetspeak, semantic and decoded candidates), and a long document's copies
+// share most of their chunks: in a real agent's first request a chunk cache
+// leaves 191 of 317 forward passes. Same text in, same vector out (single-text
+// embedding, see the batching note above), so no verdict can move. 4096
+// vectors of 384 floats is about 6 MB.
+const CHUNK_CACHE_MAX_ENTRIES = 4096
+
 export class EmbeddingChecker {
   private extractor: FeatureExtractor | null = null
   private templateEmbeddings: Float32Array[] = []
@@ -70,6 +79,7 @@ export class EmbeddingChecker {
   private benignEmbeddings: Float32Array[] = []
   private config: DetectionConfig
   private cache = new Map<string, EmbeddingResult>()
+  private chunkCache = new Map<string, Float32Array>()
   // Task C3 — opt-in worker-thread isolation. `ready` tracks whether the
   // stage is usable (either backend), decoupled from `extractor`, since in
   // worker mode `extractor` stays null until/unless a permanent fallback
@@ -225,6 +235,22 @@ export class EmbeddingChecker {
     return embedRaw(this.extractor, text)
   }
 
+  private async embedChunk(chunk: string): Promise<Float32Array> {
+    const key = createHash('sha256').update(chunk).digest('base64')
+    const hit = this.chunkCache.get(key)
+    if (hit) {
+      this.chunkCache.delete(key)
+      this.chunkCache.set(key, hit)
+      return hit
+    }
+    const emb = await this.embed(chunk)
+    this.chunkCache.set(key, emb)
+    if (this.chunkCache.size > CHUNK_CACHE_MAX_ENTRIES) {
+      this.chunkCache.delete(this.chunkCache.keys().next().value as string)
+    }
+    return emb
+  }
+
   private cosineSimilarity(a: Float32Array, b: Float32Array): number {
     let dot = 0
     let normA = 0
@@ -333,7 +359,7 @@ export class EmbeddingChecker {
     let benignAtMax = 0 // nearest-benign cosine for the chunk that maximised maxSim
 
     for (const chunk of chunks) {
-      const emb = await this.embed(chunk)
+      const emb = await this.embedChunk(chunk)
       let injSim = 0
       let injIdx = 0
       for (let i = 0; i < this.templateEmbeddings.length; i++) {

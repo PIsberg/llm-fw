@@ -41,6 +41,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blocked only because a word such as "say" produced a pig-latin candidate.
   No benign verdict changed. Ruleset 2026.10.32.
 
+- **Agent sessions no longer wait tens of seconds on every request.** Every
+  history item was rescanned on every call and the embedding stage re-encoded
+  near-identical copies of each long text. Replaying one real session, its
+  first 30 requests went from 149.6 s to 41.4 s in total, the first request
+  (103 KB) from 51.1 s to 17.1 s, and the median request to 154 ms; a request
+  that adds nothing new scans in 3 to 9 ms. The pipeline now remembers the
+  outcome of every item that did not block (never a block, never an item that
+  leaned on a suppression, cleared on any config change, off while the judge
+  is on), the embedding stage caches chunk vectors, and a pig-latin candidate
+  is produced only where the text reads as pig latin. See
+  [detection-stages.md](docs/guides/detection-stages.md#agent-traffic-the-whole-conversation-on-every-request).
+
 - **A workplace rule against leaking secrets no longer blocks as a threat,
   and a briefing from a named third party is no longer read as the model's
   own instructions.** "Do not share confidential information with vendors or
