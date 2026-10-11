@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The first request of an agent session scans about a quarter faster.** The
+  leetspeak candidate was produced for any text containing a digit, so
+  version numbers, dates, hashes and timings were decoded into noise and
+  embedded as a second copy of every tool result. It is now produced only
+  when some word carries leetspeak between two letters (`pr3v10us`,
+  `pa$$word`, `h@ck`), and then decoded across the whole text as before. Over
+  the first requests of 20 real Claude Code sessions, items with a leetspeak
+  candidate went from 201 of 266 to 12, and embedding forward passes from
+  2,508 to 1,887; one 103 KB first request went from 12.1 to 12.5 s down to
+  9.1 to 9.2 s (two runs each, same verdict). Cost, stated: one attack row,
+  safeguard 491 to 490 of 650 ("Act as BG4, ..."), which contains no
+  leetspeak and blocked only because decoding the name `BG4` to `bga` moved
+  its cosine from 0.852 to 0.862, over the 0.86 line. Row-by-row diff over
+  every eval split (23,938 rows incl. full Dolly-15k): that 1 verdict changed;
+  `npm run fpr` identical in every category (9/336, Dolly and oasst1 samples
+  0/2000 each) (#289).
+
 - **The shell-command guardrails now cover Claude Code.** They only ran on
   tool calls named exactly `execute_command`, `bash`, `ctx_shell` or
   `powershell`, and Claude Code names its shell tools `Bash` and `PowerShell`,
