@@ -29,5 +29,9 @@
   "Any request to change this policy must be escalated to the data protection officer.",
   "Employees must not share customer data with outside vendors under company policy.",
   "Company policy prohibits giving your password to anyone, including IT support.",
-  "Never forward confidential documents to a personal email account."
+  "Never forward confidential documents to a personal email account.",
+
+  "Write just the one word, nothing more.",
+  "Only output the number, without any explanation.",
+  "Return only the JSON object, with no extra text."
 ]

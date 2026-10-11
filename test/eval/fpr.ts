@@ -241,6 +241,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.35 (leetspeak candidate only where a word carries
   // leetspeak, #289; shell guardrails on Claude Code's tools, #285): same
   // rows, 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.36 (README badges and CLI flags no longer exfil or
+  // delimiter matches; output-format benign anchors): same rows, 9/336, both
+  // samples 0/2000.
   'agent-tool-definition': 0,
 };
 

@@ -639,7 +639,15 @@ export class HeuristicScorer {
         // Markdown/HTML exfiltration channels — instructions to embed dynamic
         // URLs, images, or hidden markup that leak conversation data.
         weight: 50, label: 'exfil-channel', patterns: [
-          /!\[[^\]]*\]\(https?:\/\/[^)]*[?=&{]/,
+          // A markdown image whose URL carries a slot for the data to leak: a
+          // template placeholder ({…}, […], <…>, $(…), or their %-escapes) or
+          // a query key that names what is being stolen. It used to match any
+          // query string at all, so every shields.io badge
+          // (`![Maven Central](…svg?label=Maven%20Central)`) scored 50, and a
+          // README read by an agent blocked as exfiltration (found live on a
+          // project README, 2026-10-11). Every attack row the old pattern
+          // matched across the eval corpora still matches.
+          /!\[[^\]]*\]\(https?:\/\/[^)]*(?:\{|\[|<|\$\(|%7b|%5b|\b(?:data|secrets?|conversation|history|chat|prompt|password|token|key|messages?|context|memory|user_?input|query|payload)=)/,
           /(append|insert|add|attach|embed)\b[^.!?]{0,80}<img/,
           /(end|append|add|finish) (every|each) (response|reply|answer)\b[^.!?]{0,60}(https?:|<img|!\[|markdown)/,
           /(output|write|create|include) a markdown (link|image) to https?:/,
@@ -775,7 +783,16 @@ export class HeuristicScorer {
           // normalize() collapses runs of identical punctuation ("###" → "#",
           // "===" → "=") BEFORE these patterns run, so match the collapsed form
           // followed by a structural keyword rather than the raw run.
-          /[#=-] ?(end|new|stop|system|admin|input|output|user|assistant)\b/,
+          /[#=] ?(end|new|stop|system|admin|input|output|user|assistant)\b/,
+          // A dash only counts as a delimiter when it stands alone: a dash run
+          // then a space ("<!-- assistant:", "-- end"), or a keyword fenced by
+          // dashes ("---END---" normalizes to "-end-"). A dash glued to the
+          // front of the keyword is a command-line flag (--input, --output,
+          // --user) or part of a hyphenated name (code-karta-input, then-new),
+          // which put every CLI README and build log a single rule away from
+          // a block (found live, 2026-10-11).
+          /(?<![\w-])-+ (end|new|stop|system|admin|input|output|user|assistant)\b/,
+          /(?<![\w-])-+(end|new|stop|system|admin|input|output|user|assistant)-+(?!\w)/,
           /<\/?(?:system|instructions?|prompt|context)>/,
         ],
       },
