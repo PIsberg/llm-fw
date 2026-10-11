@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The container image runs Node 24 LTS again, not Node 23.** A Dependabot
+  base-image bump (#280) had moved every stage to `node:23-bookworm-slim`, a
+  non-LTS line that reached end-of-life in June 2025 and that no CI job runs
+  (the matrix is 22 and 24). Dependabot now proposes digest and minor updates
+  within the current Node major only, and `test/ci/dockerPinning.test.ts` fails
+  if the image's major is not one the CI matrix tests.
+
 - **An indirect injection in a tool result whose content is an array of
   blocks is now caught like the same text as a string.** That is the shape
   MCP tools return. Every parser JSON-stringified array content, so a line

@@ -74,12 +74,21 @@ updates:
   # ever propose a new digest, and a pin nobody moves is a pin that ages into
   # an unpatched base. A bump changes the Node patch level the image runs on,
   # not detection; build the image and run it once before merging.
+  #
+  # Majors are ignored. The tag's major is the Node line the image runs, and it
+  # must be one the CI matrix tests (test/ci/dockerPinning.test.ts). Without
+  # this, #280 moved the image from 22 to 23, a non-LTS line already past
+  # end-of-life. Move the major by hand, together with ci.yml.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
 
   # No pip ecosystem for .github/semgrep/requirements.txt, on purpose.
   #
