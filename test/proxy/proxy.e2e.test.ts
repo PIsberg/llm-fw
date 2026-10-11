@@ -399,6 +399,28 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     expect(unparsed.target).toBe('api.anthropic.com')
   })
 
+  it('E2E Case 4b2: Claude Code feature-flag evaluation is forwarded without an "unparsed" warn', async () => {
+    // Claude Code POSTs GrowthBook attributes to /api/eval/<client key> at
+    // every start. It carries no prompt, so warning on it put one false
+    // "unrecognized LLM endpoint" row in Live Traffic per session. The key
+    // varies per client, so a fixed-suffix match cannot exclude it.
+    const path = '/api/eval/sdk-zAZezfDKGoZuXXKe'
+    const response = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      path,
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({ attributes: { id: 'u1', platform: 'win32' }, forcedVariations: {}, forcedFeatures: [], url: '' })
+    )
+
+    expect(response.statusCode).toBe(200)
+
+    const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
+    expect(events.find((e: any) => e.path === path)).toBeUndefined()
+  })
+
   it('E2E Case 4c: Cross-turn taint — data from a tool result reused in a later outbound request is flagged', async () => {
     // A distinctive value that DLP/heuristics treat as benign in isolation, but
     // whose REUSE across turns is the signal.
