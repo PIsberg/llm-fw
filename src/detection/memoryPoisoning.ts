@@ -55,8 +55,12 @@ export interface MemoryPoisoningFinding {
  */
 const STANDING_PERMISSION = [
   /\b(?:has|have|had|is|are)\s+(?:already\s+|previously\s+)?(?:been\s+)?(?:pre[-\s]?approved|pre[-\s]?authoris?[ez]ed)\b/i,
-  /\b(?:standing|blanket|implicit|prior|ongoing|permanent)\s+(?:approval|authoris?ation|permission|consent)\b/i,
-  /\b(?:the\s+)?user\s+(?:has|had)\s+(?:given\s+|granted\s+)?(?:standing\s+|blanket\s+|full\s+)?(?:approval|permission|consent|authoris?ation)\b/i,
+  // The noun phrase alone also names the concept in prose about this detector
+  // ("standing permission the agent was never granted", #313), so it needs a
+  // grant around it: held by someone before it, or a scope or grant after it.
+  /\b(?:has|have|had|with|given|granted|holds?|under)\s+(?:an?\s+|the\s+)?(?:standing|blanket|implicit|prior|ongoing|permanent)\s+(?:approval|authori[sz]ation|permission|consent)\b/i,
+  /\b(?:standing|blanket|implicit|prior|ongoing|permanent)\s+(?:approval|authori[sz]ation|permission|consent)\s+(?:to|for|(?:is\s+|was\s+|has\s+been\s+)?(?:granted|given|obtained|in\s+place|on\s+file))\b/i,
+  /\b(?:the\s+)?user\s+(?:has|had)\s+(?:given\s+|granted\s+)?(?:standing\s+|blanket\s+|full\s+)?(?:approval|permission|consent|authori[sz]ation)\b/i,
   /\bno\s+(?:further\s+|additional\s+)?(?:confirmation|approval|permission)\s+(?:is\s+)?(?:needed|required|necessary)\b/i,
   /\bwithout\s+(?:asking|requesting|seeking|needing)\s+(?:for\s+)?(?:confirmation|approval|permission)\b/i,
   /\bdoes\s+not\s+need\s+to\s+(?:ask|confirm|check)\b/i,

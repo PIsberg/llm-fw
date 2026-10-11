@@ -60,6 +60,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.42
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+narrows one memory-poisoning pattern so prose that names "standing
+permission" without granting it passes, and lets the standing-permission
+patterns match the US spelling "authorization", which they never did. A
+row-by-row diff over every eval split and the full Dolly-15k (23,938 rows)
+changed 0 block verdicts, and `npm run fpr` reports 0 of 2,000 on both the
+Dolly and oasst1 samples.
+
 ## Result, ruleset 2026.10.41
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only
