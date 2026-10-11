@@ -147,18 +147,4 @@ describe('pipeline under observe mode', () => {
     expect(events.every(e => e.enforced === undefined)).toBe(true)
     await pipeline.close()
   }, 120000)
-
-  it('leaves the streaming early-abort path non-blocking too', async () => {
-    // checkPartial aborts a request mid-body; observing there as well is what
-    // stops a streaming client being cut off while buffered ones pass.
-    const pipeline = new Pipeline(observing(), () => { })
-    await pipeline.init()
-
-    const partial = await pipeline.checkPartial('/v1/messages', INJECTION, {
-      target: 'api.anthropic.com', method: 'POST', path: '/v1/messages',
-    })
-
-    expect(partial?.action).not.toBe('block')
-    await pipeline.close()
-  }, 120000)
 })

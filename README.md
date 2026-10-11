@@ -15,7 +15,7 @@
 
 - 🛡️ **Catches what signatures can't.** A three-stage pipeline — fast heuristics → cross-lingual embeddings → an optional local LLM judge — detects *semantic* attacks by intent, not just known strings.
 - 🌍 **Every major provider, 20+ languages, zero config.** OpenAI, Anthropic, Gemini/Vertex, Azure, Mistral, Groq, and 9 more are covered out of the box — and an injection lands the same whether it's written in English, Urdu, or Thai.
-- ⚡ **Real-time, in-line blocking.** A malicious request is aborted mid-stream with a `403` before it ever leaves your machine. Clean traffic forwards with zero added latency.
+- ⚡ **Real-time, in-line blocking.** A malicious request is refused with a `403` before it ever leaves your machine. Clean traffic forwards with zero added latency.
 - 🔌 **No code changes.** Point `HTTPS_PROXY` at it — or enable the OS-level sinkhole for Node.js and native binaries that ignore proxies — and you're protected.
 - 🏠 **Fully local & private.** No cloud calls, no API keys, no telemetry. Boots in under 2 seconds.
 - 📊 **A dashboard that shows its work.** Watch blocked attempts live, replay any prompt through the pipeline in the playground, audit traffic at `localhost:7731`, and one-click **mark a false positive** so an identical prompt is never blocked again.

@@ -162,7 +162,7 @@ const BODY_DRAIN_TIMEOUT_MS = 10_000
  * 403 or 429), discard the rest of it instead of destroying the stream.
  * Destroying resets the socket under a client that is still writing: it never
  * reads the answer, and a keep-alive client loses the pooled connection too.
- * Claude Code, whose requests carry 100 KB+ of tools, saw every streaming-scan
+ * Claude Code, whose requests carry 100 KB+ of tools, saw every such early
  * block as ECONNRESET and retried 11 times. `Connection: close` has the same
  * effect, because Node closes once the response is written. The timer bounds
  * an upload that never ends; nothing is buffered, so memory stays bounded.
@@ -625,12 +625,16 @@ export class ProxyServer {
       }
 
       const chunks: Buffer[] = []
-      let accumulatedBody = ''
       let blocked = false
       let totalBytes = 0
       const maxBodyBytes = this.config.proxy.maxBodyBytes
 
-      // Intercept request stream to check chunks on the fly
+      // Buffer the body; nothing is forwarded until it is complete. Detection
+      // runs once, on the whole body, below. A per-chunk scan used to refuse
+      // early, but it could not tell which part of the request a string came
+      // from: it blocked suppressed prompts and the trusted system prompt that
+      // the full scan passes, double-reported under observe, and rescanning the
+      // growing body on every chunk cost ~2.5 s of CPU on a 107 KB request.
       innerReq.on('data', (chunk: Buffer) => {
         if (blocked) return
 
@@ -653,30 +657,6 @@ export class ProxyServer {
         }
 
         chunks.push(Buffer.from(chunk))
-        accumulatedBody += chunk.toString('utf-8')
-
-        let partialEventId = 'unknown'
-        void this.pipeline.checkPartial(
-          innerReq.url ?? '/',
-          accumulatedBody,
-          {
-            target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-            onEvent: (e) => { partialEventId = e.id },
-          }
-        ).then((partialResult) => {
-          if (partialResult && partialResult.action === 'block' && !blocked) {
-            blocked = true
-            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify(explainBlock({
-              eventId: partialEventId,
-              result: partialResult,
-              dashboardUrl: this.dashboardUrl(),
-            })))
-            // The upload is usually still in flight here (that is what a
-            // partial scan is for), so drain it rather than reset the client.
-            drainRefusedUpload(innerReq)
-          }
-        }).catch(() => { })
       })
 
       await new Promise<void>((resolve, reject) => {

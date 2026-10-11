@@ -40,7 +40,7 @@ for (const m of seed) {
   setTimeout(() => eventBus.emitTraffic({ service: m.service, host: m.host, bytesSent: m.bytesSent, bytesReceived: m.bytesReceived }), m.delayMs)
 }
 
-const fakePipeline = { run: async () => ({ action: 'pass' as const, stage: 'none' as const, score: 0, similarity: 0 }), init: async () => {}, checkPartial: async () => null } as unknown as Pipeline
+const fakePipeline = { run: async () => ({ action: 'pass' as const, stage: 'none' as const, score: 0, similarity: 0 }), init: async () => {} } as unknown as Pipeline
 
 const server = createDashboardServer(config, eventBus, fakePipeline)
 server.listen(config.dashboard.port, () => {
