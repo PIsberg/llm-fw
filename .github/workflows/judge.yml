@@ -1,0 +1,76 @@
+name: Stage 3 Judge
+
+# Runs test/detection/stage3-judge.test.ts against a real Ollama: one
+# hand-tuned prompt per injection class that slips past Stages 1 and 2 and must
+# be blocked by the judge. Until this workflow existed the suite skipped itself
+# whenever Ollama was unreachable, which was every run CI ever made, so the
+# judge's coverage gate had never executed outside a developer's machine.
+#
+# Too heavy for every PR (a 1.9 GB model pull, CPU inference), so it runs
+# nightly, on demand, and on pull requests that touch the judge or this suite.
+# The model is the product default (DEFAULT_CONFIG.detection.judgeModel).
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/detection/judge.ts'
+      - 'test/detection/stage3-judge.test.ts'
+      - 'test/detection/fixtures/stage3-corpus.json'
+      - 'vitest.judge.config.ts'
+      - '.github/workflows/judge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  judge:
+    name: Stage 3 judge (Ollama, qwen2.5:3b)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      ollama:
+        image: ollama/ollama:0.34.4@sha256:8262851b2846b87c649eddf3e76beb270c52f4d1bc94559f47efde16b0841551
+        ports:
+          - 11434:11434
+
+    env:
+      LLM_FW_MODEL_DIR: ${{ github.workspace }}/.hf-model-cache
+      LLM_FW_JUDGE_MODEL: qwen2.5:3b
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache embedding model
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.hf-model-cache
+          key: llm-fw-model-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-whisper
+
+      - name: Pull the judge model
+        run: curl -sSf http://localhost:11434/api/pull -d "{\"model\":\"$LLM_FW_JUDGE_MODEL\",\"stream\":false}"
+
+      # The judge call times out after 10 s (src/detection/judge.ts). Load the
+      # model into memory first, so the first test is not also paying the load.
+      - name: Warm the judge model
+        run: curl -sSf http://localhost:11434/api/generate -d "{\"model\":\"$LLM_FW_JUDGE_MODEL\",\"prompt\":\"ok\",\"keep_alive\":\"30m\",\"stream\":false}" > /dev/null
+
+      - name: Run the Stage 3 judge suite
+        run: npm run test:judge

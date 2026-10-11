@@ -31,7 +31,17 @@ npm run test
 
 # Run tests with code coverage reports
 npm run test:coverage
+
+# Stage 3 judge coverage, against a running Ollama (needs a model, e.g. qwen2.5:3b)
+LLM_FW_JUDGE_MODEL=qwen2.5:3b npm run test:judge
 ```
+
+The default run skips nothing. The OCR (`image-attacks.test.ts`) and speech
+transcription (`transcribe.model.test.ts`) suites run real models in it: the
+first run downloads about 12 MB of tesseract.js data and the 40 MB Whisper
+model, about 33 s together after that. The Stage 3 judge suite is the one
+exception, because it needs a live Ollama: it lives behind `npm run test:judge`
+and fails, rather than skips, when Ollama is unreachable.
 
 ---
 
@@ -95,6 +105,7 @@ Every pull request and merge to `main`, `feat/**`, `fix/**`, and `chore/**` auto
 *   **Offline Guarantee**: Our E2E tests do not access the public internet, meaning they run safely and deterministically inside GitHub runners.
 *   **Node.js Matrix**: Tests are verified across active LTS Node.js releases (**Node 22** and **Node 24**).
 *   **Code Coverage**: Coverage is measured automatically on Node 22 via Vitest and V8 coverage reporters, publishing the artifact for build review.
+*   **Stage 3 judge**: **[.github/workflows/judge.yml](../.github/workflows/judge.yml)** runs `npm run test:judge` against a pinned Ollama container with the default judge model, nightly and on pull requests that touch the judge or its suite.
 
 ---
 

@@ -9,8 +9,9 @@ import type { Config } from '../../src/types.js'
 // synthesised voice speaking an injection goes in as an OpenAI input_audio
 // part, Whisper transcribes it, and the pipeline blocks on the transcript.
 //
-// Opt-in, like the OCR content suite (RUN_OCR): the first run downloads the
-// ~40 MB Whisper model. Run with RUN_TRANSCRIBE=1. The fixtures were produced
+// The first run downloads the ~40 MB Whisper model into LLM_FW_MODEL_DIR (CI
+// caches it with the embedding model). Formerly opt-in behind RUN_TRANSCRIBE,
+// which nothing set, so it never ran in CI. The fixtures were produced
 // with the Windows System.Speech synthesiser (16 kHz, 16-bit mono); see
 // test/detection/fixtures/audio/README.md.
 const fixture = (name: string): string =>
@@ -26,7 +27,7 @@ const bodyWith = (wavB64: string): string => JSON.stringify({
 
 const meta = { target: 'api.openai.com', method: 'POST', path: '/v1/chat/completions' }
 
-describe.skipIf(!process.env['RUN_TRANSCRIBE'])('speech transcription with the real model (nonText.transcribe)', () => {
+describe('speech transcription with the real model (nonText.transcribe)', () => {
   const config: Config = {
     ...DEFAULT_CONFIG,
     detection: { ...DEFAULT_CONFIG.detection, judgeEnabled: false },

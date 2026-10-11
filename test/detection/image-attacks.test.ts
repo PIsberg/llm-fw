@@ -87,9 +87,10 @@ describe('image prompt-injection screenshots (issue #60)', () => {
 
 // OCR (nonText.ocr) reads the injection text out of the pixels and feeds it to
 // the normal pipeline, so a screenshot blocks on CONTENT — even in audit mode,
-// and a benign text-free image still passes. Gated behind RUN_OCR: the first
-// run downloads ~12 MB of tesseract.js core + language data over the network and
-// each image takes ~0.2–2s, neither of which belongs in the default CI path.
+// and a benign text-free image still passes. The first run downloads ~12 MB of
+// tesseract.js core + language data; each image takes ~0.2–2s. This used to be
+// opt-in behind RUN_OCR, which nothing set, so OCR shipped with 18 tests that
+// had never run in CI. 33 s locally for this file plus transcription.
 const ocrAudit: Config = {
   ...DEFAULT_CONFIG,
   detection: { ...DEFAULT_CONFIG.detection, judgeEnabled: false },
@@ -111,7 +112,7 @@ const ENCODED_RESIDUAL = ['attack2.png', 'attack3.png', 'attack5.png']
 // 1×1 transparent PNG — a real raster image with no legible text.
 const PNG_BLANK = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
-describe.skipIf(!process.env['RUN_OCR'])('image OCR content detection (nonText.ocr)', () => {
+describe('image OCR content detection (nonText.ocr)', () => {
   afterAll(async () => { await terminateOcr() })
 
   it('the two corpora together account for every fixture', () => {

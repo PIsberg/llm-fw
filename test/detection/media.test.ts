@@ -224,7 +224,7 @@ describe('pipeline — non-text content (issue #60)', () => {
 
   // Issue #82: speech in an audio clip is transcribed (opt-in) and scanned
   // like a document. The model itself is mocked; transcribe.test.ts covers
-  // decoding and transcribe.model.test.ts the real model (RUN_TRANSCRIBE).
+  // decoding and transcribe.model.test.ts the real model.
   describe('audio transcription (nonText.transcribe)', () => {
     const audioBody = JSON.stringify({
       model: 'gpt-4o-audio-preview',
