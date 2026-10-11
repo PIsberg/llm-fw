@@ -117,7 +117,11 @@ clause still blocks. Empty by default, and hot-reloaded. It does not cover
 payment instructions to an IBAN or account number: those name no domain.
 List only domains you control. Never list a public mail provider: InjecAgent's
 attacks send to a gmail.com address, and with `gmail.com` trusted the stage
-catches 772 of its 1,054 instead of all of them.
+catches 779 of its 1,054 instead of all of them. Any other destination in
+the same text (an address, URL, account number or IBAN) cancels the
+allowance, and an address counts as trusted only when whitespace or
+ordinary punctuation surrounds it and its local part has no `%` or `!`
+routing.
 
 ## Logging
 

@@ -882,11 +882,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lookalike (`finance@acme.com.evil.example`), any other address, a URL or a
   sensitive object in the same clause still blocks. Empty by default and
   hot-reloaded. List only domains you control: with `gmail.com` listed, the
-  stage catches 772 of InjecAgent's 1,054 attacks instead of all of them.
-  A trusted address never vouches for an untrusted one elsewhere in the same
-  text, and an address touching an invisible character (a zero-width space
-  before `.evil.example`) is not trusted. Rulesets 2026.10.44 and
-  2026.10.45.
+  stage catches 779 of InjecAgent's 1,054 attacks instead of all of them.
+  Any other destination in the same text (an address, URL, account number,
+  IBAN) cancels the allowance, and an address is trusted only with a clean
+  boundary and a plain local part, so `finance@acme.com<U+200B>.evil.example`,
+  `finance@acme.com@gmail.com` and `amy%gmail.com@acme.com` are not.
+  Rulesets 2026.10.44, 2026.10.45 and 2026.10.47.
 
 - **Opt-in: warn instead of block on the user's own prompt.**
   `detection.surfaces.prompt.wordingAction: "warn"` (or

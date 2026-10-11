@@ -323,19 +323,38 @@ function blankContactClauses(text: string): string {
  * which recipient is theirs (#282).
  */
 //
-// An address touching an invisible format character is never trusted: in
-// "finance@acme.com<U+200B>.evil.example" the regex stops at acme.com while a
-// mail client that strips the character delivers to acme.com.evil.example.
-const FORMAT_CHAR_RE = /[\p{Cf}\u00AD\u034F]/u
+// An address is trusted only where the regex and a mail client must read it
+// the same way: delimited by whitespace or ordinary punctuation on both sides,
+// and with a plain local part. Anything else is a place they can disagree:
+// "finance@acme.com<U+200B>.evil.example" (an invisible or filler character
+// the client strips), "finance@acme.com@gmail.com" (which @ is the domain's),
+// "amy%gmail.com@acme.com" (percent routing). An allowlist, not a list of
+// known-bad characters, because the filler characters are not all \p{Cf}.
+const ADDRESS_BEFORE_OK_RE = /^[\s<(\["',;:]?$/
+const ADDRESS_AFTER_OK_RE = /^(?:$|[\s>)\]"',;:!?]|\.(?:$|[\s>)\]"']))/
 function blankTrustedAddresses(text: string, domains: readonly string[]): string {
   if (!domains.length) return text
   return text.replace(EMAIL_RE, (addr: string, offset: number) => {
-    const domain = addr.slice(addr.lastIndexOf('@') + 1).toLowerCase()
-    const touchesFormatChar = FORMAT_CHAR_RE.test(text.charAt(offset - 1)) || FORMAT_CHAR_RE.test(text.charAt(offset + addr.length))
-    const trusted = !touchesFormatChar && domains.some((d) => domain === d || domain.endsWith(`.${d}`))
+    const at = addr.lastIndexOf('@')
+    const domain = addr.slice(at + 1).toLowerCase()
+    const delimited = ADDRESS_BEFORE_OK_RE.test(text.charAt(offset - 1)) &&
+      ADDRESS_AFTER_OK_RE.test(text.slice(offset + addr.length, offset + addr.length + 2)) &&
+      !/[%!]/.test(addr.slice(0, at))
+    const trusted = delimited && domains.some((d) => domain === d || domain.endsWith(`.${d}`))
     return trusted ? ' '.repeat(addr.length) : addr
   })
 }
+
+// Destinations an attacker would name instead of, or beside, a trusted
+// address. One anywhere in the text vetoes the trusted-recipient allowance.
+const ATTACKER_TARGET_RE = new RegExp([
+  EMAIL_RE.source,
+  'https?://',
+  '\\b\\d{3,}[-\\s.]\\d{3,}',
+  '\\b\\d{6,}\\b',
+  '\\b0x[0-9a-fA-F]{6,}\\b',
+  '\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b',
+].join('|'))
 
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 40)
@@ -810,13 +829,12 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // The ungated rules (polite, directive) fire on the verb alone. When the
   // verb's object window held a trusted address and nothing else an attacker
   // would name, the instruction is to the operator's own recipient.
-  // An untrusted address anywhere in the text vetoes this: a trusted one
-  // beside the verb must not vouch for an attacker's address further on.
-  EMAIL_RE.lastIndex = 0
-  const untrustedAddress = EMAIL_RE.test(text)
-  EMAIL_RE.lastIndex = 0
+  // Any other destination anywhere in the text vetoes this: a trusted address
+  // beside the verb must not vouch for an attacker's address, URL or account
+  // further on.
+  const untrustedTarget = ATTACKER_TARGET_RE.test(text)
   const onlyTrustedObject = (end: number): boolean =>
-    text !== original && !untrustedAddress && objectWindow(text, end) !== objectWindow(original, end) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))
+    text !== original && !untrustedTarget && objectWindow(text, end) !== objectWindow(original, end) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))
 
   // Strongest signal first: a send-class verb pointed at an email/account
   // target. Catches the data-stealing class even when framing is loose ("… and
