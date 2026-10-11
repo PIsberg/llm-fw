@@ -76,24 +76,52 @@ const RUNS_TEXT = /^(?:invoke-expression|iex|invoke-command|start-process)$/i
 // single quotes run to the next single quote.
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g
 
+// Programs that never run an argument as code. An allowlist, because the
+// list of programs that can is open-ended: sed's e flag, awk's system(),
+// find -exec, a git alias starting with !, sudo, env, make (security review
+// of #298's first cut, which listed runners instead).
+const TEXT_ONLY = new Set([
+  'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'head', 'tail', 'wc',
+  'sort', 'uniq', 'cut', 'tr', 'cd', 'pwd', 'ls', 'true',
+  'select-string', 'findstr', 'write-host', 'write-output', 'out-null', 'get-content', 'set-location',
+])
+// git and gh subcommands that take a message or body and run none of it.
+const TEXT_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
+  git: /^(?:commit|log|grep|show|diff|status|tag|add|push|reset|fetch|pull|checkout|switch|branch|merge|rebase)$/,
+  gh: /^(?:pr|issue|release)$/,
+}
+
+/** True when every simple command in `blanked` is one that cannot run its arguments. */
+function onlyTextPrograms(blanked: string): boolean {
+  return blanked.split(SEPARATORS).every((command) => {
+    const w = command.trim().split(/\s+/).filter(Boolean)
+    if (!w.length) return true
+    const program = (w[0] ?? '').replace(/^.*[\\/]/, '').toLowerCase()
+    if (TEXT_ONLY.has(program)) return true
+    const sub = TEXT_ONLY_SUBCOMMANDS[program]
+    // `git -c ...` can define an alias that runs a shell; anything before the
+    // subcommand disqualifies it.
+    return !!sub && sub.test((w[1] ?? '').toLowerCase()) && !w.includes('-c')
+  })
+}
+
 /**
- * Blank every quoted argument that holds whitespace, unless something in the
- * call can run text: a shell, interpreter or database client among the
- * unquoted words, a pipe into one, PowerShell's Invoke-Expression, or command
- * substitution (`$(...)`, backticks, `<(...)`). A quoted argument with a space
- * in it is never a git flag or an SQL statement git or a non-client runs, so
- * `grep "git reset --hard"` and `git commit -m "... DROP TABLE ..."` are text,
- * while `git push "--force"` (one token) and `bash -c "git reset --hard"`
- * stay scanned (#298). Applied to Category D only: the A and B patterns
- * (`rm -rf ~`, `curl | sh`) keep reading the whole line.
+ * Blank every quoted argument that holds whitespace, when every command in
+ * the call is a known text-only program (TEXT_ONLY, or a message-taking git
+ * or gh subcommand). A quoted argument with a space in it is never a git flag
+ * or an SQL statement such a program runs, so `grep "git reset --hard"` and
+ * `git commit -m "... DROP TABLE ..."` are text, while `git push "--force"`
+ * (one token), `bash -c "git reset --hard"` and `sed 's/x/.../e'` stay
+ * scanned (#298). Command substitution keeps everything scanned. Applied to
+ * Category D only: the A and B patterns (`rm -rf ~`, `curl | sh`) keep reading
+ * the whole line.
  */
 export function stripQuotedText(command: string): string {
   if (/\$\(|`|<\(/.test(command)) return command
   // A span crossing a line is left alone: it may be a here-string the call
   // runs rather than an argument.
   const blanked = command.replace(QUOTED, (q) => (/\s/.test(q) && !q.includes('\n') ? ' '.repeat(q.length) : q))
-  if (words(blanked).some((w) => RUNS_INPUT.test(w) || RUNS_TEXT.test(w))) return command
-  return blanked
+  return onlyTextPrograms(blanked) ? blanked : command
 }
 
 // PowerShell cmdlets that only write what they are given to a file.

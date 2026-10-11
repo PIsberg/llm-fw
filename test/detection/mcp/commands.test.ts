@@ -280,7 +280,7 @@ describe('CommandScanner Heuristic Engine', () => {
       for (const command of [
         'grep -rn "git reset --hard" src/',
         'rg -n "DROP TABLE" migrations/',
-        "sed -i 's/git push --force /git push --force-with-lease /' scripts/release.sh",
+        "rg -n 'git push --force ' scripts/ | head -5",
         'git commit -m "docs: never run git reset --hard on main"',
         'gh pr create --title "Guard migrations" --body "Refuse TRUNCATE TABLE outside tests"',
         "Select-String -Pattern 'terraform destroy' -Path *.md",
@@ -302,6 +302,22 @@ describe('CommandScanner Heuristic Engine', () => {
         'iex "git push --force"',
         '$(echo "git reset --hard")',
         'xargs -I{} sh -c "git push --force"',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
+    // Security review: a denylist of runners is never complete. sed's e flag,
+    // awk's system(), find -exec and a git alias all run quoted text, so the
+    // allowance now needs every command in the call to be a text-only one.
+    it('keeps quoted text scanned when any command in the call is not a known text-only program', () => {
+      for (const command of [
+        "sed 's/x/git reset --hard/e' notes.txt",
+        "awk 'BEGIN { system(\"git reset --hard\") }'",
+        'find . -name x -exec sh -c "git push --force" \\;',
+        "git -c alias.x='!git reset --hard' x",
+        'sudo env "git reset --hard"',
+        'grep -n "x" a.txt; make "git push --force"',
       ]) {
         expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
       }

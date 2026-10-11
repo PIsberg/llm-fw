@@ -60,6 +60,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.48
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+narrows when quoted text is ignored by the MCP shell guardrails: only when
+every command in the call is a known text-only program (grep, rg, echo, a
+git or gh message), since sed's `e` flag, awk's `system()`, `find -exec` and
+git aliases run quoted text. No eval row reaches it. Replaying 50,280 real
+Claude Code shell calls: 46 refusals before and after.
+
 ## Result, ruleset 2026.10.47
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
