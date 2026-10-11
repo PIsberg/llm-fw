@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { platform } from 'node:os';
 import { getLlmFwDir } from '../config/paths.js';
 import { lanIPv4 } from '../config/net.js';
+import { watchForStopRequest } from './stopRequest.js';
 import { execSync, execFileSync } from 'node:child_process';
 
 /**
@@ -302,8 +303,12 @@ export async function run(args: string[] = []): Promise<void> {
   // C3, detection.workerInference) if one was ever spawned — a no-op
   // otherwise. uncaughtException exits immediately without waiting on it;
   // the worker thread dies with the process either way.
-  process.on('SIGINT', () => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); });
-  process.on('SIGTERM', () => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); });
+  const gracefulStop = (): void => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); };
+  process.on('SIGINT', gracefulStop);
+  process.on('SIGTERM', gracefulStop);
+  // `llm-fw stop` asks through a file before it signals: on Windows SIGTERM is
+  // TerminateProcess and the handler above would never run (#310).
+  watchForStopRequest(llmfwDir, process.pid, gracefulStop);
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();

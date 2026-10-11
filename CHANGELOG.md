@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw stop` on Windows restores the hosts file and removes the :443
+  port redirect again.** `stop` sent SIGTERM, which on Windows is
+  TerminateProcess: `start`'s shutdown handler never ran, so with the
+  sinkhole on every LLM host kept resolving to 127.0.0.1 with :443 forwarded
+  to a port nobody listened on, the audit log and webhook were not flushed,
+  and the process exited 1. `stop` now writes the pid to
+  `~/.llm-fw/llm-fw.stop`, which the running process polls for and answers
+  with the same graceful shutdown as SIGTERM, exiting 0; it falls back to
+  SIGTERM and then SIGKILL after 5 s unanswered, so a `start` from an older
+  version still stops. A test spawns a process holding the watcher and checks
+  its cleanup ran and it exited 0; it failed with exit 1 before the change.
+
 - **The `docs` link in every 403 lands on the false-positive guide again.**
   Each block body pointed at `README#false-positive-suppression-list`, a
   section that moved to `docs/guides/tuning.md` when the README was cut down,
