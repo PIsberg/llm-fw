@@ -73,7 +73,8 @@ updates:
   # The Dockerfile's base image, pinned by digest. Without this nothing would
   # ever propose a new digest, and a pin nobody moves is a pin that ages into
   # an unpatched base. A bump changes the Node patch level the image runs on,
-  # not detection; build the image and run it once before merging.
+  # not detection. The Docker Image workflow (docker.yml) builds and runs the
+  # image on these PRs, so read its result before merging.
   #
   # Majors are ignored. The tag's major is the Node line the image runs, and it
   # must be one the CI matrix tests (test/ci/dockerPinning.test.ts). Without

@@ -1013,6 +1013,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **CI now builds and runs the Docker image.** No workflow built the
+  `Dockerfile`, so a base-image bump merged on a green CI that never built
+  it: #280 moved every stage to `node:23`, a non-LTS line past end-of-life.
+  The new Docker Image workflow builds the image on pull requests that touch
+  its inputs (Dependabot's docker and npm bumps included), fails if the Node
+  major inside it is not one the CI matrix tests, then starts the container
+  and waits for the gateway's `/readyz`. `test/ci/dockerBuild.test.ts` keeps
+  the job's triggers and steps from being dropped.
+
 - **The test suite no longer skips anything: 23 tests that had never run in CI
   now do.** The OCR content suite (18 tests, `RUN_OCR`) and the real-model
   speech transcription suite (4, `RUN_TRANSCRIBE`) were opt-in behind flags

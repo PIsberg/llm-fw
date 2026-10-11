@@ -1,0 +1,84 @@
+name: Docker Image
+
+# Builds the image and runs it once, so a base-image bump or a lockfile change
+# cannot merge on a CI that never built it. #280 moved every stage to node:23,
+# a non-LTS line past end-of-life, on a green CI that had no image build at all
+# (#299). Path-filtered: the model-warm stage downloads the embedding model, so
+# the job runs when an input to the image changes, not on every PR.
+
+on:
+  pull_request:
+    branches-ignore: [gh-pages]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'data/**'
+      - '.github/workflows/docker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'data/**'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    name: Build & Smoke (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runtime stage already fails the build if the ONNX prune broke the
+      # embedding stage (see the post-prune check in the Dockerfile).
+      - name: Build the image
+        run: DOCKER_BUILDKIT=1 docker build --progress=plain -t llm-fw:ci .
+
+      # dockerPinning.test.ts checks the FROM tag statically; this checks the
+      # Node the built image actually runs is a major ci.yml's matrix tests.
+      - name: Node major is one the CI matrix runs
+        run: |
+          image_major=$(docker run --rm --entrypoint node llm-fw:ci --version | sed -E 's/^v([0-9]+)\..*/\1/')
+          matrix=$(grep -oE 'node-version: \[[0-9, ]+\]' .github/workflows/ci.yml | head -1 | grep -oE '[0-9]+')
+          echo "image runs Node $image_major; CI matrix: $(echo $matrix)"
+          echo "$matrix" | grep -qx "$image_major" || { echo "::error::image runs Node $image_major, which no CI job tests"; exit 1; }
+
+      - name: Start the container
+        run: docker run -d --name llm-fw-smoke -p 127.0.0.1:8081:8081 -e LLM_FW_GATEWAY_TOKEN=ci-smoke-token llm-fw:ci
+
+      # /readyz answers 503 until the embedding model has loaded, so a 200
+      # means the image starts, binds and can scan.
+      - name: Wait for the gateway to report ready
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/readyz || true)
+            if [ "$code" = "200" ]; then echo "ready after ${i}x2 s"; exit 0; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' llm-fw-smoke)" != "true" ]; then
+              echo "::error::container exited before it was ready"; exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::gateway never reported ready (last status $code)"
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs llm-fw-smoke 2>&1 | tail -100 || true
