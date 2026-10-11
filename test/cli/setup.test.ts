@@ -1,8 +1,38 @@
 import { describe, it, expect } from 'vitest'
-import { addProfileEnvVars } from '../../src/cli/setup.js'
+import { addProfileEnvVars, caTrustHint } from '../../src/cli/setup.js'
 import { stripProfileEnvVars } from '../../src/cli/uninstall.js'
 
 const PROXY = 'http://127.0.0.1:8080'
+
+/**
+ * Printed when setup cannot install the CA, which on Windows is every
+ * non-elevated run. It used to list the Windows, macOS and Linux commands on
+ * every OS, without saying the Windows one needs an Administrator terminal.
+ */
+describe('caTrustHint', () => {
+  const ca = 'C:\\Users\\u\\.llm-fw\\ca.crt'
+
+  it('on Windows gives only the certutil command and says it needs elevation', () => {
+    const text = caTrustHint('win32', ca).join('\n')
+    expect(text).toContain(`certutil -addstore -f Root "${ca}"`)
+    expect(text).toMatch(/Administrator/)
+    expect(text).not.toContain('security add-trusted-cert')
+    expect(text).not.toContain('update-ca-certificates')
+  })
+
+  it('says Node.js tools already trust the CA through NODE_EXTRA_CA_CERTS', () => {
+    expect(caTrustHint('win32', ca).join('\n')).toContain('NODE_EXTRA_CA_CERTS')
+  })
+
+  it('on macOS and Linux gives only that OS\'s sudo command', () => {
+    const mac = caTrustHint('darwin', '/Users/u/.llm-fw/ca.crt').join('\n')
+    expect(mac).toContain('sudo security add-trusted-cert')
+    expect(mac).not.toContain('certutil')
+    const linux = caTrustHint('linux', '/home/u/.llm-fw/ca.crt').join('\n')
+    expect(linux).toContain('sudo update-ca-certificates')
+    expect(linux).not.toContain('certutil')
+  })
+})
 
 describe('addProfileEnvVars', () => {
   it('appends the llm-fw env block with both exports', () => {

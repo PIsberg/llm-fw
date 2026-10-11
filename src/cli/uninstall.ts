@@ -5,6 +5,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { isElevated, getIdeSettingsPaths } from './setup.js';
+import { serializeLike } from './jsonFormat.js';
 import { loadConfig } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
 
@@ -104,6 +105,23 @@ export function stripIdeProxyConfig(parsed: Record<string, unknown>): Record<str
   return next;
 }
 
+/**
+ * settings.json text with llm-fw's proxy keys removed, in the file's own
+ * formatting, or null when there is nothing of ours to remove (or the file has
+ * comments and cannot be rewritten without losing them).
+ */
+export function removeIdeProxy(content: string): string | null {
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const cleaned = stripIdeProxyConfig(config);
+  if (JSON.stringify(config) === JSON.stringify(cleaned)) return null;
+  return serializeLike(content, cleaned);
+}
+
 // ── OS-touching steps ─────────────────────────────────────────────────────────
 
 const ok = (msg: string) => console.log(`  ✓ ${msg}`);
@@ -124,8 +142,14 @@ function stopRunningProxy(llmfwDir: string): void {
 }
 
 /** Remove the root CA from the OS trust store. Needs elevation on every OS. */
-function removeCaFromTrustStore(): void {
-  const os = platform();
+export function removeCaFromTrustStore(os: NodeJS.Platform = platform()): void {
+  // Look first: a non-elevated setup never installed the CA, and reporting a
+  // failed delete of something absent sends the user off to re-run elevated
+  // for nothing. Reading the store needs no elevation on any OS.
+  if (!caInTrustStore(os)) {
+    skip('CA not in the OS trust store — nothing to remove');
+    return;
+  }
   try {
     if (os === 'win32') {
       // delstore matches the cert by its common name.
@@ -143,6 +167,19 @@ function removeCaFromTrustStore(): void {
     if (os === 'win32') warn('  certutil -delstore -f Root "llm-fw Local CA"   (run elevated)');
     else if (os === 'darwin') warn('  sudo security delete-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain');
     else warn(`  sudo rm -f /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates --fresh`);
+  }
+}
+
+/** Whether the llm-fw CA is installed. Errs towards true, so a failed probe still attempts the delete. */
+function caInTrustStore(os: NodeJS.Platform): boolean {
+  if (os !== 'win32' && os !== 'darwin') return fs.existsSync('/usr/local/share/ca-certificates/llm-fw-ca.crt');
+  try {
+    execSync(os === 'win32'
+      ? 'certutil -store Root "llm-fw Local CA"'
+      : 'security find-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -301,17 +338,9 @@ function removeIdeProxySettings(): void {
   for (const p of paths) {
     try {
       if (!fs.existsSync(p)) continue;
-      const content = fs.readFileSync(p, 'utf8');
-      let config: Record<string, unknown>;
-      try {
-        config = JSON.parse(content) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-
-      const cleaned = stripIdeProxyConfig(config);
-      if (JSON.stringify(config) !== JSON.stringify(cleaned)) {
-        fs.writeFileSync(p, JSON.stringify(cleaned, null, 4), 'utf8');
+      const cleaned = removeIdeProxy(fs.readFileSync(p, 'utf8'));
+      if (cleaned !== null) {
+        fs.writeFileSync(p, cleaned, 'utf8');
         modifiedAny = true;
       }
     } catch { /* ignore individual write/read errors */ }
@@ -371,9 +400,9 @@ export async function run(args: string[]): Promise<void> {
   console.log('  Environment variables were removed from registry/profiles, but active shell');
   console.log('  sessions still retain them. To clean your current session, run:');
   if (platform() === 'win32') {
-    console.log('    Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS   # current session');
+    console.log("    Remove-Item Env:HTTPS_PROXY, Env:NO_PROXY, Env:NODE_EXTRA_CA_CERTS   # current session");
   } else {
-    console.log('    unset HTTPS_PROXY NODE_EXTRA_CA_CERTS                  # current session');
+    console.log("    unset HTTPS_PROXY NO_PROXY NODE_EXTRA_CA_CERTS                  # current session");
   }
   console.log('\n  Note: the Windows IP Helper service (iphlpsvc) and any Ollama judge model are');
   console.log('  shared system resources and are left in place. Remove them yourself if unused:');

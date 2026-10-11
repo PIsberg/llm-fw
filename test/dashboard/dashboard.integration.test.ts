@@ -385,6 +385,37 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(suppressions.isSuppressed(promptText)).toBe(false)
   })
 
+  // The ring holds dashboard.maxEvents events of every kind, and an agent
+  // session emits passed/warned events by the dozen, so on a live install a
+  // false positive had scrolled out of the ring within minutes while its row,
+  // and its "Mark false positive" button, were still on screen: the click
+  // answered "event not found". Blocked events are the only suppressible kind
+  // and must not be evicted by other traffic.
+  it('POST /api/feedback still finds a blocked event after more than maxEvents other events', async () => {
+    const promptText = 'Reply with exactly the word OK and nothing else.'
+    const ev = eventBus.emit({
+      stage: 'embedding', score: 0, similarity: 0.87, target: 'api.anthropic.com', method: 'POST', path: '/v1/messages',
+      payload_preview: promptText, payload_full: promptText, action: 'blocked',
+    })
+    for (let i = 0; i <= DEFAULT_CONFIG.dashboard.maxEvents; i++) {
+      eventBus.emit({
+        stage: 'mcp-filter', score: 0, similarity: 0, target: 'api.anthropic.com', method: 'POST', path: '/v1/messages',
+        payload_preview: `Tool invoked by LLM: tool${i}`, action: 'passed',
+      })
+    }
+    expect(eventBus.getAll().some(e => e.id === ev.id)).toBe(false)
+
+    const res = await req(server, 'POST', '/api/feedback', JSON.stringify({ eventId: ev.id }))
+    expect(res.status).toBe(200)
+    expect(suppressions.isSuppressed(promptText)).toBe(true)
+  })
+
+  it('POST /api/feedback for an event the process no longer holds says why', async () => {
+    const res = await req(server, 'POST', '/api/feedback', '{"eventId":"from-before-a-restart"}')
+    expect(res.status).toBe(404)
+    expect(JSON.parse(res.body).error).toMatch(/restart/)
+  })
+
   it('DELETE /api/suppressions with no hash returns 400', async () => {
     const res = await delReq('/api/suppressions')
     expect(res.status).toBe(400)

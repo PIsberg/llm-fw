@@ -38,6 +38,9 @@ export async function run(): Promise<void> {
     }
 
     if (pidFileGone || processDead) {
+      // On Windows SIGTERM is TerminateProcess, so start's exit handler never
+      // runs and the pid file outlives the process. Clean up after it here.
+      removePidFile(pidFile, pid);
       console.log('llm-fw stopped.');
       return;
     }
@@ -48,5 +51,13 @@ export async function run(): Promise<void> {
   try {
     process.kill(pid, 'SIGKILL');
   } catch {}
+  removePidFile(pidFile, pid);
   console.log('llm-fw killed.');
+}
+
+/** Remove the pid file only if it still names the process we stopped. */
+function removePidFile(pidFile: string, pid: number): void {
+  try {
+    if (parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10) === pid) fs.unlinkSync(pidFile);
+  } catch { /* already gone */ }
 }

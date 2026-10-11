@@ -714,6 +714,10 @@ function appendRow(ev) {
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
 const es = new EventSource('/events');
+// Every (re)connect replays the server's whole buffer, so start from an empty
+// table: no duplicated rows after a dropped connection, and no rows left over
+// from before a restart whose "Mark false positive" the server cannot honour.
+es.onopen = () => { tbody.replaceChildren(); };
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 
 // ── Playground ────────────────────────────────────────────────────────────────
@@ -2303,10 +2307,13 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             res.end(JSON.stringify({ error: 'eventId is required' }))
             return
           }
-          const event = eventBus.getAll().find(e => e.id === eventId)
+          const event = eventBus.find(eventId)
           if (!event) {
             res.writeHead(404, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'event not found' }))
+            res.end(JSON.stringify({
+              error: 'event not found: events are held in memory only, so llm-fw forgets them on restart, ' +
+                'and it keeps the last ' + config.dashboard.maxEvents + ' blocked ones. Re-send the request and mark the new event.',
+            }))
             return
           }
           if (event.action !== 'blocked') {

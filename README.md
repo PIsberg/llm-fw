@@ -191,6 +191,11 @@ npm install -g llm-fw
 npx llm-fw <command>
 ```
 
+npm 11 skips dependency install scripts by default and warns about two:
+`onnxruntime-node` and `protobufjs`. Both are safe to leave skipped. The
+`onnxruntime-node` script only fetches optional CUDA binaries; the CPU binaries
+llm-fw runs on ship inside the package.
+
 ---
 
 ## Quick Start
