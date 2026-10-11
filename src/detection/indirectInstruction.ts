@@ -164,10 +164,42 @@ const OBJECT_WINDOW = 120
 // another column of `gh pr checks` ("Publish to itch.io<TAB>skipping<TAB>0
 // <TAB>https://...") were taken as the verb's object, so every first push of a
 // new branch blocked the rest of the session.
+//
+// Cutting at every break, though, let an attacker split the clause on purpose
+// ("Grant access\nto guest_amy01", #293). A break is crossed when the clause
+// visibly runs across it: nothing on the verb's side ends it (`:` `.` `!` `?`
+// `;`), and the far side opens with a lowercase preposition. git's
+// "...by visiting:" / "remote: https://..." and gh's status columns do neither.
+// And the line being left must be short: a deliberate split leaves the verb on
+// a short line, while hard-wrapped prose breaks near full width, mid-clause,
+// everywhere ("set `http.proxy`" / "to `http://127.0.0.1:8080`" in a wrapped
+// Markdown guide was the one new block replaying 73,695 real tool results).
+const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]/
+const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
+const SPLIT_LINE_MAX = 48
+/** Index just past the last field break before `i`; -Infinity when the line is longer than the look-back. */
+function lineStartBefore(text: string, i: number): number {
+  const lo = Math.max(0, i - 200)
+  const head = text.slice(lo, i)
+  const re = new RegExp(FIELD_BREAK_RE.source, 'g')
+  let end = -1
+  for (let m = re.exec(head); m; m = re.exec(head)) end = m.index + m[0].length
+  if (end >= 0) return lo + end
+  return lo === 0 ? 0 : -Infinity
+}
 function objectWindow(text: string, verbEnd: number): string {
-  const w = text.slice(verbEnd - 1, verbEnd + OBJECT_WINDOW)
-  const cut = w.slice(1).search(/[\r\n\t]|\\[nrt]/)
-  return cut < 0 ? w : w.slice(0, cut + 1)
+  const base = verbEnd - 1
+  const w = text.slice(base, verbEnd + OBJECT_WINDOW)
+  let lineStart = lineStartBefore(text, base)
+  for (let from = 1; ;) {
+    const m = FIELD_BREAK_RE.exec(w.slice(from))
+    if (!m) return w
+    const cut = from + m.index
+    const after = w.slice(cut).replace(/^(?:\s|\\[nrt])+/, '')
+    if (base + cut - lineStart > SPLIT_LINE_MAX || /[:.!?;]\s*$/.test(w.slice(0, cut)) || !CONTINUES_CLAUSE_RE.test(after)) return w.slice(0, cut)
+    from = cut + m[0].length
+    lineStart = base + from
+  }
 }
 
 const IMPERATIVE_OBJECT_RE = new RegExp([

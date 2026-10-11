@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An instruction split across two lines of a tool result is caught again.**
+  Since the fix that stopped git's push output and `gh pr checks` columns
+  from lending a URL to an unrelated verb, the object-gated indirect rules
+  stopped at every line break, tab or escaped `\n`, so an attacker who
+  controls a tool result could write "Grant access" and "to guest_amy01" on
+  separate lines and pass. A break is now crossed when the clause visibly
+  runs across it: the verb's line is short (48 characters or fewer), ends in
+  no `:` `.` `!` `?` `;`, and the next line opens with a preposition. git and
+  gh output still stop at the break, and so does hard-wrapped Markdown, whose
+  lines run near full width. 0 of 23,938 eval verdicts changed; replaying
+  73,809 real tool results added no benign finding. Ruleset 2026.10.43.
+
 - **An agent can read llm-fw's own CHANGELOG without the memory-poisoning
   stage refusing it, and US-spelled grants are now caught.** The phrase
   "standing permission" (or blanket, prior, ongoing approval) blocked on its

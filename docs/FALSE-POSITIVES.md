@@ -60,6 +60,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.43
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset lets
+the object-gated indirect-instruction rules follow a clause an attacker split
+across a line break, tab or escaped break ("Grant access" / "to
+guest_amy01"), when the verb's line is short, ends in no clause punctuation,
+and the next opens with a preposition. No eval row has this shape: the
+detector's verdict changed on 0 of 23,938 rows, so `npm run fpr` (0 of 2,000
+on both samples) cannot move. Replaying 73,809 real Claude Code tool results,
+the only new findings are this change's own attack examples.
+
 ## Result, ruleset 2026.10.42
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
