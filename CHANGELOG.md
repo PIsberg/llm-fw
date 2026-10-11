@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An agent can read a security document that quotes a memory-poisoning
+  payload without the request being refused.** Reading llm-fw's own README
+  through Claude Code was blocked: it documents the memory-poisoning stage by
+  quoting the shapes it catches, and the stage could not tell a quoted example
+  from an assertion. A match that lies entirely inside one quoted span or code
+  block of a tool result or document is now recorded in Live Traffic as a
+  warning instead of a block. An unquoted assertion anywhere in the same text
+  still blocks, and so does a quoted one inside a recalled-memory envelope,
+  which has no reason to quote a grant of authority. Memory writes are gated
+  as before. 0 of 23,938 eval verdicts changed. Ruleset 2026.10.40.
+
 - **`llm-fw stop` on Windows restores the hosts file and removes the :443
   port redirect again.** `stop` sent SIGTERM, which on Windows is
   TerminateProcess: `start`'s shutdown handler never ran, so with the

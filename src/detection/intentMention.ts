@@ -65,7 +65,7 @@ const FICTION_RE =
  * Return the character spans covered by quotes, backticks, or fenced code
  * blocks. Content inside these is being shown/quoted, not issued.
  */
-function quotedSpans(text: string): Array<[number, number]> {
+export function quotedSpans(text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = []
   // Fenced code blocks first (```...```), then inline runs of quote/backtick.
   const patterns = [

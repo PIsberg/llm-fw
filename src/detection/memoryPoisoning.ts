@@ -34,11 +34,19 @@
  * confidence alongside one of the assertions below.
  */
 
+import { quotedSpans } from './intentMention.js'
+
 export interface MemoryPoisoningFinding {
   /** Which family fired, for the audit event and for tests. */
   kind: 'standing-permission' | 'safety-retired' | 'instruction-override' | 'redaction-disabled' | 'armed-trigger'
   /** The matched span, trimmed, for the operator to read in the dashboard. */
   snippet: string
+  /**
+   * The match lies entirely inside one quoted span or code block: the text
+   * shows the assertion (a README documenting the attack) rather than making
+   * it. Only reported when no family matched outside quotes (#311).
+   */
+  quoted: boolean
 }
 
 /**
@@ -104,18 +112,31 @@ function snippetFor(text: string, index: number, length: number): string {
 
 /**
  * Inspect a stored/recalled memory for an assertion that would expand the
- * agent's authority. Returns the first family that fires, or null.
+ * agent's authority. Returns the first family that fires outside quotes, else
+ * the first quoted match (flagged `quoted`), or null.
  */
 export function detectMemoryPoisoning(text: string): MemoryPoisoningFinding | null {
   if (!text || text.length < 12) return null
 
+  let spans: Array<[number, number]> | undefined
+  let quotedFinding: MemoryPoisoningFinding | null = null
   for (const [kind, patterns] of FAMILIES) {
-    for (const re of patterns) {
-      const m = re.exec(text)
-      if (m) return { kind, snippet: snippetFor(text, m.index, m[0].length) }
+    for (const pattern of patterns) {
+      const re = new RegExp(pattern.source, pattern.flags + 'g')
+      let m: RegExpExecArray | null
+      while ((m = re.exec(text)) !== null) {
+        const start = m.index
+        const end = start + m[0].length
+        spans ??= quotedSpans(text)
+        const quoted = spans.some(([a, b]) => start >= a && end <= b)
+        const finding = { kind, snippet: snippetFor(text, start, m[0].length), quoted }
+        if (!quoted) return finding
+        quotedFinding ??= finding
+        if (m[0].length === 0) re.lastIndex++
+      }
     }
   }
-  return null
+  return quotedFinding
 }
 
 /**

@@ -60,6 +60,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.40
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset stops
+the memory-poisoning stage refusing a document or tool result that only
+quotes the assertion it looks for, such as llm-fw's own README describing the
+detector; the quoted match is recorded as a warning instead. A row-by-row diff
+over every eval split and the full Dolly-15k (23,938 rows) changed 0 block
+verdicts, and `npm run fpr` reports 0 of 2,000 on both the Dolly and oasst1
+samples.
+
 ## Result, ruleset 2026.10.39
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset

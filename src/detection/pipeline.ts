@@ -572,14 +572,19 @@ export class Pipeline {
       ) {
         const mem = detectMemoryPoisoning(prompt)
         if (mem) {
-          if (this.config.memoryPoisoning.mode === 'block') {
+          // A document or tool result that only QUOTES the assertion (a README
+          // documenting the attack, #311) is recorded, not refused. A recalled
+          // memory gets no such allowance: it has no reason to quote a grant
+          // of authority.
+          const quotedInData = mem.quoted && source !== 'memory'
+          if (this.config.memoryPoisoning.mode === 'block' && !quotedInData) {
             const result: PipelineResult = { action: 'block', stage: 'memory-poisoning', score: 100, similarity: 0, prompt }
             this.emit(result, meta, `[memory: ${mem.kind}] ${mem.snippet}`, source)
             return result
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'memory-poisoning', score: 0, similarity: 0, prompt },
-            prompt: `[memory: ${mem.kind}] ${mem.snippet}`,
+            prompt: `[memory: ${mem.kind}${mem.quoted ? ', quoted' : ''}] ${mem.snippet}`,
             source,
           }
         }

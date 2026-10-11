@@ -249,6 +249,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.38 (linear email filter in the leetspeak gate;
   // embedding chunks capped at 4,096 characters): same rows, 9/336, both
   // samples 0/2000.
+  // Held at ruleset 2026.10.40 (memory-poisoning warns on a match quoted in
+  // a document or tool result): 0 of 23,938 eval verdicts changed, 9/336,
+  // both samples 0/2000.
   // Held at ruleset 2026.10.39 (proxy per-chunk partial scan removed; run()
   // untouched): same rows, 9/336, both samples 0/2000.
   'agent-tool-definition': 0,
