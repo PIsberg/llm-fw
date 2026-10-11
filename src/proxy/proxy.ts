@@ -143,10 +143,29 @@ export function sanitizeHeaders(headers: http.IncomingHttpHeaders): Record<strin
 }
 
 /**
- * How long to keep discarding a request body already refused with a 413, so
- * the client can finish writing and read the answer rather than being reset.
+ * How long to keep discarding a request body already refused, so the client
+ * can finish writing and read the answer rather than being reset.
  */
 const BODY_DRAIN_TIMEOUT_MS = 10_000
+
+/**
+ * After answering a request whose body may still be uploading (413, an early
+ * 403 or 429), discard the rest of it instead of destroying the stream.
+ * Destroying resets the socket under a client that is still writing: it never
+ * reads the answer, and a keep-alive client loses the pooled connection too.
+ * Claude Code, whose requests carry 100 KB+ of tools, saw every streaming-scan
+ * block as ECONNRESET and retried 11 times. `Connection: close` has the same
+ * effect, because Node closes once the response is written. The timer bounds
+ * an upload that never ends; nothing is buffered, so memory stays bounded.
+ */
+function drainRefusedUpload(req: http.IncomingMessage): void {
+  req.resume()
+  const cutoff = setTimeout(() => req.destroy(), BODY_DRAIN_TIMEOUT_MS)
+  cutoff.unref()
+  const stop = (): void => { clearTimeout(cutoff) }
+  req.once('end', stop)
+  req.once('error', stop)
+}
 
 export class ProxyServer {
   private server: http.Server
@@ -536,7 +555,7 @@ export class ProxyServer {
             kind: 'dos',
             dosReason: 'rate limit exceeded',
           })
-          innerReq.destroy()
+          drainRefusedUpload(innerReq)
           return
         }
         if (this.quota.sessionExceeded()) {
@@ -555,7 +574,7 @@ export class ProxyServer {
             kind: 'dos',
             dosReason: 'session token budget exceeded',
           })
-          innerReq.destroy()
+          drainRefusedUpload(innerReq)
           return
         }
       }
@@ -590,7 +609,7 @@ export class ProxyServer {
             ...(observingUrl ? { enforced: false } : {}),
           })
           if (!observingUrl) {
-            innerReq.destroy()
+            drainRefusedUpload(innerReq)
             return
           }
         }
@@ -619,18 +638,8 @@ export class ProxyServer {
           // had the identical bug; see readBody in src/gateway/gateway.ts.
           innerRes.writeHead(413, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'request body too large', limit: maxBodyBytes }))
-          // Drain the rest and keep the connection: the client is still
-          // uploading, so anything that ends the socket early resets it before
-          // it can read the answer. `Connection: close` had the same effect as
-          // destroying, because Node closes once the response is written. See
-          // readBody in src/gateway/gateway.ts. Nothing is buffered, so the
-          // memory bound holds; the timer bounds an upload that never ends.
-          innerReq.resume()
-          const drainCutoff = setTimeout(() => innerReq.destroy(), BODY_DRAIN_TIMEOUT_MS)
-          drainCutoff.unref()
-          const stopDraining = (): void => { clearTimeout(drainCutoff) }
-          innerReq.once('end', stopDraining)
-          innerReq.once('error', stopDraining)
+          // See readBody in src/gateway/gateway.ts for the same fix there.
+          drainRefusedUpload(innerReq)
           return
         }
 
@@ -654,7 +663,9 @@ export class ProxyServer {
               result: partialResult,
               dashboardUrl: this.dashboardUrl(),
             })))
-            innerReq.destroy()
+            // The upload is usually still in flight here (that is what a
+            // partial scan is for), so drain it rather than reset the client.
+            drainRefusedUpload(innerReq)
           }
         }).catch(() => { })
       })
