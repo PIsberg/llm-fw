@@ -421,6 +421,8 @@ export function normalizeSemantic(text: string): string {
   return result.toLowerCase()
 }
 
+const NON_ASCII_LETTER_RE = /[^\x00-\x7F\P{L}]/u
+
 export function extractCandidates(text: string): { text: string; source: string }[] {
   const candidates: { text: string; source: string }[] = []
 
@@ -431,10 +433,12 @@ export function extractCandidates(text: string): { text: string; source: string 
   // 'original' candidate above strips diacritics for the regex heuristics,
   // which mangles diacritic-bearing scripts (Vietnamese, Thai, Tamil, …) and
   // sinks their embedding similarity. Add the semantic form so those languages
-  // reach the encoder intact. Deduped when it equals the stripped form (plain
-  // ASCII English), so this is a no-op for the common case.
+  // reach the encoder intact. Only when a non-ASCII letter survives in it:
+  // otherwise it differs from 'original' by punctuation alone (a backtick in
+  // 2,132 of 2,380 real Claude Code items that produced one), which costs a
+  // second embedding pass per chunk for no script to preserve (#297).
   const semantic = normalizeSemantic(text)
-  if (semantic !== originalNormalized) {
+  if (semantic !== originalNormalized && NON_ASCII_LETTER_RE.test(semantic)) {
     candidates.push({ text: semantic, source: 'semantic' })
   }
 

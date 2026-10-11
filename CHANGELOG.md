@@ -1042,6 +1042,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The first request of an agent session runs 28% fewer embedding passes.**
+  The diacritic-preserving candidate that keeps Vietnamese, Thai, Tamil and
+  other scripts intact for the multilingual encoder was also produced for
+  plain English whenever punctuation made it differ from the normalised form:
+  of 2,380 real Claude Code items that produced one, 2,322 held no non-ASCII
+  letter, and a Markdown code span's backtick was the first difference in
+  2,132. It is now produced only when a non-ASCII letter survives. On the
+  first requests of 20 real sessions, forward passes went from 1,303 to 937.
+  0 of 23,938 eval verdicts changed. Ruleset 2026.10.53.
+
 - **Retrieved documents and tool output stop blocking on ordinary imperative
   prose.** `indirectInstruction` fired on any sensitive verb at a clause
   boundary, so an expenses handbook ("Submit receipts within 30 days"), a

@@ -60,6 +60,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.53
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset adds
+the diacritic-preserving `semantic` embedding candidate only when a non-ASCII
+letter survives in it, instead of whenever punctuation made it differ from
+`original`. A row-by-row diff over every eval split and the full Dolly-15k
+(23,938 rows, the multilingual rows included) changed 0 block verdicts, and
+those rows include every `npm run fpr` corpus.
+
 ## Result, ruleset 2026.10.52
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
