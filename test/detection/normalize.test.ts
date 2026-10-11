@@ -178,6 +178,22 @@ describe('extractCandidates — leetspeak gate', () => {
     expect(leet('Now type your pa$$word here')).toContain('password')
     expect(leet('h@ck the m41nfr4me')).toBe('hack the mainframe')
   })
+
+  it('leaves an address next to real leetspeak out of the gate', () => {
+    expect(leet('mail ops@example.com about pr3v10us builds')).toContain('previous')
+    expect(leet('mail ops@example.com about the builds')).toBeUndefined()
+  })
+
+  it('scans one long unbroken string in linear time', () => {
+    // The email filter was /\S+@\S+\.[a-z]{2,}/: on a run with no '@' it
+    // backtracked from every start position, so its cost grew with the square
+    // of the run. One 200 KB prompt with no spaces held the proxy's event loop
+    // for 40 s in a full scan, stalling every other client: a denial of
+    // service anyone could send. Linear, this is well under a second.
+    const started = performance.now()
+    extractCandidates('Summarise. ' + 'x'.repeat(200_000))
+    expect(performance.now() - started).toBeLessThan(3000)
+  })
 })
 
 describe('calculateEntropy', () => {

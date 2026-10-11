@@ -98,6 +98,45 @@ describe('EmbeddingChecker', () => {
     expect(result.chunkCount).toBeGreaterThan(1)
   })
 
+  it('check() never hands the tokenizer more than 4096 characters at once', async () => {
+    // transformers.js's Unigram tokenizer is quadratic in the length of the
+    // text it is given, and chunking counted words only, so a 200 KB prompt
+    // with no spaces went to it as one chunk: 188 s of blocked event loop,
+    // measured, for a request anyone can send. The model truncates to 512
+    // tokens afterwards, so none of that work reached a verdict.
+    const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection)
+    await checker.init()
+    mockExtractor.mockClear()
+    const result = await checker.check('Summarise. ' + 'x'.repeat(200_000))
+    expect(result.chunkCount).toBeGreaterThan(0)
+    for (const [[text]] of mockExtractor.mock.calls as [[string]][]) {
+      expect(text.length).toBeLessThanOrEqual(4096 + 'query: '.length)
+    }
+  })
+
+  it('check() chunks ordinary prose exactly as before the character cap', async () => {
+    // 250 words of ~7 characters: the word limit binds long before the
+    // character cap, so the windows are the same 230-word, 20%-overlap slices.
+    const words = Array.from({ length: 250 }, (_, i) => `word${String(i).padStart(3, '0')}`)
+    const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection)
+    await checker.init()
+    mockExtractor.mockClear()
+    await checker.check(words.join(' '))
+    const seen = (mockExtractor.mock.calls as [[string]][]).map(([[t]]) => t.slice('query: '.length))
+    expect(seen).toEqual([words.slice(0, 230).join(' '), words.slice(184, 250).join(' ')])
+  })
+
+  it('check() embeds text with no overlong word exactly as given', async () => {
+    const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection)
+    await checker.init()
+    mockExtractor.mockClear()
+    // A 200-character URL is long but ordinary, and must reach the model whole.
+    const url = 'https://example.com/' + 'segment/'.repeat(22) + 'end'
+    await checker.check(`Please summarise ${url} for me`)
+    const seen = (mockExtractor.mock.calls as [[string]][]).map(([[t]]) => t)
+    expect(seen.some(t => t.includes(` ${url} `))).toBe(true)
+  })
+
   it('check() returns similarity=0 for zero-vector embeddings', async () => {
     mockExtractor = vi.fn().mockResolvedValue([{ data: ZERO_EMBED }])
     ;(pipeline as unknown as MockFn).mockResolvedValue(mockExtractor)

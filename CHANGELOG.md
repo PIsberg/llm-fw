@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **One long prompt with no spaces could stall the firewall for minutes.**
+  Scanning a 200 KB string with no whitespace took 195 s, and the scan runs
+  on the event loop, so every other client of the proxy or gateway waited
+  with it: a denial of service any client could send. Two costs were
+  quadratic in the string's length. The email filter in the leetspeak gate,
+  `/\S+@\S+\.[a-z]{2,}/`, backtracked from every position of a run with no
+  `@` (40 s of the 200 KB case); it now tests one whitespace-delimited token
+  at a time with an anchored pattern. And the embedding stage split text into
+  chunks by word count only, so the whole string reached transformers.js's
+  Unigram tokenizer as one chunk, whose lattice building re-slices the
+  remainder at every character (the other 155 s), only for the model to keep
+  the first 512 tokens. Chunks are now also capped at 4,096 characters, with
+  words over 256 characters cut into pieces. The same 200 KB string now scans
+  in 0.7 s, and a 200 KB injection blocks in 0.35 s instead of 40 s. Prose
+  never reaches either cap, so its chunks, and the embedding vectors the
+  thresholds are calibrated on, are unchanged. Ruleset 2026.10.38.
+
 ### Fixed
 
 - **The `docs` link in every 403 lands on the false-positive guide again.**
