@@ -127,8 +127,14 @@ export function stripDataHereStrings(command: string): string {
       ? WRITES_TEXT.has((words(before)[0] ?? '').toLowerCase()) && !tail.includes('|')
       : WRITES_TEXT.has((words(piped)[0] ?? '').toLowerCase()) && !piped.includes('|')
     if (!writer) continue
-    const targets = words(`${before} ${tail}`).filter((w) => !w.startsWith('-') && /[./\\]/.test(w))
+    // Every argument but the cmdlet and its flags may name the file, with or
+    // without an extension. Keep the body when the target is a variable or
+    // missing, when a later command mentions it, or when anything later in
+    // the call can run text at all: which file it reads is not ours to guess.
+    const targets = [...words(before).slice(1), ...words(piped).slice(1)].filter((w) => !w.startsWith('-'))
+    if (!targets.length || /\$/.test(`${before}${tail}`)) continue
     if (targets.some((t) => rest.includes(t.replace(/^.*[\\/]/, '')))) continue
+    if (/\$\(|`|<\(|(?:^|[\s;|])[&.]\s/.test(rest) || words(rest).some((w) => RUNS_INPUT.test(w) || RUNS_TEXT.test(w))) continue
     out.push(lines[end] ?? '')
     i = end
   }

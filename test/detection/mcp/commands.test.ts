@@ -335,6 +335,11 @@ describe('CommandScanner Heuristic Engine', () => {
         "Set-Content -Path run.ps1 -Value @'\nrm -rf ~\n'@; pwsh run.ps1",
         "Invoke-Expression @'\ngit reset --hard\n'@",
         "$s = @'\nrm -rf ~\n'@; iex $s",
+        // Security review: a target with no extension or separator, a
+        // variable target, and a runner anywhere later in the call.
+        "Set-Content -Path run -Value @'\nrm -rf ~\n'@; pwsh run",
+        "Set-Content $p -Value @'\ngit reset --hard\n'@; & $p",
+        "Set-Content -Path notes.md -Value @'\ngit reset --hard\n'@; bash -c \"$(Get-Content x)\"",
       ]) {
         expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
       }

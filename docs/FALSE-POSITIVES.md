@@ -60,6 +60,14 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.46
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only
+tightens when a PowerShell here-string counts as data in the MCP shell
+guardrails (a target without an extension, a variable target, or a runner
+later in the call keeps the body scanned), which no eval row reaches.
+Replaying 50,254 real Claude Code shell calls: 45 refusals, none added.
+
 ## Result, ruleset 2026.10.45
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
