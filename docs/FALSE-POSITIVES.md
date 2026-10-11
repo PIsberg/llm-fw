@@ -60,6 +60,14 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.37
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only
+corrects the `docs` link in the 403 body, which `src/detection/explain.ts`
+builds after a verdict is reached; it is cut because that file sits in the
+hashed set, not because a verdict moved. `npm run fpr` reports 0 of 2,000 on
+both the Dolly and oasst1 samples.
+
 ## Result, ruleset 2026.10.36
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset fixes

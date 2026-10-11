@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a refused developer looking for the suppression steps landed on the top
   of the README. `npm run docs:links` checks Markdown only, so it never saw
   this URL; a test now resolves the link against the repository and fails if
-  the file or heading goes missing.
+  the file or heading goes missing. Ruleset 2026.10.37 (no verdict change).
 
 - **A blocked Claude Code request is refused once, in 10 seconds, with the
   reason, instead of retried for over three minutes as a network error.**
