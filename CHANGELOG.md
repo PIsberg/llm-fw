@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A blocked Claude Code request is refused once, in 10 seconds, with the
+  reason, instead of retried for over three minutes as a network error.**
+  Claude Code's requests carry 100 KB+ of system prompt and tools, so the
+  proxy's streaming scan blocked an injection while the upload was still in
+  flight, wrote the 403 and destroyed the request stream at once. That reset
+  the socket under a client still writing: Claude Code never read the 403,
+  reported `Connection dropped (ECONNRESET)` and retried. Measured live with
+  Claude Code 2.1.296 through the proxy: 12 blocked attempts over 202 s before,
+  1 attempt in 10 s after, ending in the 403 and its explanation. The same
+  destroy sat on the early 429 (rate limit, session budget) and URL-block 403
+  paths; all of them now drain the rest of the upload, as the 413 path already
+  did, so the refusal arrives whole and a keep-alive connection stays usable.
+
 - **A project README, and "reply with exactly X" prompts, no longer block.**
   Found in one live Claude Code session. Asking the agent to compare a project
   with another blocked the request carrying the project's README at heuristic

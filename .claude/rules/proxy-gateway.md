@@ -35,6 +35,14 @@ Rules that must not regress:
   present a token.
 - State-changing dashboard routes keep the JSON content-type plus same-origin
   check.
+- A refusal written before the request body has finished uploading (413, the
+  streaming partial-scan 403, the early 429s, the URL-block 403) drains the
+  rest with `drainRefusedUpload` in `src/proxy/proxy.ts`. Never
+  `innerReq.destroy()` there: it resets a client that is still writing, so it
+  never reads the refusal, and Claude Code retried a blocked request 11 times
+  over 200 seconds as a network error. Pinned by
+  `test/proxy/proxy-early-block.e2e.test.ts` and
+  `test/proxy/proxy-body-limit.e2e.test.ts`.
 
 ## Asymmetries to preserve, or fix deliberately
 
