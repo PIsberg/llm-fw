@@ -60,6 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.50
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+narrows the MCP quoted-text allowlist to programs with no option that runs a
+command, and splits commands on a background `&`. No eval row reaches it.
+Replaying 50,350 real Claude Code shell calls: 48 refusals before and after.
+
 ## Result, ruleset 2026.10.49
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset makes

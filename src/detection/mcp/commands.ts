@@ -76,24 +76,30 @@ const RUNS_TEXT = /^(?:invoke-expression|iex|invoke-command|start-process)$/i
 // single quotes run to the next single quote.
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g
 
-// Programs that never run an argument as code. An allowlist, because the
-// list of programs that can is open-ended: sed's e flag, awk's system(),
-// find -exec, a git alias starting with !, sudo, env, make (security review
-// of #298's first cut, which listed runners instead).
+// Programs with no option that runs a command, so a quoted argument to them
+// is only ever text. An allowlist, because the list of programs that CAN run
+// text is open-ended: sed's e flag, awk's system(), find -exec, rg --pre,
+// sort --compress-program, git rebase -x, git fetch --upload-pack, git grep
+// -O, a git alias via -c, sudo, env, make (security reviews of #298's first
+// two cuts, which listed runners and then allowed too much).
 const TEXT_ONLY = new Set([
-  'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'head', 'tail', 'wc',
-  'sort', 'uniq', 'cut', 'tr', 'cd', 'pwd', 'ls', 'true',
+  'grep', 'egrep', 'fgrep', 'echo', 'printf', 'cat', 'head', 'tail', 'wc', 'uniq', 'cut', 'tr',
+  'cd', 'pwd', 'ls', 'true',
   'select-string', 'findstr', 'write-host', 'write-output', 'out-null', 'get-content', 'set-location',
 ])
 // git and gh subcommands that take a message or body and run none of it.
 const TEXT_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
-  git: /^(?:commit|log|grep|show|diff|status|tag|add|push|reset|fetch|pull|checkout|switch|branch|merge|rebase)$/,
-  gh: /^(?:pr|issue|release)$/,
+  git: /^commit$/,
+  gh: /^(?:pr|issue)$/,
 }
+
+// SEPARATORS plus a lone `&` (a background job starts a second command) and
+// `|&`, so one allowlisted program cannot vouch for the command after it.
+const COMMAND_SPLIT = /\n|\|&|\|\|?|&&?|;|\$\(|`|\(/
 
 /** True when every simple command in `blanked` is one that cannot run its arguments. */
 function onlyTextPrograms(blanked: string): boolean {
-  return blanked.split(SEPARATORS).every((command) => {
+  return blanked.split(COMMAND_SPLIT).every((command) => {
     const w = command.trim().split(/\s+/).filter(Boolean)
     if (!w.length) return true
     const program = (w[0] ?? '').replace(/^.*[\\/]/, '').toLowerCase()

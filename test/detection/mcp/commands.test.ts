@@ -279,8 +279,8 @@ describe('CommandScanner Heuristic Engine', () => {
     it('does not read a multi-word quoted argument as a git or SQL command', () => {
       for (const command of [
         'grep -rn "git reset --hard" src/',
-        'rg -n "DROP TABLE" migrations/',
-        "rg -n 'git push --force ' scripts/ | head -5",
+        'grep -rn "DROP TABLE" migrations/',
+        "grep -rn 'git push --force ' scripts/ | head -5",
         'git commit -m "docs: never run git reset --hard on main"',
         'gh pr create --title "Guard migrations" --body "Refuse TRUNCATE TABLE outside tests"',
         "Select-String -Pattern 'terraform destroy' -Path *.md",
@@ -318,6 +318,14 @@ describe('CommandScanner Heuristic Engine', () => {
         "git -c alias.x='!git reset --hard' x",
         'sudo env "git reset --hard"',
         'grep -n "x" a.txt; make "git push --force"',
+        // Second review: allowlisted programs with an option that runs a
+        // command, and a background `&` the splitter did not see.
+        'rg --pre "sh -c \'git reset --hard\'" src/',
+        'sort --compress-program="git reset --hard" big.txt',
+        'git rebase -x "git reset --hard" main',
+        'git fetch --upload-pack="git reset --hard" origin',
+        'git grep -O"git reset --hard" pattern',
+        'grep x f.txt & bash -c "git push --force"',
       ]) {
         expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
       }

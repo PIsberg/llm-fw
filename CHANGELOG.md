@@ -58,8 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   -Value @'...'@` with such text in the here-string. For the developer-tool
   patterns (force push, hard reset, `DROP TABLE`, cloud teardown), a quoted
   argument holding a space is now text when every command in the call is a
-  text-only program (grep, rg, echo, a git commit message, a gh PR body);
-  `bash -c`, `psql -c`, `sed .../e`, `awk` and `find -exec` keep it scanned,
+  program with no option that runs a command (grep, echo, a git commit
+  message, a gh PR body); `bash -c`, `psql -c`, `sed .../e`, `awk`,
+  `find -exec`, `rg --pre` and `git rebase -x` keep it scanned,
   and a quoted single token such as `"--force"` is still a flag.
   PowerShell here-strings written by `Set-Content`, `Add-Content` or
   `Out-File` to a file the call does not run are skipped like data heredocs.
