@@ -152,6 +152,20 @@ const SENTENCE_IMPERATIVE_RE = new RegExp(
 // and are left untouched.
 const OBJECT_WINDOW = 120
 
+// The object window, cut at the end of the verb's line or field: a line break,
+// a tab, or their two-character escapes (a tool_result whose content is an
+// array arrives JSON-encoded). Replaying real agent traffic, a URL on the NEXT
+// line of git's push output ("remote: Create a pull request for 'feat/x' on
+// GitHub by visiting:" / "remote:   https://github.com/...") and one in
+// another column of `gh pr checks` ("Publish to itch.io<TAB>skipping<TAB>0
+// <TAB>https://...") were taken as the verb's object, so every first push of a
+// new branch blocked the rest of the session.
+function objectWindow(text: string, verbEnd: number): string {
+  const w = text.slice(verbEnd - 1, verbEnd + OBJECT_WINDOW)
+  const cut = w.slice(1).search(/[\r\n\t]|\\[nrt]/)
+  return cut < 0 ? w : w.slice(0, cut + 1)
+}
+
 const IMPERATIVE_OBJECT_RE = new RegExp([
   // Attacker-controlled targets.
   '\\b\\d{3,}[-\\s.]\\d{3,}',                                // account / card / phone shaped
@@ -707,7 +721,7 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
           // The benign-prone English verbs keep their object requirement in
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
-          if (POLITE_OBJECT_GATED_VERBS.has(v) && !IMPERATIVE_OBJECT_RE.test(text.slice(i + v.length - 1, i + v.length + OBJECT_WINDOW))) continue
+          if (POLITE_OBJECT_GATED_VERBS.has(v) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, i + v.length))) continue
           return { verb: v, reason: 'imperative', snippet: snippetAround(text, Math.min(mi, i), marker.length) }
         }
       }
@@ -756,7 +770,7 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
     const verb = (m[1] ?? '').toLowerCase()
     if (POLITE_OBJECT_GATED_VERBS.has(verb)) {
       const end = m.index + m[0].length
-      if (!IMPERATIVE_OBJECT_RE.test(text.slice(end - 1, end + OBJECT_WINDOW))) continue
+      if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     }
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
@@ -772,7 +786,7 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
   SENTENCE_IMPERATIVE_RE.lastIndex = 0
   while ((m = SENTENCE_IMPERATIVE_RE.exec(text)) !== null) {
     const end = m.index + m[0].length
-    if (!IMPERATIVE_OBJECT_RE.test(text.slice(end - 1, end + OBJECT_WINDOW))) continue
+    if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
@@ -781,7 +795,7 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
   DIRECTIVE_RE.lastIndex = 0
   while ((m = DIRECTIVE_RE.exec(text)) !== null) {
     const end = m.index + m[0].length
-    if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(text.slice(end - 1, end + OBJECT_WINDOW))) continue
+    if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
