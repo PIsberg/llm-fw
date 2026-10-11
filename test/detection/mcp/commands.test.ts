@@ -60,6 +60,36 @@ describe('CommandScanner Heuristic Engine', () => {
       expect(scanner.scan('chown -R me:me ./mydir', allEnabled).isBlocked).toBe(false)
       expect(scanner.scan('chown -R deploy /var/www/app', allEnabled).isBlocked).toBe(false)
     })
+
+    // Replaying real agent sessions: the target class [/*~] matched the first
+    // character of ANY absolute path, so cleaning a scratch directory or one
+    // cached artifact was refused as "File System Devastation".
+    it('allows a recursive delete of a deep absolute path', () => {
+      for (const command of [
+        'rm -rf /c/Users/me/AppData/Local/Temp/claude/scratchpad/sheet >/dev/null',
+        'rm -rf ~/.m2/repository/se/example/lib/1.2.4-SNAPSHOT',
+        'rm -rf /tmp/diag3 && gh run download 1 -D /tmp/diag3',
+        'rm -rf */1.12.4-SWEEP',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+      }
+    })
+
+    it('still blocks a recursive delete of root, home, a drive or a system directory', () => {
+      for (const command of [
+        'rm -rf /*',
+        'rm -rf / --no-preserve-root',
+        'rm -rf ~/',
+        'rm -rf ~/*',
+        'rm -rf "$HOME"',
+        'rm -rf /etc',
+        'rm -rf /usr/',
+        'rm -rf /c/',
+        'sudo rm -rf /;',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
   })
 
   describe('Category B: Reverse Shells & Network Pivots', () => {
@@ -140,6 +170,8 @@ describe('CommandScanner Heuristic Engine', () => {
         'git push --set-upstream origin chore/bump-fastify',
         'git push --follow-tags',
         'git push origin fix--force-redirect',
+        // A later command on the same line: git has no -F push flag, awk does.
+        "git push -q 2>&1 | tail -1; gh pr checks 885 2>&1 | awk -F'\\t' '{print $2}' | sort",
       ]) {
         expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
       }

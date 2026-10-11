@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is produced only where the text reads as pig latin. See
   [detection-stages.md](docs/guides/detection-stages.md#agent-traffic-the-whole-conversation-on-every-request).
 
+- **MCP command guardrails no longer refuse routine cleanup.** Category A
+  matched `rm -rf` followed by ANY absolute path, so `rm -rf
+  /c/Users/me/AppData/Local/Temp/.../scratchpad` and `rm -rf
+  ~/.m2/repository/...` were refused as file-system devastation; the target
+  must now be root, home, a bare glob, a drive root or a top-level system
+  directory (`rm -rf "$HOME"`, previously missed, is now caught). The
+  force-push rule is case-sensitive, so another program's `-F` later on a
+  line with `git push` (`awk -F'\t'`, `gh issue create -F body.md`) is not a
+  force push. Over 47,556 real shell calls: 45 `rm` and 2
+  `-F` refusals to 0. Today these guardrails do not see Claude Code's
+  capitalised `Bash` tool at all (#285).
+
 - **A workplace rule against leaking secrets no longer blocks as a threat,
   and a briefing from a named third party is no longer read as the model's
   own instructions.** "Do not share confidential information with vendors or
