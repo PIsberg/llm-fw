@@ -110,10 +110,14 @@ const POLITE_IMPERATIVE_RE = new RegExp(
 // its own spec ("`--uninstall` and `--no-board` remove the board only when ...
 // (D6-A)") was blocked as an indirect injection (found replaying real agent
 // traffic).
+// The verb may not be followed by a quoted URL and a colon: that is Go's HTTP
+// client error (`Post "https://api.github.com/graphql": net/http: TLS
+// handshake timeout`), which gh prints on its own line of `gh pr checks`
+// output, the method name read as an order and the URL as its object.
 const SENTENCE_IMPERATIVE_RE = new RegExp(
   '(?:^|[.!?\\n]\\s*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
   '(?:also\\s+|then\\s+|immediately\\s+|now\\s+|first\\s+)*' +
-  `(${VERB_ALT})\\b(?![\'"\`]?\\s*:)\\s+\\S`,
+  `(${VERB_ALT})\\b(?![\'"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)\\s+\\S`,
   'gim',
 )
 
