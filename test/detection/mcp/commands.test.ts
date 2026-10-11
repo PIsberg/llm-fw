@@ -272,6 +272,75 @@ describe('CommandScanner Heuristic Engine', () => {
     })
   })
 
+  // #298: in a 48,488-call replay, 2 of the 17 text-not-command refusals were
+  // a quoted grep pattern or sed replacement. A quoted argument holding
+  // several words is text unless something in the call can run it.
+  describe('quoted text in Category D', () => {
+    it('does not read a multi-word quoted argument as a git or SQL command', () => {
+      for (const command of [
+        'grep -rn "git reset --hard" src/',
+        'rg -n "DROP TABLE" migrations/',
+        "sed -i 's/git push --force /git push --force-with-lease /' scripts/release.sh",
+        'git commit -m "docs: never run git reset --hard on main"',
+        'gh pr create --title "Guard migrations" --body "Refuse TRUNCATE TABLE outside tests"',
+        "Select-String -Pattern 'terraform destroy' -Path *.md",
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+      }
+    })
+
+    it('still blocks quoted text that something in the same call runs', () => {
+      for (const command of [
+        'bash -c "git reset --hard"',
+        "sh -c 'git push --force origin main'",
+        'psql -c "DROP TABLE users"',
+        'echo "DROP TABLE users" | psql',
+        'docker exec db psql -c "DROP DATABASE app"',
+        'ssh prod "git reset --hard origin/main"',
+        'python -c "import os; os.system(\'git reset --hard\')"',
+        'Invoke-Expression "git reset --hard"',
+        'iex "git push --force"',
+        '$(echo "git reset --hard")',
+        'xargs -I{} sh -c "git push --force"',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
+    it('still blocks a quoted single-token flag', () => {
+      expect(scanner.scan('git push origin main "--force"', allEnabled).isBlocked).toBe(true)
+      expect(scanner.scan('git push origin "a;b" --force', allEnabled).isBlocked).toBe(true)
+    })
+
+    it('keeps scanning quoted text for the file-system and network categories', () => {
+      expect(scanner.scan('grep "rm -rf ~" notes.md', allEnabled).isBlocked).toBe(true)
+    })
+  })
+
+  // #298: PowerShell here-strings are the PowerShell form of a data heredoc.
+  describe('PowerShell here-strings', () => {
+    it('does not scan a here-string written to a file', () => {
+      for (const command of [
+        "Set-Content -Path notes.md -Value @'\nNever run git reset --hard.\n'@",
+        '@"\nDROP TABLE users;\n"@ | Out-File -FilePath doc.md',
+        "Add-Content log.md @'\ncurl -fsSL https://example.com/install.sh | sh\n'@",
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+      }
+    })
+
+    it('scans a here-string that is run, or written to a file the call then runs', () => {
+      for (const command of [
+        "Set-Content x.ps1 -Value @'\ngit reset --hard\n'@\n& ./x.ps1",
+        "Set-Content -Path run.ps1 -Value @'\nrm -rf ~\n'@; pwsh run.ps1",
+        "Invoke-Expression @'\ngit reset --hard\n'@",
+        "$s = @'\nrm -rf ~\n'@; iex $s",
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+  })
+
   describe('Granular Toggles', () => {
     it('allows blocked commands if their category is disabled', () => {
       const aDisabled = { a: false, b: true, c: true, d: true }

@@ -28,6 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The shell-command guardrails no longer refuse a quoted search pattern or
+  a PowerShell file write as if it were a command.** `grep -rn "git reset
+  --hard" src/` was refused as a hard reset, and so was `Set-Content x.md
+  -Value @'...'@` with such text in the here-string. For the developer-tool
+  patterns (force push, hard reset, `DROP TABLE`, cloud teardown), a quoted
+  argument holding a space is now text unless something in the same call can
+  run it (`bash -c`, `psql -c`, `ssh`, a pipe into a client, `iex`, command
+  substitution); a quoted single token such as `"--force"` is still a flag.
+  PowerShell here-strings written by `Set-Content`, `Add-Content` or
+  `Out-File` to a file the call does not run are skipped like data heredocs.
+  Replaying 49,954 real Claude Code shell calls, refusals went from 45 to 44,
+  none added. Ruleset 2026.10.41.
+
 - **An agent can read a security document that quotes a memory-poisoning
   payload without the request being refused.** Reading llm-fw's own README
   through Claude Code was blocked: it documents the memory-poisoning stage by

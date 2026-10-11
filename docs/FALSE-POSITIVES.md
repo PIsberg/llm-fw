@@ -60,6 +60,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.41
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only
+narrows the MCP shell-command guardrails (quoted multi-word arguments are text
+for the developer-tool patterns; PowerShell here-strings written to a file
+are data), which no eval row reaches. Replaying 49,954 real Claude Code shell
+calls, refusals went from 45 to 44 with none added. `npm run fpr` reports 0 of
+2,000 on both the Dolly and oasst1 samples.
+
 ## Result, ruleset 2026.10.40
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset stops
