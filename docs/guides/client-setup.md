@@ -364,7 +364,10 @@ surface in the dashboard with `[tool-result]` and `[tool-def]` provenance tags.
 
 Electron IDEs bypass the OS hosts file, so use the IDE's proxy setting rather
 than the sinkhole. `llm-fw setup` writes it automatically when it finds a
-`settings.json`. To do it by hand: **Settings, search "proxy", set `http.proxy`
+`settings.json`, keeping the file's own formatting. It skips a file with
+comments, and one where `http.proxy` already points at a proxy of your own,
+since llm-fw cannot chain to it; setup prints which file it left alone. To do it
+by hand: **Settings, search "proxy", set `http.proxy`
 to `http://127.0.0.1:8080`**, set `http.proxyStrictSSL: false`, then restart the
 IDE.
 

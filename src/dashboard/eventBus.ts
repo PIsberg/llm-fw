@@ -9,6 +9,10 @@ import type { AuditSink } from './auditLog.js'
 
 export class EventBus {
   private ring: BlockEvent[] = []
+  // Blocked events kept apart from the ring, so the passed/warned traffic an
+  // agent session emits by the dozen cannot evict the false positive an
+  // operator is about to mark (/api/feedback). Same bound as the ring.
+  private blocked = new Map<string, BlockEvent>()
   private maxSize: number
   private subscribers: ServerResponse[] = []
   private trafficRing: TrafficMetric[] = []
@@ -76,6 +80,10 @@ export class EventBus {
     }
     this.ring.push(event)
     if (this.ring.length > this.maxSize) this.ring.shift()
+    if (event.action === 'blocked') {
+      this.blocked.set(event.id, event)
+      if (this.blocked.size > this.maxSize) this.blocked.delete(this.blocked.keys().next().value!)
+    }
     const data = 'data: ' + JSON.stringify(event) + '\n\n'
     this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
     for (const res of this.subscribers) res.write(data)
@@ -126,6 +134,11 @@ export class EventBus {
   }
 
   getAll(): BlockEvent[] { return [...this.ring].reverse() }
+
+  /** An event by id: any buffered event, or one of the last maxEvents blocked ones. */
+  find(id: string): BlockEvent | undefined {
+    return this.blocked.get(id) ?? this.ring.find(e => e.id === id)
+  }
 
   /**
    * Mark a buffered event as a false positive and persist it to

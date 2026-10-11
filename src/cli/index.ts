@@ -57,6 +57,8 @@ switch (command) {
   default: {
     const { USAGE } = await import('./usage.js');
     console.log(USAGE);
-    process.exit(command ? 1 : 0);
+    // Asking for help is success; only an unrecognised command is an error.
+    const askedForHelp = !command || command === '--help' || command === '-h' || command === 'help';
+    process.exit(askedForHelp ? 0 : 1);
   }
 }

@@ -15,7 +15,9 @@ import { fileURLToPath } from 'node:url'
 // Parsed textually, like nightlyWorkflow.test.ts: the repo has no YAML
 // dependency and the npm block's group shape is small and regular.
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
-const DEPENDABOT = readFileSync(`${ROOT}.github/dependabot.yml`, 'utf8')
+// A Windows checkout with core.autocrlf=true has CRLF line endings, which the
+// \n-anchored parser below reads as no groups at all.
+const DEPENDABOT = readFileSync(`${ROOT}.github/dependabot.yml`, 'utf8').replace(/\r\n/g, '\n')
 const PKG = JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>

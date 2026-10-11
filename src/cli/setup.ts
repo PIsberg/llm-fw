@@ -2,6 +2,7 @@ import { CertFactory, crlUrlFor } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
 import { stripSinkholeBlock } from './hosts.js';
+import { serializeLike } from './jsonFormat.js';
 import { getLlmFwDir } from '../config/paths.js';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -51,6 +52,67 @@ export function getIdeSettingsPaths(): string[] {
   return paths.filter(p => fs.existsSync(p));
 }
 
+/** What to tell the user when the CA could not be installed: this OS's command only. */
+export function caTrustHint(os: NodeJS.Platform, caCertPath: string): string[] {
+  const command = os === 'win32'
+    ? `  In an Administrator terminal:  certutil -addstore -f Root "${caCertPath}"`
+    : os === 'darwin'
+      ? `  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${caCertPath}"`
+      : `  sudo cp "${caCertPath}" /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates`;
+  return [
+    'Could not install the CA into the OS trust store (this needs admin/root).',
+    '  Node.js tools (Claude Code, SDKs) still trust it through NODE_EXTRA_CA_CERTS, set below.',
+    '  For curl, Python, browsers and other tools, trust it manually:',
+    command,
+  ];
+}
+
+export type IdeProxyEdit =
+  | { kind: 'updated'; content: string }
+  | { kind: 'unchanged' }
+  | { kind: 'unparseable' }
+  | { kind: 'foreign-proxy'; proxy: string };
+
+/**
+ * Point one IDE settings.json at the proxy. Pure: takes and returns file text,
+ * written back in the file's own formatting.
+ *
+ * A file with comments (JSONC) is left alone rather than rewritten without
+ * them, and so is a proxy the user set themselves: llm-fw cannot chain to an
+ * upstream proxy, so replacing a corporate one would cut the IDE off.
+ */
+export function applyIdeProxy(content: string, proxyUrl: string): IdeProxyEdit {
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    return { kind: 'unparseable' };
+  }
+
+  const prevProxy = config['http.proxy'];
+  const prevIsOurs = typeof prevProxy === 'string' && /(?:127\.0\.0\.1|localhost|::1):\d+/.test(prevProxy);
+  if (typeof prevProxy === 'string' && prevProxy !== '' && !prevIsOurs) {
+    return { kind: 'foreign-proxy', proxy: prevProxy };
+  }
+
+  let changed = false;
+  if (prevProxy !== proxyUrl) {
+    config['http.proxy'] = proxyUrl;
+    changed = true;
+  }
+  // TLS verification stays ON: setup installs the CA into the OS trust
+  // store and VS Code verifies against system certificates by default.
+  // Earlier llm-fw versions set http.proxyStrictSSL=false — undo that
+  // weakening when the previous proxy was ours (loopback), but leave a
+  // user's own strictSSL setting alone.
+  if (config['http.proxyStrictSSL'] === false && prevIsOurs) {
+    delete config['http.proxyStrictSSL'];
+    changed = true;
+  }
+
+  return changed ? { kind: 'updated', content: serializeLike(content, config) } : { kind: 'unchanged' };
+}
+
 /** Inject proxy configuration settings to detect and direct IDE network traffic. */
 function configureIdeProxies(proxyUrl: string): void {
   const paths = getIdeSettingsPaths();
@@ -58,36 +120,12 @@ function configureIdeProxies(proxyUrl: string): void {
 
   for (const p of paths) {
     try {
-      let config: Record<string, unknown> = {};
-      if (fs.existsSync(p)) {
-        try {
-          config = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
-        } catch {
-          // corrupt JSON, start fresh or skip
-          continue;
-        }
-      }
-
-      const prevProxy = config['http.proxy'];
-      let changed = false;
-      if (prevProxy !== proxyUrl) {
-        config['http.proxy'] = proxyUrl;
-        changed = true;
-      }
-      // TLS verification stays ON: setup installs the CA into the OS trust
-      // store and VS Code verifies against system certificates by default.
-      // Earlier llm-fw versions set http.proxyStrictSSL=false — undo that
-      // weakening when the previous proxy was ours (loopback), but leave a
-      // user's own strictSSL setting alone.
-      if (config['http.proxyStrictSSL'] === false &&
-          typeof prevProxy === 'string' && /(?:127\.0\.0\.1|localhost|::1):\d+/.test(prevProxy)) {
-        delete config['http.proxyStrictSSL'];
-        changed = true;
-      }
-
-      if (changed) {
-        fs.writeFileSync(p, JSON.stringify(config, null, 4), 'utf8');
+      const edit = applyIdeProxy(fs.readFileSync(p, 'utf8'), proxyUrl);
+      if (edit.kind === 'updated') {
+        fs.writeFileSync(p, edit.content, 'utf8');
         modifiedAny = true;
+      } else if (edit.kind === 'foreign-proxy') {
+        console.log(`  • Left ${p} alone: http.proxy is already set to ${edit.proxy}.`);
       }
     } catch { /* ignore individual write/read errors */ }
   }
@@ -277,11 +315,7 @@ export async function run(args: string[]): Promise<void> {
     }
     console.log('CA certificate installed to OS trust store.');
   } catch {
-    console.warn('Could not install CA automatically. To trust the certificate manually:');
-    console.warn('  Certificate path:', caCertPath);
-    console.warn('  Windows: certutil -addstore -f Root "' + caCertPath + '"');
-    console.warn('  macOS:   security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "' + caCertPath + '"');
-    console.warn('  Linux:   copy to /usr/local/share/ca-certificates/ and run update-ca-certificates');
+    for (const line of caTrustHint(platform(), caCertPath)) console.warn(line);
   }
 
   // Step 3 - Download/init embedding model

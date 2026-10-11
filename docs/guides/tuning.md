@@ -22,6 +22,8 @@ From the dashboard **Events** tab, opening a blocked event on the `prompt`/`syst
 2. Appends `{ hash, preview, addedAt }` to `~/.llm-fw/suppressions.json` (`preview` is a short truncated excerpt kept only so you can recognize the entry later; it plays no role in matching).
 3. From then on, an **identical** future prompt that would have been **blocked** on the `prompt`/`system` surface is downgraded to a **warn** instead (logged with a `[suppressed-fp]` note) — every other prompt is scored exactly as before.
 
+The button works on events the running process still holds. Events live in memory only: a restart forgets them, and the process keeps the last `dashboard.maxEvents` (default 100) blocked events, separately from other traffic, so a busy agent session cannot push a false positive out before you mark it. For an event from before a restart, re-send the request and mark the new event.
+
 Suppressions are intentionally scoped to the trusted `prompt`/`system` surfaces — `tool_result` and `document` are untrusted data, so a match there is never downgraded, no matter what's in the list.
 
 `GET /api/suppressions` lists current entries; `DELETE /api/suppressions` removes one — both behind the existing dashboard auth-token middleware.

@@ -33,6 +33,36 @@ test.describe('Events feed', () => {
   })
 })
 
+test.describe('Events feed across a reconnect', () => {
+  // Every SSE (re)connect replays the server's whole buffer. Rows kept from
+  // before the reconnect were duplicates at best, and after an llm-fw restart
+  // they were events the new process had never seen, whose "Mark false
+  // positive" button answered "event not found".
+  test('shows only what the server replays after the event stream reconnects', async ({ page }) => {
+    const ev = (id: string, text: string) => JSON.stringify({
+      id, timestamp: '2026-10-11 19:00:00Z', stage: 'heuristic', score: 90, similarity: 0,
+      target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked',
+      payload_preview: text, payload_full: text,
+    })
+    let connects = 0
+    await page.route('**/events', route => {
+      connects++
+      // retry: 100 makes the browser reconnect quickly once this body ends.
+      const body = connects === 1
+        ? 'retry: 100\ndata: ' + ev('before-restart', 'event from the old process') + '\n\n'
+        : 'retry: 60000\ndata: ' + ev('after-restart', 'event from the new process') + '\n\n'
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body })
+    })
+
+    await page.goto('/')
+    await page.click('button:has-text("Events")')
+    const rows = page.locator('#events-body tr.event-row')
+    await expect(rows.filter({ hasText: 'event from the new process' })).toHaveCount(1, { timeout: 10_000 })
+    await expect(rows.filter({ hasText: 'event from the old process' })).toHaveCount(0)
+    await expect(rows).toHaveCount(1)
+  })
+})
+
 test.describe('Live Traffic tab', () => {
   test('renders the throughput chart and service-utilization panel', async ({ page }) => {
     await page.goto('/')

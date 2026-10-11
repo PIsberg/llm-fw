@@ -346,7 +346,7 @@ sequenceDiagram
     HF-->>CLI: model files
     CLI->>FS: cache to ~/.llm-fw/models/
 
-    CLI->>FS: configureIdeProxies() — write http.proxy + http.proxyStrictSSL into any detected VS Code / Antigravity settings.json
+    CLI->>FS: configureIdeProxies() — write http.proxy into any detected VS Code / Antigravity settings.json
     CLI->>FS: configureEnvVars() — set HTTPS_PROXY + NODE_EXTRA_CA_CERTS (setx on Windows / shell profile on POSIX)
     CLI-->>U: Setup complete (prints active modes + a per-session export for open shells). Run: llm-fw start
 ```
@@ -529,11 +529,14 @@ into any detected IDE `settings.json` so their requests flow through the proxy.
 
 | Setting | What it is | Why it's needed | Reversal |
 | --- | --- | --- | --- |
-| `http.proxy` | Set to `http://127.0.0.1:<proxyPort>` in VS Code / Antigravity `settings.json` (only files that already exist are touched) | Routes the IDE's own HTTP(S) traffic through llm-fw even though it bypasses the OS `hosts` sinkhole. | `removeIdeProxySettings` deletes the key when it still points at loopback |
-| `http.proxyStrictSSL` | Set to `false` alongside `http.proxy` | The proxy presents an llm-fw-signed leaf cert; without `NODE_EXTRA_CA_CERTS` the IDE would otherwise reject it. | deleted together with `http.proxy` |
+| `http.proxy` | Set to `http://127.0.0.1:<proxyPort>` in VS Code / Antigravity `settings.json`. Only files that already exist are touched; a file with comments, or one whose `http.proxy` already points at a non-loopback proxy, is left alone (llm-fw cannot chain to an upstream proxy) | Routes the IDE's own HTTP(S) traffic through llm-fw even though it bypasses the OS `hosts` sinkhole. | `removeIdeProxySettings` deletes the key when it still points at loopback |
+| `http.proxyStrictSSL` | Not written. A `false` left by an older llm-fw is removed when the proxy it sat next to was ours | TLS verification stays on: the IDE verifies against the OS trust store, where `setup` installs the CA. | deleted together with `http.proxy` |
 
-The reversible host resolution and write/strip helpers (`getIdeSettingsPaths`,
-`stripIdeProxyConfig`) are shared between `setup` and `uninstall`.
+Both directions rewrite the file in its own indentation, line endings and
+trailing newline (`serializeLike`), so a setup/uninstall round trip leaves it
+byte-identical. The reversible host resolution and edit helpers
+(`getIdeSettingsPaths`, `applyIdeProxy`, `removeIdeProxy`) are shared between
+`setup` and `uninstall` and pinned by `test/cli/ide-settings.test.ts`.
 
 ### 12.6 Environment variables (set by setup, cleaned on uninstall)
 

@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Mark false positive" no longer answers "event not found" for an event
+  still on screen.** The server looked events up in a ring of the last 100 of
+  every kind, and an agent session emits passed and warned events by the dozen
+  (6 in 10 seconds from one Claude Code session on a live install), so a
+  false positive scrolled out within minutes while the dashboard, which keeps
+  200 rows, still offered the button. Blocked events, the only kind that can be
+  suppressed, are now kept apart (the last `dashboard.maxEvents` of them). The
+  dashboard also clears its table when the event stream reconnects, since the
+  server replays its buffer then, so rows from before an llm-fw restart no
+  longer linger, and the error now says events are forgotten on restart.
+
+- **A setup/uninstall round trip leaves your IDE `settings.json`
+  byte-identical.** Both steps rewrote the whole file with 4-space indentation
+  and no trailing newline, so a 2-space VS Code settings file stayed
+  re-indented after uninstall (found on a live Windows install). The file's own
+  indentation, line endings and trailing newline are now kept. `setup` also no
+  longer replaces an `http.proxy` you set yourself: llm-fw cannot chain to an
+  upstream proxy, so that cut the IDE off, and `uninstall` then deleted the
+  value outright. It now leaves such a file alone and says so.
+
+- **`uninstall` no longer reports a failure to remove a CA that was never
+  installed.** A non-elevated Windows `setup` cannot add the CA to the trust
+  store, and the matching `uninstall` then told you to re-run elevated to
+  remove it. It now checks the store first. `setup`'s own hint, printed when it
+  cannot install the CA, now gives only this OS's command, says it needs an
+  Administrator terminal or `sudo`, and notes that Node.js tools already trust
+  the CA through `NODE_EXTRA_CA_CERTS`.
+
+- **`llm-fw stop` removes the pid file.** On Windows `SIGTERM` is
+  `TerminateProcess`, so `start`'s exit handler never ran and every stop left
+  `~/.llm-fw/llm-fw.pid` naming a dead process.
+
+- **`llm-fw --help`, `-h` and `help` exit 0.** They fell through to the
+  unknown-command branch and exited 1, so a script probing the binary with
+  `llm-fw --help` read a working install as a broken one.
+
 - **The first request of an agent session scans about a quarter faster.** The
   leetspeak candidate was produced for any text containing a digit, so
   version numbers, dates, hashes and timings were decoded into noise and
