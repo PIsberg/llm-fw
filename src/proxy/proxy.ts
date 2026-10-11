@@ -126,9 +126,18 @@ const NON_LLM_JSON_PATH_SUFFIXES = [
   '/api/event_logging',
 ]
 
+/**
+ * Same idea for endpoints whose last segment varies per client. Claude Code
+ * POSTs GrowthBook attributes to `/api/eval/<client key>` at every start.
+ */
+const NON_LLM_JSON_PATH_PREFIXES = [
+  '/api/eval/',
+]
+
 function isKnownNonLlmEndpoint(path: string): boolean {
   const p = (path.split('?')[0] ?? '')
   return NON_LLM_JSON_PATH_SUFFIXES.some(suffix => p.endsWith(suffix))
+    || NON_LLM_JSON_PATH_PREFIXES.some(prefix => p.startsWith(prefix))
 }
 
 /** Return a shallow copy of the request headers with secret values redacted. */

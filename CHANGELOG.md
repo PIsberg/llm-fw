@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this URL; a test now resolves the link against the repository and fails if
   the file or heading goes missing. Ruleset 2026.10.37 (no verdict change).
 
+- **Claude Code no longer adds a false "unrecognized LLM endpoint" warning
+  to Live Traffic every session.** Each Claude Code start POSTs its
+  feature-flag attributes to `/api/eval/<client key>` on
+  `api.anthropic.com`. That body carries no prompt, but the key in the path
+  defeated the fixed-suffix exclusion list, so every session logged one
+  `unparsed` warn. Paths under `/api/eval/` are now treated like the
+  existing telemetry endpoints: forwarded, not reported.
+
 - **A blocked Claude Code request is refused once, in 10 seconds, with the
   reason, instead of retried for over three minutes as a network error.**
   Claude Code's requests carry 100 KB+ of system prompt and tools, so the
