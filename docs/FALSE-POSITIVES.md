@@ -60,6 +60,25 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.32
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset fixes
+false positives found by replaying real Claude Code traffic (project memory
+files, spec documents, base64 image data and tool output read as attacks),
+gives the obfuscation bonus only to a rule the plain text did not match, and
+decodes pig latin only where the text reads as pig latin. A row-by-row run
+over every eval split and all 15,011 Dolly-15k rows (23,938 rows) changed 0
+benign verdicts and 7 attack verdicts, all safeguard persona jailbreaks that
+had blocked only through the bonus on a pig-latin candidate (safeguard 498
+to 491 of 650; injecagent 1054/1054). `npm run fpr` reports 0 of 2,000 on
+both the Dolly and oasst1 samples.
+
+These held-out corpora are single prompts. The real-traffic replay is what
+found this ruleset's fixes: agent requests resend the whole conversation, so
+one blocked item (a CLAUDE.md the harness injects as user text, a spec file
+the agent read) blocks every request after it, which no single-prompt corpus
+can show.
+
 ## Result, ruleset 2026.10.31
 
 **2.68% overall (9 of 336), unchanged.** This ruleset adds an opt-in
