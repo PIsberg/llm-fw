@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A pasted screenshot, or a false positive under observe mode, no longer
+  raises an event on every later request.** Both stayed in the resent history
+  and were reported again each time: three requests carrying one image gave
+  three `non-text` warn events, and a tool result that would have blocked under
+  `enforcement: observe` gave three would-be block events. Each is now reported
+  once per process (the image per distinct set of media; the block per tenant,
+  surface, stage and matched text), and again after a config change. Under
+  observe, `llmfw_blocks_total` therefore counts distinct would-be blocks.
+  Verdicts do not change, and enforced blocks are all still reported (#295).
+
 - **A warning history item is reported once, not on every request.** An
   agent resends its whole history on every call, so one item that warned (in
   practice the harness reminder Claude Code injects as user text) raised a
