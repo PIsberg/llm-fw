@@ -12,7 +12,10 @@ export interface McpCheckResult {
   audit?: boolean
 }
 
-const EXECUTION_TOOLS = ['execute_command', 'bash', 'ctx_shell', 'powershell']
+// Compared case-insensitively: Claude Code calls its shell tools Bash and
+// PowerShell, and an exact match scanned none of them (#285). `shell` and
+// `run_shell_command` are other agent CLIs' names for the same thing.
+const EXECUTION_TOOLS = ['execute_command', 'bash', 'ctx_shell', 'powershell', 'shell', 'run_shell_command']
 
 function collectStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value]
@@ -85,7 +88,7 @@ export class McpScanner {
     }
 
     const guardrailsEnabled = this.config.guardrailsEnabled ?? true
-    if (guardrailsEnabled && EXECUTION_TOOLS.includes(toolName)) {
+    if (guardrailsEnabled && EXECUTION_TOOLS.includes(toolName.toLowerCase())) {
       const command = extractCommandString(args)
       const categories = this.config.guardrailsCategories ?? { a: true, b: true, c: true, d: true }
       const scanResult = this.commandScanner.scan(command, categories)

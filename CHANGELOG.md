@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The shell-command guardrails now cover Claude Code.** They only ran on
+  tool calls named exactly `execute_command`, `bash`, `ctx_shell` or
+  `powershell`, and Claude Code names its shell tools `Bash` and `PowerShell`,
+  so `rm -rf ~` or `curl ... | sh` issued by Claude Code was never checked. Tool
+  names are now compared case-insensitively, and `shell` and
+  `run_shell_command` are added. To keep this from refusing ordinary agent
+  work, two rules narrow at the same time: `git push --force-with-lease` is no
+  longer treated as a force push (it refuses to overwrite work it has not
+  seen), and a heredoc body written out as data (`cat > file <<'EOF'`, a
+  `git commit -F -` message) is not scanned as a command; a body fed to a
+  shell, an interpreter or a database client, or written to a file the same
+  call then runs, still is. `git reset --hard` and plain `--force` stay
+  blocked. Replaying 48,488 real Claude Code shell calls with the tool name
+  matched: 107 would have been refused under the old patterns, 44 now, none
+  newly. Of the 44, 27 are real force pushes and hard resets (20 in PR-rebase
+  loops), 15 are code run through python or a written-then-run file, and 2 are
+  quoted grep or sed arguments (#285).
+
 - **A pasted screenshot, or a false positive under observe mode, no longer
   raises an event on every later request.** Both stayed in the resent history
   and were reported again each time: three requests carrying one image gave
