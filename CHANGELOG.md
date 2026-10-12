@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Installing llm-fw from npm no longer pulls an embedding runtime its
+  thresholds were not calibrated on.** `@huggingface/transformers` was declared
+  `^4.2.0`, and an npm install gets no lockfile from us, so a fresh install
+  resolved 4.3.0. That release moves onnxruntime-node from 1.24.3 to 1.30.0,
+  which changes 10 of 23,938 eval verdicts: two held-out direct injections
+  pass and an ordinary oasst1 prompt blocks. The range is now `~4.2.0`, and
+  Dependabot no longer proposes transformers minors or majors; the next one
+  arrives with a stage-2 recalibration (#312).
+
 - **An instruction split across two lines of a tool result is caught again.**
   Since the fix that stopped git's push output and `gh pr checks` columns
   from lending a URL to an unrelated verb, the object-gated indirect rules
