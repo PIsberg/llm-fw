@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The local gateway forwards the caller's own bearer key again.** On
+  `llm-fw start --gateway` with no client token and no key custody, the
+  gateway took every `Authorization: Bearer` header for its own credential
+  and stripped it, so nothing that authenticates with a bearer could use it:
+  OpenAI answered "You didn't provide an API key", and Claude Code (whose
+  OAuth login is a bearer) got a 401 from Anthropic on every request and
+  retried silently until it timed out. Only a bearer that matches the
+  gateway token or a tenant token is now treated as the gateway's
+  credential and withheld from the provider; any other bearer is forwarded.
+
 - **Installing llm-fw from npm no longer pulls an embedding runtime its
   thresholds were not calibrated on.** `@huggingface/transformers` was declared
   `^4.2.0`, and an npm install gets no lockfile from us, so a fresh install

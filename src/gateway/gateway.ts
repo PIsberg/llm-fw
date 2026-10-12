@@ -9,7 +9,7 @@ import { MetricsRegistry } from '../dashboard/metrics.js';
 import { DlpScanner } from '../detection/dlp/scanner.js';
 import { getParser } from '../detection/parsers.js';
 import { explainBlock, explainGate } from '../detection/explain.js';
-import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, type AuthPolicy } from '../auth.js';
+import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, tokenMatches, type AuthPolicy } from '../auth.js';
 import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuery, upstreamHostHeader, type GatewayProvider, type GatewayRoute } from './routes.js';
 import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
@@ -164,17 +164,22 @@ export class GatewayServer {
       // exposes the standard auth header (the key-custody case).
       const dedicated = (req.headers['x-llm-fw-key'] as string | undefined)?.trim();
       const presented = dedicated || credentialFromAuthHeader(req.headers.authorization);
+      // A tenant token authenticates on its own. The deployment-wide token
+      // keeps working alongside tenants, so adding tenants to an existing
+      // gateway never locks out the credential already in use.
+      const tenant = this.tenants.resolve(presented);
       // Remember WHERE the gateway's own credential arrived. When it came in
       // `Authorization` — which the docs allow, for SDKs that expose no other
       // header — that header carries an internal firewall secret, not a
       // provider key, and must not be forwarded upstream. Key custody replaces
       // it anyway; with custody OFF nothing else would strip it, and the
       // operator's token would land in a third party's access logs.
-      const authIsInternal = !dedicated && presented !== '';
-      // A tenant token authenticates on its own. The deployment-wide token
-      // keeps working alongside tenants, so adding tenants to an existing
-      // gateway never locks out the credential already in use.
-      const tenant = this.tenants.resolve(presented);
+      // Only a bearer that IS a gateway credential counts. Any other bearer is
+      // the caller's own provider key (OpenAI-style APIs, Claude Code's OAuth
+      // login), which custody-off passthrough must forward: stripping it on a
+      // local gateway that asks for no token left upstream with no key at all.
+      const authIsInternal = !dedicated && (tenant !== null
+        || (this.authPolicy.required && tokenMatches(presented, this.authPolicy.token)));
       const authorised = tenant !== null
         || authorizeClient(this.authPolicy, req.socket.remoteAddress, presented);
       if (!authorised) {

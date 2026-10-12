@@ -29,13 +29,14 @@ async function request(opts: {
   body?: unknown
   method?: string
   agent?: http.Agent
+  port?: number
 }): Promise<{ status: number; body: string; json: Record<string, unknown> | null; headers?: http.IncomingHttpHeaders }> {
   const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body)
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         host: '127.0.0.1',
-        port: GATEWAY_PORT,
+        port: opts.port ?? GATEWAY_PORT,
         ...(opts.agent ? { agent: opts.agent } : {}),
         method: opts.method ?? (payload ? 'POST' : 'GET'),
         path: opts.path,
@@ -468,5 +469,75 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     const res = await request({ path: '/not-a-provider/x', headers: authed })
     expect(res.status).toBe(404)
     expect(calls).toHaveLength(0)
+  })
+})
+
+/**
+ * The configuration `llm-fw start --gateway` gives a single user: loopback
+ * bind, no client credential, no key custody. Every caller then sends its own
+ * provider credential, and OpenAI-style providers (and Claude Code's OAuth
+ * login) carry it as `Authorization: Bearer`. The gateway used to treat any
+ * bearer as its own credential and strip it, so upstream answered "You didn't
+ * provide an API key" and Claude Code retried silently until it gave up.
+ */
+describe('Gateway E2E, local default (no client auth, no custody)', { timeout: 60000 }, () => {
+  const LOCAL_PORT = 18202
+  let tempDir: string
+  let gateway: GatewayServer
+  let upstream: http.Server
+  let calls: UpstreamCall[] = []
+
+  beforeAll(async () => {
+    tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-gateway-local-e2e-'))
+    process.env.LLM_FW_DIR = tempDir
+    upstream = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', c => { body += c })
+      req.on('end', () => {
+        calls.push({ path: req.url ?? '', headers: req.headers, body })
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end('{"ok":true}')
+      })
+    })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', () => resolve()))
+    const upstreamPort = (upstream.address() as { port: number }).port
+
+    const config: Config = {
+      ...DEFAULT_CONFIG,
+      dlp: { ...DEFAULT_CONFIG.dlp, enabled: false },
+      gateway: {
+        enabled: true,
+        port: LOCAL_PORT,
+        bindHost: '127.0.0.1',
+        defaultProvider: 'bearerprovider',
+        providers: {
+          bearerprovider: { name: 'Bearer', host: '127.0.0.1', port: upstreamPort, protocol: 'http', auth: 'bearer' },
+        },
+      },
+    }
+    gateway = new GatewayServer(config, new EventBus(config.dashboard))
+    await gateway.init()
+    gateway.start()
+  })
+
+  afterAll(async () => {
+    await gateway?.stop()
+    await new Promise<void>(resolve => upstream.close(() => resolve()))
+    if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  const benign = { model: 'test', messages: [{ role: 'user', content: 'Summarise the release notes for me.' }] }
+
+  it('forwards the client own bearer provider key upstream', async () => {
+    calls = []
+    const res = await request({
+      port: LOCAL_PORT,
+      path: '/v1/chat/completions',
+      body: benign,
+      headers: { authorization: 'Bearer sk-caller-own-key' },
+    })
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.headers['authorization']).toBe('Bearer sk-caller-own-key')
   })
 })

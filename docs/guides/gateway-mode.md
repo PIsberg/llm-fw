@@ -28,7 +28,7 @@ Two path shapes are accepted:
 
 Anything else is a 404 — the gateway never guesses an upstream.
 
-**Client authentication.** Clients present a token as `X-Llm-Fw-Key` (or `Authorization: Bearer`). It is required automatically as soon as the listener is bound off-host; set `LLM_FW_GATEWAY_TOKEN` to pin it, or read the generated one from the startup log.
+**Client authentication.** Clients present a token as `X-Llm-Fw-Key` (or `Authorization: Bearer`). It is required automatically as soon as the listener is bound off-host; set `LLM_FW_GATEWAY_TOKEN` to pin it, or read the generated one from the startup log. A bearer that matches the gateway token (or a tenant token) is the gateway's own credential and is never forwarded upstream. Any other bearer is the caller's own provider key, as OpenAI-style APIs and Claude Code's OAuth login send it, and on a route without key custody it reaches the provider unchanged.
 
 **Key custody.** Set `LLM_FW_GATEWAY_KEY_<SLUG>` and the gateway holds the provider credential: it replaces whatever the client sent, strips every other credential header, and strips credential *query parameters* (`key`, `api-key`, `api_key`, `access_token`) as well, so callers never hold the provider key and cannot route around your attribution. The query parameters matter because Google documents its credential as `?key=` and Azure OpenAI accepts `?api-key=`; on a route where you hold no key they are forwarded untouched, because there the client's own credential is what should reach the provider.
 
