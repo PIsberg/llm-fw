@@ -37,11 +37,8 @@ vi.spyOn(ProxyServer.prototype as unknown as { forwardRequest: unknown }, 'forwa
   })
 
 // The throwing stage: Pipeline.run rejects on every call. init() is stubbed
-// too so the suite never loads the embedding model. checkPartial (the
-// streaming-chunk pre-scan) resolves null — its errors are already swallowed
-// at the call site and are not the failMode boundary under test.
+// too so the suite never loads the embedding model.
 vi.spyOn(Pipeline.prototype, 'init').mockResolvedValue(undefined)
-vi.spyOn(Pipeline.prototype, 'checkPartial').mockResolvedValue(null)
 vi.spyOn(Pipeline.prototype, 'run').mockRejectedValue(new Error('injected stage failure'))
 
 function dechunk(body: string): string {

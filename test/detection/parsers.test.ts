@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, BedrockParser, getParser, parsers, extractPartialPrompts, extractToolDescriptions } from '../../src/detection/parsers.js'
+import { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, BedrockParser, getParser, parsers, extractToolDescriptions } from '../../src/detection/parsers.js'
 
 const a = new AnthropicParser()
 const g = new GeminiParser()
@@ -526,34 +526,6 @@ describe('getParser', () => {
 describe('parsers', () => {
   it('has an entry per supported provider family', () => {
     expect(parsers.length).toBe(5)
-  })
-})
-
-describe('extractPartialPrompts', () => {
-  it('extracts text from completed json string', () => {
-    const result = extractPartialPrompts('{"system":"sys","messages":[{"role":"user","content":"hi"}]}')
-    expect(result).toContain('sys')
-    expect(result).toContain('hi')
-  })
-
-  it('extracts text from incomplete streaming prompt', () => {
-    const partial = '{"messages":[{"role":"user","content":"Ignore all previous'
-    const result = extractPartialPrompts(partial)
-    expect(result).toContain('Ignore all previous')
-  })
-
-  it('extracts text from partially completed system prompt', () => {
-    const partial = '{"system":"Be extremely restrict'
-    const result = extractPartialPrompts(partial)
-    expect(result).toContain('Be extremely restrict')
-  })
-
-  it('falls back to the structural parser for a complete body the stream regex misses (Gemini parts)', () => {
-    // Gemini puts user text in contents[].parts[].text, which the streaming
-    // content/message regex does not match — only the structural parser finds it.
-    const body = '{"contents":[{"role":"user","parts":[{"text":"gemini-only-prompt"}]}]}'
-    const result = extractPartialPrompts(body)
-    expect(result).toContain('gemini-only-prompt')
   })
 })
 

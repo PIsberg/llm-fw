@@ -960,14 +960,6 @@ describe('Pipeline', () => {
       expect(result.action).toBe('block')
       expect(result.stage).toBe('embedding')
     })
-
-    it('warn: the streaming early-abort applies the same tier', async () => {
-      const partial = '{"messages":[{"role":"user","content":"' + TEXT
-      mockScore.mockImplementation(heuristicOf(50))
-      expect(await new Pipeline(warnPolicy()).checkPartial('/v1/messages', partial, META)).toBeNull()
-      mockScore.mockImplementation(heuristicOf(60))
-      expect((await new Pipeline(warnPolicy()).checkPartial('/v1/messages', partial, META))?.action).toBe('block')
-    })
   })
 })
 

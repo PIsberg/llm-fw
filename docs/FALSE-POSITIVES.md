@@ -60,6 +60,18 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.39
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+removes the proxy's per-chunk partial scan, which scored every string in an
+upload as a direct prompt before the body was complete. `Pipeline.run()`,
+the only path this measurement and the benchmarks exercise, is untouched, so
+the figures cannot move; `npm run fpr` reports 0 of 2,000 on both the Dolly
+and oasst1 samples. What changes is live traffic the eval harness never
+sends through a proxy: a suppressed prompt or an attack quoted in the trusted
+system prompt is no longer refused mid-upload, which the proxy e2e suite now
+pins.
+
 ## Result, ruleset 2026.10.38
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset makes

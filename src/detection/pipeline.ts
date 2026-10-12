@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/require-await */
 import { createHash } from 'node:crypto'
 import { Config, PipelineResult, BlockEvent, ScanSource } from '../types.js'
 import { isObserving } from '../config/config.js'
-import { getParser, extractPartialPrompts, extractToolDescriptions } from './parsers.js'
+import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
 import { JudgeClient } from './judge.js'
@@ -988,51 +987,6 @@ export class Pipeline {
       if (oldest !== undefined) this.reportedOnce.delete(oldest)
     }
     return true
-  }
-
-  async checkPartial(
-    requestPath: string,
-    partialBody: string,
-    meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; }
-  ): Promise<PipelineResult | null> {
-    const parser = getParser(requestPath)
-    if (!parser) return null
-
-    const prompts = extractPartialPrompts(partialBody)
-    const { heuristicBlockThreshold } = this.config.detection
-
-    for (const prompt of prompts) {
-      const source: ScanSource = 'prompt'
-      // A prompt-surface match under the wording tier is only a warn, and the
-      // full scan of the complete body records it; aborting here would turn it
-      // back into a block.
-      const blockAt = Math.max(heuristicBlockThreshold, promptWordingTier(this.config, source)?.heuristic ?? 0)
-      const candidates = extractCandidates(prompt)
-      let plainMatches: string[] | undefined
-      for (const candidate of candidates) {
-        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
-        if (candidate.source === 'original') plainMatches = h.matches
-        if (h.score >= blockAt) {
-          const result: PipelineResult = {
-            action: 'block',
-            stage: 'heuristic',
-            score: h.score,
-            similarity: 0,
-            prompt: candidate.text,
-            heuristicMatches: h.matches
-          }
-          this.emit(result, meta, prompt, source)
-          // Same rule as run(): observe records the verdict and forwards the
-          // request. The early-abort path must honour it too, or a streaming
-          // request would still be cut off mid-body while the buffered path
-          // let everything through.
-          return isObserving(this.config.enforcement, meta.enforcement)
-            ? { ...result, action: 'warn' }
-            : result
-        }
-      }
-    }
-    return null
   }
 
   /**

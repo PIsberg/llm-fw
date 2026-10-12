@@ -44,6 +44,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `unparsed` warn. Paths under `/api/eval/` are now treated like the
   existing telemetry endpoints: forwarded, not reported.
 
+- **The proxy no longer refuses a large request the full scan would pass,
+  and no longer spends ~2.5 s of CPU on it.** Besides the scan of the
+  complete body, the proxy scored every `text`, `content` and `system` string
+  in the upload as each chunk arrived, and refused on the first hit. That
+  partial scan could not tell a user prompt from the system prompt or a tool
+  result, so in enforce mode it refused a prompt the operator had marked as a
+  false positive, and an attack merely quoted in the developer's own system
+  prompt, both of which the full scan passes. In observe mode it logged one
+  extra "blocked" event per chunk, labelled as a direct prompt (9 events for
+  one tool-result injection in a 100 KB request; found live as a duplicate
+  row). Rescanning the growing body on every 16 KB chunk took 2.5 s of
+  event-loop time for a 107 KB request. Detection now runs once, on the
+  complete body, which the proxy already buffered before forwarding anything,
+  so no request reaches the provider unscanned; a refusal now arrives after
+  the upload finishes instead of during it. Ruleset 2026.10.39.
+
 - **A blocked Claude Code request is refused once, in 10 seconds, with the
   reason, instead of retried for over three minutes as a network error.**
   Claude Code's requests carry 100 KB+ of system prompt and tools, so the
