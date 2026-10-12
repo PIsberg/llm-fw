@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Event times are UTC, as their `Z` says.** Event and false-positive
+  timestamps were formatted in the machine's local time zone and then given
+  a `Z` suffix, so on a UTC+2 machine an event at 12:06 UTC read
+  `14:05:57Z`. The dashboard, the event stream, the audit log and webhooks
+  all carried the wrong instant. The format is unchanged
+  (`YYYY-MM-DD HH:MM:SS` plus `Z`); the time is now UTC. A suppression's
+  `addedAt` still has the old behaviour, because the file lives under
+  `src/detection/` and changing it needs a ruleset cut.
+
 - **The rate limit counts model calls only.** The requests-per-minute
   breaker counted every request the proxy intercepted on a provider host,
   so Claude Code's telemetry, OAuth settings and MCP registry calls used up
