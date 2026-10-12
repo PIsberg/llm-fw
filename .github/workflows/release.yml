@@ -2,9 +2,11 @@ name: Publish to npm
 
 # Publishes the package to npmjs.com. Triggered when a GitHub Release is
 # published (cut a release for the version in package.json), or manually via the
-# Actions tab. Requires an `NPM_TOKEN` repository secret (npm "Automation" token
-# with publish rights). Publishes with provenance, so the package page links back
-# to the exact workflow run + commit that built it.
+# Actions tab. Authenticates with npm Trusted Publishing (OIDC): npmjs.com trusts
+# this workflow file in PIsberg/llm-fw, so there is no stored token to expire. A
+# granular publish token lives at most 90 days, and an expired NPM_TOKEN is what
+# failed the v0.7.0 publish with a 404 on the PUT. Publishes with provenance, so
+# the package page links back to the exact workflow run + commit that built it.
 on:
   release:
     types: [published]
@@ -24,7 +26,7 @@ jobs:
 
     permissions:
       contents: read
-      id-token: write # required for npm provenance (--provenance)
+      id-token: write # required for Trusted Publishing (OIDC) and provenance
 
     env:
       LLM_FW_MODEL_DIR: ${{ github.workspace }}/.hf-model-cache
@@ -79,7 +81,11 @@ jobs:
             exit 1
           fi
 
+      # Trusted Publishing needs npm >= 11.5.1; Node 22 bundles npm 10, which has no
+      # OIDC support and would fall back to token auth. No NODE_AUTH_TOKEN is passed:
+      # npm exchanges the job's OIDC token for a short-lived publish credential.
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@11.20.0
+
       - name: Publish to npmjs.com
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

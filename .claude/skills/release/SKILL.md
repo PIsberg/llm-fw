@@ -24,8 +24,16 @@ merged commit, and only when explicitly asked.
    at the verify step after the Release already exists.
 2. The tag names the commit that gets published. Whatever is on that commit is
    what users receive.
-3. `NPM_TOKEN` must be a valid automation token with publish rights, or the
-   workflow fails at the last step with the Release already public.
+3. Publishing authenticates with npm Trusted Publishing (OIDC), not a stored
+   token. The trusted publisher on npmjs.com (llm-fw, Settings) must name
+   repository `PIsberg/llm-fw` and workflow `release.yml`. If either drifts,
+   or the npm upgrade step goes, the workflow fails at the last step with the
+   Release already public; npm reports that as a `404` on the PUT, not a
+   `401`. v0.7.0 failed exactly that way on an expired `NPM_TOKEN`.
+4. Re-running a failed release job runs the workflow **as it was at the tag**,
+   so a workflow fix merged afterwards does not reach that re-run. Publish the
+   same version with a `workflow_dispatch` run from `main` instead, after
+   confirming `main`'s `package.json` still carries that version.
 
 ## Step 1 — establish ground truth before touching anything
 
