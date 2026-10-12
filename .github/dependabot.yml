@@ -69,6 +69,16 @@ updates:
     #     from everything else.
     #
     # See the `dependencies` skill for what to check before merging either.
+    ignore:
+      # 4.3.0 moved onnxruntime-node 1.24.3 -> 1.30.0 and 10 of 23,938 eval
+      # verdicts (#278): two held-out attacks lost, the first oasst1 false
+      # positive. The cosine thresholds are calibrated on 4.2.x vectors, so a
+      # new minor arrives with the stage-2 recalibration in #312, not as a
+      # bump. Patches still flow. test/ci/transformersPin.test.ts pins this.
+      - dependency-name: '@huggingface/transformers'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
 
   # The Dockerfile's base image, pinned by digest. Without this nothing would
   # ever propose a new digest, and a pin nobody moves is a pin that ages into

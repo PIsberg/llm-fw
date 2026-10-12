@@ -71,7 +71,7 @@
     "config:reference": "node --import tsx/esm scripts/gen-config-reference.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "~4.2.0",
     "cosmiconfig": "^10.0.0",
     "node-forge": "^1.4.0"
   },
