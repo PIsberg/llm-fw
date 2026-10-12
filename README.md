@@ -211,7 +211,7 @@ llm-fw runs on ship inside the package.
 llm-fw setup
 ```
 
-Generates a local certificate authority, installs it to your OS trust store, pre-warms the embedding model, **sets the `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` environment variables for you** (Windows user environment via `setx`; macOS/Linux shell profile), auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
+Generates a local certificate authority (or keeps the one an earlier run made, so re-running setup never untrusts your clients), installs it to your OS trust store, pre-warms the embedding model, **sets the `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` environment variables for you** (Windows user environment via `setx`; macOS/Linux shell profile), auto-configures the proxy in any detected VS Code / Antigravity IDE settings, and — when run with privileges — enables the sinkhole too. Setup prints exactly which modes ended up active.
 
 > **Windows:** run the terminal as Administrator to enable the sinkhole.  
 > **macOS/Linux:** `sudo llm-fw setup` to enable the sinkhole.  

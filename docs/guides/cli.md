@@ -8,7 +8,7 @@ Every command and flag, the built-in diagnostics, and the dashboard.
 
 | Command | Description |
 |---------|-------------|
-| `llm-fw setup` | Generate CA cert, install to trust store, download model, set `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` (user env / shell profile), auto-configure the proxy in detected VS Code / Antigravity IDE settings, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
+| `llm-fw setup` | Generate CA cert (an existing valid one is kept), install to trust store, download model, set `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` (user env / shell profile), auto-configure the proxy in detected VS Code / Antigravity IDE settings, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
 | `llm-fw setup --proxy-only` | Skip the sinkhole; configure proxy mode only (no admin needed) |
 | `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
 | `llm-fw start` | Start proxy and dashboard |
