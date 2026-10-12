@@ -17,6 +17,7 @@ Every command and flag, the built-in diagnostics, and the dashboard.
 | `llm-fw doctor` | Diagnose the interception setup and print a fix for anything that's off (`--json` for machine-readable output) |
 | `llm-fw install-service` | Register llm-fw to auto-start at login (Task Scheduler / launchd / systemd --user) |
 | `llm-fw uninstall-service` | Reverse `install-service` |
+| `llm-fw --version` | Print the installed version (`-v` and `version` work too) |
 
 ## Diagnostics (`llm-fw doctor`)
 

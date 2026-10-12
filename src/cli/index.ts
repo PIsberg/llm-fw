@@ -54,6 +54,15 @@ switch (command) {
     await run(args);
     break;
   }
+  case '--version':
+  case '-v':
+  case 'version': {
+    // package.json sits two levels up from both src/cli and dist/cli.
+    const { readFileSync } = await import('node:fs');
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+    console.log(`llm-fw ${pkg.version}`);
+    break;
+  }
   default: {
     const { USAGE } = await import('./usage.js');
     console.log(USAGE);

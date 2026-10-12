@@ -917,6 +917,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`llm-fw --version`** (also `-v` and `version`) prints the installed
+  version and exits 0. It used to print the whole usage text and exit 1, so
+  a script checking which llm-fw was installed read a working install as a
+  broken one.
+
 - **`indirectInstruction.trustedRecipientDomains` lets an inbox or CRM agent
   read ordinary business mail that asks for data to be sent to your own
   people.** "Hi team, please send the Q3 numbers to finance@acme.com by

@@ -7,7 +7,7 @@ import { USAGE } from '../../src/cli/usage.js'
  * read the source or the README. Help output is the first place anyone looks.
  */
 describe('CLI usage text', () => {
-  const flags = ['--standalone', '--gateway', '--observe', '--proxy-only', '--sinkhole']
+  const flags = ['--standalone', '--gateway', '--observe', '--proxy-only', '--sinkhole', '--version']
 
   for (const flag of flags) {
     it(`documents ${flag}`, () => {

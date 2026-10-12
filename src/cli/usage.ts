@@ -53,6 +53,7 @@ Commands:
     [--status]          Print the licence state only
     [--verify]          Check the key with Keygen (the only licensing network
                         call llm-fw ever makes; everything else is offline)
+  --version, -v          Print the installed llm-fw version
 
 Licensed under the PolyForm Noncommercial License 1.0.0. Noncommercial use is
 free. Commercial use is not granted by that licence and needs a separate one:
