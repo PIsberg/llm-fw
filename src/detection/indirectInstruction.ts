@@ -33,6 +33,11 @@ export interface IndirectInstructionConfig {
   mode: 'audit' | 'block'
 }
 
+export interface IndirectInstructionOptions {
+  /** See `indirectInstruction.trustedRecipientDomains` in src/types.ts. */
+  trustedRecipientDomains?: readonly string[]
+}
+
 export interface IndirectInstructionFinding {
   /** The sensitive action verb that fired (lowercased). */
   verb: string
@@ -164,10 +169,42 @@ const OBJECT_WINDOW = 120
 // another column of `gh pr checks` ("Publish to itch.io<TAB>skipping<TAB>0
 // <TAB>https://...") were taken as the verb's object, so every first push of a
 // new branch blocked the rest of the session.
+//
+// Cutting at every break, though, let an attacker split the clause on purpose
+// ("Grant access\nto guest_amy01", #293). A break is crossed when the clause
+// visibly runs across it: nothing on the verb's side ends it (`:` `.` `!` `?`
+// `;`), and the far side opens with a lowercase preposition. git's
+// "...by visiting:" / "remote: https://..." and gh's status columns do neither.
+// And the line being left must be short: a deliberate split leaves the verb on
+// a short line, while hard-wrapped prose breaks near full width, mid-clause,
+// everywhere ("set `http.proxy`" / "to `http://127.0.0.1:8080`" in a wrapped
+// Markdown guide was the one new block replaying 73,695 real tool results).
+const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]/
+const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
+const SPLIT_LINE_MAX = 48
+/** Index just past the last field break before `i`; -Infinity when the line is longer than the look-back. */
+function lineStartBefore(text: string, i: number): number {
+  const lo = Math.max(0, i - 200)
+  const head = text.slice(lo, i)
+  const re = new RegExp(FIELD_BREAK_RE.source, 'g')
+  let end = -1
+  for (let m = re.exec(head); m; m = re.exec(head)) end = m.index + m[0].length
+  if (end >= 0) return lo + end
+  return lo === 0 ? 0 : -Infinity
+}
 function objectWindow(text: string, verbEnd: number): string {
-  const w = text.slice(verbEnd - 1, verbEnd + OBJECT_WINDOW)
-  const cut = w.slice(1).search(/[\r\n\t]|\\[nrt]/)
-  return cut < 0 ? w : w.slice(0, cut + 1)
+  const base = verbEnd - 1
+  const w = text.slice(base, verbEnd + OBJECT_WINDOW)
+  let lineStart = lineStartBefore(text, base)
+  for (let from = 1; ;) {
+    const m = FIELD_BREAK_RE.exec(w.slice(from))
+    if (!m) return w
+    const cut = from + m.index
+    const after = w.slice(cut).replace(/^(?:\s|\\[nrt])+/, '')
+    if (base + cut - lineStart > SPLIT_LINE_MAX || /[:.!?;]\s*$/.test(w.slice(0, cut)) || !CONTINUES_CLAUSE_RE.test(after)) return w.slice(0, cut)
+    from = cut + m[0].length
+    lineStart = base + from
+  }
 }
 
 const IMPERATIVE_OBJECT_RE = new RegExp([
@@ -277,6 +314,47 @@ function blankContactClauses(text: string): string {
     return lead + ' '.repeat(match.length - lead.length)
   })
 }
+
+/**
+ * Blank every address on a trusted domain (or a subdomain of one), keeping
+ * offsets, so the rules below neither see it as an exfil target nor count it
+ * as an instruction's object. "send the Q3 numbers to finance@acme.com" and
+ * "... to amy.watson@gmail.com" are the same sentence; only the operator knows
+ * which recipient is theirs (#282).
+ */
+//
+// An address is trusted only where the regex and a mail client must read it
+// the same way: delimited by whitespace or ordinary punctuation on both sides,
+// and with a plain local part. Anything else is a place they can disagree:
+// "finance@acme.com<U+200B>.evil.example" (an invisible or filler character
+// the client strips), "finance@acme.com@gmail.com" (which @ is the domain's),
+// "amy%gmail.com@acme.com" (percent routing). An allowlist, not a list of
+// known-bad characters, because the filler characters are not all \p{Cf}.
+const ADDRESS_BEFORE_OK_RE = /^[\s<(\["',;:]?$/
+const ADDRESS_AFTER_OK_RE = /^(?:$|[\s>)\]"',;:!?]|\.(?:$|[\s>)\]"']))/
+function blankTrustedAddresses(text: string, domains: readonly string[]): string {
+  if (!domains.length) return text
+  return text.replace(EMAIL_RE, (addr: string, offset: number) => {
+    const at = addr.lastIndexOf('@')
+    const domain = addr.slice(at + 1).toLowerCase()
+    const delimited = ADDRESS_BEFORE_OK_RE.test(text.charAt(offset - 1)) &&
+      ADDRESS_AFTER_OK_RE.test(text.slice(offset + addr.length, offset + addr.length + 2)) &&
+      !/[%!]/.test(addr.slice(0, at))
+    const trusted = delimited && domains.some((d) => domain === d || domain.endsWith(`.${d}`))
+    return trusted ? ' '.repeat(addr.length) : addr
+  })
+}
+
+// Destinations an attacker would name instead of, or beside, a trusted
+// address. One anywhere in the text vetoes the trusted-recipient allowance.
+const ATTACKER_TARGET_RE = new RegExp([
+  EMAIL_RE.source,
+  'https?://',
+  '\\b\\d{3,}[-\\s.]\\d{3,}',
+  '\\b\\d{6,}\\b',
+  '\\b0x[0-9a-fA-F]{6,}\\b',
+  '\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b',
+].join('|'), 'i')
 
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 40)
@@ -694,7 +772,7 @@ function mlIndices(haystack: string, needle: string): number[] {
  * Language-agnostic fallback for the major world scripts. Runs only after the
  * English-anchored paths find nothing. Returns the first finding or null.
  */
-function detectMultilingualIndirect(text: string): IndirectInstructionFinding | null {
+function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: number) => boolean): IndirectInstructionFinding | null {
   // Casefold for Latin/Cyrillic/Greek; identity for CJK/Arabic/Brahmic (no case).
   const hay = text.toLowerCase()
 
@@ -726,6 +804,7 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
           if (POLITE_OBJECT_GATED_VERBS.has(v) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, i + v.length))) continue
+          if (onlyTrustedObject(i + v.length)) continue
           return { verb: v, reason: 'imperative', snippet: snippetAround(text, Math.min(mi, i), marker.length) }
         }
       }
@@ -742,9 +821,20 @@ function detectMultilingualIndirect(text: string): IndirectInstructionFinding | 
  * Callers MUST restrict this to the tool_result / document surfaces — on the
  * user-prompt surface an imperative is normal input, not an injection.
  */
-export function detectIndirectInstruction(input: string): IndirectInstructionFinding | null {
+export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  const text = blankContactClauses(input)
+  const original = blankContactClauses(input)
+  const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
+  const text = blankTrustedAddresses(original, trusted)
+  // The ungated rules (polite, directive) fire on the verb alone. When the
+  // verb's object window held a trusted address and nothing else an attacker
+  // would name, the instruction is to the operator's own recipient.
+  // Any other destination anywhere in the text vetoes this: a trusted address
+  // beside the verb must not vouch for an attacker's address, URL or account
+  // further on.
+  const untrustedTarget = ATTACKER_TARGET_RE.test(text)
+  const onlyTrustedObject = (end: number): boolean =>
+    text !== original && !untrustedTarget && objectWindow(text, end) !== objectWindow(original, end) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))
 
   // Strongest signal first: a send-class verb pointed at an email/account
   // target. Catches the data-stealing class even when framing is loose ("… and
@@ -776,6 +866,7 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
       const end = m.index + m[0].length
       if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     }
+    if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
@@ -800,10 +891,11 @@ export function detectIndirectInstruction(input: string): IndirectInstructionFin
   while ((m = DIRECTIVE_RE.exec(text)) !== null) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    if (onlyTrustedObject(end)) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
   // Non-English fallback: the same instruction shapes in the major world scripts.
-  return detectMultilingualIndirect(text)
+  return detectMultilingualIndirect(text, onlyTrustedObject)
 }

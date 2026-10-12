@@ -60,6 +60,139 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.54
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps
+the `semantic` candidate whenever it splits into different words from
+`original` (normalize() deletes backticks, carets and middle dots without a
+space). Its candidate set lies between the two measured ones (all semantic
+candidates, and 2026.10.53's narrower gate), which both changed 0 of 23,938
+eval verdicts, so no verdict can move.
+
+## Result, ruleset 2026.10.53
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset adds
+the diacritic-preserving `semantic` embedding candidate only when a non-ASCII
+letter survives in it, instead of whenever punctuation made it differ from
+`original`. A row-by-row diff over every eval split and the full Dolly-15k
+(23,938 rows, the multilingual rows included) changed 0 block verdicts, and
+those rows include every `npm run fpr` corpus.
+
+## Result, ruleset 2026.10.52
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+removes the MCP shell guardrails' quoted-text allowance: quoted text is
+scanned like the rest of the line again. No eval row reaches it. Replaying
+50,408 real Claude Code shell calls: 48 refusals before and after.
+
+## Result, ruleset 2026.10.51
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps
+quoted text scanned by the MCP shell guardrails whenever the call redirects
+output to a real file, since text written there can run later (a git hook,
+a shell rc file). No eval row reaches it.
+
+## Result, ruleset 2026.10.50
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+narrows the MCP quoted-text allowlist to programs with no option that runs a
+command, and splits commands on a background `&`. No eval row reaches it.
+Replaying 50,350 real Claude Code shell calls: 48 refusals before and after.
+
+## Result, ruleset 2026.10.49
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset makes
+the trusted-recipient veto case-insensitive (`HTTPS://`, a lowercase IBAN).
+The list is empty by default, so no eval verdict can move.
+
+## Result, ruleset 2026.10.48
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+narrows when quoted text is ignored by the MCP shell guardrails: only when
+every command in the call is a known text-only program (grep, rg, echo, a
+git or gh message), since sed's `e` flag, awk's `system()`, `find -exec` and
+git aliases run quoted text. No eval row reaches it. Replaying 50,280 real
+Claude Code shell calls: 46 refusals before and after.
+
+## Result, ruleset 2026.10.47
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+closes three more bypasses in `indirectInstruction.trustedRecipientDomains`
+found by a second security review: a URL, account number or IBAN elsewhere
+in the text now cancels the allowance like an untrusted address does, and an
+address is trusted only with a clean boundary and a plain local part. The
+list is empty by default, so the detector's verdict changed on 0 of 23,938
+eval rows and `npm run fpr` cannot move.
+
+## Result, ruleset 2026.10.46
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only
+tightens when a PowerShell here-string counts as data in the MCP shell
+guardrails (a target without an extension, a variable target, or a runner
+later in the call keeps the body scanned), which no eval row reaches.
+Replaying 50,254 real Claude Code shell calls: 45 refusals, none added.
+
+## Result, ruleset 2026.10.45
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+closes two bypasses in `indirectInstruction.trustedRecipientDomains` found by
+a security review: a trusted address beside the verb no longer vouches for an
+untrusted address elsewhere in the text, and an address touching an
+invisible format character is not trusted. The list is empty by default, so
+the detector's verdict changed on 0 of 23,938 eval rows and `npm run fpr`
+cannot move.
+
+## Result, ruleset 2026.10.44
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset adds
+`indirectInstruction.trustedRecipientDomains`, empty by default, so the
+shipped configuration is unchanged by construction: the detector's verdict
+changed on 0 of 23,938 eval rows and `npm run fpr` cannot move. What it does
+when set is measured on InjecAgent: listing an operator's own domain removes
+nothing, while listing `gmail.com` (the attacker's provider in that split)
+drops the stage from 1,054 to 771 of 1,054, which is why the guide says to
+list only domains you control.
+
+## Result, ruleset 2026.10.43
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset lets
+the object-gated indirect-instruction rules follow a clause an attacker split
+across a line break, tab or escaped break ("Grant access" / "to
+guest_amy01"), when the verb's line is short, ends in no clause punctuation,
+and the next opens with a preposition. No eval row has this shape: the
+detector's verdict changed on 0 of 23,938 rows, so `npm run fpr` (0 of 2,000
+on both samples) cannot move. Replaying 73,809 real Claude Code tool results,
+the only new findings are this change's own attack examples.
+
+## Result, ruleset 2026.10.42
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset
+narrows one memory-poisoning pattern so prose that names "standing
+permission" without granting it passes, and lets the standing-permission
+patterns match the US spelling "authorization", which they never did. A
+row-by-row diff over every eval split and the full Dolly-15k (23,938 rows)
+changed 0 block verdicts, and `npm run fpr` reports 0 of 2,000 on both the
+Dolly and oasst1 samples.
+
+## Result, ruleset 2026.10.41
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset only
+narrows the MCP shell-command guardrails (quoted multi-word arguments are text
+for the developer-tool patterns; PowerShell here-strings written to a file
+are data), which no eval row reaches. Replaying 49,954 real Claude Code shell
+calls, refusals went from 45 to 44 with none added. `npm run fpr` reports 0 of
+2,000 on both the Dolly and oasst1 samples.
+
+## Result, ruleset 2026.10.40
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset stops
+the memory-poisoning stage refusing a document or tool result that only
+quotes the assertion it looks for, such as llm-fw's own README describing the
+detector; the quoted match is recorded as a warning instead. A row-by-row diff
+over every eval split and the full Dolly-15k (23,938 rows) changed 0 block
+verdicts, and `npm run fpr` reports 0 of 2,000 on both the Dolly and oasst1
+samples.
+
 ## Result, ruleset 2026.10.39
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset

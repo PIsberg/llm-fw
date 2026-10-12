@@ -69,6 +69,54 @@ export function stripDataHeredocs(command: string): string {
   return out.join('\n')
 }
 
+// PowerShell's own ways to run text, beside the RUNS_INPUT programs.
+const RUNS_TEXT = /^(?:invoke-expression|iex|invoke-command|start-process)$/i
+
+// PowerShell cmdlets that only write what they are given to a file.
+const WRITES_TEXT = new Set(['set-content', 'add-content', 'out-file'])
+
+/**
+ * Drop the body of every PowerShell here-string (`@'...'@`, `@"..."@`) that a
+ * Set-Content, Add-Content or Out-File writes to a file no later command in
+ * the call mentions. The PowerShell twin of stripDataHeredocs (#298). A
+ * here-string assigned to a variable, passed to Invoke-Expression, or written
+ * to a file the call then runs is still scanned.
+ */
+export function stripDataHereStrings(command: string): string {
+  const lines = command.split('\n')
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    out.push(line)
+    const open = /@(['"])\s*$/.exec(line)
+    if (!open) continue
+    const quote = open[1] ?? ''
+    const end = lines.findIndex((l, j) => j > i && l.startsWith(`${quote}@`))
+    if (end === -1) continue
+    const before = (line.slice(0, open.index).split(';').pop() ?? '').trim()
+    const close = (lines[end] ?? '').slice(2)
+    const sep = close.indexOf(';')
+    const tail = sep === -1 ? close : close.slice(0, sep)
+    const rest = [sep === -1 ? '' : close.slice(sep + 1), ...lines.slice(end + 1)].join('\n')
+    const piped = tail.trim().startsWith('|') ? tail.trim().slice(1) : ''
+    const writer = before
+      ? WRITES_TEXT.has((words(before)[0] ?? '').toLowerCase()) && !tail.includes('|')
+      : WRITES_TEXT.has((words(piped)[0] ?? '').toLowerCase()) && !piped.includes('|')
+    if (!writer) continue
+    // Every argument but the cmdlet and its flags may name the file, with or
+    // without an extension. Keep the body when the target is a variable or
+    // missing, when a later command mentions it, or when anything later in
+    // the call can run text at all: which file it reads is not ours to guess.
+    const targets = [...words(before).slice(1), ...words(piped).slice(1)].filter((w) => !w.startsWith('-'))
+    if (!targets.length || /\$/.test(`${before}${tail}`)) continue
+    if (targets.some((t) => rest.includes(t.replace(/^.*[\\/]/, '')))) continue
+    if (/\$\(|`|<\(|(?:^|[\s;|])[&.]\s/.test(rest) || words(rest).some((w) => RUNS_INPUT.test(w) || RUNS_TEXT.test(w))) continue
+    out.push(lines[end] ?? '')
+    i = end
+  }
+  return out.join('\n')
+}
+
 export class CommandScanner {
   private categories = {
     a: {
@@ -155,7 +203,7 @@ export class CommandScanner {
   };
 
   scan(command: string, enabledCategories: { a: boolean; b: boolean; c: boolean; d: boolean }): CommandScanResult {
-    command = stripDataHeredocs(command)
+    command = stripDataHereStrings(stripDataHeredocs(command))
     for (const [key, cat] of Object.entries(this.categories) as [('a' | 'b' | 'c' | 'd'), typeof this.categories['a']][]) {
       if (!enabledCategories[key]) {
         continue;

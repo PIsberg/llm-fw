@@ -272,6 +272,107 @@ describe('CommandScanner Heuristic Engine', () => {
     })
   })
 
+  // #298 item 1 tried treating a quoted multi-word argument as text. Seven
+  // security-review rounds each found a way the regex parse diverged from
+  // the shell's, and replaying 50,395 real shell calls it cleared none, so
+  // it was removed: quoted text is scanned like the rest of the line.
+  describe('quoted text in Category D', () => {
+    it('scans quoted text, including in a search pattern', () => {
+      for (const command of [
+        'grep -rn "git reset --hard" src/',
+        // The parser differential that ended the allowance: bash reads
+        // \\" as a literal quote, so the ; split commands and the reset runs.
+        'grep \\"x; git reset --hard; echo \\"',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
+    it('still blocks quoted text that something in the same call runs', () => {
+      for (const command of [
+        'bash -c "git reset --hard"',
+        "sh -c 'git push --force origin main'",
+        'psql -c "DROP TABLE users"',
+        'echo "DROP TABLE users" | psql',
+        'docker exec db psql -c "DROP DATABASE app"',
+        'ssh prod "git reset --hard origin/main"',
+        'python -c "import os; os.system(\'git reset --hard\')"',
+        'Invoke-Expression "git reset --hard"',
+        'iex "git push --force"',
+        '$(echo "git reset --hard")',
+        'xargs -I{} sh -c "git push --force"',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
+    // Security review: a denylist of runners is never complete. sed's e flag,
+    // awk's system(), find -exec and a git alias all run quoted text, so the
+    // allowance now needs every command in the call to be a text-only one.
+    it('keeps quoted text scanned when any command in the call is not a known text-only program', () => {
+      for (const command of [
+        "sed 's/x/git reset --hard/e' notes.txt",
+        "awk 'BEGIN { system(\"git reset --hard\") }'",
+        'find . -name x -exec sh -c "git push --force" \\;',
+        "git -c alias.x='!git reset --hard' x",
+        'sudo env "git reset --hard"',
+        'grep -n "x" a.txt; make "git push --force"',
+        // Second review: allowlisted programs with an option that runs a
+        // command, and a background `&` the splitter did not see.
+        'rg --pre "sh -c \'git reset --hard\'" src/',
+        'sort --compress-program="git reset --hard" big.txt',
+        'git rebase -x "git reset --hard" main',
+        'git fetch --upload-pack="git reset --hard" origin',
+        'git grep -O"git reset --hard" pattern',
+        'grep x f.txt & bash -c "git push --force"',
+        // Third review: quoted text written to a file that runs later, here
+        // a hook the allowlisted `git commit` then triggers.
+        'echo "git reset --hard" > .git/hooks/pre-commit && git commit -m x',
+        'echo "git push --force" >> ~/.bashrc',
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+
+    it('still blocks a quoted single-token flag', () => {
+      expect(scanner.scan('git push origin main "--force"', allEnabled).isBlocked).toBe(true)
+      expect(scanner.scan('git push origin "a;b" --force', allEnabled).isBlocked).toBe(true)
+    })
+
+    it('keeps scanning quoted text for the file-system and network categories', () => {
+      expect(scanner.scan('grep "rm -rf ~" notes.md', allEnabled).isBlocked).toBe(true)
+    })
+  })
+
+  // #298: PowerShell here-strings are the PowerShell form of a data heredoc.
+  describe('PowerShell here-strings', () => {
+    it('does not scan a here-string written to a file', () => {
+      for (const command of [
+        "Set-Content -Path notes.md -Value @'\nNever run git reset --hard.\n'@",
+        '@"\nDROP TABLE users;\n"@ | Out-File -FilePath doc.md',
+        "Add-Content log.md @'\ncurl -fsSL https://example.com/install.sh | sh\n'@",
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(false)
+      }
+    })
+
+    it('scans a here-string that is run, or written to a file the call then runs', () => {
+      for (const command of [
+        "Set-Content x.ps1 -Value @'\ngit reset --hard\n'@\n& ./x.ps1",
+        "Set-Content -Path run.ps1 -Value @'\nrm -rf ~\n'@; pwsh run.ps1",
+        "Invoke-Expression @'\ngit reset --hard\n'@",
+        "$s = @'\nrm -rf ~\n'@; iex $s",
+        // Security review: a target with no extension or separator, a
+        // variable target, and a runner anywhere later in the call.
+        "Set-Content -Path run -Value @'\nrm -rf ~\n'@; pwsh run",
+        "Set-Content $p -Value @'\ngit reset --hard\n'@; & $p",
+        "Set-Content -Path notes.md -Value @'\ngit reset --hard\n'@; bash -c \"$(Get-Content x)\"",
+      ]) {
+        expect(scanner.scan(command, allEnabled).isBlocked, command).toBe(true)
+      }
+    })
+  })
+
   describe('Granular Toggles', () => {
     it('allows blocked commands if their category is disabled', () => {
       const aDisabled = { a: false, b: true, c: true, d: true }

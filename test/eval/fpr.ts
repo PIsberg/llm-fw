@@ -162,6 +162,37 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.54 (semantic gate keeps word-boundary
+  // differences): 0 of 23,938 eval verdicts changed, 9/336, both 0/2000.
+  // Held at ruleset 2026.10.53 (semantic candidate gated on a non-ASCII
+  // letter): 0 of 23,938 eval verdicts changed, 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.52 (MCP quoted-text allowance removed; no eval
+  // row reaches it): 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.51 (MCP quoted text kept scanned on a file
+  // redirect; no eval row reaches it): 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.50 (MCP quoted-text allowlist narrowed; no eval
+  // row reaches it): 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.49 (trusted-recipient veto case-insensitive; list
+  // empty by default): 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.48 (MCP quoted-text allowance limited to
+  // text-only programs; no eval row reaches it): 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.47 (trusted-recipient boundary allowlist and
+  // wider veto; list empty by default): detector verdict changed on 0 of
+  // 23,938 rows, 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.46 (MCP here-string data rule tightened; no eval
+  // row reaches it): 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.45 (trusted-recipient bypasses closed; list empty
+  // by default): detector verdict changed on 0 of 23,938 rows, 9/336, both
+  // samples 0/2000.
+  // Held at ruleset 2026.10.44 (indirectInstruction.trustedRecipientDomains,
+  // empty by default): detector verdict changed on 0 of 23,938 rows, 9/336,
+  // both samples 0/2000.
+  // Held at ruleset 2026.10.43 (indirect-instruction follows a short split
+  // clause across a break): detector verdict changed on 0 of 23,938 rows,
+  // 9/336, both samples 0/2000.
+  // Held at ruleset 2026.10.42 (memory-poisoning standing-permission noun
+  // phrase needs a grant around it; "authorization" spelling): 0 of 23,938
+  // eval verdicts changed, 9/336, both samples 0/2000.
   // Held at ruleset 2026.10.1 (harmful-request precision, #246): no row in
   // this corpus reaches that detector, re-measured on the same 6 rows.
   // Held at ruleset 2026.10.3 (sensitive-disclosure needs a data noun,
@@ -249,6 +280,11 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // Held at ruleset 2026.10.38 (linear email filter in the leetspeak gate;
   // embedding chunks capped at 4,096 characters): same rows, 9/336, both
   // samples 0/2000.
+  // Held at ruleset 2026.10.41 (MCP shell guardrails only: quoted text and
+  // PowerShell here-strings; no eval row reaches them): 9/336, both 0/2000.
+  // Held at ruleset 2026.10.40 (memory-poisoning warns on a match quoted in
+  // a document or tool result): 0 of 23,938 eval verdicts changed, 9/336,
+  // both samples 0/2000.
   // Held at ruleset 2026.10.39 (proxy per-chunk partial scan removed; run()
   // untouched): same rows, 9/336, both samples 0/2000.
   'agent-tool-definition': 0,

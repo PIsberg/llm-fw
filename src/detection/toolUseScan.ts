@@ -272,6 +272,8 @@ export function scanToolCallsForMemoryPoisoning(calls: ScannedToolCall[]): ToolU
   const findings: ToolUseMemoryFinding[] = []
   for (const call of calls) {
     if (!call.toolName || !isMemoryWriteTool(call.toolName)) continue
+    // `quoted` is deliberately ignored here: the serialized arguments are JSON,
+    // so every string value sits inside double quotes.
     const finding = detectMemoryPoisoning(serializeToolArgs(call.args))
     if (finding) {
       findings.push({ toolName: call.toolName, args: call.args, kind: finding.kind, snippet: finding.snippet })

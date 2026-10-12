@@ -394,6 +394,12 @@ export interface IndirectInstructionConfig {
   // the agent to a sensitive side-effecting action has no legitimate origin.
   enabled: boolean
   mode: 'audit' | 'block'
+  // Recipient domains the operator trusts, usually the organisation's own
+  // (#282). An address on one of them, or a subdomain, is not an exfiltration
+  // target, and an instruction whose only object is such an address does not
+  // fire. Empty by default: the text alone cannot tell finance@<own domain>
+  // from an attacker's address.
+  trustedRecipientDomains?: string[]
 }
 
 export interface HarmfulRequestConfig {
