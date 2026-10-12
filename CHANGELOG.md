@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw install-service` works from an ordinary Windows terminal.** It
+  ran `schtasks /Create /SC ONLOGON`, which registers a trigger for any
+  user's logon and needs an administrator, so it failed with "Access is
+  denied" while its own message said no elevation was needed. It now
+  imports a task definition whose logon trigger names the current user,
+  which needs no elevation. The task also starts on battery power and keeps
+  running when the machine is unplugged; a `schtasks` task did neither by
+  default, so on a laptop the firewall could be missing after a login on
+  battery.
+
 - **`llm-fw doctor` no longer fails a working install because the terminal
   predates setup.** Run in the terminal setup ran in, the natural first-run
   order, it reported `HTTPS_PROXY not pointing at the proxy`, exited 1, and

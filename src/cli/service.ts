@@ -1,6 +1,6 @@
 import fs from 'node:fs'
-import { dirname, posix } from 'node:path'
-import { homedir, platform } from 'node:os'
+import { dirname, posix, win32 } from 'node:path'
+import { homedir, platform, tmpdir, userInfo } from 'node:os'
 import { execFileSync } from 'node:child_process'
 
 /**
@@ -58,13 +58,28 @@ export interface CommandSpec {
 export interface FileSpec {
   path: string
   contents: string
+  /** utf16le is written with a BOM (schtasks /XML accepts nothing else). Default utf8. */
+  encoding?: 'utf8' | 'utf16le'
 }
 
 export interface ServicePlan {
-  /** Files to write before running `commands` (empty on Windows — schtasks needs none). */
+  /** Files to write before running `commands`. */
   files: FileSpec[]
   /** Commands to execute, in order. */
   commands: CommandSpec[]
+  /** Files only the commands needed, deleted afterwards (best-effort). */
+  cleanup?: string[]
+}
+
+/** Who the Windows task runs as and where its XML is staged; injectable for tests. */
+export interface WindowsContext {
+  user: string
+  tmp: string
+}
+
+function currentWindowsUser(): string {
+  const { USERDOMAIN, USERNAME } = process.env
+  return USERDOMAIN && USERNAME ? `${USERDOMAIN}\\${USERNAME}` : userInfo().username
 }
 
 export interface UninstallPlan {
@@ -83,15 +98,57 @@ function escapeXml(s: string): string {
     .replace(/'/g, '&apos;')
 }
 
-/** The quoted `/TR` value schtasks expects: a single string embedding the quoted exe + its quoted args. */
-function schtasksTr(inv: Invocation): string {
-  return [inv.command, ...inv.args].map(part => `"${part}"`).join(' ')
+/**
+ * The Task Scheduler definition for install-service on Windows. The logon
+ * trigger names the current user: `schtasks /SC ONLOGON` registers one for
+ * any user's logon, which only an administrator may create, so it failed
+ * with "Access is denied" from an ordinary terminal. The settings undo two
+ * schtasks defaults that suit a proxy badly: no start on battery, and a stop
+ * when the machine goes onto battery. ExecutionTimeLimit PT0S lifts the time
+ * limit Task Scheduler otherwise applies.
+ */
+export function buildTaskXml(inv: Invocation, user: string): string {
+  const u = escapeXml(user)
+  const args = inv.args.map(a => `"${a}"`).join(' ')
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>llm-fw prompt injection firewall (llm-fw install-service)</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>${u}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>${u}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>${escapeXml(inv.command)}</Command>
+      <Arguments>${escapeXml(args)}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`
 }
 
 /**
  * A per-user LaunchAgent plist. RunAtLoad fires it once the agent is loaded —
  * for a LaunchAgent (as opposed to a LaunchDaemon) that happens at login,
- * matching Windows ONLOGON / systemd's default.target. KeepAlive is false:
+ * matching the Windows logon trigger / systemd's default.target. KeepAlive is false:
  * `llm-fw start` already self-heals (see start.ts) and re-running it endlessly
  * on crash-loop would fight that. stdout/stderr are captured to
  * ~/Library/Logs since launchd otherwise discards them.
@@ -163,16 +220,21 @@ export function systemdUnitPath(home: string = homedir()): string {
  * access, just the plan. `os` and `home` are injectable so every platform's
  * plan can be exercised from a single test process.
  */
-export function buildInstallPlan(os: OS, inv: Invocation, home: string = homedir()): ServicePlan {
+export function buildInstallPlan(
+  os: OS,
+  inv: Invocation,
+  home: string = homedir(),
+  win: WindowsContext = { user: currentWindowsUser(), tmp: tmpdir() },
+): ServicePlan {
   switch (os) {
-    case 'win32':
+    case 'win32': {
+      const xmlPath = win32.join(win.tmp, 'llm-fw-task.xml')
       return {
-        files: [],
-        commands: [{
-          cmd: 'schtasks',
-          args: ['/Create', '/TN', TASK_NAME, '/SC', 'ONLOGON', '/RL', 'LIMITED', '/F', '/TR', schtasksTr(inv)],
-        }],
+        files: [{ path: xmlPath, contents: buildTaskXml(inv, win.user), encoding: 'utf16le' }],
+        commands: [{ cmd: 'schtasks', args: ['/Create', '/TN', TASK_NAME, '/XML', xmlPath, '/F'] }],
+        cleanup: [xmlPath],
       }
+    }
     case 'darwin': {
       const plistPath = launchdPlistPath(home)
       return {
@@ -230,7 +292,7 @@ function describeOs(os: OS): string {
 /** Guidance printed when registration/removal fails — usually a rights or environment issue, not a bug. */
 function elevationHint(os: OS): string {
   if (os === 'win32') {
-    return 'This creates a per-user logon task and normally needs no elevation. If it still failed, try an Administrator terminal and retry.'
+    return 'This creates a logon task for your user only and needs no elevation. Check that the Task Scheduler service is running, and run "schtasks /Query /TN llm-fw" to see what is registered.'
   }
   if (os === 'darwin') {
     return 'Check that ~/Library/LaunchAgents is writable and that launchctl is on PATH (no sudo needed for a per-user LaunchAgent).'
@@ -252,7 +314,8 @@ function execCommand(spec: CommandSpec): { ok: boolean; error?: string } {
 
 function writeFile(spec: FileSpec): void {
   fs.mkdirSync(dirname(spec.path), { recursive: true })
-  fs.writeFileSync(spec.path, spec.contents, 'utf8')
+  if (spec.encoding === 'utf16le') fs.writeFileSync(spec.path, Buffer.from('\ufeff' + spec.contents, 'utf16le'))
+  else fs.writeFileSync(spec.path, spec.contents, 'utf8')
 }
 
 /**
@@ -280,7 +343,7 @@ export function installService(_args: string[] = []): void {
   try {
     for (const file of plan.files) {
       writeFile(file)
-      console.log(`  Wrote ${file.path}`)
+      if (!plan.cleanup?.includes(file.path)) console.log(`  Wrote ${file.path}`)
     }
     for (const cmd of plan.commands) {
       const result = execCommand(cmd)
@@ -291,6 +354,10 @@ export function installService(_args: string[] = []): void {
     console.error(elevationHint(os))
     process.exitCode = 1
     return
+  } finally {
+    for (const path of plan.cleanup ?? []) {
+      try { fs.unlinkSync(path) } catch { /* already gone */ }
+    }
   }
 
   console.log(`\nllm-fw will now start automatically at login. Run "llm-fw uninstall-service" to reverse this.`)
