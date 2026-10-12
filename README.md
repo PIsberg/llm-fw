@@ -303,7 +303,7 @@ A firewall that refuses something surprising on day one gets switched off, and t
 llm-fw start --observe
 ```
 
-Every detector runs and every would-be block is recorded as an event with `enforced: false`, but **no request is refused**. Because the request goes through, an agent resends the offending item on every later call; it is recorded once per process, not once per request. Watch the dashboard for a few days, mark the false positives (they stay suppressed), then restart without `--observe`.
+Every detector runs and every would-be block is recorded as an event with `enforced: false`, but **no request is refused**. Because the request goes through, an agent resends the offending item on every later call; it is recorded once per process, not once per request. The dashboard lists these rows as **WOULD BLOCK** and counts them in their own tile, apart from real blocks. Watch it for a few days, mark the false positives (they stay suppressed), then restart without `--observe`.
 
 The guarantee is total, not per-detector: `applyObserveMode()` puts DLP, taint tracking, MCP filtering, many-shot, crescendo, indirect-instruction, harmful-request and every response-side scan into audit, downgrades the detection pipeline's own verdict at a single choke point that the proxy, the gateway and the library API all read, and relaxes the URL filter. It is applied **after** every config layer, so a detector you had set to `block` in a config file or env var does not slip through.
 

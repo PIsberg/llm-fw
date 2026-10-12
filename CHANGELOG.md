@@ -28,6 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dashboard no longer reports observe-mode traffic as blocked.** Under
+  `llm-fw start --observe` every would-be block was listed with a red
+  BLOCKED badge and counted in the Blocked tile, the same as a refused
+  request, although observe mode forwards everything. Those rows now read
+  WOULD BLOCK, the drawer says the request was forwarded, and a new Would
+  block tile counts them apart from real blocks.
+
+- **The dashboard tiles match the event table after a reconnect.** Every
+  event-stream reconnect (an llm-fw restart, a dropped connection) replays
+  the server's buffer, and the table was cleared for it but the tiles kept
+  counting, so one restart left a page showing 15 events and 12 blocks above
+  a table of 7 rows. The tiles now reset with the table.
+
 - **The local gateway forwards the caller's own bearer key again.** On
   `llm-fw start --gateway` with no client token and no key custody, the
   gateway took every `Authorization: Bearer` header for its own credential
