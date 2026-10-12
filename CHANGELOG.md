@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`/metrics` no longer counts observe-mode verdicts as blocks.**
+  `llmfw_blocks_total` went up for every would-be block under
+  `llm-fw start --observe` or an observing tenant, although those requests
+  were forwarded, so an alert on it fired for traffic nobody refused, and a
+  gateway with some tenants enforcing and some observing could not tell the
+  two apart. Those verdicts now go to a new counter,
+  `llmfw_would_block_total{stage}`, and `llmfw_blocks_total` counts refused
+  requests only, matching the dashboard's Blocked and Would block tiles.
+
 - **The Command Prompt line `llm-fw setup` prints now sets both variables.**
   It joined its two `set` commands with `^&`, which cmd reads as a literal
   ampersand, so pasting it set `HTTPS_PROXY` to
