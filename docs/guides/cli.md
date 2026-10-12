@@ -11,11 +11,11 @@ Every command and flag, the built-in diagnostics, and the dashboard.
 | `llm-fw setup` | Generate CA cert (an existing valid one is kept), install to trust store, download model, set `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` (user env / shell profile), auto-configure the proxy in detected VS Code / Antigravity IDE settings, and enable the sinkhole when run with admin/root (covers both proxy and Node.js/native tools) |
 | `llm-fw setup --proxy-only` | Skip the sinkhole; configure proxy mode only (no admin needed) |
 | `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
-| `llm-fw start` | Start proxy and dashboard |
+| `llm-fw start` | Start proxy and dashboard. One instance runs at a time: a second `start` replaces the running one (including one `install-service` launched) and prints the PID it replaced |
 | `llm-fw stop` | Ask the running process to shut down gracefully (restores the hosts file and removes the port redirect if sinkhole mode, flushes the audit log), on Windows too; signals it after 5 s if it does not answer |
 | `llm-fw status` | Show running state, active mode, dashboard URL |
 | `llm-fw doctor` | Diagnose the interception setup and print a fix for anything that's off (`--json` for machine-readable output) |
-| `llm-fw install-service` | Register llm-fw to auto-start at login (Task Scheduler / launchd / systemd --user) |
+| `llm-fw install-service` | Register llm-fw to auto-start at login (Task Scheduler / launchd / systemd --user), for your user only and without admin rights |
 | `llm-fw uninstall-service` | Reverse `install-service` |
 | `llm-fw --version` | Print the installed version (`-v` and `version` work too) |
 
@@ -27,7 +27,7 @@ What it verifies:
 
 - **Process & listeners** — `llm-fw` running, proxy + dashboard ports accepting connections, and (in sinkhole mode) the sinkhole TLS server on its HTTPS port.
 - **CA** — `~/.llm-fw/ca.crt` exists and is present in the OS trust store.
-- **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs). `setup` sets both persistently, but `doctor` inspects the **current shell**, so if it reports them unset right after install, just open a new terminal (or run the per-session export it prints).
+- **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs). `setup` sets both persistently, but `doctor` inspects the **current shell**. When they are persisted but missing from this shell (it was opened before setup), it warns "set for new terminals, but not in this one" instead of failing: open a new terminal, or run the per-session command it prints.
 - **Sinkhole plumbing** — provider hosts are redirected to `127.0.0.1` in the hosts file and the OS-level `:443` redirect is in place (Windows `netsh portproxy`, macOS `pf`, Linux `iptables`).
 - **Windows only** — the **IP Helper service (`iphlpsvc`)** is running, which `netsh portproxy` depends on; if stopped, doctor prints `sc config iphlpsvc start= auto` / `net start iphlpsvc`.
 

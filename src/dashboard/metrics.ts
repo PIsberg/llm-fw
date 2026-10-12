@@ -13,8 +13,9 @@ import { BlockEvent } from '../types.js'
  *    reuse), and adding invasive per-stage instrumentation inside
  *    Pipeline.run() was explicitly out of scope for this task, so the
  *    histogram is OVERALL scan duration only.
- *  - `llmfw_blocks_total{stage}` / `llmfw_warns_total{stage}` /
- *    `llmfw_events_total{kind}` — fed by `recordEvent()`, called from
+ *  - `llmfw_blocks_total{stage}` / `llmfw_would_block_total{stage}` /
+ *    `llmfw_warns_total{stage}` / `llmfw_events_total{kind}` — fed by
+ *    `recordEvent()`, called from
  *    EventBus.emit(), the single funnel every dashboard block/warn/audit
  *    event already passes through (Pipeline's onBlock callback, and every
  *    other scanner in proxy.ts: DLP, DoS, URL filter, MCP, taint,
@@ -36,6 +37,8 @@ export interface ModelStatus {
 export class MetricsRegistry {
   private requestsTotal = new Map<string, number>()
   private blocksTotal = new Map<string, number>()
+  // Observe-mode block verdicts (enforced: false): recorded, not refused.
+  private wouldBlockTotal = new Map<string, number>()
   private warnsTotal = new Map<string, number>()
   private eventsTotal = new Map<string, number>()
   // Cumulative bucket counts, parallel to DURATION_BUCKETS_MS: index i counts
@@ -64,8 +67,10 @@ export class MetricsRegistry {
   }
 
   /** Called from EventBus.emit() — see the class doc comment above. */
-  recordEvent(event: Pick<BlockEvent, 'action' | 'stage' | 'kind'>): void {
-    if (event.action === 'blocked') MetricsRegistry.bump(this.blocksTotal, event.stage)
+  recordEvent(event: Pick<BlockEvent, 'action' | 'stage' | 'kind' | 'enforced'>): void {
+    if (event.action === 'blocked') {
+      MetricsRegistry.bump(event.enforced === false ? this.wouldBlockTotal : this.blocksTotal, event.stage)
+    }
     else if (event.action === 'warned') MetricsRegistry.bump(this.warnsTotal, event.stage)
     MetricsRegistry.bump(this.eventsTotal, event.kind ?? 'unspecified')
   }
@@ -84,6 +89,12 @@ export class MetricsRegistry {
     lines.push('# TYPE llmfw_blocks_total counter')
     for (const [stage, count] of this.blocksTotal) {
       lines.push(`llmfw_blocks_total{stage="${escapeLabel(stage)}"} ${count}`)
+    }
+
+    lines.push('# HELP llmfw_would_block_total Block verdicts recorded under observe mode and forwarded, not refused, by detection stage.')
+    lines.push('# TYPE llmfw_would_block_total counter')
+    for (const [stage, count] of this.wouldBlockTotal) {
+      lines.push(`llmfw_would_block_total{stage="${escapeLabel(stage)}"} ${count}`)
     }
 
     lines.push('# HELP llmfw_warns_total Total warn events (audit-mode or weak-signal), by detection stage. A history item an agent resends is counted once, not per request.')

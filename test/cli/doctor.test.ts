@@ -9,6 +9,8 @@ import {
   parseIphlpsvcRunning,
   parsePortRedirect,
   parseLoopbackHosts,
+  parseRegQueryValue,
+  parseProfileEnv,
   type DoctorProbe,
 } from '../../src/cli/doctor.js'
 
@@ -32,6 +34,8 @@ function probe(overrides: Partial<DoctorProbe> = {}): DoctorProbe {
     sinkholeListening: true,
     httpsProxyEnv: 'http://127.0.0.1:8080',
     nodeExtraCaCertsEnv: 'C:\\Users\\me\\.llm-fw\\ca.crt',
+    httpsProxyPersisted: 'http://127.0.0.1:8080',
+    nodeExtraCaCertsPersisted: 'C:\\Users\\me\\.llm-fw\\ca.crt',
     missingHostsTargets: [],
     hostsTargetCount: 12,
     portRedirectPresent: true,
@@ -87,7 +91,7 @@ describe('evaluateProbe', () => {
 
   describe('HTTPS_PROXY (mode-aware)', () => {
     it('is required in proxy mode — fails when unset', () => {
-      const c = find(probe({ mode: 'proxy', sinkholeActive: false, httpsProxyEnv: null }), 'HTTPS_PROXY')
+      const c = find(probe({ mode: 'proxy', sinkholeActive: false, httpsProxyEnv: null, httpsProxyPersisted: null }), 'HTTPS_PROXY')
       expect(c?.level).toBe('fail')
       expect(c?.fix?.[0]).toContain('HTTPS_PROXY')
     })
@@ -104,6 +108,37 @@ describe('evaluateProbe', () => {
       const c = find(probe({ mode: 'proxy', sinkholeActive: false, proxyPort: 9000, httpsProxyEnv: 'http://127.0.0.1:8080' }), 'HTTPS_PROXY')
       expect(c?.level).toBe('fail') // env points at the old port
       expect(c?.fix?.[0]).toContain('9000')
+    })
+  })
+
+  // Setup persists the variables for NEW terminals. Run doctor in the terminal
+  // setup ran in (the natural first-run order: setup, start, doctor) and the
+  // process env has neither: it failed with "re-run setup", which cannot help.
+  describe('variables set for new terminals but not this one', () => {
+    const proxyOnly = { mode: 'proxy' as const, sinkholeActive: false }
+
+    it('warns, not fails, and says to open a new terminal when HTTPS_PROXY is persisted', () => {
+      const c = find(probe({ ...proxyOnly, httpsProxyEnv: null }), 'HTTPS_PROXY')
+      expect(c?.level).toBe('warn')
+      expect(c?.title).toMatch(/new terminals/)
+      expect(c?.fix?.join('\n')).toMatch(/open a new terminal/i)
+      expect(c?.fix?.join('\n')).not.toMatch(/re-run/)
+      expect(summarize(evaluateProbe(probe({ ...proxyOnly, httpsProxyEnv: null, nodeExtraCaCertsEnv: null }))).healthy).toBe(true)
+    })
+
+    it('still fails when the persisted HTTPS_PROXY points at another port', () => {
+      expect(find(probe({ ...proxyOnly, httpsProxyEnv: null, httpsProxyPersisted: 'http://127.0.0.1:9999' }), 'HTTPS_PROXY')?.level).toBe('fail')
+    })
+
+    it('still fails when nothing was persisted', () => {
+      expect(find(probe({ ...proxyOnly, httpsProxyEnv: null, httpsProxyPersisted: null }), 'HTTPS_PROXY')?.level).toBe('fail')
+    })
+
+    it('says NODE_EXTRA_CA_CERTS is set for new terminals instead of telling the user to re-run setup', () => {
+      const c = find(probe({ nodeExtraCaCertsEnv: null }), 'NODE_EXTRA_CA_CERTS')
+      expect(c?.level).toBe('warn')
+      expect(c?.title).toMatch(/new terminals/)
+      expect(c?.fix?.join('\n')).not.toMatch(/re-run/)
     })
   })
 
@@ -349,5 +384,35 @@ describe('parseLoopbackHosts', () => {
 
   it('returns an empty set for empty input', () => {
     expect(parseLoopbackHosts('').size).toBe(0)
+  })
+})
+
+describe('parseRegQueryValue', () => {
+  it('reads the value from `reg query HKCU\\Environment /v NAME`', () => {
+    const out = '\r\nHKEY_CURRENT_USER\\Environment\r\n    HTTPS_PROXY    REG_SZ    http://127.0.0.1:8080\r\n\r\n'
+    expect(parseRegQueryValue(out, 'HTTPS_PROXY')).toBe('http://127.0.0.1:8080')
+  })
+
+  it('keeps spaces inside a REG_EXPAND_SZ path', () => {
+    const out = 'HKEY_CURRENT_USER\\Environment\r\n    NODE_EXTRA_CA_CERTS    REG_EXPAND_SZ    C:\\Users\\Jane Doe\\.llm-fw\\ca.crt\r\n'
+    expect(parseRegQueryValue(out, 'NODE_EXTRA_CA_CERTS')).toBe('C:\\Users\\Jane Doe\\.llm-fw\\ca.crt')
+  })
+
+  it('returns null when the value is absent', () => {
+    expect(parseRegQueryValue('ERROR: The system was unable to find the specified registry key or value.', 'HTTPS_PROXY')).toBeNull()
+  })
+})
+
+describe('parseProfileEnv', () => {
+  it('reads the block llm-fw setup appends, expanding $HOME', () => {
+    const text = 'export PATH=/bin\n# llm-fw env\nexport HTTPS_PROXY=http://127.0.0.1:8080\nexport NO_PROXY=localhost\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n'
+    expect(parseProfileEnv(text, '/home/u')).toEqual({
+      httpsProxy: 'http://127.0.0.1:8080',
+      nodeExtraCaCerts: '/home/u/.llm-fw/ca.crt',
+    })
+  })
+
+  it('returns nulls for a profile without the variables', () => {
+    expect(parseProfileEnv('export PATH=/bin\n', '/home/u')).toEqual({ httpsProxy: null, nodeExtraCaCerts: null })
   })
 })

@@ -76,7 +76,7 @@ export class EventBus {
     const event: BlockEvent = {
       ...partial,
       id: randomUUID(),
-      timestamp: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium' }).format() + 'Z',
+      timestamp: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
     }
     this.ring.push(event)
     if (this.ring.length > this.maxSize) this.ring.shift()
@@ -160,7 +160,7 @@ export class EventBus {
       payload: event.payload_full,
       stage: event.stage,
       target: event.target,
-      whitelistedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium' }).format() + 'Z',
+      whitelistedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
       reason,
     }
     entries.push(entry)

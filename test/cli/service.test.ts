@@ -24,6 +24,7 @@ import {
   buildUninstallPlan,
   buildLaunchdPlist,
   buildSystemdUnit,
+  buildTaskXml,
   launchdPlistPath,
   systemdUnitPath,
   installService,
@@ -66,18 +67,58 @@ describe('resolveInvocation', () => {
   })
 })
 
+/**
+ * `schtasks /Create /SC ONLOGON` registers a trigger for ANY user's logon,
+ * which Windows only lets an administrator create: from an ordinary terminal
+ * install-service failed with "Access is denied" (found live, 2026-10-12),
+ * while its own hint said it needed no elevation. A task imported from XML
+ * whose LogonTrigger names the current user is creatable unelevated (verified
+ * on the same machine), and the XML can also turn off the defaults that keep
+ * a schtasks task from starting on battery and stop it on unplugging.
+ */
 describe('buildInstallPlan — Windows (schtasks)', () => {
-  it('generates a schtasks /Create ONLOGON task with no files to write', () => {
-    const plan = buildInstallPlan('win32', inv(), HOME_WIN)
-    expect(plan.files).toEqual([])
-    expect(plan.commands).toHaveLength(1)
-    const cmd = plan.commands[0]
-    expect(cmd.cmd).toBe('schtasks')
-    expect(cmd.args).toEqual(
-      expect.arrayContaining(['/Create', '/TN', TASK_NAME, '/SC', 'ONLOGON', '/RL', 'LIMITED', '/F', '/TR'])
-    )
-    const trValue = cmd.args[cmd.args.indexOf('/TR') + 1]
-    expect(trValue).toBe('"C:\\node\\node.exe" "C:\\llm-fw\\dist\\cli\\index.js" "start"')
+  const TMP = 'C:\\Users\\tester\\AppData\\Local\\Temp'
+
+  it('imports a task XML instead of using /SC ONLOGON', () => {
+    const plan = buildInstallPlan('win32', inv(), HOME_WIN, { user: 'PC\\tester', tmp: TMP })
+    expect(plan.files).toHaveLength(1)
+    const file = plan.files[0]
+    expect(file.path).toBe(`${TMP}\\llm-fw-task.xml`)
+    expect(file.encoding).toBe('utf16le')
+    expect(plan.commands).toEqual([{ cmd: 'schtasks', args: ['/Create', '/TN', TASK_NAME, '/XML', file.path, '/F'] }])
+    expect(plan.commands[0].args).not.toContain('ONLOGON')
+    expect(plan.cleanup).toEqual([file.path])
+  })
+})
+
+describe('buildTaskXml', () => {
+  const xml = buildTaskXml(inv(), 'PC\\tester')
+
+  it('scopes the logon trigger and the principal to the current user', () => {
+    expect(xml).toMatch(/<LogonTrigger>[\s\S]*<UserId>PC\\tester<\/UserId>[\s\S]*<\/LogonTrigger>/)
+    expect(xml).toMatch(/<Principal id="Author">[\s\S]*<UserId>PC\\tester<\/UserId>[\s\S]*<LogonType>InteractiveToken<\/LogonType>/)
+    expect(xml).toContain('<RunLevel>LeastPrivilege</RunLevel>')
+  })
+
+  it('declares UTF-16, the only encoding schtasks /XML accepts', () => {
+    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-16"?>')).toBe(true)
+  })
+
+  it('runs on battery and is never stopped by a time limit', () => {
+    expect(xml).toContain('<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>')
+    expect(xml).toContain('<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>')
+    expect(xml).toContain('<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>')
+  })
+
+  it('runs node with the quoted script path and "start"', () => {
+    expect(xml).toContain('<Command>C:\\node\\node.exe</Command>')
+    expect(xml).toContain('<Arguments>&quot;C:\\llm-fw\\dist\\cli\\index.js&quot; &quot;start&quot;</Arguments>')
+  })
+
+  it('XML-escapes a user or path that would break the document', () => {
+    const odd = buildTaskXml({ command: 'C:\\A&B\\node.exe', args: ['x', 'start'] }, 'PC\\a<b')
+    expect(odd).toContain('<Command>C:\\A&amp;B\\node.exe</Command>')
+    expect(odd).toContain('<UserId>PC\\a&lt;b</UserId>')
   })
 })
 
@@ -188,7 +229,7 @@ describe('installService (executor — all side effects mocked)', () => {
     expect(execFileSync.mock.calls[1]).toEqual(['systemctl', ['--user', 'enable', '--now', SYSTEMD_UNIT], expect.anything()])
   })
 
-  it('on win32: writes no files, calls schtasks /Create once', async () => {
+  it('on win32: writes the task XML as UTF-16 with a BOM, imports it, then deletes it', async () => {
     const origPlatform = process.platform
     Object.defineProperty(process, 'platform', { value: 'win32' })
     try {
@@ -197,10 +238,15 @@ describe('installService (executor — all side effects mocked)', () => {
       Object.defineProperty(process, 'platform', { value: origPlatform })
     }
 
-    expect(writeFileSync).not.toHaveBeenCalled()
+    expect(writeFileSync).toHaveBeenCalledTimes(1)
+    const [xmlPath, written] = writeFileSync.mock.calls[0] as [string, Buffer]
+    expect(Buffer.isBuffer(written)).toBe(true)
+    expect([...written.subarray(0, 2)]).toEqual([0xff, 0xfe])
+    expect(written.toString('utf16le')).toContain('<LogonTrigger>')
     expect(execFileSync).toHaveBeenCalledTimes(1)
     expect(execFileSync.mock.calls[0][0]).toBe('schtasks')
-    expect(execFileSync.mock.calls[0][1]).toContain('/Create')
+    expect(execFileSync.mock.calls[0][1]).toEqual(['/Create', '/TN', TASK_NAME, '/XML', xmlPath, '/F'])
+    expect(unlinkSync).toHaveBeenCalledWith(xmlPath)
   })
 
   it('refuses politely on an unsupported platform without touching fs/child_process', async () => {

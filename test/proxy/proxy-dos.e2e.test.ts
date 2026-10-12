@@ -213,4 +213,53 @@ describe('Proxy DoS circuit breaker (E2E)', { timeout: 30000 }, () => {
       expect(parseInt(r3.retryAfter!, 10)).toBeGreaterThan(0)
     })
   })
+
+  // The limiter is a denial-of-wallet breaker, but it counted every request the
+  // proxy intercepted, including Claude Code's telemetry, OAuth settings and
+  // registry calls to api.anthropic.com. Found live (2026-10-12, limit 20):
+  // five of the six requests it refused were such calls, one a /v1/messages.
+  describe('rate limiting counts model calls only', () => {
+    let tempDir: string
+    let caPem: string
+    let proxy: ProxyServer
+    let eventBus: EventBus
+
+    const testConfig = {
+      ...DEFAULT_CONFIG,
+      proxy: { ...DEFAULT_CONFIG.proxy, port: 18107 },
+      dashboard: { ...DEFAULT_CONFIG.dashboard, port: 17757 },
+      dos: { enabled: true, maxRequestsPerMinute: 2, maxTokensPerSession: 1_000_000_000, loopDetectionEnabled: false },
+    }
+
+    beforeAll(async () => {
+      tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-dos-rpm-model-e2e-'))
+      process.env.LLM_FW_DIR = tempDir
+      eventBus = new EventBus(testConfig.dashboard)
+      proxy = new ProxyServer(testConfig, eventBus)
+      caPem = (proxy as unknown as { certFactory: CertFactory }).certFactory.generateCA().cert
+      await proxy.init()
+      proxy.start()
+    })
+
+    afterAll(async () => {
+      await proxy.stop()
+      if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
+    })
+
+    it('does not spend or enforce the quota on non-model calls to a provider host', async () => {
+      const telemetry = Buffer.from(JSON.stringify({ events: [{ event_name: 'tengu_startup' }] }), 'utf-8')
+      for (let i = 0; i < 3; i++) {
+        const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/api/event_logging/v2/batch', telemetry)
+        expect(res.statusCode).toBe(200)
+      }
+
+      const body = (): Buffer => Buffer.from(JSON.stringify({
+        model: 'claude-3-5-sonnet',
+        messages: [{ role: 'user', content: `unique request ${Math.random()}` }],
+      }), 'utf-8')
+      expect((await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body())).statusCode).toBe(200)
+      expect((await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body())).statusCode).toBe(200)
+      expect((await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body())).statusCode).toBe(429)
+    })
+  })
 })

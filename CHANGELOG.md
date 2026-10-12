@@ -28,6 +28,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A second `llm-fw start` says it replaced the running instance.** It
+  has always killed the running one so it can take over the ports and the
+  sinkhole's hosts entries, but silently: the first terminal's process just
+  exited, and a manual `start` could replace the instance `install-service`
+  launched at login, with different flags, unnoticed. It now prints the PID
+  it replaced.
+
+- **`llm-fw uninstall` stops a running firewall the way `llm-fw stop`
+  does.** It sent its own SIGTERM, which on Windows is TerminateProcess, so
+  the graceful shutdown that `stop` gained for the same reason (audit sinks
+  flushed, hosts file and :443 port redirect restored) never ran and the
+  process exited 1. Uninstall now goes through `stop`.
+
+- **Event times are UTC, as their `Z` says.** Event and false-positive
+  timestamps were formatted in the machine's local time zone and then given
+  a `Z` suffix, so on a UTC+2 machine an event at 12:06 UTC read
+  `14:05:57Z`. The dashboard, the event stream, the audit log and webhooks
+  all carried the wrong instant. The format is unchanged
+  (`YYYY-MM-DD HH:MM:SS` plus `Z`); the time is now UTC. A suppression's
+  `addedAt` still has the old behaviour, because the file lives under
+  `src/detection/` and changing it needs a ruleset cut.
+
+- **The rate limit counts model calls only.** The requests-per-minute
+  breaker counted every request the proxy intercepted on a provider host,
+  so Claude Code's telemetry, OAuth settings and MCP registry calls used up
+  the quota every client shares: in a live run with the limit at 20, five of
+  the six requests it refused were such calls and one was a model call. Only requests to a parsed model endpoint now count
+  toward `dos.maxRequestsPerMinute` or the token budget, or can be refused
+  by them.
+
+- **`llm-fw install-service` works from an ordinary Windows terminal.** It
+  ran `schtasks /Create /SC ONLOGON`, which registers a trigger for any
+  user's logon and needs an administrator, so it failed with "Access is
+  denied" while its own message said no elevation was needed. It now
+  imports a task definition whose logon trigger names the current user,
+  which needs no elevation. The task also starts on battery power and keeps
+  running when the machine is unplugged; a `schtasks` task did neither by
+  default, so on a laptop the firewall could be missing after a login on
+  battery.
+
+- **`llm-fw doctor` no longer fails a working install because the terminal
+  predates setup.** Run in the terminal setup ran in, the natural first-run
+  order, it reported `HTTPS_PROXY not pointing at the proxy`, exited 1, and
+  advised re-running setup, which cannot help: setup had persisted the
+  variable for new terminals. Doctor now also reads the persisted values
+  (`HKCU\Environment` on Windows, the profile block on macOS and Linux) and
+  in that case warns that this terminal is not covered and to open a new
+  one.
+
+- **`llm-fw uninstall` says what it deleted and what it left.** It reported
+  "Removed CA, CRL, mode + pid" while it also deleted `config.json` (your
+  settings) and `whitelist.json` (events marked "not an attack"), and it
+  left the licence key, the audit log, `suppressions.json` and the OCR cache
+  in `~/.llm-fw` without saying so. It now lists every file it removed and
+  every file left behind. Which files it deletes is unchanged.
+
+- **`/metrics` no longer counts observe-mode verdicts as blocks.**
+  `llmfw_blocks_total` went up for every would-be block under
+  `llm-fw start --observe` or an observing tenant, although those requests
+  were forwarded, so an alert on it fired for traffic nobody refused, and a
+  gateway with some tenants enforcing and some observing could not tell the
+  two apart. Those verdicts now go to a new counter,
+  `llmfw_would_block_total{stage}`, and `llmfw_blocks_total` counts refused
+  requests only, matching the dashboard's Blocked and Would block tiles.
+
+- **The Command Prompt line `llm-fw setup` prints now sets both variables.**
+  It joined its two `set` commands with `^&`, which cmd reads as a literal
+  ampersand, so pasting it set `HTTPS_PROXY` to
+  `http://127.0.0.1:8080 & set NODE_EXTRA_CA_CERTS=...` and never set
+  `NODE_EXTRA_CA_CERTS`: every client in that window then failed to reach the
+  proxy. The line is now `set "HTTPS_PROXY=..." & set "NODE_EXTRA_CA_CERTS=..."`.
+
+- **Setup's Coverage summary matches what is covered.** After an unelevated
+  `setup --proxy-only` it listed curl and Python as covered although the CA
+  had just failed to install, so both reject llm-fw's certificate, and it
+  said Node.js tools needed the sinkhole although Claude Code honours
+  `HTTPS_PROXY` and goes through the proxy. It now names Claude Code under
+  proxy mode, describes the sinkhole as covering tools that ignore
+  `HTTPS_PROXY`, and warns when the CA is not in the OS trust store.
+
 - **Re-running `llm-fw setup` keeps the CA your clients already trust.**
   Setup minted a new CA on every run, and its own output tells a non-admin
   user to re-run it elevated to enable the sinkhole, so following that

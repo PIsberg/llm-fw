@@ -67,6 +67,50 @@ export function caTrustHint(os: NodeJS.Platform, caCertPath: string): string[] {
   ];
 }
 
+/**
+ * The commands that load the proxy variables into an already-open terminal.
+ * cmd's separator is a bare `&`: `^&` escapes it, so the first `set` would
+ * swallow the rest of the line as its value.
+ */
+export function loadEnvCommands(os: NodeJS.Platform, proxyUrl: string, caCert: string): string[] {
+  if (os === 'win32') {
+    return [
+      '    PowerShell:      $env:HTTPS_PROXY="' + proxyUrl + '"; $env:NODE_EXTRA_CA_CERTS="' + caCert + '"',
+      '    Command Prompt:  set "HTTPS_PROXY=' + proxyUrl + '" & set "NODE_EXTRA_CA_CERTS=' + caCert + '"',
+    ];
+  }
+  return ['    export HTTPS_PROXY=' + proxyUrl + ' NODE_EXTRA_CA_CERTS="' + caCert + '"'];
+}
+
+/**
+ * The Coverage summary. Claude Code honours HTTPS_PROXY, so proxy mode covers
+ * it; the sinkhole adds the tools that ignore the variable. Tools that do not
+ * read NODE_EXTRA_CA_CERTS only work once the CA is in the OS trust store.
+ */
+export function coverageLines(opts: {
+  sinkhole: boolean; sinkholeWanted: boolean; elevated: boolean; caTrusted: boolean; os?: NodeJS.Platform;
+}): string[] {
+  const lines = ['  ✓ Proxy mode    — tools that honour HTTPS_PROXY (Claude Code, curl, Python, Go, …)'];
+  if (opts.sinkhole) {
+    lines.push('  ✓ Sinkhole mode — tools that ignore HTTPS_PROXY (Node.js SDKs, native apps) — no proxy env needed');
+  } else if (opts.sinkholeWanted && !opts.elevated) {
+    lines.push('  ✗ Sinkhole mode — SKIPPED (needs admin/root). Re-run setup elevated to also');
+    lines.push('    cover tools that ignore HTTPS_PROXY (Node.js SDKs, native apps):');
+    lines.push((opts.os ?? platform()) === 'win32'
+      ? '      Right-click your terminal → "Run as Administrator", then: llm-fw setup'
+      : '      sudo llm-fw setup');
+  } else {
+    lines.push('    (sinkhole skipped via --proxy-only; omit it to also cover tools that');
+    lines.push('    ignore HTTPS_PROXY, such as Node.js SDKs and native apps)');
+  }
+  if (!opts.caTrusted) {
+    lines.push('  ⚠ CA not in the OS trust store: Node.js tools trust it via NODE_EXTRA_CA_CERTS,');
+    lines.push('    but curl, Python and browsers reject llm-fw\'s certificate until you trust it');
+    lines.push('    (command printed above).');
+  }
+  return lines;
+}
+
 export type IdeProxyEdit =
   | { kind: 'updated'; content: string }
   | { kind: 'unchanged' }
@@ -304,6 +348,7 @@ export async function run(args: string[]): Promise<void> {
   console.log('CRL generated.');
 
   // Step 2 - Install to OS trust store
+  let caTrusted = false;
   try {
     const os = platform();
     if (os === 'win32') {
@@ -315,6 +360,7 @@ export async function run(args: string[]): Promise<void> {
       execSync('update-ca-certificates');
     }
     console.log('CA certificate installed to OS trust store.');
+    caTrusted = true;
   } catch {
     for (const line of caTrustHint(platform(), caCertPath)) console.warn(line);
   }
@@ -421,22 +467,7 @@ export async function run(args: string[]): Promise<void> {
 
   // Tell the user exactly which coverage is active, and how to unlock the rest.
   console.log('\n── Coverage ────────────────────────────────────────────────────────────────');
-  if (sinkhole) {
-    console.log('  ✓ Proxy mode    — tools that honour HTTPS_PROXY (curl, Python, Go, …)');
-    console.log('  ✓ Sinkhole mode — Node.js & native tools (Claude Code, SDKs, …) — no proxy env needed');
-  } else if (sinkholeWanted && !elevated) {
-    console.log('  ✓ Proxy mode    — tools that honour HTTPS_PROXY (curl, Python, Go, …)');
-    console.log('  ✗ Sinkhole mode — SKIPPED (needs admin/root). Re-run setup elevated to also');
-    console.log('    cover Node.js & native tools (Claude Code, SDKs) without proxy env vars:');
-    if (platform() === 'win32') {
-      console.log('      Right-click your terminal → "Run as Administrator", then: llm-fw setup');
-    } else {
-      console.log('      sudo llm-fw setup');
-    }
-  } else {
-    console.log('  ✓ Proxy mode    — tools that honour HTTPS_PROXY (curl, Python, Go, …)');
-    console.log('    (sinkhole skipped via --proxy-only; omit it to also cover Node.js/native tools)');
-  }
+  for (const line of coverageLines({ sinkhole, sinkholeWanted, elevated, caTrusted })) console.log(line);
 
   // Env var instructions (OS-specific). What's needed depends on the mode:
   // sinkhole redirects at the OS level (no HTTPS_PROXY), so Node/native tools
@@ -454,12 +485,7 @@ export async function run(args: string[]): Promise<void> {
     console.log('  terminals are covered automatically — no per-terminal exports needed.');
   }
   console.log('\n  To load them into THIS terminal (or any already-open shell) right now:\n');
-  if (os === 'win32') {
-    console.log('    PowerShell:      $env:HTTPS_PROXY="' + proxyUrl + '"; $env:NODE_EXTRA_CA_CERTS="' + caCert + '"');
-    console.log('    Command Prompt:  set HTTPS_PROXY=' + proxyUrl + ' ^& set NODE_EXTRA_CA_CERTS=' + caCert);
-  } else {
-    console.log('    export HTTPS_PROXY=' + proxyUrl + ' NODE_EXTRA_CA_CERTS="' + caCert + '"');
-  }
+  for (const line of loadEnvCommands(os, proxyUrl, caCert)) console.log(line);
   console.log('\n  Then (re)start your LLM tool so it opens a fresh connection.');
 
   // Optional: Stage 3 judge setup

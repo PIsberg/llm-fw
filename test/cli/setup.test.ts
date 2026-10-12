@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { addProfileEnvVars, caTrustHint } from '../../src/cli/setup.js'
+import { spawnSync } from 'node:child_process'
+import { platform } from 'node:os'
+import { addProfileEnvVars, caTrustHint, coverageLines, loadEnvCommands } from '../../src/cli/setup.js'
 import { stripProfileEnvVars } from '../../src/cli/uninstall.js'
 
 const PROXY = 'http://127.0.0.1:8080'
@@ -31,6 +33,78 @@ describe('caTrustHint', () => {
     const linux = caTrustHint('linux', '/home/u/.llm-fw/ca.crt').join('\n')
     expect(linux).toContain('sudo update-ca-certificates')
     expect(linux).not.toContain('certutil')
+  })
+})
+
+/**
+ * The lines setup prints for loading the proxy variables into an already-open
+ * terminal. The Command Prompt line used to join its two `set` commands with
+ * `^&`, an ESCAPED ampersand: cmd then set HTTPS_PROXY to the whole rest of the
+ * line ("http://127.0.0.1:8080 & set NODE_EXTRA_CA_CERTS=...") and never set
+ * NODE_EXTRA_CA_CERTS at all, so the pasted line broke every client.
+ */
+describe('loadEnvCommands', () => {
+  const ca = 'C:\\Users\\u\\.llm-fw\\ca.crt'
+  const cmdLine = (): string => {
+    const line = loadEnvCommands('win32', PROXY, ca).find(l => l.includes('Command Prompt:'))
+    if (!line) throw new Error('no Command Prompt line')
+    return line.slice(line.indexOf('Command Prompt:') + 'Command Prompt:'.length).trim()
+  }
+
+  it('joins the Command Prompt sets with a real &, each assignment quoted', () => {
+    expect(cmdLine()).toBe(`set "HTTPS_PROXY=${PROXY}" & set "NODE_EXTRA_CA_CERTS=${ca}"`)
+  })
+
+  it.runIf(platform() === 'win32')('sets both variables when cmd.exe runs the printed line', () => {
+    const env = { ...process.env }
+    delete env.HTTPS_PROXY
+    delete env.NODE_EXTRA_CA_CERTS
+    const r = spawnSync('cmd.exe', ['/d', '/s', '/c', `"${cmdLine()} & set HTTPS_PROXY & set NODE_EXTRA_CA_CERTS"`], {
+      env, encoding: 'utf8', windowsVerbatimArguments: true,
+    })
+    const vars = r.stdout.split(/\r?\n/).map(l => l.trimEnd())
+    expect(vars).toContain(`HTTPS_PROXY=${PROXY}`)
+    expect(vars).toContain(`NODE_EXTRA_CA_CERTS=${ca}`)
+  })
+
+  it('gives PowerShell on Windows and a single export elsewhere', () => {
+    expect(loadEnvCommands('win32', PROXY, ca).join('\n'))
+      .toContain(`$env:HTTPS_PROXY="${PROXY}"; $env:NODE_EXTRA_CA_CERTS="${ca}"`)
+    expect(loadEnvCommands('linux', PROXY, '/home/u/.llm-fw/ca.crt'))
+      .toEqual([`    export HTTPS_PROXY=${PROXY} NODE_EXTRA_CA_CERTS="/home/u/.llm-fw/ca.crt"`])
+  })
+})
+
+/**
+ * The Coverage summary at the end of setup. Run unelevated with --proxy-only it
+ * claimed curl and Python were covered while the CA had just failed to install
+ * (they reject llm-fw's certificate), and said Node.js tools needed the
+ * sinkhole while Claude Code, which honours HTTPS_PROXY, was covered already.
+ */
+describe('coverageLines', () => {
+  const proxyOnly = { sinkhole: false, sinkholeWanted: false, elevated: false }
+
+  it('names Claude Code among the HTTPS_PROXY tools the proxy covers', () => {
+    expect(coverageLines({ ...proxyOnly, caTrusted: true }).join('\n')).toMatch(/Proxy mode .*Claude Code/)
+  })
+
+  it('does not say a skipped sinkhole leaves Claude Code uncovered', () => {
+    for (const opts of [proxyOnly, { sinkhole: false, sinkholeWanted: true, elevated: false }]) {
+      const rest = coverageLines({ ...opts, caTrusted: true }).filter(l => !l.includes('Proxy mode')).join('\n')
+      expect(rest).not.toMatch(/Claude Code/)
+      expect(rest).toMatch(/ignore HTTPS_PROXY/)
+    }
+  })
+
+  it('warns that non-Node tools reject the certificate when the CA is not trusted', () => {
+    const text = coverageLines({ ...proxyOnly, caTrusted: false }).join('\n')
+    expect(text).toMatch(/CA not in the OS trust store/)
+    expect(text).toMatch(/curl/)
+    expect(text).toContain('NODE_EXTRA_CA_CERTS')
+  })
+
+  it('says nothing about trust when the CA was installed', () => {
+    expect(coverageLines({ ...proxyOnly, caTrusted: true }).join('\n')).not.toMatch(/trust store/)
   })
 })
 

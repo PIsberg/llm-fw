@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import { join } from 'node:path'
-import { platform } from 'node:os'
+import { homedir, platform } from 'node:os'
 import { getLlmFwDir } from '../config/paths.js'
 import { execFileSync } from 'node:child_process'
 import { loadConfig } from '../config/config.js'
@@ -56,6 +56,13 @@ export interface DoctorProbe {
   sinkholeListening: boolean
   httpsProxyEnv: string | null
   nodeExtraCaCertsEnv: string | null
+  /**
+   * The values persisted for NEW terminals (Windows HKCU\Environment, or the
+   * block setup appends to a shell profile). null = not persisted / unknown.
+   * Lets doctor tell "this terminal predates setup" from "never set up".
+   */
+  httpsProxyPersisted: string | null
+  nodeExtraCaCertsPersisted: string | null
   /** Target provider hosts NOT redirected to 127.0.0.1 in the hosts file. */
   missingHostsTargets: string[]
   hostsTargetCount: number
@@ -166,6 +173,13 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
     checks.push({ level: 'ok', title: `HTTPS_PROXY = ${p.httpsProxyEnv}` })
   } else if (p.sinkholeActive) {
     checks.push({ level: 'info', title: 'HTTPS_PROXY not set (not required in sinkhole mode)' })
+  } else if (!p.httpsProxyEnv && normalizeUrl(p.httpsProxyPersisted) === normalizeUrl(proxyUrl)) {
+    checks.push({
+      level: 'warn',
+      title: 'HTTPS_PROXY is set for new terminals, but not in this one',
+      detail: 'this terminal was opened before llm-fw setup ran; tools started from it bypass llm-fw',
+      fix: ['Open a new terminal, or load it into this one:', setEnvCmd(p.os, 'HTTPS_PROXY', proxyUrl)],
+    })
   } else {
     checks.push({
       level: 'fail',
@@ -185,6 +199,13 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
       title: 'NODE_EXTRA_CA_CERTS does not point at the llm-fw CA',
       detail: `current:  ${p.nodeExtraCaCertsEnv}\nexpected: ${p.caCertPath}`,
       fix: [setEnvCmd(p.os, 'NODE_EXTRA_CA_CERTS', p.caCertPath), 'llm-fw setup sets this persistently — re-run it, then open a new terminal'],
+    })
+  } else if (p.nodeExtraCaCertsPersisted && samePath(p.nodeExtraCaCertsPersisted, p.caCertPath, p.os)) {
+    checks.push({
+      level: 'warn',
+      title: 'NODE_EXTRA_CA_CERTS is set for new terminals, but not in this one',
+      detail: 'this terminal was opened before llm-fw setup ran; Node.js tools started from it reject llm-fw\'s certificate',
+      fix: ['Open a new terminal, or load it into this one:', setEnvCmd(p.os, 'NODE_EXTRA_CA_CERTS', p.caCertPath)],
     })
   } else {
     checks.push({
@@ -411,6 +432,31 @@ export function parsePortRedirect(os: OS, output: string, httpsPort: number): bo
  * containing regex metacharacters can't break or inject the match. Handles
  * multiple hosts per line and trailing inline comments.
  */
+/** The data of `reg query HKCU\Environment /v <name>`, or null when absent. */
+export function parseRegQueryValue(output: string, name: string): string | null {
+  for (const line of output.split(/\r?\n/)) {
+    const m = /^\s+(\S+)\s+REG_(?:EXPAND_)?SZ\s+(.*)$/.exec(line)
+    if (m && m[1]?.toLowerCase() === name.toLowerCase()) return (m[2] ?? '').trim() || null
+  }
+  return null
+}
+
+/** The proxy variables a shell profile exports (the block setup appends), $HOME expanded. */
+export function parseProfileEnv(text: string, home: string): { httpsProxy: string | null; nodeExtraCaCerts: string | null } {
+  // One literal pattern for every export line; the last assignment wins, as in a shell.
+  const exports = new Map<string, string>()
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
+    if (m?.[1]) exports.set(m[1], (m[2] ?? '').trim())
+  }
+  const value = (name: string): string | null => {
+    const raw = exports.get(name)
+    if (raw === undefined) return null
+    return raw.replace(/^"(.*)"$/, '$1').replace(/^\$HOME(?=\/)|^~(?=\/)/, home) || null
+  }
+  return { httpsProxy: value('HTTPS_PROXY'), nodeExtraCaCerts: value('NODE_EXTRA_CA_CERTS') }
+}
+
 export function parseLoopbackHosts(hostsText: string): Set<string> {
   const hosts = new Set<string>()
   for (const line of hostsText.split(/\r?\n/)) {
@@ -489,6 +535,26 @@ function detectPortRedirect(os: OS, httpsPort: number): boolean | null {
   return out === null ? null : parsePortRedirect(os, out, httpsPort)
 }
 
+/** What setup persisted for new terminals; nulls when nothing was or it cannot be read. */
+function detectPersistedEnv(os: OS): { httpsProxy: string | null; nodeExtraCaCerts: string | null } {
+  if (os === 'win32') {
+    const read = (name: string): string | null => {
+      const out = safeExec('reg', ['query', 'HKCU\\Environment', '/v', name])
+      return out ? parseRegQueryValue(out, name) : null
+    }
+    return { httpsProxy: read('HTTPS_PROXY'), nodeExtraCaCerts: read('NODE_EXTRA_CA_CERTS') }
+  }
+  const result: { httpsProxy: string | null; nodeExtraCaCerts: string | null } = { httpsProxy: null, nodeExtraCaCerts: null }
+  for (const f of ['.bashrc', '.zshrc', '.profile', '.bash_profile']) {
+    let text: string
+    try { text = fs.readFileSync(join(homedir(), f), 'utf8') } catch { continue }
+    const env = parseProfileEnv(text, homedir())
+    result.httpsProxy ??= env.httpsProxy
+    result.nodeExtraCaCerts ??= env.nodeExtraCaCerts
+  }
+  return result
+}
+
 async function probe(): Promise<DoctorProbe> {
   const config = await loadConfig()
   const os = platform() as OS
@@ -535,6 +601,7 @@ async function probe(): Promise<DoctorProbe> {
     probes.map(p => p.status === 'fulfilled' && p.value === true)
 
   const env = process.env
+  const persisted = detectPersistedEnv(os)
   return {
     os,
     proxyPort: config.proxy.port,
@@ -553,6 +620,8 @@ async function probe(): Promise<DoctorProbe> {
     sinkholeListening,
     httpsProxyEnv: env['HTTPS_PROXY'] ?? env['https_proxy'] ?? null,
     nodeExtraCaCertsEnv: env['NODE_EXTRA_CA_CERTS'] ?? null,
+    httpsProxyPersisted: persisted.httpsProxy,
+    nodeExtraCaCertsPersisted: persisted.nodeExtraCaCerts,
     missingHostsTargets,
     hostsTargetCount,
     portRedirectPresent: sinkholeActive ? detectPortRedirect(os, config.proxy.httpsPort) : null,

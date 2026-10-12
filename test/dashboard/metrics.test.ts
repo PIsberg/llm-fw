@@ -6,7 +6,7 @@ describe('MetricsRegistry — Prometheus text exposition', () => {
     const registry = new MetricsRegistry()
     const text = registry.render({ embedding: false, classifier: false })
 
-    for (const name of ['llmfw_requests_total', 'llmfw_blocks_total', 'llmfw_warns_total', 'llmfw_events_total', 'llmfw_scan_duration_ms', 'llmfw_model_loaded']) {
+    for (const name of ['llmfw_requests_total', 'llmfw_blocks_total', 'llmfw_would_block_total', 'llmfw_warns_total', 'llmfw_events_total', 'llmfw_scan_duration_ms', 'llmfw_model_loaded']) {
       expect(text).toContain(`# HELP ${name} `)
       expect(text).toMatch(new RegExp(`# TYPE ${name} (counter|histogram|gauge)`))
     }
@@ -46,6 +46,25 @@ describe('MetricsRegistry — Prometheus text exposition', () => {
     const text = registry.render({ embedding: false, classifier: false })
     expect(text).toContain('llmfw_events_total{kind="unspecified"} 1')
     expect(text).toContain('llmfw_blocks_total{stage="dos"} 1')
+  })
+
+  // Observe mode records a block verdict with enforced: false and forwards the
+  // request. Counting it in llmfw_blocks_total made a 'blocks' alert fire for
+  // requests nobody refused, and with per-tenant observe the two could not be
+  // told apart at all.
+  it('counts observe-mode verdicts as would-block, never as blocks', () => {
+    const registry = new MetricsRegistry()
+    registry.recordEvent({ action: 'blocked', stage: 'heuristic', kind: 'prompt', enforced: false })
+    registry.recordEvent({ action: 'blocked', stage: 'heuristic', kind: 'prompt', enforced: false })
+    registry.recordEvent({ action: 'blocked', stage: 'heuristic', kind: 'prompt' })
+    registry.recordEvent({ action: 'blocked', stage: 'embedding', kind: 'prompt', enforced: true })
+
+    const text = registry.render({ embedding: true, classifier: false })
+    expect(text).toContain('llmfw_blocks_total{stage="heuristic"} 1')
+    expect(text).toContain('llmfw_blocks_total{stage="embedding"} 1')
+    expect(text).toContain('llmfw_would_block_total{stage="heuristic"} 2')
+    expect(text).not.toContain('llmfw_would_block_total{stage="embedding"}')
+    expect(text).toContain('llmfw_events_total{kind="prompt"} 4')
   })
 
   it('recordScan() increments requests_total by surface and observes the duration histogram cumulatively', () => {
