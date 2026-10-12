@@ -449,7 +449,7 @@ address. In CI, prefer [gateway mode](#gateway-clients).
 
 Sinkhole mode is enabled automatically by `llm-fw setup` when it runs with admin/root — you usually don't need to do anything extra. This section explains what it does and how to enable it if your first `setup` ran unprivileged.
 
-It matters for Node.js apps (`@anthropic-ai/sdk`, Claude Code CLI, LangChain, …) and native binaries that hardcode their HTTP client and bypass `HTTPS_PROXY` entirely. Sinkhole mode redirects traffic at the OS level — no env var needed in the target tool.
+It matters for Node.js apps (`@anthropic-ai/sdk`, LangChain, …) and native binaries that hardcode their HTTP client and bypass `HTTPS_PROXY` entirely. Claude Code honours `HTTPS_PROXY`, so proxy mode already covers it. Sinkhole mode redirects traffic at the OS level — no env var needed in the target tool.
 
 **How it works:** setup adds every supported provider host (`api.anthropic.com`, `api.openai.com`, …) to your hosts file pointing to `127.0.0.1`, and sets up a local port redirect so connections on port 443 are forwarded to the sinkhole TLS proxy server on port 8443.
 

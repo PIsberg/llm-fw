@@ -28,6 +28,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Command Prompt line `llm-fw setup` prints now sets both variables.**
+  It joined its two `set` commands with `^&`, which cmd reads as a literal
+  ampersand, so pasting it set `HTTPS_PROXY` to
+  `http://127.0.0.1:8080 & set NODE_EXTRA_CA_CERTS=...` and never set
+  `NODE_EXTRA_CA_CERTS`: every client in that window then failed to reach the
+  proxy. The line is now `set "HTTPS_PROXY=..." & set "NODE_EXTRA_CA_CERTS=..."`.
+
+- **Setup's Coverage summary matches what is covered.** After an unelevated
+  `setup --proxy-only` it listed curl and Python as covered although the CA
+  had just failed to install, so both reject llm-fw's certificate, and it
+  said Node.js tools needed the sinkhole although Claude Code honours
+  `HTTPS_PROXY` and goes through the proxy. It now names Claude Code under
+  proxy mode, describes the sinkhole as covering tools that ignore
+  `HTTPS_PROXY`, and warns when the CA is not in the OS trust store.
+
 - **Re-running `llm-fw setup` keeps the CA your clients already trust.**
   Setup minted a new CA on every run, and its own output tells a non-admin
   user to re-run it elevated to enable the sinkhole, so following that
