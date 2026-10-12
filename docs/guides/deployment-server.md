@@ -83,7 +83,10 @@ llm-fw setup --proxy-only
 
 `setup` generates the CA at `~/.llm-fw/ca.crt` and `~/.llm-fw/ca.key`, locks the
 directory down to the running user (`chmod 0700`, or the `icacls` equivalent on
-Windows), and writes `~/.llm-fw/config.json`.
+Windows), and writes `~/.llm-fw/config.json`. Running `setup` again keeps that
+CA, so it never untrusts your clients, unless the key is missing or does not
+match, the CA has expired, or its CRL URL no longer matches the dashboard
+address (see the note under [Ports and firewall rules](#ports-and-firewall-rules)).
 
 Use `--proxy-only` on a server. Plain `llm-fw setup` also tries to install the
 sinkhole, which rewrites the hosts file and adds an OS-level `443` redirect. On
@@ -406,8 +409,8 @@ ssh -L 7731:127.0.0.1:7731 user@server
 > embedded in every certificate follows the configured dashboard address, so new
 > certificates are correct as soon as you restart. The **CA** carries the URL it
 > was generated with, though, so a CA minted under the old port keeps pointing
-> there. Set the port before running `setup`, or re-run `setup` and re-trust the
-> CA on every client. Windows clients in particular depend on that URL resolving.
+> there. Set the port before running `setup`, or re-run `setup`, which replaces the
+> CA for exactly this reason, and re-trust it on every client. Windows clients in particular depend on that URL resolving.
 
 ---
 

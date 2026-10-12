@@ -38,8 +38,11 @@ A new key is not one edit. It is five, and reviewers will look for all of them:
   ignored, not treated as false.
 - **Arrays replace wholesale.** Overriding `targets` in a file drops the entire
   built-in provider registry. That is why `extraTargets` exists.
-- **`LLM_FW_DIR` is read at module load** by `src/proxy/certs.ts`. It must be in
-  the process environment; setting it from config is too late.
+- **`LLM_FW_DIR` comes from the process environment only.** It locates
+  `config.json`, so no config file can set it. Resolve it per call through
+  `getLlmFwDir()`, never into a module-level constant: `src/proxy/certs.ts`
+  once did, and the unit tests that set it in a hook wrote their CA over the
+  developer's real `~/.llm-fw/ca.key`.
 - **`LLM_FW_GATEWAY_KEY_<SLUG>` is deliberately not in the config object**, so
   the dashboard settings view cannot read provider keys back out. Keep it that
   way.

@@ -28,6 +28,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Re-running `llm-fw setup` keeps the CA your clients already trust.**
+  Setup minted a new CA on every run, and its own output tells a non-admin
+  user to re-run it elevated to enable the sinkhole, so following that
+  advice untrusted every other machine, container and runtime that had
+  imported the old CA, with nothing printed to say so. Setup now keeps an
+  existing CA whose key matches, which has not expired and whose CRL URL
+  still matches the dashboard address, and prints that it did. It still
+  makes a new one when any of those fails.
+
+- **Running the unit tests no longer overwrites your real CA.** The CA
+  paths were fixed when `src/proxy/certs.ts` was first imported, before any
+  test could point `LLM_FW_DIR` at a temporary directory, so a local
+  `npm run test:run` wrote a throwaway CA over `~/.llm-fw/ca.crt` and
+  `ca.key`. They are now resolved on every call.
+
 - **The dashboard no longer reports observe-mode traffic as blocked.** Under
   `llm-fw start --observe` every would-be block was listed with a red
   BLOCKED badge and counted in the Blocked tile, the same as a refused

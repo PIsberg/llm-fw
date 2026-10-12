@@ -7,10 +7,12 @@ import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
-const LLMFW_DIR = getLlmFwDir();
-const CA_CERT_PATH = join(LLMFW_DIR, 'ca.crt');
-const CA_KEY_PATH = join(LLMFW_DIR, 'ca.key');
-const CRL_PATH = join(LLMFW_DIR, 'ca.crl');
+// Resolved per call, like every other getLlmFwDir() consumer. Captured at module
+// load they ignored an LLM_FW_DIR set afterwards, so the unit tests that set it
+// in a hook wrote their CA over the developer's real ~/.llm-fw/ca.key.
+const caCertPath = (): string => join(getLlmFwDir(), 'ca.crt');
+const caKeyPath = (): string => join(getLlmFwDir(), 'ca.key');
+const crlPath = (): string => join(getLlmFwDir(), 'ca.crl');
 
 /** The dashboard port, which is where the CRL is served from. */
 export const DEFAULT_DASHBOARD_PORT = 7731;
@@ -78,14 +80,17 @@ export function restrictDirPermissions(dir: string): void {
 
 // Build the ASN.1 for a cRLDistributionPoints extension (OID 2.5.29.31)
 // containing a single distributionPoint with a fullName URI.
-function makeCdpExtension(crlUrl: string): object {
+function cdpSequence(crlUrl: string): forge.asn1.Asn1 {
   const uri = forge.asn1.create(forge.asn1.Class.CONTEXT_SPECIFIC, 6, false,
     Buffer.from(crlUrl).toString('binary'))
   const fullName = forge.asn1.create(forge.asn1.Class.CONTEXT_SPECIFIC, 0, true, [uri])
   const dpName = forge.asn1.create(forge.asn1.Class.CONTEXT_SPECIFIC, 0, true, [fullName])
   const distPoint = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [dpName])
-  const cdpSeq = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [distPoint])
-  return { id: '2.5.29.31', critical: false, value: cdpSeq }
+  return forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [distPoint])
+}
+
+function makeCdpExtension(crlUrl: string): object {
+  return { id: '2.5.29.31', critical: false, value: cdpSequence(crlUrl) }
 }
 
 export class CertFactory {
@@ -110,9 +115,36 @@ export class CertFactory {
     }
   }
 
+  /**
+   * Keep the CA already on disk when it is still usable, otherwise make one.
+   *
+   * Every client, container and machine that trusts the CA breaks when it is
+   * replaced, so `llm-fw setup` must not replace it just because it ran again
+   * (it tells a non-admin user to re-run it elevated). Usable means: both files
+   * load, the key belongs to the certificate, it has not expired, and its CRL
+   * distribution point is the one this install serves, since that URL is baked
+   * into the CA and Windows Schannel rejects leaves whose CRL it cannot fetch.
+   */
+  ensureCA(): 'reused' | 'generated' {
+    try {
+      this.loadCA();
+      const { cert, key } = this.caForge!;
+      const publicKey = cert.publicKey as forge.pki.rsa.PublicKey;
+      const cdp = cert.extensions.find((e: { id?: string }) => e.id === '2.5.29.31') as { value?: string } | undefined;
+      const usable = publicKey.n.equals(key.n)
+        && cert.validity.notAfter.getTime() > Date.now()
+        && cdp?.value === forge.asn1.toDer(cdpSequence(this.crlUrl)).getBytes();
+      if (usable) return 'reused';
+    } catch { /* missing or unreadable: make a new one */ }
+    this.caForge = null;
+    this.generateCA();
+    return 'generated';
+  }
+
   generateCA(): TLSCredentials {
-    fs.mkdirSync(LLMFW_DIR, { recursive: true });
-    restrictDirPermissions(LLMFW_DIR);
+    const dir = getLlmFwDir();
+    fs.mkdirSync(dir, { recursive: true });
+    restrictDirPermissions(dir);
 
     const keys = forge.pki.rsa.generateKeyPair(2048);
     const cert = forge.pki.createCertificate();
@@ -149,8 +181,8 @@ export class CertFactory {
     const certPem = forge.pki.certificateToPem(cert);
     const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
 
-    fs.writeFileSync(CA_CERT_PATH, certPem, { encoding: 'utf8' });
-    fs.writeFileSync(CA_KEY_PATH, keyPem, { encoding: 'utf8' });
+    fs.writeFileSync(caCertPath(), certPem, { encoding: 'utf8' });
+    fs.writeFileSync(caKeyPath(), keyPem, { encoding: 'utf8' });
 
     this.caForge = { cert, key: keys.privateKey };
     // Pre-warm shared host key while RSA generation is already on the critical path during setup.
@@ -160,8 +192,8 @@ export class CertFactory {
   }
 
   loadCA(): TLSCredentials {
-    const certPem = fs.readFileSync(CA_CERT_PATH, 'utf8');
-    const keyPem = fs.readFileSync(CA_KEY_PATH, 'utf8');
+    const certPem = fs.readFileSync(caCertPath(), 'utf8');
+    const keyPem = fs.readFileSync(caKeyPath(), 'utf8');
 
     const cert = forge.pki.certificateFromPem(certPem);
     const key = forge.pki.privateKeyFromPem(keyPem);
@@ -174,7 +206,7 @@ export class CertFactory {
   getOrLoadCA(): { cert: forge.pki.Certificate; key: forge.pki.rsa.PrivateKey } {
     if (this.caForge) return this.caForge;
 
-    if (fs.existsSync(CA_CERT_PATH)) {
+    if (fs.existsSync(caCertPath())) {
       this.loadCA();
       return this.caForge!;
     }
@@ -231,7 +263,7 @@ export class CertFactory {
         '\x00' + sigBytes),
     ])
 
-    fs.writeFileSync(CRL_PATH, Buffer.from(forge.asn1.toDer(crlAsn1).getBytes(), 'binary'))
+    fs.writeFileSync(crlPath(), Buffer.from(forge.asn1.toDer(crlAsn1).getBytes(), 'binary'))
   }
 
   getHostCert(hostname: string): TLSCredentials {

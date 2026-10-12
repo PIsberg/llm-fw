@@ -292,13 +292,14 @@ export async function run(args: string[]): Promise<void> {
 
   console.log('Setting up llm-fw...');
 
-  // Step 1 - Generate CA
+  // Step 1 - Generate the CA, or keep the one every client already trusts.
   // The CRL distribution point is baked into the CA, so it has to match the
   // dashboard this install will actually serve the CRL from.
   const setupConfig = await loadConfig();
   const certFactory = new CertFactory(crlUrlFor(setupConfig.dashboard?.bindHost, setupConfig.dashboard?.port));
-  certFactory.generateCA();
-  console.log('CA certificate generated.');
+  console.log(certFactory.ensureCA() === 'reused'
+    ? 'Existing CA certificate kept (clients that trust it keep working).'
+    : 'CA certificate generated.');
   certFactory.generateAndSaveCRL();
   console.log('CRL generated.');
 
