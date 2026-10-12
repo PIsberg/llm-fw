@@ -71,6 +71,7 @@ const HTML = `<!DOCTYPE html>
   .badge-blocked { background: #d32f2f; }
   .badge-warned  { background: #e65100; }
   .badge-passed  { background: #388e3c; }
+  .badge-observed { background: #fff; color: #d32f2f; border: 1px solid #d32f2f; }
 
   /* Stage chips */
   .chip { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
@@ -297,6 +298,7 @@ const HTML = `<!DOCTYPE html>
   <div class="stats">
     <div class="stat"><div class="stat-label">Total Events</div><div class="stat-value total" id="s-total">0</div></div>
     <div class="stat"><div class="stat-label">Blocked</div><div class="stat-value blocked" id="s-blocked">0</div></div>
+    <div class="stat" title="Observe mode: recorded as a block, but the request was forwarded"><div class="stat-label">Would block</div><div class="stat-value blocked" id="s-observed">0</div></div>
     <div class="stat"><div class="stat-label">Warned</div><div class="stat-value warned" id="s-warned">0</div></div>
     <div class="stat"><div class="stat-label">Heuristic</div><div class="stat-value" id="s-heuristic">0</div></div>
     <div class="stat"><div class="stat-label">Embedding</div><div class="stat-value" id="s-embedding">0</div></div>
@@ -464,10 +466,17 @@ function showTab(name, btn) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-const stats = { total: 0, blocked: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0, mcp: 0, ascii: 0, exfil: 0 };
+const stats = { total: 0, blocked: 0, observed: 0, warned: 0, heuristic: 0, embedding: 0, judge: 0, url: 0, dlp: 0, dos: 0, rag: 0, mcp: 0, ascii: 0, exfil: 0 };
+// A block recorded under observe mode (enforced: false) refused nothing.
+function isObservedBlock(ev) { return ev.action === 'blocked' && ev.enforced === false; }
+function resetStats() {
+  for (const k of Object.keys(stats)) stats[k] = 0;
+  renderStats();
+}
 function updateStats(ev) {
   stats.total++;
-  if (ev.action === 'blocked') stats.blocked++;
+  if (isObservedBlock(ev)) stats.observed++;
+  else if (ev.action === 'blocked') stats.blocked++;
   else if (ev.action === 'warned') stats.warned++;
   // We do not increment warned/blocked for 'passed'
   if (ev.stage === 'heuristic') stats.heuristic++;
@@ -480,8 +489,12 @@ function updateStats(ev) {
   else if (ev.stage === 'mcp-filter') stats.mcp++;
   else if (ev.stage === 'ascii-smuggling') stats.ascii++;
   else if (ev.stage === 'response-exfil') stats.exfil++;
+  renderStats();
+}
+function renderStats() {
   document.getElementById('s-total').textContent = stats.total;
   document.getElementById('s-blocked').textContent = stats.blocked;
+  document.getElementById('s-observed').textContent = stats.observed;
   document.getElementById('s-warned').textContent = stats.warned;
   document.getElementById('s-heuristic').textContent = stats.heuristic;
   document.getElementById('s-embedding').textContent = stats.embedding;
@@ -591,7 +604,7 @@ function toggleDrawer(id, ev) {
           '<dt>Target</dt><dd>' + esc(ev.target) + '</dd>' +
           '<dt>Method</dt><dd>' + esc(ev.method) + '</dd>' +
           '<dt>Path</dt><dd>' + esc(ev.path) + '</dd>' +
-          '<dt>Action</dt><dd>' + esc(ev.action) + '</dd>' +
+          '<dt>Action</dt><dd>' + esc(ev.action) + (isObservedBlock(ev) ? ' (observe mode: not enforced, request forwarded)' : '') + '</dd>' +
           '<dt>Time</dt><dd>' + esc(ev.timestamp) + '</dd>' +
           '<dt>ID</dt><dd>' + esc(ev.id) + '</dd>' +
         '</dl>' +
@@ -689,7 +702,9 @@ function appendRow(ev) {
   if (noEventsRow && noEventsRow.parentNode) noEventsRow.parentNode.removeChild(noEventsRow);
   updateStats(ev);
 
-  const actionBadge = '<span class="badge badge-' + esc(ev.action) + '">' + esc((ev.action || '').toUpperCase()) + '</span>';
+  const actionBadge = isObservedBlock(ev)
+    ? '<span class="badge badge-observed" title="Observe mode: recorded, not refused">WOULD BLOCK</span>'
+    : '<span class="badge badge-' + esc(ev.action) + '">' + esc((ev.action || '').toUpperCase()) + '</span>';
   const stageChip  = '<span class="chip chip-' + esc(ev.stage) + '">' + esc(ev.stage) + '</span>';
   const endpoint   = esc((ev.method || '') + ' ' + (ev.path || ''));
 
@@ -717,7 +732,8 @@ const es = new EventSource('/events');
 // Every (re)connect replays the server's whole buffer, so start from an empty
 // table: no duplicated rows after a dropped connection, and no rows left over
 // from before a restart whose "Mark false positive" the server cannot honour.
-es.onopen = () => { tbody.replaceChildren(); };
+// The tiles count the same replay, so they start from zero too.
+es.onopen = () => { tbody.replaceChildren(); resetStats(); };
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 
 // ── Playground ────────────────────────────────────────────────────────────────

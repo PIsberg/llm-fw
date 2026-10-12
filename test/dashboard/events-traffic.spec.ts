@@ -60,6 +60,42 @@ test.describe('Events feed across a reconnect', () => {
     await expect(rows.filter({ hasText: 'event from the new process' })).toHaveCount(1, { timeout: 10_000 })
     await expect(rows.filter({ hasText: 'event from the old process' })).toHaveCount(0)
     await expect(rows).toHaveCount(1)
+    // The tiles describe the same replay as the table. They used to keep
+    // counting across reconnects, so after one llm-fw restart a page showed
+    // 15 events and 12 blocks above a table of 7 rows.
+    await expect(page.locator('#s-total')).toHaveText('1')
+    await expect(page.locator('#s-blocked')).toHaveText('1')
+    await expect(page.locator('#s-heuristic')).toHaveText('1')
+  })
+})
+
+test.describe('Events feed under observe mode', () => {
+  // `llm-fw start --observe` records every would-be block with enforced:false
+  // and refuses nothing. The README tells an observing operator to watch the
+  // dashboard, so it must not report those requests as blocked.
+  test('shows an unenforced block as WOULD BLOCK and keeps it out of the Blocked tile', async ({ page }) => {
+    const ev = (id: string, text: string, extra: Record<string, unknown>) => JSON.stringify({
+      id, timestamp: '2026-10-12 06:00:00Z', stage: 'heuristic', score: 110, similarity: 0,
+      target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked',
+      payload_preview: text, payload_full: text, ...extra,
+    })
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + ev('observed-1', 'observed injection', { enforced: false }) + '\n\n' +
+        'data: ' + ev('enforced-1', 'enforced injection', {}) + '\n\n',
+    }))
+
+    await page.goto('/')
+    await page.click('button:has-text("Events")')
+    const rows = page.locator('#events-body tr.event-row')
+    await expect(rows).toHaveCount(2, { timeout: 10_000 })
+    await expect(rows.filter({ hasText: 'observed injection' }).locator('.badge')).toHaveText('WOULD BLOCK')
+    await expect(rows.filter({ hasText: 'enforced injection' }).locator('.badge')).toHaveText('BLOCKED')
+    await expect(page.locator('#s-blocked')).toHaveText('1')
+    await expect(page.locator('#s-observed')).toHaveText('1')
+    await expect(page.locator('#s-total')).toHaveText('2')
   })
 })
 
