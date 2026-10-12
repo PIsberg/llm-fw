@@ -542,8 +542,11 @@ export class ProxyServer {
 
       // Stage -1 — Cost control / agentic DoS circuit breaker. The RPM and
       // session-budget checks run BEFORE the body is buffered so a run-away
-      // agent is throttled as cheaply as possible.
-      if (this.config.dos.enabled) {
+      // agent is throttled as cheaply as possible. They count model calls only
+      // (a path with a payload parser, the same test DLP and the loop breaker
+      // use): a client's telemetry, OAuth and registry calls cost nothing,
+      // and counting them spent the quota every client shares.
+      if (this.config.dos.enabled && getParser(dosPath) !== null) {
         const q = this.quota.checkRpm()
         if (!q.allowed) {
           innerRes.writeHead(429, {

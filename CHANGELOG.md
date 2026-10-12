@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The rate limit counts model calls only.** The requests-per-minute
+  breaker counted every request the proxy intercepted on a provider host,
+  so Claude Code's telemetry, OAuth settings and MCP registry calls used up
+  the quota every client shares: in a live run with the limit at 20, five of
+  the six requests it refused were such calls and one was a model call. Only requests to a parsed model endpoint now count
+  toward `dos.maxRequestsPerMinute` or the token budget, or can be refused
+  by them.
+
 - **`llm-fw install-service` works from an ordinary Windows terminal.** It
   ran `schtasks /Create /SC ONLOGON`, which registers a trigger for any
   user's logon and needs an administrator, so it failed with "Access is
