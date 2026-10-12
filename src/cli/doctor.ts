@@ -443,13 +443,16 @@ export function parseRegQueryValue(output: string, name: string): string | null 
 
 /** The proxy variables a shell profile exports (the block setup appends), $HOME expanded. */
 export function parseProfileEnv(text: string, home: string): { httpsProxy: string | null; nodeExtraCaCerts: string | null } {
+  // One literal pattern for every export line; the last assignment wins, as in a shell.
+  const exports = new Map<string, string>()
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
+    if (m?.[1]) exports.set(m[1], (m[2] ?? '').trim())
+  }
   const value = (name: string): string | null => {
-    let found: string | null = null
-    for (const line of text.split(/\r?\n/)) {
-      const m = new RegExp(`^\\s*export\\s+${name}=(.*)$`).exec(line)
-      if (m) found = (m[1] ?? '').trim().replace(/^"(.*)"$/, '$1').replace(/^\$HOME(?=\/)|^~(?=\/)/, home) || null
-    }
-    return found
+    const raw = exports.get(name)
+    if (raw === undefined) return null
+    return raw.replace(/^"(.*)"$/, '$1').replace(/^\$HOME(?=\/)|^~(?=\/)/, home) || null
   }
   return { httpsProxy: value('HTTPS_PROXY'), nodeExtraCaCerts: value('NODE_EXTRA_CA_CERTS') }
 }
