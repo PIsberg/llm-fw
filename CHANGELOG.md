@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The v0.7.0 npm publish failed with `404 Not Found` on the PUT.** The
+  Publish to npm workflow authenticated with an `NPM_TOKEN` secret set on
+  2026-06-09, and npm granular publish tokens expire after at most 90 days.
+  The workflow now uses npm Trusted Publishing (OIDC), so there is no stored
+  token to expire. It upgrades npm to 11.20.0 before publishing, because
+  Node 22 bundles npm 10.9.9, which has no OIDC support.
+
 ## [0.7.0] - 2026-10-12
 
 ### Security
