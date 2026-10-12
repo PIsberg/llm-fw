@@ -6,25 +6,30 @@ import { clearStopRequest, requestStop } from './stopRequest.js';
 export interface StopOptions {
   /** How long to wait for the process to answer the stop request before signalling it. */
   requestWaitMs?: number;
+  /** The llm-fw state dir holding the pid file. Default: getLlmFwDir(). */
+  dir?: string;
+  /** Where progress lines go; uninstall passes its own "  ✓" formatter. */
+  log?: (msg: string) => void;
 }
 
 export async function run(options: StopOptions = {}): Promise<void> {
-  const dir = getLlmFwDir();
+  const dir = options.dir ?? getLlmFwDir();
   const pidFile = join(dir, 'llm-fw.pid');
+  const log = options.log ?? ((msg: string) => console.log(msg));
 
   if (!fs.existsSync(pidFile)) {
-    console.log('llm-fw is not running.');
+    log('llm-fw is not running.');
     return;
   }
 
   const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
   if (isNaN(pid)) {
-    console.log('llm-fw is not running (invalid PID file).');
+    log('llm-fw is not running (invalid PID file).');
     return;
   }
 
   if (!isAlive(pid)) {
-    console.log('llm-fw is not running (process not found).');
+    log('llm-fw is not running (process not found).');
     removePidFile(pidFile, pid);
     return;
   }
@@ -36,7 +41,7 @@ export async function run(options: StopOptions = {}): Promise<void> {
   if (await waitForExit(pid, pidFile, options.requestWaitMs ?? 5000)) {
     clearStopRequest(dir);
     removePidFile(pidFile, pid);
-    console.log('llm-fw stopped.');
+    log('llm-fw stopped.');
     return;
   }
   // Unanswered: an older start without the watcher, or a hung process.
@@ -46,7 +51,7 @@ export async function run(options: StopOptions = {}): Promise<void> {
     process.kill(pid, 'SIGTERM');
   } catch {
     removePidFile(pidFile, pid);
-    console.log('llm-fw stopped.');
+    log('llm-fw stopped.');
     return;
   }
 
@@ -54,7 +59,7 @@ export async function run(options: StopOptions = {}): Promise<void> {
     // On Windows SIGTERM is TerminateProcess, so start's exit handler never
     // runs and the pid file outlives the process. Clean up after it here.
     removePidFile(pidFile, pid);
-    console.log('llm-fw stopped.');
+    log('llm-fw stopped.');
     return;
   }
 
@@ -64,7 +69,7 @@ export async function run(options: StopOptions = {}): Promise<void> {
     process.kill(pid, 'SIGKILL');
   } catch {}
   removePidFile(pidFile, pid);
-  console.log('llm-fw killed.');
+  log('llm-fw killed.');
 }
 
 function isAlive(pid: number): boolean {

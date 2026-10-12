@@ -8,6 +8,7 @@ import { isElevated, getIdeSettingsPaths } from './setup.js';
 import { serializeLike } from './jsonFormat.js';
 import { loadConfig } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
+import { run as stopFirewall } from './stop.js';
 
 /**
  * `llm-fw uninstall` — reverse every change `setup` (and `setup-judge`) made,
@@ -128,17 +129,12 @@ const ok = (msg: string) => console.log(`  ✓ ${msg}`);
 const skip = (msg: string) => console.log(`  • ${msg}`);
 const warn = (msg: string) => console.warn(`  ⚠ ${msg}`);
 
-/** Stop a running firewall via its pid file (mirrors stop.ts) so we don't pull
- *  the trust anchor / hosts entries out from under a live proxy. */
-function stopRunningProxy(llmfwDir: string): void {
-  const pidFile = join(llmfwDir, 'llm-fw.pid');
-  if (!fs.existsSync(pidFile)) return;
-  try {
-    const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    if (!isNaN(pid)) {
-      try { process.kill(pid, 'SIGTERM'); ok(`Stopped running proxy (PID ${pid})`); } catch { /* already dead */ }
-    }
-  } catch { /* unreadable pid file */ }
+/** Stop a running firewall so we don't pull the trust anchor / hosts entries
+ *  out from under a live proxy. Delegates to `llm-fw stop`: a SIGTERM of its
+ *  own was TerminateProcess on Windows and skipped the graceful shutdown. */
+export async function stopRunningProxy(llmfwDir: string): Promise<void> {
+  if (!fs.existsSync(join(llmfwDir, 'llm-fw.pid'))) return;
+  await stopFirewall({ dir: llmfwDir, log: ok });
 }
 
 /** Remove the root CA from the OS trust store. Needs elevation on every OS. */
@@ -396,7 +392,7 @@ export async function run(args: string[]): Promise<void> {
   console.log('\nUninstalling...');
 
   // 1. Stop the proxy first so nothing is mid-flight.
-  stopRunningProxy(llmfwDir);
+  await stopRunningProxy(llmfwDir);
 
   // 2. OS trust store + sinkhole — all need elevation. Warn once if we lack it.
   if (!elevated) {

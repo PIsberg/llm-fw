@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw uninstall` stops a running firewall the way `llm-fw stop`
+  does.** It sent its own SIGTERM, which on Windows is TerminateProcess, so
+  the graceful shutdown that `stop` gained for the same reason (audit sinks
+  flushed, hosts file and :443 port redirect restored) never ran and the
+  process exited 1. Uninstall now goes through `stop`.
+
 - **Event times are UTC, as their `Z` says.** Event and false-positive
   timestamps were formatted in the machine's local time zone and then given
   a `Z` suffix, so on a UTC+2 machine an event at 12:06 UTC read
