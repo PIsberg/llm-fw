@@ -603,8 +603,11 @@ What it does, in order:
    the `hosts.llm-fw.bak` backup (sinkhole installs only).
 4. **Deletes the port redirect** (`netsh portproxy` / `pf` / `iptables`) that
    forwarded `:443` → `8443`.
-5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, persisted mode, PID file, the
-   `whitelist.json` false-positive store, and the cached embedding model.
+5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, `config.json` (your settings,
+   including the persisted mode), PID file, the `whitelist.json` store of events
+   marked "not an attack", and the cached embedding model. It keeps the licence
+   key, the audit log, `suppressions.json` and the OCR cache, and prints what it
+   left, so the directory itself survives when any of them exist.
 6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)
    from the project `.llm-fw.json`, keeping any settings you authored yourself.
 7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)

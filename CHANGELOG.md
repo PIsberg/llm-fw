@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw uninstall` says what it deleted and what it left.** It reported
+  "Removed CA, CRL, mode + pid" while it also deleted `config.json` (your
+  settings) and `whitelist.json` (events marked "not an attack"), and it
+  left the licence key, the audit log, `suppressions.json` and the OCR cache
+  in `~/.llm-fw` without saying so. It now lists every file it removed and
+  every file left behind. Which files it deletes is unchanged.
+
 - **`/metrics` no longer counts observe-mode verdicts as blocks.**
   `llmfw_blocks_total` went up for every would-be block under
   `llm-fw start --observe` or an observing tenant, although those requests

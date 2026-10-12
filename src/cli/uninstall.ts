@@ -251,20 +251,38 @@ function cleanProjectConfig(): void {
   }
 }
 
-/** Remove the files llm-fw created under ~/.llm-fw, then the dir if it's empty. */
-function removeLlmfwFiles(llmfwDir: string, keepModel: boolean): void {
-  const files = ['config.json', 'ca.crt', 'ca.key', 'ca.crl', 'llm-fw.pid', 'whitelist.json'];
-  for (const f of files) {
-    try { fs.rmSync(join(llmfwDir, f), { force: true }); } catch { /* ignore */ }
+// What uninstall deletes from ~/.llm-fw, with what each file means to the user.
+const REMOVED_FILES: ReadonlyArray<readonly [string, string]> = [
+  ['ca.crt', ''], ['ca.key', ''], ['ca.crl', ''], ['llm-fw.pid', ''],
+  ['config.json', 'your settings'],
+  ['whitelist.json', 'events marked "not an attack"'],
+];
+
+/**
+ * Remove the files llm-fw created under ~/.llm-fw, then the dir if it's empty.
+ * Reports each file it removed and each one it left, so a surviving ~/.llm-fw
+ * (licence key, audit log, suppressions) is explained rather than discovered.
+ */
+export function removeLlmfwFiles(llmfwDir: string, keepModel: boolean): void {
+  const removed: string[] = [];
+  for (const [f, meaning] of REMOVED_FILES) {
+    const p = join(llmfwDir, f);
+    if (!fs.existsSync(p)) continue;
+    try { fs.rmSync(p, { force: true }); removed.push(meaning ? `${f} (${meaning})` : f); } catch { /* ignore */ }
   }
-  if (!keepModel) {
-    try { fs.rmSync(join(llmfwDir, 'models'), { recursive: true, force: true }); } catch { /* ignore */ }
+  if (!keepModel && fs.existsSync(join(llmfwDir, 'models'))) {
+    try { fs.rmSync(join(llmfwDir, 'models'), { recursive: true, force: true }); removed.push('models/ (model cache)'); } catch { /* ignore */ }
   }
-  ok(keepModel ? 'Removed CA, CRL, mode + pid (kept model cache)' : 'Removed CA, CRL, model cache, mode + pid');
+  if (removed.length > 0) ok(`Removed from ${llmfwDir}: ${removed.join(', ')}`);
   // Only rmdir the directory itself if nothing else is left in it.
-  try {
-    if (fs.readdirSync(llmfwDir).length === 0) { fs.rmdirSync(llmfwDir); ok('Removed ~/.llm-fw'); }
-  } catch { /* dir missing or not empty */ }
+  let left: string[];
+  try { left = fs.readdirSync(llmfwDir); } catch { return; }
+  if (left.length === 0) {
+    try { fs.rmdirSync(llmfwDir); ok(`Removed ${llmfwDir}`); } catch { /* ignore */ }
+    return;
+  }
+  const isDir = (n: string): boolean => { try { return fs.statSync(join(llmfwDir, n)).isDirectory(); } catch { return false; } };
+  ok(`Left in ${llmfwDir}: ${left.map(n => (isDir(n) ? n + '/' : n)).join(', ')}`);
 }
 
 /** Remove environment variables HTTPS_PROXY and NODE_EXTRA_CA_CERTS if they point to llm-fw. */
@@ -362,7 +380,8 @@ export async function run(args: string[]): Promise<void> {
   const elevated = isElevated();
 
   console.log('llm-fw uninstall — this reverses every change made by setup:');
-  console.log('  • removes the root CA from the OS trust store and ~/.llm-fw');
+  console.log('  • removes the root CA from the OS trust store, and the CA, your settings');
+  console.log('    (config.json) and events marked "not an attack" from ~/.llm-fw');
   console.log('  • restores the hosts file and removes the :443 port redirect (sinkhole)');
   console.log('  • removes judge settings written to .llm-fw.json');
   console.log(keepModel ? '  • keeps the cached embedding model' : '  • deletes the cached embedding model');
