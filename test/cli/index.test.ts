@@ -11,14 +11,19 @@ import { fileURLToPath } from 'node:url'
  */
 const cli = fileURLToPath(new URL('../../src/cli/index.ts', import.meta.url))
 
+// The child gets 30 s, and so must the test around it: each spawn compiles the
+// CLI through tsx, ~0.1 s alone but 5.4-8.9 s in the parallel full suite,
+// where vitest's 5 s default failed the test before the child could finish.
+const SPAWN_TIMEOUT_MS = 30_000
+
 function runCli(...args: string[]) {
   return spawnSync(process.execPath, ['--import', 'tsx/esm', cli, ...args], {
     encoding: 'utf8',
-    timeout: 30_000,
+    timeout: SPAWN_TIMEOUT_MS,
   })
 }
 
-describe('llm-fw dispatcher exit status', () => {
+describe('llm-fw dispatcher exit status', { timeout: SPAWN_TIMEOUT_MS }, () => {
   for (const flag of ['--help', '-h', 'help']) {
     it(`${flag} prints usage and exits 0`, () => {
       const r = runCli(flag)
