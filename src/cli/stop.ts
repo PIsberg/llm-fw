@@ -72,6 +72,24 @@ export async function run(options: StopOptions = {}): Promise<void> {
   log('llm-fw killed.');
 }
 
+/**
+ * Kill the instance named by `pidFile` so a new `start` can take its ports,
+ * and remove the pid file. SIGKILL, not SIGTERM, on purpose: the old
+ * process's cleanup must NOT run, so hosts entries and the :443 redirect stay
+ * for the new instance to inherit without admin rights. Returns the PID when a
+ * live process was replaced, so start can say so; null when none was running.
+ */
+export function killPreviousInstance(pidFile: string): number | null {
+  if (!fs.existsSync(pidFile)) return null;
+  const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+  let replaced: number | null = null;
+  if (!isNaN(pid) && pid !== process.pid && isAlive(pid)) {
+    try { process.kill(pid, 'SIGKILL'); replaced = pid; } catch { /* exited meanwhile */ }
+  }
+  try { fs.unlinkSync(pidFile); } catch { /* already gone */ }
+  return replaced;
+}
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

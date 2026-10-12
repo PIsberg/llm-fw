@@ -17,6 +17,7 @@ import { platform } from 'node:os';
 import { getLlmFwDir } from '../config/paths.js';
 import { lanIPv4 } from '../config/net.js';
 import { watchForStopRequest } from './stopRequest.js';
+import { killPreviousInstance } from './stop.js';
 import { execSync, execFileSync } from 'node:child_process';
 
 /**
@@ -137,16 +138,11 @@ export async function run(args: string[] = []): Promise<void> {
   const llmfwDir = getLlmFwDir();
   const pidFile = join(llmfwDir, 'llm-fw.pid');
 
-  // Stop any already-running instance. Use SIGKILL (not SIGTERM) so the old
-  // process's cleanup handler does NOT run — this preserves hosts file entries
-  // and port-redirect rules so the new instance inherits them without needing
-  // admin rights to re-create them.
-  if (fs.existsSync(pidFile)) {
-    const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    if (!isNaN(pid)) {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-    }
-    try { fs.unlinkSync(pidFile); } catch { }
+  // Replace any already-running instance (see killPreviousInstance for why it
+  // is a SIGKILL), and say so: the old terminal just sees its process exit.
+  const replaced = killPreviousInstance(pidFile);
+  if (replaced !== null) {
+    console.log(`Replaced the running llm-fw (PID ${replaced}): one instance runs at a time, and this one takes over its ports.`);
   }
   for (const port of [config.proxy.port, config.dashboard.port]) {
     if (await waitForPortFree(port, 500)) continue;

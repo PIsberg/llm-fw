@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A second `llm-fw start` says it replaced the running instance.** It
+  has always killed the running one so it can take over the ports and the
+  sinkhole's hosts entries, but silently: the first terminal's process just
+  exited, and a manual `start` could replace the instance `install-service`
+  launched at login, with different flags, unnoticed. It now prints the PID
+  it replaced.
+
 - **`llm-fw uninstall` stops a running firewall the way `llm-fw stop`
   does.** It sent its own SIGTERM, which on Windows is TerminateProcess, so
   the graceful shutdown that `stop` gained for the same reason (audit sinks
