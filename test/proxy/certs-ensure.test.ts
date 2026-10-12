@@ -32,7 +32,11 @@ afterAll(() => {
 
 const read = (name: string) => fs.readFileSync(join(dir, name), 'utf8')
 
-describe('CertFactory CA location', () => {
+// Each case makes two or three 2048-bit RSA keys in pure JS, which took over 5 s
+// apiece under the parallel full suite.
+const SLOW = { timeout: 60_000 }
+
+describe('CertFactory CA location', SLOW, () => {
   it('writes the CA under LLM_FW_DIR as set when the CA is made, not when the module loaded', () => {
     new CertFactory().generateCA()
     expect(fs.existsSync(join(dir, 'ca.crt'))).toBe(true)
@@ -41,7 +45,7 @@ describe('CertFactory CA location', () => {
   })
 })
 
-describe('CertFactory.ensureCA', () => {
+describe('CertFactory.ensureCA', SLOW, () => {
   // Re-running `llm-fw setup` (which its own output asks a non-admin user to
   // do, elevated, to enable the sinkhole) used to mint a new CA every time,
   // silently untrusting every client and container that trusted the old one.
