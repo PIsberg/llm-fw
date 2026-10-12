@@ -27,7 +27,7 @@ What it verifies:
 
 - **Process & listeners** — `llm-fw` running, proxy + dashboard ports accepting connections, and (in sinkhole mode) the sinkhole TLS server on its HTTPS port.
 - **CA** — `~/.llm-fw/ca.crt` exists and is present in the OS trust store.
-- **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs). `setup` sets both persistently, but `doctor` inspects the **current shell**, so if it reports them unset right after install, just open a new terminal (or run the per-session export it prints).
+- **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs). `setup` sets both persistently, but `doctor` inspects the **current shell**. When they are persisted but missing from this shell (it was opened before setup), it warns "set for new terminals, but not in this one" instead of failing: open a new terminal, or run the per-session command it prints.
 - **Sinkhole plumbing** — provider hosts are redirected to `127.0.0.1` in the hosts file and the OS-level `:443` redirect is in place (Windows `netsh portproxy`, macOS `pf`, Linux `iptables`).
 - **Windows only** — the **IP Helper service (`iphlpsvc`)** is running, which `netsh portproxy` depends on; if stopped, doctor prints `sc config iphlpsvc start= auto` / `net start iphlpsvc`.
 

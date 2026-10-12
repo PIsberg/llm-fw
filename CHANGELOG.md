@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw doctor` no longer fails a working install because the terminal
+  predates setup.** Run in the terminal setup ran in, the natural first-run
+  order, it reported `HTTPS_PROXY not pointing at the proxy`, exited 1, and
+  advised re-running setup, which cannot help: setup had persisted the
+  variable for new terminals. Doctor now also reads the persisted values
+  (`HKCU\Environment` on Windows, the profile block on macOS and Linux) and
+  in that case warns that this terminal is not covered and to open a new
+  one.
+
 - **`llm-fw uninstall` says what it deleted and what it left.** It reported
   "Removed CA, CRL, mode + pid" while it also deleted `config.json` (your
   settings) and `whitelist.json` (events marked "not an attack"), and it

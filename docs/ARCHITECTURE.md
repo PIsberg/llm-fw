@@ -558,7 +558,9 @@ a user's own corporate-proxy / unrelated-CA exports are left untouched. Already-
 shell sessions keep their in-memory copies; `uninstall` prints the manual `unset`
 / `Remove-Item Env:` command for the current session. `doctor` reads the live
 process environment, so it reports these as set only once a new shell has loaded
-them.
+them. It also reads the persisted values (`HKCU\Environment`, or the profile
+block), so a shell opened before setup gets a warning to open a new terminal
+rather than a failure.
 
 ---
 
