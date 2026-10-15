@@ -21,9 +21,11 @@ Commands:
   setup-judge           Install an Ollama model and enable Stage 3 judge
   uninstall [--yes]     Reverse setup: remove the CA from the OS trust store,
     [--keep-model]      restore the hosts file, delete the :443 port redirect,
-                        and delete the CA and settings in ~/.llm-fw (it lists
-                        what it keeps). --yes skips the prompt; --keep-model
-                        preserves the cached embedding model.
+    [--purge]           and delete the CA from ~/.llm-fw. Your settings,
+                        false-positive lists, audit log and licence key are
+                        kept (it lists what it keeps). --yes skips the prompt;
+                        --keep-model preserves the cached embedding model;
+                        --purge also deletes everything but the licence key.
   start                 Start the firewall proxy (HTTPS via CONNECT; set
                         HTTPS_PROXY, not HTTP_PROXY)
     [--standalone]      Run as a shared server: bind the proxy (and dashboard +

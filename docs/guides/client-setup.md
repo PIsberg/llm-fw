@@ -604,11 +604,14 @@ What it does, in order:
    the `hosts.llm-fw.bak` backup (sinkhole installs only).
 4. **Deletes the port redirect** (`netsh portproxy` / `pf` / `iptables`) that
    forwarded `:443` → `8443`.
-5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, `config.json` (your settings,
-   including the persisted mode), PID file, the `whitelist.json` store of events
-   recorded as false positives (audit only), and the cached embedding model. It keeps the licence
-   key, the audit log, `suppressions.json` and the OCR cache, and prints what it
-   left, so the directory itself survives when any of them exist.
+5. **Clears what makes the machine intercept traffic from `~/.llm-fw/`** — CA
+   key/cert/CRL, the PID and runtime-state files, the cached embedding model,
+   and the `proxy.mode` key setup wrote into `config.json` (left behind, the
+   next `start` would re-arm the sinkhole). What you authored is kept: your
+   other settings in `config.json`, both false-positive stores
+   (`whitelist.json`, `suppressions.json`), the audit log, the OCR cache and the
+   licence key. It prints what it removed and what it left. `--purge` deletes
+   all of that too, except the licence key.
 6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)
    from the project `.llm-fw.json`, keeping any settings you authored yourself.
 7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)
@@ -625,6 +628,7 @@ Flags:
 | --- | --- |
 | `--yes`, `-y` | Skip the confirmation prompt (for scripts/CI). |
 | `--keep-model` | Preserve the cached embedding model (~120 MB) to avoid re-downloading on a later reinstall. |
+| `--purge` | Also delete your settings, both false-positive stores, the audit log and the OCR cache. The licence key is never deleted. |
 
 **Active shell sessions:** uninstall clears the persisted `HTTPS_PROXY` /
 `NODE_EXTRA_CA_CERTS` values (registry / shell profiles), but a terminal that was

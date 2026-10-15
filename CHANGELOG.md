@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a page refresh. Under observe mode it is a dry run and reports what it would have
   saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
 
+### Changed
+
+- **`llm-fw uninstall` keeps what you authored (#322).** It used to delete `config.json`
+  (hand-tuned settings) and `whitelist.json` even with `--keep-model`, while keeping
+  `suppressions.json`, so the two false-positive stores were treated oppositely and a reinstall
+  lost every setting. It now removes what makes the machine intercept traffic (the CA, PID and
+  runtime state, the model cache, and the `proxy.mode` key setup wrote, which a later `start`
+  would act on) and keeps your other settings, both false-positive stores, the audit log and the
+  licence. The new `--purge` deletes everything except the licence key.
+
 ### Fixed
 
 - **A block's false-positive instructions can now be followed (#319).** The 403 body said to
