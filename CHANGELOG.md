@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Prompt Testing under `--observe` showed WARN for a prompt enforcement blocks (#318).** The
+  playground took the observe-mode downgrade as its verdict. `/api/test` now returns the
+  underlying `action: "block"` with `enforced: false`, and the playground shows **WOULD BLOCK**.
+  What the proxy, gateway and `createFirewall().scan()` enforce is unchanged.
 - **Live Traffic says which connections were inspected (#336).** Every connection now has an
   **Inspected** or **Not inspected** label and the tab counts both, with a line explaining that
   only `targets` / `interceptDomains` hosts are decrypted. Before, a tunnel was told apart only

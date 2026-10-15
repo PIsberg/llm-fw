@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.58 (observe downgrade marked enforced: false,
+  // #318; action unchanged).
   // Held at ruleset 2026.10.57 (suppression addedAt in UTC, #321; metadata
   // only, never matched on).
   // Held at ruleset 2026.10.56 (modules config defaults only, #340; no

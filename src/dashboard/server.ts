@@ -2,7 +2,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
-import { Config } from '../types.js'
+import { Config, PipelineResult } from '../types.js'
 import { deepMerge } from '../config/config.js'
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
@@ -926,7 +926,7 @@ const PNG_1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
 
 function badgeHtml(action) {
   const a = (action || 'PASS').toUpperCase();
-  const cls = (a === 'BLOCK' || a === 'BLOCKED') ? 'BLOCK'
+  const cls = (a === 'BLOCK' || a === 'BLOCKED' || a === 'WOULD BLOCK') ? 'BLOCK'
     : (a === 'WARN' || a === 'WARNED' || a === 'REDACT') ? 'WARN' : 'PASS';
   return '<span class="pg-badge pg-badge-' + cls + '">' + esc(a) + '</span>';
 }
@@ -1048,7 +1048,9 @@ function onImageFile(input) {
 }
 
 function renderPipeline(d) {
-  const action = (d.action || 'PASS').toUpperCase();
+  // enforced === false: observe mode, so the block is recorded, not refused (#318).
+  const wouldBlock = d.enforced === false && d.action === 'block';
+  const action = wouldBlock ? 'WOULD BLOCK' : (d.action || 'PASS').toUpperCase();
   let judgeStatus;
   if (d.verdict) judgeStatus = d.verdict;
   else if (!d.judgeEnabled) judgeStatus = 'disabled — run llm-fw setup-judge to enable';
@@ -1071,7 +1073,8 @@ function renderPipeline(d) {
     : '';
 
   return '<div class="pg-verdict">Verdict: ' + badgeHtml(action) +
-      (d.stage && d.stage !== 'none' ? ' <span style="font-size:0.8rem;color:#666">— stage: ' + esc(d.stage) + '</span>' : '') + '</div>' +
+      (d.stage && d.stage !== 'none' ? ' <span style="font-size:0.8rem;color:#666">— stage: ' + esc(d.stage) + '</span>' : '') +
+      (wouldBlock ? ' <span style="font-size:0.8rem;color:#e65100">(observe mode: recorded, not refused; enforcing would block it)</span>' : '') + '</div>' +
     '<div class="pg-stages">' +
       '<div class="pg-stage"><h3>Stage 1 — Heuristic</h3><div class="val">' +
         (d.score != null ? 'Score: ' + Number(d.score).toFixed(1) : 'Score: n/a') + '</div><div class="sub">' +
@@ -1125,7 +1128,7 @@ function renderImage(d) {
   // stage breakdown (which includes the verdict). For opaque-only media the
   // pipeline has nothing to score, so render just the verdict + media card.
   if (d.media && d.media.scannedCount) return renderPipeline(d) + card;
-  const action = (d.action || 'PASS').toUpperCase();
+  const action = d.enforced === false && d.action === 'block' ? 'WOULD BLOCK' : (d.action || 'PASS').toUpperCase();
   const verdict = '<div class="pg-verdict">Verdict: ' + badgeHtml(action) +
     (d.stage && d.stage !== 'none' ? ' <span style="font-size:0.8rem;color:#666">— stage: ' + esc(d.stage) + '</span>' : '') + '</div>';
   return verdict + card;
@@ -1994,6 +1997,14 @@ const AUTH_EXEMPT_PATHS = new Set(['/ca.crt', '/ca.pem', '/crl'])
 // they were part of this module's surface before the move.
 export { isLoopbackAddr, tokenMatches } from '../auth.js'
 
+// The playground answers "would this be blocked?". Under observe mode the
+// pipeline downgrades a block to warn so nothing is refused, and marks it
+// enforced: false; report the underlying verdict instead of the downgrade
+// (#318), and keep the flag so the UI can say it is not enforced.
+function playgroundVerdict(result: PipelineResult): PipelineResult {
+  return result.enforced === false ? { ...result, action: 'block' } : result
+}
+
 /** Pull a presented token from Authorization (Bearer/Basic), ?token=, in that order. */
 export function presentedToken(req: http.IncomingMessage, url: URL): string {
   return credentialFromAuthHeader(req.headers.authorization) || (url.searchParams.get('token') ?? '')
@@ -2314,7 +2325,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             const opaque = blocks.filter(b => !b.text)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({
-              ...imageResult,
+              ...playgroundVerdict(imageResult),
               category: 'image',
               judgeEnabled: config.detection.judgeEnabled,
               nonTextEnabled: config.nonText?.enabled ?? false,
@@ -2441,7 +2452,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           )
           metricsRegistry.recordScan('playground', Date.now() - textScanStart)
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ ...result, judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
+          res.end(JSON.stringify({ ...playgroundVerdict(result), judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
         } catch (err) {
           log.error('/api/test handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })

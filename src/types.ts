@@ -624,6 +624,8 @@ export interface JudgeResult {
 
 export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
+  /** false when observe mode downgraded a block to warn; absent otherwise. */
+  enforced?: false;
   stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'indirect-instruction' | 'harmful-request' | 'memory-poisoning' | 'none';
   score: number;
   similarity: number;

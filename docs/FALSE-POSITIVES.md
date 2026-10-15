@@ -60,6 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.58
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only marks an observe-mode
+downgrade with `enforced: false` on the pipeline result (#318). The action is
+unchanged (`warn` under observe, `block` otherwise), so no verdict moves. Not
+re-measured.
+
 ## Result, ruleset 2026.10.57
 
 **2.68% overall (9 of 336), unchanged.** This ruleset only stamps a
