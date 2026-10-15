@@ -60,6 +60,12 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.57
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only stamps a
+suppression's `addedAt` in UTC (#321); the field is metadata and never read
+when matching, so no verdict can move. Not re-measured.
+
 ## Result, ruleset 2026.10.56
 
 **2.68% overall (9 of 336), unchanged, on the same rows; Dolly and oasst1 samples

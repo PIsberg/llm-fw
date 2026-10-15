@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A suppression's `addedAt` was local time with a `Z` suffix (#321).** On a UTC+2 machine a
+  suppression added at 12:10 UTC read `14:10:15Z`. It is now UTC, like event and whitelist
+  timestamps.
 - **A dashboard toggle under `start --observe` made the firewall enforce less after the next
   restart.** Saving any setting wrote a snapshot of the whole live config to `config.json`,
   including the stage modes `--observe` relaxes in memory, so `dlp`, `taint`, `manyShot`,

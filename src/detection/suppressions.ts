@@ -84,7 +84,7 @@ export class SuppressionStore {
     const entry: SuppressionEntry = {
       hash,
       preview: (previewSource ?? text).slice(0, PREVIEW_LEN),
-      addedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium' }).format() + 'Z',
+      addedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
     }
     entries.push(entry)
     this.write(entries)
