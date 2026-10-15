@@ -60,6 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.59
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only rewrites the
+remediation sentence in a block body (#319: a `/#event=<id>` link and the
+exact button label). It is text returned to the client, never scored, so no
+verdict moves. Not re-measured.
+
 ## Result, ruleset 2026.10.58
 
 **2.68% overall (9 of 336), unchanged.** This ruleset only marks an observe-mode

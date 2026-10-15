@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A block's false-positive instructions can now be followed (#319).** The 403 body said to
+  open `/#events`, find the event and mark it "not an attack": the link selected nothing, the
+  table had no way to find an id, and no button had that label. It now gives
+  `<dashboard>/#event=<id>`, which opens that event's drawer, and names the button that works,
+  "Mark false positive (suppress future matches)". The Events tab gained a filter box (id,
+  endpoint, target, payload) and the drawer shows the event id. The audit-only button is now
+  labelled **Record as false positive (audit only)**, since it never unblocked anything.
 - **Prompt Testing under `--observe` showed WARN for a prompt enforcement blocks (#318).** The
   playground took the observe-mode downgrade as its verdict. `/api/test` now returns the
   underlying `action: "block"` with `enforced: false`, and the playground shows **WOULD BLOCK**.

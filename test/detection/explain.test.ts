@@ -50,3 +50,27 @@ describe('block explanation docs link', () => {
     });
   }
 });
+
+// #319: the remediation said "open /#events, find event <id>, and mark it
+// 'not an attack'". /#events selected nothing, the table had no id column,
+// and no control was labelled "not an attack". It now names a link that
+// opens the event and the button that actually unblocks.
+describe('block remediation can be followed', () => {
+  const result = { action: 'block', stage: 'heuristic', score: 50, similarity: 0 } as PipelineResult;
+  const body = explainBlock({ eventId: 'evt-123', result, dashboardUrl: 'http://127.0.0.1:7731' });
+
+  it('links straight to the event', () => {
+    expect(body.remediation).toContain('http://127.0.0.1:7731/#event=evt-123');
+  });
+
+  it('names the button that suppresses future matches, by its label', () => {
+    expect(body.remediation).toContain('"Mark false positive (suppress future matches)"');
+    expect(body.remediation).not.toContain('not an attack');
+  });
+
+  it('still names the event when no dashboard URL is known', () => {
+    const plain = explainBlock({ eventId: 'evt-9', result });
+    expect(plain.remediation).toContain('evt-9');
+    expect(plain.remediation).toContain('"Mark false positive (suppress future matches)"');
+  });
+});

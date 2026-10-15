@@ -29,7 +29,7 @@ test.describe('Events feed', () => {
     await expect(drawer).toContainText('Full Payload')
     await expect(drawer).toContainText('Detection')
     // The false-positive control is present (not clicked — avoids a whitelist write).
-    await expect(drawer.locator('button:has-text("Mark as false positive")')).toBeVisible()
+    await expect(drawer.locator('button:has-text("Record as false positive (audit only)")')).toBeVisible()
   })
 })
 
@@ -130,6 +130,45 @@ test.describe('Events feed shows only harmful events (#337)', () => {
     await expect(mcpRows).toHaveCount(1)
     await expect(mcpRows.first()).toContainText('Exposed 14 tools to LLM')
     await expect(page.locator('#mcp-count')).toHaveText('1')
+  })
+})
+
+test.describe('A block remediation link opens the event (#319)', () => {
+  // A blocked client is told to open /#event=<id>. Before, the link was
+  // /#events, which opened the dashboard and selected nothing, and the table
+  // had no way to find an id short of opening drawers one by one.
+  const ev = (id: string, text: string) => JSON.stringify({
+    id, timestamp: '2026-10-15 20:00:00Z', stage: 'heuristic', score: 90, similarity: 0,
+    target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked',
+    payload_preview: text, payload_full: text,
+  })
+  const stub = (page: Page) => page.route('**/events', route => route.fulfill({
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+    body: 'retry: 60000\n' +
+      'data: ' + ev('older-1', 'some other block') + '\n\n' +
+      'data: ' + ev('deep-1', 'the block the client was shown') + '\n\n' +
+      'data: ' + ev('newer-1', 'a later block') + '\n\n',
+  }))
+
+  test('/#event=<id> opens that event\'s drawer with the unblock button', async ({ page }) => {
+    await stub(page)
+    await page.goto('/#event=deep-1')
+    const drawer = page.locator('#drawer-deep-1')
+    await expect(drawer).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('#row-deep-1')).toHaveClass(/selected/)
+    await expect(drawer.locator('button:has-text("Mark false positive (suppress future matches)")')).toBeVisible()
+    await expect(drawer).toContainText('deep-1')
+  })
+
+  test('the filter box finds an event by id', async ({ page }) => {
+    await stub(page)
+    await page.goto('/')
+    const rows = page.locator('#events-body tr.event-row')
+    await expect(rows).toHaveCount(3, { timeout: 10_000 })
+    await page.fill('#events-filter', 'deep-1')
+    await expect(rows.filter({ visible: true })).toHaveCount(1)
+    await expect(rows.filter({ visible: true }).first()).toContainText('the block the client was shown')
   })
 })
 

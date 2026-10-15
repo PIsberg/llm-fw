@@ -606,7 +606,7 @@ What it does, in order:
    forwarded `:443` → `8443`.
 5. **Clears `~/.llm-fw/`** — CA key/cert/CRL, `config.json` (your settings,
    including the persisted mode), PID file, the `whitelist.json` store of events
-   marked "not an attack", and the cached embedding model. It keeps the licence
+   recorded as false positives (audit only), and the cached embedding model. It keeps the licence
    key, the audit log, `suppressions.json` and the OCR cache, and prints what it
    left, so the directory itself survives when any of them exist.
 6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)

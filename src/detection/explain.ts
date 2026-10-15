@@ -46,9 +46,16 @@ const MATCH_LIMIT = 5;
  * marking the event on the dashboard Events tab (POST /api/feedback, which is
  * same-origin guarded and so is not a curl-from-anywhere instruction).
  */
+//
+// Every step names what is on the screen (#319): the link opens the event's
+// drawer, and the button is quoted by its exact label. The other drawer
+// button, "Record as false positive (audit only)", only logs; this one is the
+// one that changes what an identical request gets.
 function remediationFor(eventId: string, dashboardUrl?: string): string {
-  const where = dashboardUrl ? `${dashboardUrl}/#events` : 'the llm-fw dashboard Events tab';
-  return `If this is a false positive, open ${where}, find event ${eventId}, and mark it "not an attack" — future requests with this text pass.`;
+  const where = dashboardUrl
+    ? `open ${dashboardUrl}/#event=${encodeURIComponent(eventId)}`
+    : `open the llm-fw dashboard, filter the Events tab by ${eventId} and open that event`;
+  return `If this is a false positive, ${where} and click "Mark false positive (suppress future matches)": a request with exactly this text is then forwarded with a warning instead of refused.`;
 }
 
 function trimMatches(matches: string[] | undefined): string[] | undefined {

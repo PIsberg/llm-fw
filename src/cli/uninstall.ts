@@ -251,7 +251,7 @@ function cleanProjectConfig(): void {
 const REMOVED_FILES: ReadonlyArray<readonly [string, string]> = [
   ['ca.crt', ''], ['ca.key', ''], ['ca.crl', ''], ['llm-fw.pid', ''], ['llm-fw.state.json', ''],
   ['config.json', 'your settings'],
-  ['whitelist.json', 'events marked "not an attack"'],
+  ['whitelist.json', 'events recorded as false positives (audit only)'],
 ];
 
 /**

@@ -37,6 +37,7 @@ const HTML = `<!DOCTYPE html>
   /* Header */
   .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .header h1 { font-size: 1.25rem; font-weight: 700; }
+  .events-filter { width: 100%; max-width: 420px; padding: 6px 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85rem; }
   .mode-chips { display: flex; gap: 8px; }
   .mode-chip { font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; cursor: help; }
   .mode-chip.observe { background: #fff3e0; color: #e65100; border: 1px solid #e65100; }
@@ -335,6 +336,7 @@ const HTML = `<!DOCTYPE html>
   </div>
 
   <div id="tab-events" class="tab-panel active">
+    <input id="events-filter" class="events-filter" type="search" placeholder="Filter by event ID, endpoint, target or payload" oninput="filterEvents(this.value)">
     <div class="table-wrap">
       <table id="events-table">
         <thead>
@@ -633,6 +635,7 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section">' +
         '<h4>Request</h4>' +
         '<dl class="meta-grid">' +
+          '<dt>Event ID</dt><dd>' + esc(id) + '</dd>' +
           '<dt>Target</dt><dd>' + esc(ev.target) + '</dd>' +
           '<dt>Method</dt><dd>' + esc(ev.method) + '</dd>' +
           '<dt>Path</dt><dd>' + esc(ev.path) + '</dd>' +
@@ -657,7 +660,7 @@ function toggleDrawer(id, ev) {
         '<h4>Nearest Attack Template</h4>' + nearestHtml +
       '</div>' +
       '<div class="drawer-section drawer-full">' +
-        '<button class="btn" id="wl-btn-' + esc(id) + '">Mark as false positive</button>' +
+        '<button class="btn" id="wl-btn-' + esc(id) + '" title="Records the event in whitelist.json for review. It does not change what future requests get">Record as false positive (audit only)</button>' +
         '<span id="wl-status-' + esc(id) + '" style="margin-left:12px;font-size:0.82rem;color:#388e3c"></span>' +
         (ev.action === 'blocked'
           ? '<button class="btn" id="fp-btn-' + esc(id) + '" style="margin-left:12px" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
@@ -767,8 +770,41 @@ function appendRow(ev) {
     '<td class="payload-preview" title="Click row to expand">' + esc((ev.payload_preview || '').slice(0, 60)) + (ev.payload_preview && ev.payload_preview.length > 60 ? '…' : '') + '</td>';
 
   tr.onclick = () => toggleDrawer(ev.id, ev);
+  tr.dataset.search = [ev.id, ev.method, ev.path, ev.target, ev.stage, ev.payload_preview].join(' ').toLowerCase();
   body.insertBefore(tr, body.firstChild);
   while (body.rows.length > 200) body.deleteRow(body.rows.length - 1);
+  applyFilter(tr);
+  if (ev.id && ev.id === deepLinkEventId()) openDeepLinkedEvent(tr, ev);
+}
+
+// #319: a blocked client is told to open /#event=<id>. The event arrives
+// with the SSE replay, so the drawer opens when its row does, once per load.
+let deepLinkOpened = null;
+function deepLinkEventId() {
+  const m = /^#event=(.+)$/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+function openDeepLinkedEvent(tr, ev) {
+  if (deepLinkOpened === ev.id) return;
+  deepLinkOpened = ev.id;
+  showTab('events', document.querySelector('.tab-btn'));
+  if (!document.getElementById('drawer-' + ev.id)) toggleDrawer(ev.id, ev);
+  tr.scrollIntoView({ block: 'center' });
+}
+window.addEventListener('hashchange', () => {
+  const id = deepLinkEventId();
+  const tr = id && document.getElementById('row-' + id);
+  if (tr) tr.click();
+});
+
+// Filter the Events table by id, endpoint, target, stage or payload.
+let eventsFilter = '';
+function applyFilter(tr) {
+  tr.style.display = !eventsFilter || (tr.dataset.search || '').includes(eventsFilter) ? '' : 'none';
+}
+function filterEvents(value) {
+  eventsFilter = String(value || '').trim().toLowerCase();
+  document.querySelectorAll('#events-body tr.event-row').forEach(applyFilter);
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
