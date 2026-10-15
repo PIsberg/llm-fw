@@ -326,6 +326,7 @@ const HTML = `<!DOCTYPE html>
     <button class="tab-btn active" onclick="showTab('events', this)">Events</button>
     <button class="tab-btn" onclick="showTab('playground', this)">Prompt Testing</button>
     <button class="tab-btn" onclick="showTab('traffic', this)">Live Traffic</button>
+    <button class="tab-btn" onclick="showTab('mcp', this)">MCP Traffic <span id="mcp-count">0</span></button>
     <button class="tab-btn" onclick="showTab('settings', this)">Settings</button>
   </div>
 
@@ -348,6 +349,20 @@ const HTML = `<!DOCTYPE html>
         <tbody id="events-body">
           <tr id="no-events"><td colspan="9" id="no-events-cell">No events yet.</td></tr>
         </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-mcp" class="tab-panel">
+    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">MCP and tool-use traffic that passed every check: the tools each request exposed to the model. Blocks and warnings stay in Events.</p>
+    <div class="table-wrap">
+      <table id="mcp-table">
+        <thead>
+          <tr>
+            <th>Action</th><th>Time</th><th>Stage</th><th>Endpoint</th><th>Target</th><th>Score</th><th>Similarity</th><th>Detection Detail</th><th>Payload</th>
+          </tr>
+        </thead>
+        <tbody id="mcp-body"></tbody>
       </table>
     </div>
   </div>
@@ -708,9 +723,21 @@ async function whitelistEvent(id, btn) {
 const tbody = document.getElementById('events-body');
 const noEventsRow = document.getElementById('no-events');
 
+// Events lists findings only (#337). A passed event is inventory, not a
+// finding: MCP tool listings arrive on every agent request and buried the
+// blocks and warns, and they counted in the Total and MCP tiles. They go to
+// the MCP Traffic tab and count only there.
+const mcpBody = document.getElementById('mcp-body');
+let mcpCount = 0;
 function appendRow(ev) {
-  if (noEventsRow && noEventsRow.parentNode) noEventsRow.parentNode.removeChild(noEventsRow);
-  updateStats(ev);
+  const isPassed = ev.action === 'passed';
+  const body = isPassed ? mcpBody : tbody;
+  if (isPassed) {
+    document.getElementById('mcp-count').textContent = String(++mcpCount);
+  } else {
+    if (noEventsRow && noEventsRow.parentNode) noEventsRow.parentNode.removeChild(noEventsRow);
+    updateStats(ev);
+  }
 
   const actionBadge = isObservedBlock(ev)
     ? '<span class="badge badge-observed" title="Observe mode: recorded, not refused">WOULD BLOCK</span>'
@@ -733,8 +760,8 @@ function appendRow(ev) {
     '<td class="payload-preview" title="Click row to expand">' + esc((ev.payload_preview || '').slice(0, 60)) + (ev.payload_preview && ev.payload_preview.length > 60 ? '…' : '') + '</td>';
 
   tr.onclick = () => toggleDrawer(ev.id, ev);
-  tbody.insertBefore(tr, tbody.firstChild);
-  while (tbody.rows.length > 200) tbody.deleteRow(tbody.rows.length - 1);
+  body.insertBefore(tr, body.firstChild);
+  while (body.rows.length > 200) body.deleteRow(body.rows.length - 1);
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
@@ -743,7 +770,11 @@ const es = new EventSource('/events');
 // table: no duplicated rows after a dropped connection, and no rows left over
 // from before a restart whose "Mark false positive" the server cannot honour.
 // The tiles count the same replay, so they start from zero too.
-es.onopen = () => { tbody.replaceChildren(); resetStats(); loadModuleStats(); loadModeChips(); };
+es.onopen = () => {
+  tbody.replaceChildren(); mcpBody.replaceChildren(); mcpCount = 0;
+  document.getElementById('mcp-count').textContent = '0';
+  resetStats(); loadModuleStats(); loadModeChips();
+};
 
 // How this process was started (#338): --observe, the sinkhole and the gateway
 // change what the firewall does to every client on the machine, so they are

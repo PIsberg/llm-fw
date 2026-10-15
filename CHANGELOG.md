@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Events feed shows only blocks and warnings (#337).** Passed MCP inventory events
+  ("Exposed 14 tools to LLM") arrived on every agent request, buried the findings, and counted
+  in the Total and MCP / Tool Use tiles as if they were findings. They now have their own
+  **MCP Traffic** tab and count only there.
 - **`llm-fw status` and `llm-fw doctor` now say how the running process was started (#320).**
   A process started with `--observe` or `--gateway` used to look exactly like a plain one,
   because those flags exist only in its memory. `start` now records its enforcement, listener

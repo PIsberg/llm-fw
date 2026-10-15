@@ -99,6 +99,40 @@ test.describe('Events feed under observe mode', () => {
   })
 })
 
+test.describe('Events feed shows only harmful events (#337)', () => {
+  // MCP inventory events ("Exposed 14 tools to LLM", action passed) arrive on
+  // every Claude Code request. In the Events table they buried the blocks and
+  // warns, and they counted in the Total and MCP / Tool Use tiles as if they
+  // were findings. They now have their own tab.
+  test('puts a passed MCP event in the MCP Traffic tab, not in Events or the harm tiles', async ({ page }) => {
+    const ev = (id: string, action: string, stage: string, text: string, kind?: string) => JSON.stringify({
+      id, timestamp: '2026-10-15 20:00:00Z', stage, score: action === 'passed' ? 0 : 90, similarity: 0,
+      target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action, kind,
+      payload_preview: text, payload_full: text,
+    })
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + ev('mcp-1', 'passed', 'mcp-filter', 'Exposed 14 tools to LLM', 'mcp') + '\n\n' +
+        'data: ' + ev('blk-1', 'blocked', 'heuristic', 'a real injection') + '\n\n',
+    }))
+
+    await page.goto('/')
+    const eventRows = page.locator('#events-body tr.event-row')
+    await expect(eventRows.filter({ hasText: 'a real injection' })).toHaveCount(1, { timeout: 10_000 })
+    await expect(eventRows.filter({ hasText: 'Exposed 14 tools' })).toHaveCount(0)
+    await expect(page.locator('#s-total')).toHaveText('1')
+    await expect(page.locator('#s-mcp')).toHaveText('0')
+
+    await page.click('button:has-text("MCP Traffic")')
+    const mcpRows = page.locator('#mcp-body tr.event-row')
+    await expect(mcpRows).toHaveCount(1)
+    await expect(mcpRows.first()).toContainText('Exposed 14 tools to LLM')
+    await expect(page.locator('#mcp-count')).toHaveText('1')
+  })
+})
+
 test.describe('Live Traffic tab', () => {
   test('renders the throughput chart and service-utilization panel', async ({ page }) => {
     await page.goto('/')
