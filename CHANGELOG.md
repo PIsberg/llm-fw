@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CI runs the CLI suite on Windows (#323).** A `windows-latest` job runs `test/cli/` (so its
+  `it.runIf(win32)` cases execute) and registers, queries and removes the Task Scheduler task
+  unelevated. Four Windows-only CLI defects had been found by hand in one live test, none of
+  them visible to the ubuntu-only CI.
 - **`llm-fw uninstall` keeps what you authored (#322).** It used to delete `config.json`
   (hand-tuned settings) and `whitelist.json` even with `--keep-model`, while keeping
   `suppressions.json`, so the two false-positive stores were treated oppositely and a reinstall

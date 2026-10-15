@@ -123,6 +123,51 @@ jobs:
       - name: Run E2E tests
         run: npm run test:e2e
 
+  # Behaviour that exists only on Windows (the cmd.exe line setup prints,
+  # Task Scheduler registration, TerminateProcess on stop, HKCU\Environment
+  # reads in doctor) never ran on ubuntu, and four such defects were found by
+  # hand in one live test (#323). The CLI suite's it.runIf(win32) cases run
+  # here. No harden-runner step: it supports Linux runners only.
+  windows-cli:
+    name: CLI on Windows (Node 22)
+    runs-on: windows-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run the CLI test suite
+        run: npx vitest run test/cli/
+
+      # Unelevated, like a real user: register the logon task, confirm Task
+      # Scheduler holds it, then remove it. The task is not run, so no
+      # firewall starts on the runner.
+      - name: Smoke-test install-service / uninstall-service
+        shell: pwsh
+        run: |
+          node dist/cli/index.js install-service
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          schtasks /Query /TN llm-fw
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node dist/cli/index.js uninstall-service
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          schtasks /Query /TN llm-fw 2>$null
+          if ($LASTEXITCODE -eq 0) { Write-Error 'llm-fw task still registered after uninstall-service'; exit 1 }
+          exit 0
+
   load-test:
     name: Load Tests — Performance & Accuracy (Node 22)
     runs-on: ubuntu-latest
