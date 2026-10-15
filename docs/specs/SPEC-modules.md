@@ -193,7 +193,7 @@ To remain fast and dependency-free while maintaining fidelity across OpenAI (cl1
      - Large bold counter: e.g. `124,530`
      - Live subtext: `18.6% saved`, or `% would be saved (observe)` when the last event was a dry run.
 2. **Settings toggle**: `Token Pruner / Cost Optimizer` in the Cost & Abuse group.
-3. A Modules tab with per-module KPI cards and a live activity table is not built yet; tracked as a follow-up issue.
+3. A Modules tab with per-module KPI cards and a live activity table is not built yet; tracked in [#341](https://github.com/PIsberg/llm-fw/issues/341).
 4. **No-Refresh SSE Listener**:
    - Dashboard frontend `EventSource` handles incoming `type: 'module'` SSE messages:
      ```javascript
