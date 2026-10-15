@@ -1840,14 +1840,39 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
   return { applied, errors }
 }
 
-// Persist the current toggle state to ~/.llm-fw/config.json, deep-merging so
-// unrelated keys are preserved.
-function persistSettings(config: Config): void {
+// The leaves of `after` that differ from `before`, as a nested partial. Both
+// come from toPersistedPartial, so the keys are that function's static ones.
+function changedLeaves(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(after)) {
+    const prior = before[key]
+    const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+    if (isObj(value) && isObj(prior)) {
+      const sub = changedLeaves(prior, value)
+      if (Object.keys(sub).length) out[key] = sub
+    } else if (JSON.stringify(prior) !== JSON.stringify(value)) {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+// Persists to <LLM_FW_DIR>/config.json, deep-merging so unrelated keys are
+// preserved, and writes only the settings this request changed: `before` is
+// toPersistedPartial(config) taken before the change was applied. Writing the
+// whole live snapshot persisted values that are not file config: under
+// `start --observe` stage modes are relaxed in memory, so one toggle wrote
+// dlp.mode "audit" (and up to four more) to disk and the firewall stayed relaxed
+// after a restart without --observe; LLM_FW_* overrides were copied into the
+// file the same way.
+function persistSettings(config: Config, before: Record<string, unknown>): void {
+  const changed = changedLeaves(before, toPersistedPartial(config))
+  if (!Object.keys(changed).length) return
   const dir = getLlmFwDir()
   const file = join(dir, 'config.json')
   let existing: Record<string, unknown> = {}
   try { existing = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown> } catch { /* none */ }
-  const merged = deepMerge<Record<string, unknown>>(existing, toPersistedPartial(config))
+  const merged = deepMerge<Record<string, unknown>>(existing, changed)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(file, JSON.stringify(merged, null, 2), 'utf8')
 }
@@ -2021,13 +2046,14 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             res.end(JSON.stringify({ error: 'body must be a JSON object of settings' }))
             return
           }
+          const before = toPersistedPartial(config)
           const { applied, errors } = applySettings(config, patch)
           if (errors.length && !applied.length) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'no valid settings', errors }))
             return
           }
-          if (applied.length) persistSettings(config)
+          if (applied.length) persistSettings(config, before)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, applied, errors, settings: readSettings(config) }))
         } catch (err) {
@@ -2071,6 +2097,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             res.end(JSON.stringify({ error: 'id and enabled (boolean) are required' }))
             return
           }
+          const before = toPersistedPartial(config)
           if (!modManager.setModuleEnabled(patch.id, patch.enabled)) {
             res.writeHead(404, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'unknown module', id: patch.id }))
@@ -2078,7 +2105,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           }
           // A built-in module's enabled flag lives in config (the module holds
           // a reference to it), so persisting config persists the toggle.
-          persistSettings(config)
+          persistSettings(config, before)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, module: modManager.getModule(patch.id)?.getStats() }))
         } catch (err) {

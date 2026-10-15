@@ -1,7 +1,7 @@
 import { watch, FSWatcher } from 'node:fs'
 import { Config } from '../types.js'
 import { getLlmFwDir } from './paths.js'
-import { loadConfig } from './config.js'
+import { applyObserveMode, loadConfig } from './config.js'
 
 const DEFAULT_DEBOUNCE_MS = 500
 const CONFIG_FILENAME = 'config.json'
@@ -182,26 +182,42 @@ const COLD_PATHS: Path[] = [
  * left untouched. Exported standalone (no fs/timers) so the diff/apply logic
  * is unit-testable without touching disk.
  */
+//
+// `previous` is the config the last load produced. When given, a key is
+// applied only if the load result itself changed since then. Live config is
+// not a load result: the dashboard changes it at runtime, `--observe` relaxes
+// it in memory, and LLM_FW_* variables are re-applied by every loadConfig().
+// Diffing against live alone reverted a dashboard toggle on any env-pinned key
+// and re-armed enforcement under --observe whenever config.json was written.
 export function applyHotReload(
   live: Config,
   incoming: Config,
   log: Logger = (msg) => console.warn(msg),
+  previous?: Config,
 ): { applied: string[]; restartRequired: string[] } {
-  const applied: string[] = []
+  const changedSinceLastLoad = (path: Path, next: unknown): boolean =>
+    previous === undefined || differs(getPath(previous, path), next)
+
+  const touched: { path: Path; was: unknown }[] = []
   for (const path of HOT_PATHS) {
     const next = getPath(incoming, path)
     const cur = getPath(live, path)
-    if (differs(cur, next)) {
+    if (changedSinceLastLoad(path, next) && differs(cur, next)) {
       setPath(live, path, next)
-      applied.push(pathStr(path))
+      touched.push({ path, was: cur })
     }
   }
+  // Observation never enforces: a mode edited on disk while observing is
+  // relaxed again, exactly as `start --observe` relaxed it at boot. Then only
+  // what actually ended up different is reported as applied.
+  if (touched.length && live.enforcement === 'observe') applyObserveMode(live)
+  const applied = touched.filter(t => differs(t.was, getPath(live, t.path))).map(t => pathStr(t.path))
 
   const restartRequired: string[] = []
   for (const path of COLD_PATHS) {
     const next = getPath(incoming, path)
     const cur = getPath(live, path)
-    if (differs(cur, next)) restartRequired.push(pathStr(path))
+    if (changedSinceLastLoad(path, next) && differs(cur, next)) restartRequired.push(pathStr(path))
   }
 
   if (restartRequired.length) {
@@ -240,13 +256,20 @@ export function startConfigHotReload(live: Config, options: HotReloadOptions = {
   let timer: NodeJS.Timeout | null = null
   let watcher: FSWatcher | null = null
   let stopped = false
+  // The baseline each reload is diffed against (see applyHotReload): live
+  // config as it stands when watching starts, which is loadConfig()'s result
+  // plus any CLI flags. Taken synchronously, so an edit that lands right after
+  // start is never folded into the baseline and missed. A flag-relaxed mode
+  // (--observe) that differs from the file is re-relaxed after any apply.
+  let previous: Config = structuredClone(live)
 
   const runReload = (): void => {
     timer = null
     reload()
       .then((incoming) => {
         if (stopped) return
-        applyHotReload(live, incoming, log)
+        applyHotReload(live, incoming, log, previous)
+        previous = incoming
       })
       .catch((err: unknown) => {
         // Transient read/parse failures mid atomic-save are expected — never

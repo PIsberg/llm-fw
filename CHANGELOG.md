@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A dashboard toggle under `start --observe` made the firewall enforce less after the next
+  restart.** Saving any setting wrote a snapshot of the whole live config to `config.json`,
+  including the stage modes `--observe` relaxes in memory, so `dlp`, `taint`, `manyShot`,
+  `crescendo` and `responseScan` modes stayed at `audit` after restarting without
+  `--observe`. It also copied `LLM_FW_*` values into the file. The dashboard now writes only
+  the settings the request changed.
+- **A dashboard toggle on a setting that an `LLM_FW_*` variable also sets was reverted half a
+  second later**, although the dashboard had answered `ok`. Saving rewrote `config.json`, the
+  hot reload re-ran `loadConfig()`, which re-applies the environment, and applied every
+  difference from live config. Hot reload now applies only keys whose loaded value changed since
+  the previous load, and re-relaxes stage modes while observing. Both found while live-testing
+  the token pruner.
 - **Claude Code and AI provider OAuth login flows were blocked or warned as unparsed.**
   Claude Code authenticates via OAuth on `claude.com`, exchanges tokens on
   `platform.claude.com`, and provisions CLI keys via `/api/oauth/...` and
