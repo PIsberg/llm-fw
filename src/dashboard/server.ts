@@ -2359,9 +2359,17 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               }
             }
             const opaque = blocks.filter(b => !b.text)
+            // #334: in audit mode the pipeline forwards opaque media (verdict
+            // pass) and raises a warn event. The playground reports what an
+            // operator sees in Events, a warning, rather than a bare PASS.
+            const auditedOpaque = imageResult.action === 'pass' && opaque.length > 0
+              && (config.nonText?.enabled ?? false) && (config.nonText?.mode ?? 'audit') === 'audit'
+            const verdict: PipelineResult = auditedOpaque
+              ? { ...imageResult, action: 'warn', stage: 'non-text' }
+              : playgroundVerdict(imageResult)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({
-              ...playgroundVerdict(imageResult),
+              ...verdict,
               category: 'image',
               judgeEnabled: config.detection.judgeEnabled,
               nonTextEnabled: config.nonText?.enabled ?? false,

@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Prompt Testing's "Opaque image" example showed PASS (#334).** In the default audit mode an
+  opaque image is forwarded and raises a warn event, and the playground showed the pipeline's
+  pass verdict beside it. `/api/test` now reports `action: "warn"`, `stage: "non-text"` for
+  opaque media forwarded under audit, matching the Events tab. What the proxy and gateway
+  forward is unchanged.
 - **The URL filter's DGA check never fired on a realistic generated domain (#335).** The
   Prompt Testing example `https://x7f9q2k8z1p3v6w4.com/collect` passed. The check was Shannon
   entropy at 4.8 bits, which an n-character label cannot exceed log2(n) of, so it needed about

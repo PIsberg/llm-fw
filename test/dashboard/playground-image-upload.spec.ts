@@ -38,9 +38,19 @@ test.describe('Prompt Testing — Image/Document upload', () => {
     // A preview thumbnail is shown for image uploads.
     await expect(page.locator('#pg-image-info img')).toBeVisible()
     await expect(page.locator('#pg-result')).toBeVisible({ timeout: 10_000 })
-    // Audit mode (default): opaque image passes the pipeline but is reported.
+    // Audit mode (default): the opaque image is forwarded with a warning (#334).
+    await expect(page.locator('#pg-result .pg-badge')).toHaveText('WARN')
     await expect(page.locator('#pg-result')).toContainText('Non-text content')
     await expect(page.locator('#pg-result')).toContainText('image/png')
+  })
+
+  // #334: the example labelled as one llm-fw catches showed PASS.
+  test('the "Opaque image" example shows WARN, not PASS', async ({ page }) => {
+    await openImageCategory(page)
+    await page.click('#pg-examples .pg-ex:has-text("Opaque image")')
+    await page.click('#pg-analyze-btn')
+    await expect(page.locator('#pg-result .pg-badge')).toHaveText('WARN', { timeout: 10_000 })
+    await expect(page.locator('#pg-result')).toContainText('nonText.mode = audit')
   })
 
   test('switching away from Image/Document clears the picker', async ({ page }) => {

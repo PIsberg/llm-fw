@@ -226,6 +226,15 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(parsed.media.blocks[0]).toMatchObject({ kind: 'image', scanned: false })
   })
 
+  // #334: the playground's opaque-image example showed PASS. In audit mode
+  // the pipeline forwards it (verdict pass) and raises a warn event; the
+  // playground reports what an operator sees in Events: a warning.
+  it('POST /api/test category=image reports an opaque image forwarded under audit as warn', async () => {
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+    const res = await req(server, 'POST', '/api/test', JSON.stringify({ category: 'image', dataUrl: png }))
+    expect(JSON.parse(res.body)).toMatchObject({ action: 'warn', stage: 'non-text', nonTextMode: 'audit' })
+  })
+
   it('POST /api/test category=image with neither text nor dataUrl returns 400', async () => {
     const res = await req(server, 'POST', '/api/test', JSON.stringify({ category: 'image' }))
     expect(res.status).toBe(400)
