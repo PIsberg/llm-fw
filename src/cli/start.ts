@@ -11,6 +11,7 @@ import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { ModuleManager } from '../modules/registry.js';
 import { startConfigHotReload } from '../config/hotReload.js';
+import { removeRuntimeState, writeRuntimeState } from './runtimeState.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -258,6 +259,7 @@ export async function run(args: string[] = []): Promise<void> {
     try {
       fs.unlinkSync(pidFile);
     } catch { }
+    removeRuntimeState(llmfwDir);
   }
 
   // Declared here, assigned further below once the config is known: the
@@ -477,6 +479,21 @@ export async function run(args: string[] = []): Promise<void> {
     proxy.startSinkhole(config.proxy.httpsPort);
     console.log(`  Sinkhole TLS: 127.0.0.1:${config.proxy.httpsPort} (via portproxy → :443)`);
   }
+
+  // Every listener is up: record what this process actually runs, for
+  // `status`, `doctor` and the dashboard (#320, #338).
+  const reachable = (bindHost: string): string => (bindHost === '0.0.0.0' ? lanIPv4() : bindHost);
+  writeRuntimeState(llmfwDir, {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    enforcement: config.enforcement === 'observe' ? 'observe' : 'enforce',
+    proxyUrl: `http://${reachable(config.proxy.bindHost)}:${config.proxy.port}`,
+    dashboardUrl: `http://${reachable(config.dashboard.bindHost)}:${config.dashboard.port}`,
+    gatewayUrl: gateway && config.gateway
+      ? `${config.gateway.tls ? 'https' : 'http'}://${reachable(config.gateway.bindHost)}:${config.gateway.port}`
+      : null,
+    sinkhole: sinkholeActive,
+  });
 
   if (standalone) {
     const ip = lanIPv4();

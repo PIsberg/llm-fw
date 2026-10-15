@@ -249,7 +249,7 @@ function cleanProjectConfig(): void {
 
 // What uninstall deletes from ~/.llm-fw, with what each file means to the user.
 const REMOVED_FILES: ReadonlyArray<readonly [string, string]> = [
-  ['ca.crt', ''], ['ca.key', ''], ['ca.crl', ''], ['llm-fw.pid', ''],
+  ['ca.crt', ''], ['ca.key', ''], ['ca.crl', ''], ['llm-fw.pid', ''], ['llm-fw.state.json', ''],
   ['config.json', 'your settings'],
   ['whitelist.json', 'events marked "not an attack"'],
 ];

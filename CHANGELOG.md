@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw status` and `llm-fw doctor` now say how the running process was started (#320).**
+  A process started with `--observe` or `--gateway` used to look exactly like a plain one,
+  because those flags exist only in its memory. `start` now records its enforcement, listener
+  URLs and sinkhole state in `<LLM_FW_DIR>/llm-fw.state.json`; `status` prints
+  `Enforcement: observe (nothing is blocked)` and the gateway URL, and `doctor` warns on observe.
+  `stop` and `uninstall` remove the file.
 - **A suppression's `addedAt` was local time with a `Z` suffix (#321).** On a UTC+2 machine a
   suppression added at 12:10 UTC read `14:10:15Z`. It is now UTC, like event and whitelist
   timestamps.

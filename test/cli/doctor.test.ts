@@ -40,6 +40,7 @@ function probe(overrides: Partial<DoctorProbe> = {}): DoctorProbe {
     hostsTargetCount: 12,
     portRedirectPresent: true,
     iphlpsvcRunning: true,
+    runtime: { pid: 4242, startedAt: '2026-10-15T20:00:00.000Z', enforcement: 'enforce', proxyUrl: 'http://127.0.0.1:8080', dashboardUrl: 'http://127.0.0.1:7731', gatewayUrl: null, sinkhole: true },
     ...overrides,
   }
 }
@@ -414,5 +415,30 @@ describe('parseProfileEnv', () => {
 
   it('returns nulls for a profile without the variables', () => {
     expect(parseProfileEnv('export PATH=/bin\n', '/home/u')).toEqual({ httpsProxy: null, nodeExtraCaCerts: null })
+  })
+})
+
+// #320: doctor said nothing about a process started with --observe or
+// --gateway, the flags that exist only in its memory.
+describe('evaluateProbe — what the running process recorded', () => {
+  const runtime = probe().runtime!
+
+  it('warns that an observe-mode process blocks nothing', () => {
+    const check = find(probe({ runtime: { ...runtime, enforcement: 'observe' } }), 'Enforcement')
+    expect(check?.level).toBe('warn')
+    expect(check?.title).toContain('observe (nothing is blocked)')
+  })
+
+  it('reports an enforcing process as ok', () => {
+    expect(find(probe(), 'Enforcement')?.level).toBe('ok')
+  })
+
+  it('names the gateway URL when one is listening', () => {
+    const check = find(probe({ runtime: { ...runtime, gatewayUrl: 'http://127.0.0.1:8081' } }), 'Gateway')
+    expect(check?.title).toContain('http://127.0.0.1:8081')
+  })
+
+  it('says nothing about enforcement when the process is not running', () => {
+    expect(find(probe({ running: false, runtime: null }), 'Enforcement')).toBeUndefined()
   })
 })

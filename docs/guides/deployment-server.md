@@ -452,6 +452,7 @@ image).
 | `license.key`, `license-offline.lfw` | Yes | Your licence |
 | `audit.jsonl`, `audit.jsonl.1` | Ship it, do not back it up | Rotating log; send it to a SIEM |
 | `llm-fw.pid` | No | Recreated at start |
+| `llm-fw.state.json` | No | Recreated at start |
 | `models/` | No | Re-downloadable cache |
 
 `ca.key` is the sensitive one. Anyone holding it can mint a certificate that
