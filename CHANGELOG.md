@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Documented: a JSON-escaped `\n` in a nested tool result is not a clause boundary for the
+  indirect-instruction rule (#314).** Both cheap fixes were measured on real Claude Code tool
+  results and rejected (852 to 895 and 870 to 895 flagged, the additions benign git/gh output);
+  `docs/guides/detection-stages.md` now says so instead of leaving it in an issue.
 - **Prompt Testing's "Opaque image" example showed PASS (#334).** In the default audit mode an
   opaque image is forwarded and raises a warn event, and the playground showed the pipeline's
   pass verdict beside it. `/api/test` now reports `action: "warn"`, `stage: "non-text"` for
