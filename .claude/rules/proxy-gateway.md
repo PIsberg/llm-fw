@@ -36,7 +36,7 @@ Rules that must not regress:
 - State-changing dashboard routes keep the JSON content-type plus same-origin
   check.
 - A refusal written before the request body has finished uploading (413, the
-  early 429s, the URL-block 403) drains the
+  early 429s, the URL-path refusal) drains the
   rest with `drainRefusedUpload` in `src/proxy/proxy.ts`. Never
   `innerReq.destroy()` there: it resets a client that is still writing, so it
   never reads the refusal, and Claude Code retried a blocked request 11 times
