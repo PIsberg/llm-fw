@@ -19,6 +19,8 @@
  *      a company running Groq or a self-hosted vLLM work unchanged.
  */
 
+import { isAuthPath } from '../detection/urlHeuristic.js';
+
 /** How a provider expects its API key to be presented. */
 export type UpstreamAuthStyle = 'bearer' | 'x-api-key' | 'x-goog-api-key';
 
@@ -87,7 +89,16 @@ const GEMINI_METHOD_RE =
   /:(generateContent|streamGenerateContent|countTokens|embedContent|batchEmbedContents|generateAnswer|predict|generateMessage)$/;
 
 function bareProviderFor(pathname: string): string | null {
-  if (pathname === '/v1/messages' || pathname.startsWith('/v1/messages/')) return 'anthropic';
+  if (
+    pathname === '/v1/messages' ||
+    pathname.startsWith('/v1/messages/') ||
+    pathname === '/v1/complete' ||
+    pathname.startsWith('/v1/complete/') ||
+    pathname.startsWith('/api/oauth/') ||
+    pathname.startsWith('/api/claude_cli') ||
+    pathname === '/api/claude_cli_profile' ||
+    pathname.startsWith('/v1/oauth/')
+  ) return 'anthropic';
   if (pathname.startsWith('/v1beta/')) return 'gemini';
   // Gemini's v1 shape is /v1/models/<model>:<method>. Match the method names
   // rather than "ends with :something": OpenAI fine-tune ids are themselves
@@ -156,7 +167,7 @@ export function applyUpstreamAuth(
   route: GatewayRoute,
   apiKey: string | undefined,
 ): Record<string, string> {
-  if (!apiKey) return headers;
+  if (!apiKey || isAuthPath(route.upstreamPath)) return headers;
   const out = { ...headers };
   for (const h of ['authorization', 'x-api-key', 'api-key', 'x-goog-api-key']) delete out[h];
   switch (route.provider.auth) {

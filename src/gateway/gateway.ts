@@ -13,6 +13,7 @@ import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, tokenMatc
 import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuery, upstreamHostHeader, type GatewayProvider, type GatewayRoute } from './routes.js';
 import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
+import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
 import { randomUUID } from 'node:crypto';
 
@@ -474,7 +475,7 @@ export class GatewayServer {
     // holds the key — with custody off, the client's own credential is exactly
     // what should be forwarded, in the URL as in the header.
     const rawQuery = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-    const query = operatorKey ? stripCredentialQuery(rawQuery) : rawQuery;
+    const query = (operatorKey && !isAuthPath(route.upstreamPath)) ? stripCredentialQuery(rawQuery) : rawQuery;
 
     const transport = route.provider.protocol === 'http' ? http : https;
     const port = route.provider.port ?? (route.provider.protocol === 'http' ? 80 : 443);

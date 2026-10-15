@@ -388,6 +388,18 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
     expect(calls[0]!.path).toBe('/v1/messages?model=ft:gpt-4o:acme&stream=true')
   })
 
+  it('preserves caller auth and query credential on auth paths even when holding operator key', async () => {
+    calls = []
+    const res = await request({
+      path: '/testprovider/api/oauth/profile?access_token=caller-oauth-token',
+      headers: { ...authed, authorization: 'Bearer caller-oauth-token' },
+    })
+    expect(res.status).toBe(200)
+    expect(calls[0]!.path).toBe('/api/oauth/profile?access_token=caller-oauth-token')
+    expect(calls[0]!.headers['authorization']).toBe('Bearer caller-oauth-token')
+    expect(calls[0]!.headers['x-api-key']).toBeUndefined()
+  })
+
   it('refuses a body over the cap and does not forward it', async () => {
     // The 413 and its limit are documented in guides/client-setup.md; nothing
     // pinned that the oversized body stops here rather than reaching the

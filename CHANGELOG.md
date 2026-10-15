@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Claude Code and AI provider OAuth login flows were blocked or warned as unparsed.**
+  Claude Code authenticates via OAuth on `claude.com`, exchanges tokens on
+  `platform.claude.com`, and provisions CLI keys via `/api/oauth/...` and
+  `/api/claude_cli...` on `api.anthropic.com`. Previously, `claude.ai` and
+  `claude.com` were missing from Anthropic provider domains, `chatgpt.com` from
+  OpenAI, and `microsoftonline.com` from Microsoft infra and the URL filter allowlist.
+  Stage 0.1 path screening also blocked legitimate query parameters (`token=`,
+  authorization codes, PKCE verifiers, state) on OAuth and login endpoints as
+  exfiltration attempts (`query-exfil-pattern`), while Stage 0.9 flagged
+  non-LLM JSON POSTs as unparsed endpoints. Authentication and login paths
+  (`isAuthPath`) are now exempt from exfil query parameter blocking, non-LLM JSON
+  prefixes include OAuth and CLI management endpoints, and the gateway routes bare
+  Anthropic auth paths to Anthropic while preserving client OAuth credentials under
+  key custody (#333).
+
 - **The v0.7.0 npm publish failed with `404 Not Found` on the PUT.** The
   Publish to npm workflow authenticated with an `NPM_TOKEN` secret set on
   2026-06-09, and npm granular publish tokens expire after at most 90 days.

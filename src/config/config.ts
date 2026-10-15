@@ -36,6 +36,7 @@ export const DEFAULT_CONFIG: Config = {
         'github.com',
         'npmjs.org',
         'registry.npmjs.org',
+        'microsoftonline.com',
       ],
       blocklistDomains: [],
     },

@@ -63,7 +63,7 @@ async function sendProxyRequest(
   method: string,
   path: string,
   headers: Record<string, string>,
-  body: string
+  body: string = ''
 ): Promise<ClientResponse> {
   return new Promise((resolve, reject) => {
     // 1. Connect to the proxy via raw TCP
@@ -419,6 +419,38 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
 
     const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
     expect(events.find((e: any) => e.path === path)).toBeUndefined()
+  })
+
+  it('E2E Case 4b3: Claude Code OAuth and login requests are forwarded without blocks or unparsed warns', async () => {
+    // Claude Code exchanges OAuth tokens and provisions CLI API keys against api.anthropic.com.
+    // They are non-LLM JSON POSTs/GETs carrying auth credentials that must neither be blocked
+    // by exfil path screening nor flagged as unparsed LLM endpoints.
+    const createKeyPath = '/api/oauth/claude_cli/create_api_key'
+    const postRes = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      createKeyPath,
+      { 'Content-Type': 'application/json', 'Authorization': 'Bearer user-oauth-token' },
+      JSON.stringify({ description: 'claude-cli' })
+    )
+    expect(postRes.statusCode).toBe(200)
+
+    const profilePath = '/api/oauth/profile?token=temp-auth-token'
+    const getRes = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'GET',
+      profilePath,
+      { 'Authorization': 'Bearer user-oauth-token' }
+    )
+    expect(getRes.statusCode).toBe(200)
+
+    const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
+    expect(events.find((e: any) => e.path === createKeyPath)).toBeUndefined()
+    expect(events.find((e: any) => e.path === profilePath)).toBeUndefined()
   })
 
   it('E2E Case 4c: Cross-turn taint — data from a tool result reused in a later outbound request is flagged', async () => {

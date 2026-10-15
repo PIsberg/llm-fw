@@ -38,10 +38,10 @@ export const AI_PROVIDERS: AiProvider[] = [
   {
     name: 'OpenAI',
     hosts: ['api.openai.com'],
-    domains: ['openai.com', 'openai.azure.com'],
+    domains: ['openai.com', 'openai.azure.com', 'chatgpt.com'],
     interceptDomains: ['openai.azure.com'],
   },
-  { name: 'Anthropic', hosts: ['api.anthropic.com'], domains: ['anthropic.com'] },
+  { name: 'Anthropic', hosts: ['api.anthropic.com'], domains: ['anthropic.com', 'claude.ai', 'claude.com'] },
   {
     name: 'Google',
     hosts: ['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'],
@@ -97,7 +97,7 @@ const INFRA_SERVICES: { name: string; domains: string[] }[] = [
   { name: 'Google', domains: ['google.com', 'googleusercontent.com'] },
   { name: 'NPM', domains: ['npmjs.org', 'npmjs.com'] },
   { name: 'GitHub', domains: ['github.com'] },
-  { name: 'Microsoft', domains: ['microsoft.com', 'exp-tas.com'] },
+  { name: 'Microsoft', domains: ['microsoft.com', 'exp-tas.com', 'microsoftonline.com'] },
   { name: 'Antigravity', domains: ['antigravity-unleash.goog'] },
 ]
 

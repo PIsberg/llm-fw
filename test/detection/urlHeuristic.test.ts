@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { UrlClassifier, normalizeDomainEntry } from '../../src/detection/urlHeuristic.js'
+import { UrlClassifier, normalizeDomainEntry, isAuthPath } from '../../src/detection/urlHeuristic.js'
 import type { UrlFilterConfig } from '../../src/types.js'
 
 const cfg: UrlFilterConfig = {
@@ -159,6 +159,44 @@ describe('UrlClassifier — classifyPath (host-independent path screening)', () 
   it('passes an ordinary path/query', () => {
     expect(c.classifyPath('/v1/messages').action).toBe('pass')
     expect(c.classifyPath('/api/v1/users?limit=50&page=2').action).toBe('pass')
+  })
+  it('exempts OAuth and login paths with tokens, codes, and state parameters', () => {
+    const longCode = 'A'.repeat(80)
+    expect(c.classifyPath('/oauth/authorize?token=secret123').action).toBe('pass')
+    expect(c.classifyPath(`/oauth/callback?code=${longCode}&state=xyz`).action).toBe('pass')
+    expect(c.classifyPath(`/cai/oauth/authorize?code_challenge=${longCode}`).action).toBe('pass')
+    expect(c.classifyPath('/api/oauth/profile?token=abc').action).toBe('pass')
+    expect(c.classifyPath('/api/oauth/claude_cli/create_api_key').action).toBe('pass')
+    expect(c.classifyPath('/api/claude_cli_profile').action).toBe('pass')
+    expect(c.classifyPath('/v1/oauth/token').action).toBe('pass')
+    expect(c.classifyPath('/login?token=abc').action).toBe('pass')
+    expect(c.classifyPath('/callback?token=abc').action).toBe('pass')
+  })
+  it('still blocks exfiltration query parameters on non-auth paths', () => {
+    expect(c.classifyPath('/v1/messages?token=secret123').action).toBe('block')
+    expect(c.classifyPath('/v1/chat/completions?secret=foo').action).toBe('block')
+    expect(c.classifyPath('/api/v1/data?token=abc').action).toBe('block')
+  })
+})
+
+describe('isAuthPath', () => {
+  it('recognizes standard OAuth, login and CLI management paths', () => {
+    expect(isAuthPath('/oauth/authorize')).toBe(true)
+    expect(isAuthPath('/oauth2/v2.0/token')).toBe(true)
+    expect(isAuthPath('/cai/oauth/authorize')).toBe(true)
+    expect(isAuthPath('/api/oauth/profile')).toBe(true)
+    expect(isAuthPath('/v1/oauth/token')).toBe(true)
+    expect(isAuthPath('/api/claude_cli/roles')).toBe(true)
+    expect(isAuthPath('/login')).toBe(true)
+    expect(isAuthPath('/callback')).toBe(true)
+    expect(isAuthPath('/.well-known/openid-configuration')).toBe(true)
+  })
+
+  it('rejects ordinary and model endpoints', () => {
+    expect(isAuthPath('/v1/messages')).toBe(false)
+    expect(isAuthPath('/v1/chat/completions')).toBe(false)
+    expect(isAuthPath('/upload')).toBe(false)
+    expect(isAuthPath('/')).toBe(false)
   })
 })
 
