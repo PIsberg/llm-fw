@@ -153,18 +153,35 @@ export type RealtimeScan =
   | { kind: 'body'; body: string; surface: 'prompt' | 'tool_result' | 'audio-item' }
 
 /**
- * Decide what one client event needs scanned. Audio is scanned when the turn
- * is committed (`input_audio_buffer.commit`, or `response.create` with audio
- * buffered); text and tool output when they are added to the conversation.
- * `session.update` instructions are developer-authored, like a system prompt,
- * and pass unscanned.
+ * Decide what one client event needs scanned; empty means forward as is.
+ * Audio is scanned when the turn is committed (`input_audio_buffer.commit`, or
+ * `response.create` with audio buffered); text and tool output when they enter
+ * the conversation, whether through `conversation.item.create` or the
+ * out-of-band `input` items of a `response.create`. Developer-authored text
+ * (`session.update` and `response.create` instructions, `system`-role items)
+ * passes like a system prompt does on the HTTP path, and assistant items are
+ * history, skipped there too.
  */
-export function realtimeScanFor(event: Record<string, unknown>, audioBuffered: boolean): RealtimeScan {
+export function realtimeScansFor(event: Record<string, unknown>, audioBuffered: boolean): RealtimeScan[] {
   const type = event.type
-  if (type === 'input_audio_buffer.commit') return audioBuffered ? { kind: 'audio' } : { kind: 'none' }
-  if (type === 'response.create') return audioBuffered ? { kind: 'audio' } : { kind: 'none' }
-  if (type !== 'conversation.item.create') return { kind: 'none' }
-  const item = event.item as Record<string, unknown> | undefined
+  if (type === 'input_audio_buffer.commit') return audioBuffered ? [{ kind: 'audio' }] : []
+  if (type === 'response.create') {
+    const scans: RealtimeScan[] = audioBuffered ? [{ kind: 'audio' }] : []
+    const input = (event.response as Record<string, unknown> | undefined)?.input
+    if (Array.isArray(input)) {
+      for (const item of input) {
+        const scan = itemScan(item as Record<string, unknown> | undefined)
+        if (scan.kind !== 'none') scans.push(scan)
+      }
+    }
+    return scans
+  }
+  if (type !== 'conversation.item.create') return []
+  const scan = itemScan(event.item as Record<string, unknown> | undefined)
+  return scan.kind === 'none' ? [] : [scan]
+}
+
+function itemScan(item: Record<string, unknown> | undefined): RealtimeScan {
   if (!item || typeof item !== 'object') return { kind: 'none' }
   if (item.type === 'function_call_output' && typeof item.output === 'string') {
     return { kind: 'body', surface: 'tool_result', body: JSON.stringify({ model: 'realtime', messages: [{ role: 'tool', tool_call_id: typeof item.call_id === 'string' ? item.call_id : 'realtime', content: item.output }] }) }

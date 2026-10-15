@@ -109,8 +109,14 @@ could not connect through it at all. A turn's
 `input_audio_buffer.append` chunks (PCM16, 24 kHz) are held when the client
 commits them (`input_audio_buffer.commit`, or `response.create` with audio
 buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and
-`nonText.mode` apply as above; `conversation.item.create` text is scanned as a
-prompt and `function_call_output` as a tool result. With server-side voice
+`nonText.mode` apply as above; user text, whether added with
+`conversation.item.create` or passed as `response.create` input, is scanned as
+a prompt and `function_call_output` as a tool result. `session.update` and
+`response.create` instructions and `system`-role items are developer-authored
+and pass, like a system prompt. Every text event except audio chunks goes
+through DLP as a request body would (`redact` rewrites the event). A binary
+message, or text that is not a JSON event, ends the session: it cannot be
+inspected. With server-side voice
 activity detection the client never commits, so every 15 s of buffered audio is
 also scanned while it streams; a block there ends the session, but that audio
 has already reached the provider. A block sends the client an `error` event

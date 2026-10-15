@@ -29,7 +29,7 @@ import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
 import { explainBlock } from '../detection/explain.js'
-import { FrameReader, OPCODE, RealtimeAudioBuffer, realtimeScanFor, audioScanBody, refuseRealtime, encodeFrame, type Frame } from './websocket.js'
+import { FrameReader, OPCODE, RealtimeAudioBuffer, realtimeScansFor, audioScanBody, refuseRealtime, encodeFrame, type Frame } from './websocket.js'
 import { MAX_TRANSCRIBE_SECONDS } from '../detection/transcribe.js'
 import type { Duplex } from 'node:stream'
 import { createLogger } from '../logger.js';
@@ -1340,21 +1340,20 @@ export class ProxyServer {
     let refused = false
     let queue: Promise<void> = Promise.resolve()
 
-    const refuse = (result: PipelineResult, eventId: string, what: string): void => {
+    const endSession = (message: string, eventId: string): void => {
       if (refused) return
       refused = true
-      const explanation = explainBlock({ eventId, result, dashboardUrl: this.dashboardUrl() })
       refuseRealtime(client, {
         type: 'error',
-        error: {
-          type: 'invalid_request_error',
-          code: 'llm_fw_blocked',
-          message: `llm-fw blocked this ${what}: ${explanation.error} (stage ${result.stage}, event ${eventId}). ${explanation.remediation}`,
-          event_id: eventId,
-        },
+        error: { type: 'invalid_request_error', code: 'llm_fw_blocked', message, event_id: eventId },
       }, 'llm-fw blocked this session')
       try { upstream.end(encodeFrame(OPCODE.close, Buffer.from([0x03, 0xf0]), true)) } catch { upstream.destroy() }
     }
+    const refuse = (result: PipelineResult, eventId: string, what: string): void => {
+      const explanation = explainBlock({ eventId, result, dashboardUrl: this.dashboardUrl() })
+      endSession(`llm-fw blocked this ${what}: ${explanation.error} (stage ${result.stage}, event ${eventId}). ${explanation.remediation}`, eventId)
+    }
+    const emit = (partial: Parameters<EventBus['emit']>[0]): string => this.eventBus.emit(partial).id
 
     const scan = async (body: string, what: string): Promise<boolean> => {
       let eventId = ''
@@ -1375,11 +1374,45 @@ export class ProxyServer {
         if (!frame.fin) continue
         const message = fragments
         fragments = []
-        const raw = Buffer.concat(message.map(m => m.raw))
-        if (message[0]?.opcode !== OPCODE.text) { upstream.write(raw); continue }
+        let raw: Buffer = Buffer.concat(message.map(m => m.raw))
+        // Fail closed on anything this relay cannot read: the Realtime API
+        // speaks JSON text events only, so a binary or non-JSON message is
+        // either a protocol error or an attempt to get bytes past inspection.
+        const uninspectable = (why: string): void => {
+          const id = emit({
+            stage: 'none', score: 100, similarity: 0, target: hostname, method: 'WS', path,
+            payload_preview: `Realtime ${why}: refused, cannot be inspected`, payload_full: `Realtime ${why}`,
+            action: 'blocked', kind: 'unparsed',
+          })
+          endSession(`llm-fw refused this session: a ${why} cannot be inspected (event ${id}).`, id)
+        }
+        if (message[0]?.opcode !== OPCODE.text) { uninspectable('binary message'); return }
+        let text = Buffer.concat(message.map(m => m.payload)).toString('utf8')
         let event: Record<string, unknown>
-        try { event = JSON.parse(Buffer.concat(message.map(m => m.payload)).toString('utf8')) as Record<string, unknown> }
-        catch { upstream.write(raw); continue }
+        try { event = JSON.parse(text) as Record<string, unknown> }
+        catch { uninspectable('text message that is not a JSON event'); return }
+        if (!event || typeof event !== 'object' || Array.isArray(event)) { uninspectable('text message that is not a JSON event'); return }
+
+        // DLP, as for an HTTP request body. Audio chunks are base64 PCM, not
+        // text, and are skipped. Redaction re-encodes the event as a new frame.
+        if (this.config.dlp.enabled && event.type !== 'input_audio_buffer.append') {
+          const findings = this.dlp.scan(text)
+          if (findings.length) {
+            const types = Array.from(new Set(findings.map(f => f.type))).join(', ')
+            const mode = this.config.dlp.mode
+            const id = emit({
+              stage: 'dlp', score: 100, similarity: 0, target: hostname, method: 'WS', path,
+              payload_preview: types, payload_full: types,
+              action: mode === 'block' ? 'blocked' : 'warned', kind: 'dlp', dlpType: findings[0]!.type,
+            })
+            if (mode === 'block') { endSession(`llm-fw blocked this message: sensitive data detected (${types}, event ${id}).`, id); return }
+            if (mode === 'redact') {
+              text = this.dlp.redact(text, findings)
+              event = JSON.parse(text) as Record<string, unknown>
+              raw = encodeFrame(OPCODE.text, Buffer.from(text, 'utf8'), true)
+            }
+          }
+        }
 
         if (event.type === 'input_audio_buffer.append' && typeof event.audio === 'string') {
           audio.append(event.audio)
@@ -1394,14 +1427,15 @@ export class ProxyServer {
         }
         if (event.type === 'input_audio_buffer.clear') { audio.clear(); upstream.write(raw); continue }
 
-        const decision = realtimeScanFor(event, audio.seconds > 0)
-        if (decision.kind === 'audio') {
-          const wav = audio.toWav()
-          audio.clear()
-          if (!await scan(audioScanBody(wav), 'spoken turn')) return
-        } else if (decision.kind === 'body') {
-          const what = decision.surface === 'tool_result' ? 'tool output' : decision.surface === 'audio-item' ? 'audio item' : 'message'
-          if (!await scan(decision.body, what)) return
+        for (const decision of realtimeScansFor(event, audio.seconds > 0)) {
+          if (decision.kind === 'audio') {
+            const wav = audio.toWav()
+            audio.clear()
+            if (!await scan(audioScanBody(wav), 'spoken turn')) return
+          } else if (decision.kind === 'body') {
+            const what = decision.surface === 'tool_result' ? 'tool output' : decision.surface === 'audio-item' ? 'audio item' : 'message'
+            if (!await scan(decision.body, what)) return
+          }
         }
         if (!refused) upstream.write(raw)
       }

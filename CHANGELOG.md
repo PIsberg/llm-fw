@@ -78,8 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it streams (a block then ends the session). A block sends an `error` event
   (`code: "llm_fw_blocked"`) and closes with 1008. Other WebSocket paths answer 501. Found
   while building it and fixed: a finished session would have leaked its upstream connection,
-  because a disconnecting client only emits `end` on the half-open socket. The gateway and
-  Gemini Live are #344.
+  because a disconnecting client only emits `end` on the half-open socket. After review, every
+  text event also goes through DLP, user items in `response.create` input are scanned, and a
+  binary or non-JSON message ends the session instead of being forwarded unread. The gateway
+  and Gemini Live are #344.
 - **Documented: a JSON-escaped `\n` in a nested tool result is not a clause boundary for the
   indirect-instruction rule (#314).** Both cheap fixes were measured on real Claude Code tool
   results and rejected (852 to 895 and 870 to 895 flagged, the additions benign git/gh output);
