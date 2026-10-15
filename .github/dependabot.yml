@@ -72,9 +72,12 @@ updates:
     ignore:
       # 4.3.0 moved onnxruntime-node 1.24.3 -> 1.30.0 and 10 of 23,938 eval
       # verdicts (#278): two held-out attacks lost, the first oasst1 false
-      # positive. The cosine thresholds are calibrated on 4.2.x vectors, so a
-      # new minor arrives with the stage-2 recalibration in #312, not as a
-      # bump. Patches still flow. test/ci/transformersPin.test.ts pins this.
+      # positive. The drift is onnxruntime's alone: 4.3.1 with onnxruntime-node
+      # held at 1.24.3 moved 0 of 23,938 (npm run verdicts:dump / :diff,
+      # #312). The cosine thresholds are calibrated on onnxruntime 1.24
+      # vectors, so a minor that moves onnxruntime arrives with a stage-2
+      # recalibration, not as a bump. Patches still flow.
+      # test/ci/transformersPin.test.ts pins this.
       - dependency-name: '@huggingface/transformers'
         update-types:
           - version-update:semver-minor

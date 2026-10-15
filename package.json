@@ -62,6 +62,8 @@
     "scan-server": "node --import tsx/esm scripts/scan-server.ts",
     "bench:competitors": "node --import tsx/esm test/eval/competitors/run.ts",
     "bench:trend": "node --import tsx/esm scripts/bench-trend.ts",
+    "verdicts:dump": "node --import tsx/esm scripts/verdict-dump.ts",
+    "verdicts:diff": "node --import tsx/esm scripts/verdict-diff.ts",
     "study:ml-indirect": "node --import tsx/esm scripts/study-ml-indirect.ts",
     "mutation": "stryker run",
     "lint": "eslint .",

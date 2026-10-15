@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`npm run verdicts:dump` and `npm run verdicts:diff` (#312).** The row-by-row comparison
+  behind "N of 23,938 eval verdicts changed" now lives in `scripts/` instead of session scratch
+  files. First use: the transformers 4.3 drift that keeps llm-fw on 4.2.x is onnxruntime's
+  alone. transformers 4.3.1 with `onnxruntime-node` held at 1.24.3 moved 0 of 23,938 verdicts;
+  with its own 1.30.0 it moved 10, the same rows #278 reported.
 - **CI proves llm-fw works under npm 12's install-time defaults (#330).** npm 12 runs no
   dependency install scripts unless allowed. A new job installs the packed tarball with
   `--ignore-scripts` and runs `scripts/smoke-installed.mjs` against it: an attack blocks, a

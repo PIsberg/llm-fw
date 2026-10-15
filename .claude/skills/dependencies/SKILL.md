@@ -88,7 +88,15 @@ detection and compare against the numbers in the changelog and
 npx vitest run test/detection/accuracy.eval.test.ts \
   --disable-console-intercept --reporter=verbose   # precision, recall, per-category
 npm run fpr                                        # FPR and the exact blocked rows
+npm run verdicts:dump -- after.json                # every eval row, this tree
+npm run verdicts:diff -- before.json after.json    # rows that flipped, per split
 ```
+
+`before.json` is the same dump taken on the tree without the bump (a worktree
+of `main`). For a transformers minor, also try holding `onnxruntime-node` at the
+current version with an npm `overrides` entry: in #312 that isolated all 10
+moved verdicts to onnxruntime-node 1.30, with transformers 4.3.1 itself moving
+none.
 
 Compare **the rows, not just the totals**. An FPR that stays at 8.45% while the
 twelve blocked rows change identity is a moved verdict wearing the same number.

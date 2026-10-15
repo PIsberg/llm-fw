@@ -45,6 +45,10 @@ Do not repeat the current ruleset value in prose anywhere. It goes stale.
   [docs/SCORECARD.md](../../docs/SCORECARD.md) and the README's scorecard
   section. Run it and update both if accuracy measurably shifted.
 - `npm run fpr` runs the false-positive evaluation.
+- `npm run verdicts:dump -- before.json` on the old tree, the same with
+  `after.json` on the new one, then `npm run verdicts:diff -- before.json
+  after.json`: the row-by-row "N of 23,938 eval verdicts changed" a ruleset or
+  dependency PR should quote. Aggregates can hold while rows trade places.
 - `npm run bench:competitors` compares against third-party guardrails on the
   same held-out splits. Useful context for a detection PR, not required.
 
