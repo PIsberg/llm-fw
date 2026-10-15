@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a page refresh. Under observe mode it is a dry run and reports what it would have
   saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
 
+### Security
+
+- **The node-forge advisory's "not reachable" claim is now enforced (#254).** node-forge
+  `<= 1.4.0` (Dependabot #57, high, still no patched release) mis-verifies RSA PKCS#1 v1.5
+  signatures; llm-fw only signs and parses with forge. `test/proxy/forge-advisory.test.ts` fails
+  if a file importing node-forge calls a forge verification API, and `SECURITY.md` records the
+  assessment. The adm-zip advisory from the same issue no longer applies: it now resolves to
+  0.6.1.
+
 ### Changed
 
 - **CI proves llm-fw works under npm 12's install-time defaults (#330).** npm 12 runs no

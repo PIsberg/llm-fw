@@ -64,6 +64,19 @@ Out of scope:
 - advisories against dependencies with no reachable path from llm-fw's code,
 - reports produced only by a scanner, without a demonstrated impact.
 
+## Dependency advisories with no patch
+
+Assessed, not dismissed silently. Each one's "not reachable" claim is a test,
+so it stops being true only by failing CI.
+
+| Advisory | Package | Why it is not reached | Enforced by |
+| --- | --- | --- | --- |
+| RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements (Dependabot #57, high), `<= 1.4.0`, no patch | `node-forge` (direct) | llm-fw only generates and signs the CA, leaf certificates and CRL, and parses PEM. It never verifies a signature or a chain with forge; licence checks use Ed25519 via `node:crypto`. | `test/proxy/forge-advisory.test.ts`: no file importing node-forge may call a forge verification API |
+
+An enterprise SCA scan still flags the package. Replacing forge for
+certificate generation (for example with `@peculiar/x509`) would clear it, at
+the cost of changing the CA code; see #254.
+
 ## Security-relevant defaults
 
 Worth knowing before reporting, and worth checking in your own deployment:
