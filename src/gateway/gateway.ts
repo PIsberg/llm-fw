@@ -15,6 +15,7 @@ import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
 import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
+import { ModuleManager } from '../modules/registry.js';
 import { randomUUID } from 'node:crypto';
 
 const log = createLogger('gateway');
@@ -49,11 +50,13 @@ export class GatewayServer {
   private providers: Record<string, GatewayProvider>;
   private apiKeys: Record<string, string>;
   private tenants: TenantRegistry;
+  private modules: ModuleManager;
 
-  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry) {
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager) {
     this.config = config;
     this.eventBus = eventBus;
     this.metrics = metrics;
+    this.modules = moduleManager ?? new ModuleManager(config);
     this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions);
     this.dlp = new DlpScanner(config.dlp);
 
@@ -328,6 +331,29 @@ export class GatewayServer {
     const observing = isObserving(this.config.enforcement, tenant?.enforcement);
     const tenantTag = tenant ? { tenant: tenant.id } : {};
     const observedTag = observing ? { enforced: false } : {};
+
+    const parser = getParser(path);
+    if (this.config.modules?.enabled && parser !== null) {
+      const modRes = await this.modules.transformRequest(text, {
+        target,
+        method,
+        path,
+        isLlmRequest: true,
+        parser,
+        sessionKey,
+        tenant: tenant?.id,
+        dryRun: observing,
+      });
+      if (modRes.modified && !observing) {
+        text = modRes.body;
+        bodyBuf = Buffer.from(text, 'utf-8');
+      }
+      if (modRes.events && modRes.events.length > 0) {
+        for (const ev of modRes.events) {
+          this.eventBus.emitModuleEvent(ev);
+        }
+      }
+    }
 
     // DLP — same scoping as the proxy: only requests a parser recognises, so
     // binary uploads are not scanned as if they were prompts.

@@ -60,6 +60,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.56
+
+**2.68% overall (9 of 336), unchanged, on the same rows; Dolly and oasst1 samples
+0 of 2,000 each.** Measured with `npm run fpr`. This ruleset only adds the
+`modules` defaults to `src/config/config.ts` (the token pruner, off by default,
+#340). The detection pipeline does not read that key and the eval harness does
+not run the module stage, so no verdict can move; the eval splits were not
+re-run.
+
 ## Result, ruleset 2026.10.55
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset exempts

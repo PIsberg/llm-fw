@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Gateway modules, and an opt-in Token Pruner / Cost Optimizer (#340).** Request bodies
+  for LLM endpoints now pass through a module pipeline (`src/modules/`) on the proxy and the
+  gateway, before DLP and detection, so both scan what is forwarded. A module that throws is
+  logged and skipped; the request continues. The first module, the token pruner, is off by
+  default: turn it on with the Settings toggle, `POST /api/modules`,
+  `modules.tokenPruner.enabled` or `LLM_FW_TOKEN_PRUNER_ENABLED=true`, live and without a
+  restart. It collapses interior runs of spaces, runs of blank lines and trailing whitespace,
+  and minifies multiline JSON in prompt text, keeping leading indentation and fenced code. The
+  dashboard header shows tokens saved and the percentage, updated over SSE (`event: module`)
+  without a page refresh. Under observe mode it is a dry run and reports what it would have
+  saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
+
 ### Fixed
 
 - **Claude Code and AI provider OAuth login flows were blocked or warned as unparsed.**

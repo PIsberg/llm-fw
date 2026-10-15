@@ -27,6 +27,7 @@ import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, scanToolCallsForMemoryPoisoning, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
+import { ModuleManager } from '../modules/registry.js'
 import { explainBlock } from '../detection/explain.js'
 import { createLogger } from '../logger.js';
 
@@ -211,6 +212,7 @@ export class ProxyServer {
   // top of handleConnect, BEFORE the bypass tunnel, so the fail-safe switch
   // can never turn the proxy into an anonymous open relay.
   private authPolicy: AuthPolicy
+  private modules: ModuleManager
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -218,10 +220,11 @@ export class ProxyServer {
   // this proxy's live-traffic pipeline and the dashboard's playground
   // pipeline, so a false-positive marked from the dashboard actually
   // suppresses future real traffic, not just the dashboard's own test runs.
-  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry) {
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager) {
     this.config = config
     this.eventBus = eventBus
     this.metrics = metrics
+    this.modules = moduleManager ?? new ModuleManager(config)
     // The CRL distribution point baked into every certificate has to be
     // fetchable by the client that receives it, so it follows the dashboard's
     // configured address rather than assuming loopback on the default port.
@@ -686,12 +689,40 @@ export class ProxyServer {
       // registered parser) are scanned, so binary/file uploads are skipped.
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
+      const parser = getParser(dlpPath)
+      const isLlmRequest = parser !== null
 
       // Session identity shared across the proxy's per-client state (taint
       // tracking below, and — opt-in — the pipeline's cross-request crescendo
       // memory): the client's normalized source IP. Computed once here so both
       // consumers key on the exact same identity.
       const sessionKey = normalizeIp(innerReq.socket.remoteAddress)
+
+      // Gateway modules (src/modules/), before DLP and detection, so both scan
+      // the body that is actually forwarded. Observe mode never alters
+      // traffic: the modules still run, as a dry run, so the dashboard can
+      // show what they would have saved.
+      if (this.config.modules?.enabled && isLlmRequest) {
+        const dryRun = this.config.enforcement === 'observe'
+        const modRes = await this.modules.transformRequest(body, {
+          target: hostname,
+          method,
+          path: dlpPath,
+          isLlmRequest: true,
+          parser,
+          sessionKey,
+          dryRun,
+        })
+        if (modRes.modified && !dryRun) {
+          body = modRes.body
+          bodyBuf = Buffer.from(body, 'utf-8')
+        }
+        if (modRes.events && modRes.events.length > 0) {
+          for (const ev of modRes.events) {
+            this.eventBus.emitModuleEvent(ev)
+          }
+        }
+      }
 
       // Stage T — Cross-turn taint tracking (information flow, not content
       // classification). Flags when a distinctive token (host / secret) that
@@ -985,8 +1016,6 @@ export class ProxyServer {
           }
         }
       }
-
-      const isLlmRequest = getParser(innerReq.url ?? '/') !== null
 
       let bytesReceived: number
       try {

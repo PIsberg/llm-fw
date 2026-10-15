@@ -40,6 +40,7 @@ src/proxy/       forward proxy, MITM, certificate factory
 src/gateway/     reverse-proxy endpoint, routing, tenants
 src/config/      defaults, env overrides, hot reload
 src/dashboard/   HTTP API, SSE, Prometheus metrics, UI
+src/modules/     request-transforming gateway modules (token pruner); fail open
 src/cli/         subcommands; start.ts wires every listener
 test/            mirrors src/; *.e2e.test.ts run under vitest.e2e.config.ts
 docs/            human documentation, indexed by docs/README.md

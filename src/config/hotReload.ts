@@ -152,6 +152,8 @@ const HOT_PATHS: Path[] = [
   ['responseScan', 'classifier', 'enabled'],
   ['responseScan', 'toolUse', 'enabled'],
   ['responseScan', 'toolUse', 'mode'],
+  ['modules', 'enabled'],
+  ['modules', 'tokenPruner', 'enabled'],
 ]
 
 // COLD keys (Task C5) — changing any of these while the process is running
