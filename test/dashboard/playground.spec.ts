@@ -151,7 +151,7 @@ test.describe('Prompt Testing — URL / Exfil', () => {
     await expect(page.locator('#pg-result .pg-badge')).toHaveText('PASS')
     const checks = page.locator('#pg-result .pg-url-checks')
     await expect(checks.locator('.pg-check-block')).toHaveCount(0)
-    await expect(checks.locator('.pg-check-pass')).toHaveCount(6) // all checks pass (path '/' always included)
+    await expect(checks.locator('.pg-check-pass')).toHaveCount(7) // all checks pass, incl. the DGA-label check (#335); path '/' always included
   })
 
   test('ngrok domain is blocked as known exfil', async ({ page }) => {

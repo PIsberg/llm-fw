@@ -317,8 +317,11 @@ in doubt, scope the proxy variable instead of relying on the exclusion list.
 Anything not excluded still reaches the firewall. Non-provider hosts are tunneled
 without being decrypted, so the firewall does not read them, but they still
 travel to it and back, they still pass its URL filter (which refuses
-high-entropy hostnames and can therefore trip on some hashed CDN hosts), and
-they inherit the firewall's availability.
+high-entropy hostnames and can therefore trip on some hashed CDN hosts, and
+refuses a registrable domain whose name interleaves letters and digits with
+almost no vowels, the shape of a generated DGA domain; 162 of the Tranco top
+1M, all hash- or random-named, measured), and they inherit the firewall's
+availability. `proxy.urlFilter.allowlistDomains` exempts a host from all of it.
 
 The narrowest option is to set the variable per command rather than in your
 login profile:

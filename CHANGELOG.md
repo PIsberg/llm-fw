@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The URL filter's DGA check never fired on a realistic generated domain (#335).** The
+  Prompt Testing example `https://x7f9q2k8z1p3v6w4.com/collect` passed. The check was Shannon
+  entropy at 4.8 bits, which an n-character label cannot exceed log2(n) of, so it needed about
+  28 characters; that label has 16 and scores 4.0. The registrable label is now also refused
+  when it interleaves letters and digits (6+ switches, 3+ of each, 12+ characters) with vowels
+  at most 20% of the letters. On the Tranco top 1M the filter blocks 180 hosts instead of 18;
+  the 162 added are all hash- or random-named. Subdomains are not screened this way, so
+  CloudFront and S3 hosts are unaffected.
 - **A block's false-positive instructions can now be followed (#319).** The 403 body said to
   open `/#events`, find the event and mark it "not an attack": the link selected nothing, the
   table had no way to find an id, and no button had that label. It now gives

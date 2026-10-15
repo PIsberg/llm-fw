@@ -60,6 +60,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.60
+
+**2.68% overall (9 of 336), unchanged.** This ruleset adds a DGA-label check
+to the URL filter (#335), which the prompt pipeline these rows run through
+does not call. Measured instead on hostnames: of the Tranco top 1M, the URL
+filter blocked 18 before and 180 after; the 162 added are all hash- or
+random-named registrable domains (8 in the top 100k), and 14 hand-picked
+brands that mix letters and digits (`1password`, `x10hosting`,
+`covid19vaccine`, ...) still pass.
+
 ## Result, ruleset 2026.10.59
 
 **2.68% overall (9 of 336), unchanged.** This ruleset only rewrites the
