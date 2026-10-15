@@ -133,6 +133,30 @@ test.describe('Events feed shows only harmful events (#337)', () => {
   })
 })
 
+test.describe('Live Traffic says what was inspected (#336)', () => {
+  test('labels each connection inspected or not and counts both', async ({ page }) => {
+    const m = (id: string, host: string, inspected: boolean) => JSON.stringify({
+      id, timestamp: '2026-10-15 20:00:00Z', service: inspected ? 'Anthropic' : 'Other', host,
+      bytesSent: 100, bytesReceived: 200, fromIp: '127.0.0.1', inspected,
+      ...(inspected ? { method: 'POST', path: '/v1/messages' } : {}),
+    })
+    await page.route('**/traffic-events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + m('t-1', 'api.anthropic.com', true) + '\n\n' +
+        'data: ' + m('t-2', 'registry.npmjs.org', false) + '\n\n',
+    }))
+
+    await page.goto('/')
+    await page.click('button:has-text("Live Traffic")')
+    await expect(page.locator('#t-inspected')).toHaveText('1', { timeout: 10_000 })
+    await expect(page.locator('#t-tunneled')).toHaveText('1')
+    await expect(page.locator('#trow-t-1 .insp-badge')).toHaveText('Inspected')
+    await expect(page.locator('#trow-t-2 .insp-badge')).toHaveText('Not inspected')
+  })
+})
+
 test.describe('Live Traffic tab', () => {
   test('renders the throughput chart and service-utilization panel', async ({ page }) => {
     await page.goto('/')

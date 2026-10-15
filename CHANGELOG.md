@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Live Traffic says which connections were inspected (#336).** Every connection now has an
+  **Inspected** or **Not inspected** label and the tab counts both, with a line explaining that
+  only `targets` / `interceptDomains` hosts are decrypted. Before, a tunnel was told apart only
+  by the grey "encrypted tunnel" text in the Request column.
 - **The Events feed shows only blocks and warnings (#337).** Passed MCP inventory events
   ("Exposed 14 tools to LLM") arrived on every agent request, buried the findings, and counted
   in the Total and MCP / Tool Use tiles as if they were findings. They now have their own

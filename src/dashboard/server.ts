@@ -263,6 +263,10 @@ const HTML = `<!DOCTYPE html>
   .tlog-drawer dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 0.82rem; }
   .tlog-drawer dt { color: #888; white-space: nowrap; }
   .tlog-drawer dd { font-family: monospace; word-break: break-all; }
+  .insp-badge { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .insp-yes { background: #e8f5e9; color: #2e7d32; border: 1px solid #2e7d32; }
+  .insp-no { background: #f5f5f5; color: #616161; border: 1px solid #9e9e9e; }
+  .insp-legend { color: #666; font-size: 0.82rem; margin: 4px 0 12px; }
   .tlog-body-box { font-family: monospace; font-size: 0.8rem; background: #1e1e1e; color: #d4d4d4;
     padding: 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all;
     max-height: 320px; overflow-y: auto; line-height: 1.5; }
@@ -449,7 +453,10 @@ const HTML = `<!DOCTYPE html>
         <div class="stat"><div class="stat-label">Total Sent</div><div class="stat-value" id="t-sent">—</div></div>
         <div class="stat"><div class="stat-label">Total Received</div><div class="stat-value" id="t-recv">—</div></div>
         <div class="stat"><div class="stat-label">Req / sec</div><div class="stat-value" id="t-rps">0</div></div>
+        <div class="stat" title="Connections to a target AI host: TLS-intercepted and scanned"><div class="stat-label">Inspected</div><div class="stat-value saved" id="t-inspected">0</div></div>
+        <div class="stat" title="Connections to any other host: tunneled end-to-end, never decrypted or scanned"><div class="stat-label">Not inspected</div><div class="stat-value" id="t-tunneled">0</div></div>
       </div>
+      <p class="insp-legend">Only hosts in <code>targets</code> / <code>interceptDomains</code> are decrypted and scanned. Every other connection is a <b>Not inspected</b> tunnel: llm-fw sees its host and byte counts, never its contents.</p>
       <div class="chart-card">
         <div class="chart-card-title">Throughput — Bytes / sec (last 60 s)</div>
         <canvas id="traffic-canvas" height="100"></canvas>
@@ -461,7 +468,7 @@ const HTML = `<!DOCTYPE html>
       <div class="tlog-wrap">
         <div class="tlog-title">Recent Connections <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#999">— click a row for full request details</span></div>
         <table class="tlog">
-          <thead><tr><th>Time</th><th>From IP</th><th>Service</th><th>Host</th><th>Request</th><th>Sent</th><th>Received</th></tr></thead>
+          <thead><tr><th>Time</th><th>From IP</th><th>Inspection</th><th>Service</th><th>Host</th><th>Request</th><th>Sent</th><th>Received</th></tr></thead>
           <tbody id="tlog-body"></tbody>
         </table>
       </div>
@@ -1453,7 +1460,7 @@ loadSettings();
 const CHART_LEN = 60;
 let chartHead = Math.floor(Date.now() / 1000);
 const chartData = Array.from({length: CHART_LEN}, () => ({sent:0, recv:0, n:0}));
-const tStats = {conn:0, sent:0, recv:0};
+const tStats = {conn:0, sent:0, recv:0, inspected:0, tunneled:0};
 const svcBytes = {};
 
 function fmtB(b) {
@@ -1479,6 +1486,9 @@ function addTraffic(m) {
     chartData[sec % CHART_LEN].n++;
   }
   tStats.conn++;
+  if (m.inspected) tStats.inspected++; else tStats.tunneled++;
+  document.getElementById('t-inspected').textContent = tStats.inspected;
+  document.getElementById('t-tunneled').textContent = tStats.tunneled;
   tStats.sent += m.bytesSent;
   tStats.recv += m.bytesReceived;
   svcBytes[m.service] = (svcBytes[m.service] || 0) + m.bytesSent + m.bytesReceived;
@@ -1570,7 +1580,7 @@ function toggleTrafficDrawer(id) {
   if (!row) return;
   row.classList.add('selected');
   row.insertAdjacentHTML('afterend',
-    '<tr class="tlog-drawer-row" id="tdrawer-' + id + '"><td colspan="7">' + renderTrafficDrawer(m) + '</td></tr>');
+    '<tr class="tlog-drawer-row" id="tdrawer-' + id + '"><td colspan="8">' + renderTrafficDrawer(m) + '</td></tr>');
 }
 
 function addTlogRow(m) {
@@ -1582,6 +1592,10 @@ function addTlogRow(m) {
   tr.innerHTML =
     '<td>' + esc(m.timestamp || '') + '</td>' +
     '<td class="ip-cell">' + esc(m.fromIp || 'unknown') + '</td>' +
+    // #336: say outright whether llm-fw saw the contents.
+    '<td>' + (m.inspected
+      ? '<span class="insp-badge insp-yes" title="TLS intercepted: the request was decrypted and scanned">Inspected</span>'
+      : '<span class="insp-badge insp-no" title="Passthrough tunnel: encrypted end to end, never decrypted or scanned">Not inspected</span>') + '</td>' +
     '<td><span class="svc-badge ' + cls + '">' + esc(m.service) + '</span></td>' +
     '<td>' + esc(m.host) + '</td>' +
     '<td>' + reqSummary(m) + '</td>' +
