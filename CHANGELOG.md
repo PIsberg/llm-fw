@@ -56,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OpenAI Realtime sessions work through the proxy, and their audio is scanned (#270).** The
+  proxy's TLS interception had no WebSocket handler, so every handshake to an inspected host
+  was dropped and a Realtime session could not connect at all. `/v1/realtime` is now relayed:
+  a committed audio turn is held and scanned like an `input_audio` part (`nonText.transcribe`
+  and `nonText.mode` apply), user text is scanned as a prompt and `function_call_output` as a
+  tool result, and with server-side voice activity detection every 15 s of audio is scanned as
+  it streams (a block then ends the session). A block sends an `error` event
+  (`code: "llm_fw_blocked"`) and closes with 1008. Other WebSocket paths answer 501. Found
+  while building it and fixed: a finished session would have leaked its upstream connection,
+  because a disconnecting client only emits `end` on the half-open socket. The gateway and
+  Gemini Live are #344.
 - **Documented: a JSON-escaped `\n` in a nested tool result is not a clause boundary for the
   indirect-instruction rule (#314).** Both cheap fixes were measured on real Claude Code tool
   results and rejected (852 to 895 and 870 to 895 flagged, the additions benign git/gh output);
