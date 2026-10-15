@@ -448,7 +448,7 @@ llm-fw/
 │   │   ├── judge.ts         # Ollama HTTP client
 │   │   └── pipeline.ts      # orchestrator
 │   ├── dashboard/
-│   │   ├── server.ts        # HTTP server (Events + Playground + Settings + /api/test + /api/settings + whitelist + translate)
+│   │   ├── server.ts        # HTTP server (Events + Playground + Settings + /api/test + /api/settings + /api/status + /api/modules + whitelist + translate)
 │   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
 │   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/
@@ -487,7 +487,7 @@ commands — anything `setup` writes must appear here with an undo.
 | `models/` | Cached `Xenova/multilingual-e5-small` q8 ONNX weights (~120 MB) | Stage 2 embeds prompts locally (multilingual, cross-lingual alignment across 100 languages); caching avoids re-downloading on every start and keeps detection fully offline. | delete dir (`--keep-model` preserves it to avoid a re-download) |
 | `config.json` | `{ "proxy": { "mode": "proxy" \| "sinkhole" } }` | Persists which mode setup configured so `start`, `status`, and `doctor` report and behave correctly without re-passing flags or env vars. Loaded by `config.ts` above project config, below env vars. | delete file |
 | `llm-fw.pid` | PID of the running proxy (written by `start`) | Lets `stop`/`status`/`doctor`/`uninstall` find and signal the live process. | proxy stopped, then file deleted |
-| `llm-fw.state.json` | What the running process started: enforcement, proxy/dashboard/gateway URLs, sinkhole (written by `start` once listeners are up) | Lets `status` and `doctor` report `--observe` and `--gateway`, which exist only in memory. Ignored unless its `pid` matches the pid file. | removed by shutdown, `stop` and `uninstall` |
+| `llm-fw.state.json` | What the running process started: enforcement, proxy/dashboard/gateway URLs, sinkhole (written by `start` once listeners are up) | Lets `status`, `doctor` and the dashboard header (`GET /api/status`) report `--observe` and `--gateway`, which exist only in memory. Ignored unless its `pid` matches the pid file. | removed by shutdown, `stop` and `uninstall` |
 | `llm-fw.stop` | PID `stop` asks to shut down (written by `stop`, polled by `start` every 250 ms) | On Windows a signal is TerminateProcess, so `start`'s graceful shutdown (hosts restore, portproxy removal, audit flush) only runs if the process stops itself. `stop` falls back to SIGTERM, then SIGKILL, after 5 s unanswered. | deleted by whichever side reads it; a leftover is cleared when `start` runs |
 | `whitelist.json` | False-positive store — events an operator marked "not malicious" via the dashboard (written lazily by `EventBus.whitelist`, only if used) | Records benign prompts the detectors flagged so they can be reviewed/curated; survives restarts. | delete file |
 

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The dashboard header shows how the firewall is running (#338).** Chips for
+  **Observe mode: nothing is blocked**, **Sinkhole active** and the gateway URL, read from the
+  new `GET /api/status` (enforcement, sinkhole, gateway and proxy URLs, start time). The sinkhole
+  redirects every Node.js and native client on the machine, and nothing on the dashboard said so.
 - **Gateway modules, and an opt-in Token Pruner / Cost Optimizer (#340).** Request bodies
   for LLM endpoints now pass through a module pipeline (`src/modules/`) on the proxy and the
   gateway, before DLP and detection, so both scan what is forwarded. A module that throws is

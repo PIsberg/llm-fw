@@ -18,6 +18,7 @@ import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
+import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('dashboard');
@@ -36,6 +37,11 @@ const HTML = `<!DOCTYPE html>
   /* Header */
   .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .header h1 { font-size: 1.25rem; font-weight: 700; }
+  .mode-chips { display: flex; gap: 8px; }
+  .mode-chip { font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; cursor: help; }
+  .mode-chip.observe { background: #fff3e0; color: #e65100; border: 1px solid #e65100; }
+  .mode-chip.sinkhole { background: #e3f2fd; color: #1565c0; border: 1px solid #1565c0; }
+  .mode-chip.gateway { background: #ede7f6; color: #4527a0; border: 1px solid #4527a0; }
   .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4caf50; margin-right: 6px; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
@@ -295,6 +301,7 @@ const HTML = `<!DOCTYPE html>
 <div class="container">
   <div class="header">
     <h1><span class="live-dot"></span>LLM Firewall Dashboard</h1>
+    <div id="mode-chips" class="mode-chips"></div>
   </div>
 
   <div class="stats">
@@ -736,7 +743,31 @@ const es = new EventSource('/events');
 // table: no duplicated rows after a dropped connection, and no rows left over
 // from before a restart whose "Mark false positive" the server cannot honour.
 // The tiles count the same replay, so they start from zero too.
-es.onopen = () => { tbody.replaceChildren(); resetStats(); loadModuleStats(); };
+es.onopen = () => { tbody.replaceChildren(); resetStats(); loadModuleStats(); loadModeChips(); };
+
+// How this process was started (#338): --observe, the sinkhole and the gateway
+// change what the firewall does to every client on the machine, so they are
+// shown above everything else rather than discovered in Settings.
+async function loadModeChips() {
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const s = await res.json();
+    const chips = [];
+    if (s.enforcement === 'observe') chips.push(['observe', 'Observe mode: nothing is blocked', 'Every detector runs and would-be blocks are recorded, but no request is refused. Restart without --observe to enforce.']);
+    if (s.sinkhole) chips.push(['sinkhole', 'Sinkhole active', 'Provider hostnames resolve to this machine (hosts file plus a :443 redirect), so Node.js and native clients are inspected without HTTPS_PROXY. llm-fw stop or uninstall restores them.']);
+    if (s.gatewayUrl) chips.push(['gateway', 'Gateway ' + s.gatewayUrl, 'Reverse-proxy endpoint: point an SDK base_url here.']);
+    const box = document.getElementById('mode-chips');
+    box.replaceChildren(...chips.map(([cls, text, tip]) => {
+      const el = document.createElement('span');
+      el.className = 'mode-chip ' + cls;
+      el.textContent = text;
+      el.title = tip;
+      return el;
+    }));
+  } catch (_) {}
+}
+loadModeChips();
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 es.addEventListener('module', e => {
   try {
@@ -2066,6 +2097,22 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))
       })
+      return
+    }
+
+    // What this process started (#338). The runtime record is written by
+    // `llm-fw start` (src/cli/runtimeState.ts) and trusted only for this pid;
+    // enforcement comes from live config, which is authoritative in-process.
+    if (req.method === 'GET' && path === '/api/status') {
+      const state = readRuntimeState(getLlmFwDir(), process.pid)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        enforcement: config.enforcement === 'observe' ? 'observe' : 'enforce',
+        sinkhole: state?.sinkhole ?? false,
+        gatewayUrl: state?.gatewayUrl ?? null,
+        proxyUrl: state?.proxyUrl ?? null,
+        startedAt: state?.startedAt ?? null,
+      }))
       return
     }
 

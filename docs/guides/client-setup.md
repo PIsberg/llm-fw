@@ -486,7 +486,7 @@ set NODE_EXTRA_CA_CERTS=%USERPROFILE%\.llm-fw\ca.crt
 llm-fw start
 ```
 
-`llm-fw start` auto-detects sinkhole mode from the hosts file and starts the sinkhole TLS server automatically.
+`llm-fw start` auto-detects sinkhole mode from the hosts file and starts the sinkhole TLS server automatically. While it runs, the dashboard header shows a **Sinkhole active** chip (and `llm-fw status` says so), since every Node.js and native client on the machine is then routed through llm-fw.
 
 **Step 3 — (Re)start your LLM tool in the same terminal:**
 
