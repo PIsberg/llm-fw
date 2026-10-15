@@ -128,10 +128,16 @@ const NON_LLM_JSON_PATH_SUFFIXES = [
 
 /**
  * Same idea for endpoints whose last segment varies per client. Claude Code
- * POSTs GrowthBook attributes to `/api/eval/<client key>` at every start.
+ * POSTs GrowthBook attributes to `/api/eval/<client key>` at every start,
+ * and calls OAuth / CLI management endpoints on the provider's API host.
  */
 const NON_LLM_JSON_PATH_PREFIXES = [
   '/api/eval/',
+  '/api/oauth/',
+  '/api/claude_cli',
+  '/v1/oauth/',
+  '/oauth/',
+  '/oauth2/',
 ]
 
 function isKnownNonLlmEndpoint(path: string): boolean {

@@ -69,6 +69,21 @@ describe('identifyService', () => {
     expect(identifyService('github.com')).toBe('GitHub')
     expect(identifyService('registry.npmjs.org')).toBe('NPM')
     expect(identifyService('login.microsoft.com')).toBe('Microsoft')
+    expect(identifyService('login.microsoftonline.com')).toBe('Microsoft')
+    expect(identifyService('microsoftonline.com')).toBe('Microsoft')
+  })
+
+  it('labels Claude Code and web domains as Anthropic and includes them in allowlist', () => {
+    expect(identifyService('claude.ai')).toBe('Anthropic')
+    expect(identifyService('claude.com')).toBe('Anthropic')
+    expect(identifyService('platform.claude.com')).toBe('Anthropic')
+    expect(AI_PROVIDER_DOMAINS).toContain('claude.ai')
+    expect(AI_PROVIDER_DOMAINS).toContain('claude.com')
+  })
+
+  it('labels ChatGPT domains as OpenAI and includes them in allowlist', () => {
+    expect(identifyService('chatgpt.com')).toBe('OpenAI')
+    expect(AI_PROVIDER_DOMAINS).toContain('chatgpt.com')
   })
 
   it('labels non-API Google properties without allowlisting them', () => {

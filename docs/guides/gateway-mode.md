@@ -22,7 +22,7 @@ Two path shapes are accepted:
 | Request path | Routed to |
 |---|---|
 | `/anthropic/v1/messages`, `/groq/v1/chat/completions`, … | that provider, prefix stripped |
-| `/v1/messages` | Anthropic (its own API shape) |
+| `/v1/messages`, `/v1/complete`, `/api/oauth/…`, `/api/claude_cli…` | Anthropic (its own API shape & CLI endpoints) |
 | `/v1beta/models/...:generateContent` | Gemini |
 | `/v1/chat/completions` and other bare `/v1/…` | `gateway.defaultProvider` (default `openai`) |
 

@@ -79,8 +79,9 @@ So `https://fw.example.com/groq/v1` for Groq, `https://fw.example.com/mistral/v1
 for Mistral, and so on. Private endpoints your operator has configured (a
 self-hosted vLLM, for example) get their own slug the same way.
 
-Some SDK shapes are recognised without a prefix: `/v1/messages` routes to
-Anthropic, `/v1beta/...` and `:generateContent` route to Gemini, and any other
+Some SDK shapes are recognised without a prefix: `/v1/messages`, `/v1/complete`,
+and Anthropic OAuth/CLI endpoints (`/api/oauth/...`, `/api/claude_cli...`) route
+to Anthropic, `/v1beta/...` and `:generateContent` route to Gemini, and any other
 bare `/v1/...` goes to the deployment's default provider (`openai` unless
 changed). Anything the gateway cannot place returns `404`. It never guesses an
 upstream.

@@ -54,6 +54,38 @@ const EXFIL_PATH_PATTERNS: RegExp[] = [
   /[?&](?:data|payload|content|secret|token|dump|exfil|send|out|leak|body|msg|text|info|result)=/i,
 ]
 
+const AUTH_PATH_PREFIXES = [
+  '/oauth/',
+  '/oauth2/',
+  '/cai/oauth/',
+  '/api/oauth/',
+  '/v1/oauth/',
+  '/api/auth/',
+  '/auth/',
+  '/api/claude_cli',
+  '/.well-known/',
+]
+
+const AUTH_EXACT_PATHS = new Set([
+  '/oauth',
+  '/oauth2',
+  '/login',
+  '/signin',
+  '/callback',
+  '/api/claude_cli_profile',
+])
+
+/**
+ * Determine whether a request path is an authentication, OAuth or login endpoint.
+ * Query parameters on these endpoints legitimately carry tokens, authorization
+ * codes, PKCE verifiers, and state rather than outbound data exfiltration.
+ */
+export function isAuthPath(path: string): boolean {
+  const pathname = (path.split('?')[0] ?? '').toLowerCase()
+  if (AUTH_EXACT_PATHS.has(pathname)) return true
+  return AUTH_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))
+}
+
 export class UrlClassifier {
   private allowlist: Set<string>
   private blocklist: Set<string>
@@ -113,7 +145,7 @@ export class UrlClassifier {
     }
     checks.push({ name: 'High-entropy host label', result: 'pass', reason: 'no high-entropy host labels' })
 
-    if (path) {
+    if (path && !isAuthPath(path)) {
       for (const pattern of EXFIL_PATH_PATTERNS) {
         if (pattern.test(path)) {
           checks.push({ name: 'Path exfil pattern', result: 'block', reason: 'query string matches data exfiltration pattern' })
@@ -136,8 +168,14 @@ export class UrlClassifier {
    * independent of host allow/blocklisting. Used for intercepted requests where
    * the full decrypted path is available (the CONNECT handshake only exposes the
    * hostname), so the path-exfil heuristics actually run.
+   *
+   * Authentication and OAuth endpoints are exempt: tokens, codes, and state
+   * parameters on them are legitimate auth exchange data, not exfiltration.
    */
   classifyPath(path: string): UrlClassifyResult {
+    if (isAuthPath(path)) {
+      return { action: 'pass', reason: 'clean' }
+    }
     for (const pattern of EXFIL_PATH_PATTERNS) {
       if (pattern.test(path)) {
         return { action: 'block', reason: 'query-exfil-pattern' }

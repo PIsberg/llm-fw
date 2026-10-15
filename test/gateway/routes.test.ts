@@ -55,6 +55,15 @@ describe('resolveRoute — bare provider-shaped paths', () => {
   it('preserves the full path when routing by default provider', () => {
     expect(resolveRoute('/v1/embeddings', opts)?.upstreamPath).toBe('/v1/embeddings')
   })
+
+  it('routes Anthropic-specific auth and CLI paths to Anthropic', () => {
+    expect(resolveRoute('/api/oauth/profile', opts)?.slug).toBe('anthropic')
+    expect(resolveRoute('/api/oauth/claude_cli/create_api_key', opts)?.slug).toBe('anthropic')
+    expect(resolveRoute('/api/claude_cli_profile', opts)?.slug).toBe('anthropic')
+    expect(resolveRoute('/api/claude_cli/roles', opts)?.slug).toBe('anthropic')
+    expect(resolveRoute('/v1/oauth/token', opts)?.slug).toBe('anthropic')
+    expect(resolveRoute('/v1/complete', opts)?.slug).toBe('anthropic')
+  })
 })
 
 describe('resolveRoute — no match', () => {
@@ -111,6 +120,18 @@ describe('applyUpstreamAuth', () => {
     const headers = { authorization: 'Bearer sk-client' }
     applyUpstreamAuth(headers, route('openai'), 'sk-operator')
     expect(headers.authorization).toBe('Bearer sk-client')
+  })
+
+  it('preserves caller auth headers on auth endpoints even under key custody', () => {
+    const authRoute: GatewayRoute = {
+      slug: 'anthropic',
+      provider: BUILTIN_PROVIDERS.anthropic!,
+      upstreamPath: '/api/oauth/profile',
+    }
+    const headers = { authorization: 'Bearer user-oauth-token' }
+    const out = applyUpstreamAuth(headers, authRoute, 'sk-operator-ant-key')
+    expect(out['authorization']).toBe('Bearer user-oauth-token')
+    expect(out['x-api-key']).toBeUndefined()
   })
 })
 

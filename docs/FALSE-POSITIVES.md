@@ -60,6 +60,14 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.55
+
+**2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset exempts
+OAuth and login endpoints (`isAuthPath`) from URL exfil query screening so
+authentication parameters are not blocked, expands provider domain registry
+and CLI endpoints, and preserves user credentials in gateway routing. Evaluation
+rows do not query OAuth endpoints, so 0 of 23,938 eval verdicts changed.
+
 ## Result, ruleset 2026.10.54
 
 **2.68% overall (9 of 336), unchanged, on the same rows.** This ruleset keeps
