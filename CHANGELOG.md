@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CI proves llm-fw works under npm 12's install-time defaults (#330).** npm 12 runs no
+  dependency install scripts unless allowed. A new job installs the packed tarball with
+  `--ignore-scripts` and runs `scripts/smoke-installed.mjs` against it: an attack blocks, a
+  benign prompt passes with a non-zero embedding similarity, so the ONNX stage loaded. Verified
+  locally on Windows the same way (similarity 0.734). Publishing already uses trusted publishing
+  (OIDC), the other half of the npm change, so no 2FA-bypass token is involved.
 - **CI runs the CLI suite on Windows (#323).** A `windows-latest` job runs `test/cli/` (so its
   `it.runIf(win32)` cases execute) and registers, queries and removes the Task Scheduler task
   unelevated. Four Windows-only CLI defects had been found by hand in one live test, none of

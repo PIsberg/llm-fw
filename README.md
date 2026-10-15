@@ -191,10 +191,14 @@ npm install -g llm-fw
 npx llm-fw <command>
 ```
 
-npm 11 skips dependency install scripts by default and warns about two:
-`onnxruntime-node` and `protobufjs`. Both are safe to leave skipped. The
-`onnxruntime-node` script only fetches optional CUDA binaries; the CPU binaries
-llm-fw runs on ship inside the package.
+npm 12 runs no dependency install scripts by default (npm 11.16 and later warn
+about them), and llm-fw needs none. The two you may be warned about,
+`onnxruntime-node` and `protobufjs`, are safe to leave unapproved: the
+`onnxruntime-node` script only fetches optional CUDA binaries on linux/x64, and
+the CPU binaries llm-fw runs on ship inside the package; the `protobufjs` one
+only checks version ranges. CI installs the packed package with
+`--ignore-scripts` on every PR and runs a detection smoke test, the ONNX
+embedding stage included. Nothing needs `npm approve-scripts`.
 
 ---
 
