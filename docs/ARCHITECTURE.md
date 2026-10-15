@@ -286,7 +286,7 @@ sequenceDiagram
     Note over Det: similarity ≥ 0.85 → BLOCK
     Det-->>P: { action: "block", stage: "embedding", similarity: 0.91 }
 
-    P-->>C: HTTP 403 { "error": "prompt injection detected" }
+    P-->>C: HTTP 422 { "error": "prompt injection detected" }
 
     P->>EB: emit(BlockEvent)
     EB->>DB: SSE push to all subscribers
@@ -380,7 +380,7 @@ stateDiagram-v2
 
     JudgeAsync --> [*] : verdict logged post-facto
 
-    Block --> [*] : HTTP 403 + dashboard event
+    Block --> [*] : HTTP 422 + dashboard event
     Pass --> [*] : forward to upstream
     Warn --> [*] : forward + dashboard warning
 ```

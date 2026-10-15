@@ -88,7 +88,7 @@ Once candidates are normalized, they are scored against a highly refined set of 
 *   **Social Engineering Authority Blockers**: Scores weightings heavily to block sandboxed jailbreaks, developer override simulations, subscription privilege escalations, and fake emergency prompts.
 *   **Obfuscation Penalties**: A decoded or transformed candidate adds a `+20` `obfuscation-signal` penalty when it matches a rule the plain text did not, which is what a decode that uncovers a hidden instruction looks like. A transform that leaves the text mostly as it was (one `%20` escape yields a `urlencoded` candidate, any word ending in "ay" a `piglatin` one) re-matches the rules the plain text already matched, and earns nothing for it.
 
-If the aggregate score crosses the default threshold of `50`, the request is immediately blocked (403).
+If the aggregate score crosses the default threshold of `50`, the request is immediately blocked (422).
 
 ## Stage 2: Embedding Similarity
 
@@ -238,7 +238,7 @@ When embedding similarity falls into the warn range (0.70–0.85), the request i
 
 **Sync blocking (`judgeBlock: true`)**
 
-If Stage 1 and Stage 2 both pass, the proxy pauses the request and runs a synchronous Ollama check. A `MALICIOUS` verdict blocks the request with a `403 Forbidden` before it reaches the upstream API — the highest-security option.
+If Stage 1 and Stage 2 both pass, the proxy pauses the request and runs a synchronous Ollama check. A `MALICIOUS` verdict blocks the request with a `422` before it reaches the upstream API — the highest-security option.
 
 ### 7. Use a different model
 

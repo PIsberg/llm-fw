@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A content refusal answers `422`, not `403` (#304).** Claude Code reports every 403 as
+  "Failed to authenticate. API Error: 403", so a blocked prompt read as a credentials problem.
+  Measured against Claude Code 2.1.301 with a loopback mock: 422 shows "API Error: 422" and the
+  llm-fw explanation, in one request (400 is retried once, 409 eight times). Applies to
+  detection, DLP, MCP, taint, URL-path and response-side refusals on the proxy and gateway;
+  the body is unchanged. **Breaking for clients that match on 403:** set `blockStatus: 403`
+  (`LLM_FW_BLOCK_STATUS=403`) to keep it. CONNECT-level refusals, auth failures and a tenant's
+  disallowed provider keep their codes.
 - **`npm run verdicts:dump` and `npm run verdicts:diff` (#312).** The row-by-row comparison
   behind "N of 23,938 eval verdicts changed" now lives in `scripts/` instead of session scratch
   files. First use: the transformers 4.3 drift that keeps llm-fw on 4.2.x is onnxruntime's

@@ -180,7 +180,7 @@ describe('Proxy output-moderation classifier wiring (E2E, mocked classifier)', {
     mockClassify.mockResolvedValue({ flagged: true, score: 0.97 })
     const res = await sendProxyRequest(blockConfig.proxy.port, 'api.anthropic.com', upstreamPort, REQ)
 
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(422)
     expect(res.body).toContain('response blocked by output moderation')
     expect(res.body).not.toContain(RESPONSE_TEXT)
     const ev = blockEvents.find(e => e.kind === 'response-harm')

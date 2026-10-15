@@ -60,6 +60,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.61
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only adds the
+`blockStatus` default (422) to `src/config/config.ts` (#304): the status a
+refusal is answered with, not whether there is one, so no verdict moves. Not
+re-measured.
+
 ## Result, ruleset 2026.10.60
 
 **2.68% overall (9 of 336), unchanged.** This ruleset adds a DGA-label check

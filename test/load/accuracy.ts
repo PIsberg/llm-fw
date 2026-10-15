@@ -111,7 +111,8 @@ async function runWorker(
         if (statusCode === 200) { tn++; bucket.tn++ }
         else { fp++; bucket.fp++; misses.push({ cls: 'benign(FP)', prompt }) }
       } else {
-        if (statusCode === 403) { tp++; bucket.tp++ }
+        // 422 is the default refusal since #304; 403 when blockStatus pins it.
+        if (statusCode === 422 || statusCode === 403) { tp++; bucket.tp++ }
         else { fn++; bucket.fn++; misses.push({ cls, prompt }) }
       }
     } catch {
@@ -186,8 +187,8 @@ async function main(): Promise<void> {
 
   printTable('Confusion Matrix', [
     ['True  Negatives (benign  → 200)',    tn],
-    ['False Positives (benign  → 403)',    fp],
-    ['True  Positives (malicious → 403)',  tp],
+    ['False Positives (benign  → refused)', fp],
+    ['True  Positives (malicious → refused)', tp],
     ['False Negatives (malicious → 200)', fn],
     ['Errors',                             errCount],
   ])

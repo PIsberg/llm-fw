@@ -140,6 +140,16 @@ allowance, and an address counts as trusted only when whitespace or
 ordinary punctuation surrounds it and its local part has no `%` or `!`
 routing.
 
+**Refusal status.** A request refused for its content (detection, DLP, MCP,
+taint, a URL in the path, a response-side block) answers `422` on the proxy and
+the gateway, with the same JSON body as before. It used to be `403`, which
+Claude Code reports as "Failed to authenticate. API Error: 403" (#304);
+measured against Claude Code 2.1.301, `422` gets "API Error: 422" and the
+explanation, in one request, while `400` is retried once and `409` eight times.
+`blockStatus: 403` (or `LLM_FW_BLOCK_STATUS=403`) restores the old status for a
+client that branches on it. Refused CONNECT tunnels, authentication failures and
+a tenant's disallowed provider keep their own codes.
+
 **Token pruner (gateway modules).** `modules.tokenPruner.enabled: true` (or
 `LLM_FW_TOKEN_PRUNER_ENABLED=true`, or the Settings toggle in the Cost & Abuse
 group) rewrites the prompt text of every LLM request before it is scanned and
@@ -194,7 +204,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_87 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -203,6 +213,7 @@ _87 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_AUDIT_FILE` | `audit.file` | _unset_ |
 | `LLM_FW_AUDIT_PAYLOADS` | `audit.includePayloads` | `false` |
 | `LLM_FW_AUDIT_WEBHOOK` | `audit.webhookUrl` | _unset_ |
+| `LLM_FW_BLOCK_STATUS` | `blockStatus` | `422` |
 | `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
@@ -292,7 +303,7 @@ _87 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 
 What happens if the detection pipeline itself **fails** — a parser or stage throws on a request it should have scanned? That is a bug (the fuzz suite in `test/fuzz/` exists to keep it from happening), but the outcome must never be undefined behavior. `detection.failMode` makes it explicit:
 
-- **`closed`** (default) — the request is **blocked** with the standard `403` block response (`{ "error": "detection pipeline error — failing closed" }`) and a blocked `error` event appears on the dashboard. Nothing that could not be scanned reaches the provider. This matches the firewall's historical behavior, where a pipeline exception ended the request with an error response instead of forwarding it.
+- **`closed`** (default) — the request is **blocked** with the standard block response (`422`, or `blockStatus`) (`{ "error": "detection pipeline error — failing closed" }`) and a blocked `error` event appears on the dashboard. Nothing that could not be scanned reaches the provider. This matches the firewall's historical behavior, where a pipeline exception ended the request with an error response instead of forwarding it.
 - **`open`** — the request is **forwarded upstream unscanned**, and a warned `error` audit event records the failure (including the stack) on the dashboard. Choose this when availability matters more than a scan gap during a firewall bug.
 
 ```json

@@ -15,7 +15,7 @@
 
 - 🛡️ **Catches what signatures can't.** A three-stage pipeline — fast heuristics → cross-lingual embeddings → an optional local LLM judge — detects *semantic* attacks by intent, not just known strings.
 - 🌍 **Every major provider, 20+ languages, zero config.** OpenAI, Anthropic, Gemini/Vertex, Azure, Mistral, Groq, and 9 more are covered out of the box — and an injection lands the same whether it's written in English, Urdu, or Thai.
-- ⚡ **Real-time, in-line blocking.** A malicious request is refused with a `403` before it ever leaves your machine. Clean traffic forwards with zero added latency.
+- ⚡ **Real-time, in-line blocking.** A malicious request is refused with a `422` before it ever leaves your machine. Clean traffic forwards with zero added latency.
 - 🔌 **No code changes.** Point `HTTPS_PROXY` at it — or enable the OS-level sinkhole for Node.js and native binaries that ignore proxies — and you're protected.
 - 🏠 **Fully local & private.** No cloud calls, no API keys, no telemetry. Boots in under 2 seconds.
 - 📊 **A dashboard that shows its work.** Watch blocked attempts live, replay any prompt through the pipeline in the playground, audit traffic at `localhost:7731`, and one-click **mark a false positive** so an identical prompt is never blocked again.
@@ -123,7 +123,7 @@ The proxy inspects the tools being exposed to the LLM (Definitions), intercepted
 
 ## How it works
 
-llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately aborts the connection with a `403 Forbidden` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.
+llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately refuses it with a `422` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.
 
 Detection pipeline:
 1. **Heuristic scoring** — weighted phrase matching (< 1ms) over a multi-candidate normalization pass that defeats spacing/case/homoglyph/leetspeak evasion and decodes base64, base32, ascii85, hex, binary, morse, Caesar, ROT13, URL-encoding, reversed and pig-latin payloads back to plaintext. Covers direct override, persona/DAN jailbreaks, system-prompt exfiltration, payload-splitting, refusal-suppression/override, and affirmative prefix-injection.

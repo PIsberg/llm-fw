@@ -173,7 +173,7 @@ const BODY_DRAIN_TIMEOUT_MS = 10_000
 
 /**
  * After answering a request whose body may still be uploading (413, an early
- * 403 or 429), discard the rest of it instead of destroying the stream.
+ * content refusal (422 by default, see blockStatus) or 429), discard the rest of it instead of destroying the stream.
  * Destroying resets the socket under a client that is still writing: it never
  * reads the answer, and a keep-alive client loses the pooled connection too.
  * Claude Code, whose requests carry 100 KB+ of tools, saw every such early
@@ -623,7 +623,7 @@ export class ProxyServer {
           // CONNECT-side URL filter above for why this gate is handled here).
           const observingUrl = this.config.enforcement === 'observe'
           if (!observingUrl) {
-            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'url blocked', reason: pathResult.reason }))
           }
           emitEvent({
@@ -750,7 +750,7 @@ export class ProxyServer {
           const f = findings[0]!
           const detail = `Untrusted ${f.category} from a prior tool result reused in outbound request: ${maskToken(f.token)}`
           if (this.config.taint?.mode === 'block') {
-            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'tainted data flow blocked', category: f.category }))
             emitEvent({
               stage: 'none', score: 100, similarity: 0,
@@ -783,7 +783,7 @@ export class ProxyServer {
           const mode = this.config.dlp.mode
 
           if (mode === 'block') {
-            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'sensitive data detected', type: findings[0]!.type }))
             emitEvent({
               stage: 'dlp',
@@ -881,7 +881,7 @@ export class ProxyServer {
       // handleConnect/startSinkhole, which 502'd the request without
       // forwarding it — an implicit deny-on-error. `failMode` makes that
       // choice explicit and configurable: 'closed' (default, matches the old
-      // behavior) blocks with the standard 403 response; 'open' forwards the
+      // behavior) blocks with the standard refusal (blockStatus, 422 by default); 'open' forwards the
       // request upstream unscanned and only emits an audit event.
       let result: PipelineResult
       // Set by the pipeline's per-run event hook below; quoted back to the
@@ -930,7 +930,7 @@ export class ProxyServer {
           // a normal 'pass' verdict takes below.
           result = { action: 'pass', stage: 'none', score: 0, similarity: 0 }
         } else {
-          innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+          innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'detection pipeline error — failing closed', stage: 'error' }))
           emitEvent({
             stage: 'none',
@@ -949,7 +949,7 @@ export class ProxyServer {
       }
 
       if (result.action === 'block') {
-        innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+        innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
         innerRes.end(JSON.stringify(explainBlock({
           eventId: scanEventId,
           result,
@@ -969,7 +969,7 @@ export class ProxyServer {
           mcpInspectResponse = true
           const defResult = this.mcp.checkToolDefinitions(tools)
           if (defResult.action === 'block') {
-            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: defResult.reason }))
             emitEvent({
               stage: 'mcp-filter',
@@ -1000,7 +1000,7 @@ export class ProxyServer {
         for (const tr of toolResults) {
           const resResult = this.mcp.checkToolResult(tr.toolUseId, tr.result)
           if (resResult.action === 'block') {
-            innerRes.writeHead(403, { 'Content-Type': 'application/json' })
+            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: resResult.reason }))
             emitEvent({
               stage: 'mcp-filter',
@@ -1647,7 +1647,7 @@ export class ProxyServer {
               error: harmBlock ? 'response blocked by output moderation' : 'response blocked by tool-call exfiltration guard',
               kind: harmBlock ? 'response-harm' : 'tool-use-exfil',
             })
-            res.writeHead(403, { 'Content-Type': 'application/json' })
+            res.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             res.end(errBody)
             respBodyBytes = Buffer.byteLength(errBody)
           } else {

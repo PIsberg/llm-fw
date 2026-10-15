@@ -152,7 +152,7 @@ describe('Detection failMode (E2E, throwing pipeline stage)', { timeout: 30000 }
     if (failMode === 'closed') {
       it('blocks the request with the standard 403 block response and emits a kind:error blocked event', async () => {
         const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', BODY)
-        expect(res.statusCode).toBe(403)
+        expect(res.statusCode).toBe(422)
         const parsed = JSON.parse(res.body) as { error: string }
         expect(parsed.error).toContain('failing closed')
 

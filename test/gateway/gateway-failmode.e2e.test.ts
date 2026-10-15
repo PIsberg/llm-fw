@@ -99,7 +99,7 @@ describe('Gateway detection failMode E2E', { timeout: 60000 }, () => {
 
     try {
       const res = await request(GATEWAY_PORT, '/v1/chat/completions', BODY)
-      expect(res.status).toBe(403)
+      expect(res.status).toBe(422)
       expect(res.json?.error).toBe('detection unavailable')
       // The client is told how to change the decision, not just that it failed.
       expect(String(res.json?.remediation)).toContain('failMode')

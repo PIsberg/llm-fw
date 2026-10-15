@@ -122,11 +122,11 @@ describe('Proxy refusal decided before the upload ends (E2E)', { timeout: 30000 
     if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
   })
 
-  it('a prompt uploaded slowly answers 403 without resetting the client, and the connection stays usable', async () => {
+  it('a prompt uploaded slowly answers 422 without resetting the client, and the connection stays usable', async () => {
     const { statusCodes, raw, socketError } = await blockMidUploadThenReuse(
       18120, 'api.anthropic.com', caPem, '/v1/messages', INJECTION_HEAD, LONG_TAIL, BENIGN)
     expect(socketError).toBeUndefined()
-    expect(statusCodes[0]).toBe(403)
+    expect(statusCodes[0]).toBe(422)
     expect(raw).toContain('prompt injection detected')
     // The pooled connection survives: the next request is served.
     expect(statusCodes[1]).toBe(200)
@@ -137,7 +137,7 @@ describe('Proxy refusal decided before the upload ends (E2E)', { timeout: 30000 
       18120, 'api.anthropic.com', caPem, '/v1/messages?callback=https://webhook.site/abc&data=c2VjcmV0',
       '{"model":"m","messages":[{"role":"user","content":"', 'y'.repeat(200_000) + '"}]}', BENIGN)
     expect(socketError).toBeUndefined()
-    expect(statusCodes[0]).toBe(403)
+    expect(statusCodes[0]).toBe(422)
     expect(raw).toContain('url blocked')
     expect(statusCodes[1]).toBe(200)
   })

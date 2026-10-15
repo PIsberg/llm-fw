@@ -575,6 +575,13 @@ export interface Config {
   indirectInstruction?: IndirectInstructionConfig;
   harmfulRequest?: HarmfulRequestConfig;
   modules?: ModulesConfig;
+  /**
+   * HTTP status of a content refusal (a detection, DLP, MCP, taint or URL-path
+   * block) on the proxy and gateway. 422 by default: Claude Code reports any
+   * 403 as "Failed to authenticate" (#304). 403 restores the old status.
+   * CONNECT-level refusals and authorization failures keep their own codes.
+   */
+  blockStatus?: 403 | 422;
   targets: string[];
   // Extra hostnames appended to `targets` after all config layers are merged.
   // File-config arrays REPLACE the defaults wholesale, so overriding `targets`

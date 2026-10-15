@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.61 (blockStatus default 422, #304; the refusal's
+  // status only).
   // Held at ruleset 2026.10.60 (URL filter DGA-label check, #335; the prompt
   // pipeline does not call the URL filter).
   // Held at ruleset 2026.10.59 (block remediation text names a deep link and
