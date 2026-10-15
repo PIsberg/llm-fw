@@ -166,8 +166,9 @@ jobs:
           LLM_FW_DIR: ${{ runner.temp }}/llm-fw-state
         run: |
           set -euo pipefail
+          # npm pack does not create its destination directory.
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/app"
           npm pack --pack-destination "$RUNNER_TEMP/pkg"
-          mkdir -p "$RUNNER_TEMP/app"
           cd "$RUNNER_TEMP/app"
           npm init -y >/dev/null
           npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/pkg/llm-fw-*.tgz
