@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dashboard header shows tokens saved and the percentage, updated over SSE (`event: module`)
   without a page refresh. Under observe mode it is a dry run and reports what it would have
   saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
+- **A Modules tab on the dashboard (#341).** One card per module with its toggle and KPIs
+  (tokens saved, original tokens, savings ratio, requests examined), and a live table of the
+  requests a module rewrote, newest first, with "would save" on observe-mode dry runs.
+  `test/dashboard/modules.spec.ts` drives it, and pins that the Tokens Saved tile changes from
+  the event stream while the page stays loaded (#342).
 
 ### Security
 
@@ -69,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Tokens Saved tile no longer claims savings under `--observe` after a reload.**
+  `GET /api/modules` had no `applied` flag, so when its answer landed after the event stream's
+  replay, the tile read "% saved" for savings that were never applied. The summary now carries
+  the newest event's flag.
 - **OpenAI Realtime sessions work through the proxy, and their audio is scanned (#270).** The
   proxy's TLS interception had no WebSocket handler, so every handshake to an inspected host
   was dropped and a Realtime session could not connect at all. `/v1/realtime` is now relayed:

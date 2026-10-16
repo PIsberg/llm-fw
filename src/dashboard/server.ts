@@ -256,6 +256,17 @@ const HTML = `<!DOCTYPE html>
   .tlog .req-cell { color: #555; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tlog .req-tunnel { color: #999; font-style: italic; }
 
+  /* Modules tab */
+  .module-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .module-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 18px; flex: 1 1 360px; }
+  .module-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .module-card-name { font-weight: 600; }
+  .module-card-desc { color: #666; font-size: 0.8rem; margin: 4px 0 12px; }
+  .module-kpis { display: flex; gap: 24px; flex-wrap: wrap; }
+  .module-kpi-value { font-size: 1.3rem; font-weight: 700; }
+  .module-saved { color: #2e7d32; font-weight: 700; }
+  .module-observed { color: #d32f2f; font-size: 0.72rem; margin-right: 6px; }
+
   /* Traffic detail drawer */
   .tlog tr.tlog-drawer-row > td { padding: 0; border-top: 2px solid #c5d0e8; background: #f7f9ff; }
   .tlog-drawer { padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -332,6 +343,7 @@ const HTML = `<!DOCTYPE html>
     <button class="tab-btn" onclick="showTab('playground', this)">Prompt Testing</button>
     <button class="tab-btn" onclick="showTab('traffic', this)">Live Traffic</button>
     <button class="tab-btn" onclick="showTab('mcp', this)">MCP Traffic <span id="mcp-count">0</span></button>
+    <button class="tab-btn" onclick="showTab('modules', this)">Modules</button>
     <button class="tab-btn" onclick="showTab('settings', this)">Settings</button>
   </div>
 
@@ -369,6 +381,18 @@ const HTML = `<!DOCTYPE html>
           </tr>
         </thead>
         <tbody id="mcp-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-modules" class="tab-panel">
+    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
+    <div class="module-cards" id="module-cards"></div>
+    <div class="tlog-wrap">
+      <div class="tlog-title">Recent Activity</div>
+      <table class="tlog">
+        <thead><tr><th>Time</th><th>Module</th><th>Target</th><th>Path</th><th>Original tokens</th><th>After</th><th>Saved</th></tr></thead>
+        <tbody id="modules-body"></tbody>
       </table>
     </div>
   </div>
@@ -815,6 +839,7 @@ const es = new EventSource('/events');
 // The tiles count the same replay, so they start from zero too.
 es.onopen = () => {
   tbody.replaceChildren(); mcpBody.replaceChildren(); mcpCount = 0;
+  modulesBody.replaceChildren();
   document.getElementById('mcp-count').textContent = '0';
   resetStats(); loadModuleStats(); loadModeChips();
 };
@@ -845,9 +870,75 @@ loadModeChips();
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 es.addEventListener('module', e => {
   try {
-    updateModuleStats(JSON.parse(e.data));
+    const data = JSON.parse(e.data);
+    updateModuleStats(data);
+    appendModuleRow(data);
+    scheduleModuleRefresh();
   } catch(_) {}
 });
+
+// ── Modules tab (#341) ───────────────────────────────────────────────────────
+const modulesBody = document.getElementById('modules-body');
+function appendModuleRow(ev) {
+  const tr = document.createElement('tr');
+  tr.className = 'module-row';
+  const observed = ev.applied === false ? '<span class="module-observed">would save</span>' : '';
+  tr.innerHTML =
+    '<td style="white-space:nowrap;color:#666">' + esc(ev.timestamp || '') + '</td>' +
+    '<td>' + esc(ev.moduleName || ev.moduleId || '') + '</td>' +
+    '<td>' + esc(ev.target || '') + '</td>' +
+    '<td>' + esc(ev.path || '') + '</td>' +
+    '<td>' + esc(Number(ev.tokensOriginal || 0).toLocaleString()) + '</td>' +
+    '<td>' + esc(Number(ev.tokensPruned || 0).toLocaleString()) + '</td>' +
+    '<td>' + observed + '<span class="module-saved">-' + esc(ev.percentSaved || 0) + '%</span></td>';
+  modulesBody.insertBefore(tr, modulesBody.firstChild);
+  while (modulesBody.rows.length > 200) modulesBody.deleteRow(modulesBody.rows.length - 1);
+}
+
+function renderModuleCards(mods) {
+  const box = document.getElementById('module-cards');
+  box.replaceChildren(...mods.map(m => {
+    const card = document.createElement('div');
+    card.className = 'module-card';
+    card.dataset.module = m.id;
+    const kpi = (key, label, value) =>
+      '<div><div class="stat-label">' + label + '</div><div class="module-kpi-value" data-kpi="' + key + '">' + esc(value) + '</div></div>';
+    card.innerHTML =
+      '<div class="module-card-head"><span class="module-card-name">' + esc(m.name) + '</span>' +
+      '<label style="font-size:0.8rem;cursor:pointer"><input type="checkbox"' + (m.enabled ? ' checked' : '') + '> Enabled</label></div>' +
+      '<div class="module-card-desc">' + esc(m.description || '') + '</div>' +
+      '<div class="module-kpis">' +
+        kpi('saved', 'Tokens saved', Number(m.tokensSaved || 0).toLocaleString()) +
+        kpi('original', 'Original tokens', Number(m.tokensOriginal || 0).toLocaleString()) +
+        kpi('ratio', 'Savings ratio', (m.percentSaved || 0) + '%') +
+        kpi('requests', 'Requests examined', Number(m.totalInvocations || 0).toLocaleString()) +
+      '</div>';
+    const toggle = card.querySelector('input');
+    toggle.onchange = () => setModuleEnabled(m.id, toggle);
+    return card;
+  }));
+}
+
+async function setModuleEnabled(id, toggle) {
+  try {
+    const res = await fetch('/api/modules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, enabled: toggle.checked }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch (_) {
+    toggle.checked = !toggle.checked;
+  }
+  loadModuleStats();
+}
+
+// Cards carry totals the event does not (original tokens, requests examined),
+// so a burst of module events refreshes them once.
+let moduleRefresh = null;
+function scheduleModuleRefresh() {
+  if (moduleRefresh) return;
+  moduleRefresh = setTimeout(() => { moduleRefresh = null; loadModuleStats(); }, 500);
+}
 
 function updateModuleStats(data) {
   if (!data) return;
@@ -868,6 +959,7 @@ async function loadModuleStats() {
     if (res.ok) {
       const data = await res.json();
       updateModuleStats(data);
+      if (Array.isArray(data.modules)) renderModuleCards(data.modules);
     }
   } catch(_) {}
 }

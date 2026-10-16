@@ -169,7 +169,7 @@ To remain fast and dependency-free while maintaining fidelity across OpenAI (cl1
 - `percentSaved = tokensOriginal > 0 ? ((tokensSaved / tokensOriginal) * 100) : 0`. The denominator is the examined text, so tool results, images and tool definitions, which are billed but not pruned, are not in it.
 
 ### 5.2 Metrics Model
-`GET /api/modules` returns `ModuleManager.getSummaryStats()` (`totalTokensOriginal`, `totalTokensPruned`, `totalTokensSaved`, `overallPercentSaved`, cumulative since startup and in memory only) plus each module's `getStats()` and `description`. The totals include requests with nothing to prune, so the percentage is over all prompt text examined; an event is emitted only for a request that changed. Every `module` SSE event carries the per-request figures and the module's running totals.
+`GET /api/modules` returns `ModuleManager.getSummaryStats()` (`totalTokensOriginal`, `totalTokensPruned`, `totalTokensSaved`, `overallPercentSaved`, cumulative since startup and in memory only) plus each module's `getStats()` and `description`. `applied` is the newest event's flag (absent before any event): `false` means the totals were last added to by an observe-mode dry run, and the header then says "would be saved (observe)" however the page was loaded. The totals include requests with nothing to prune, so the percentage is over all prompt text examined; an event is emitted only for a request that changed. Every `module` SSE event carries the per-request figures and the module's running totals.
 
 ---
 
@@ -193,7 +193,7 @@ To remain fast and dependency-free while maintaining fidelity across OpenAI (cl1
      - Large bold counter: e.g. `124,530`
      - Live subtext: `18.6% saved`, or `% would be saved (observe)` when the last event was a dry run.
 2. **Settings toggle**: `Token Pruner / Cost Optimizer` in the Cost & Abuse group.
-3. A Modules tab with per-module KPI cards and a live activity table is not built yet; tracked in [#341](https://github.com/PIsberg/llm-fw/issues/341).
+3. **Modules tab** ([#341](https://github.com/PIsberg/llm-fw/issues/341)): one card per registered module with its enable toggle (`POST /api/modules`) and KPIs (tokens saved, original tokens, savings ratio, requests examined), and a Recent Activity table fed by the `module` SSE listener, newest first and capped at 200 rows: time, module, target, path, original and pruned tokens, and the saving, marked "would save" for a dry run. The table is rebuilt from the server's replay on every stream (re)connect, like the Events table. The cards refresh from `GET /api/modules` at most every 500 ms while events arrive.
 4. **No-Refresh SSE Listener**:
    - Dashboard frontend `EventSource` handles incoming `type: 'module'` SSE messages:
      ```javascript

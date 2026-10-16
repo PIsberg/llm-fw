@@ -448,7 +448,7 @@ llm-fw/
 │   │   ├── judge.ts         # Ollama HTTP client
 │   │   └── pipeline.ts      # orchestrator
 │   ├── dashboard/
-│   │   ├── server.ts        # HTTP server (Events + Playground + Settings + /api/test + /api/settings + /api/status + /api/modules + whitelist + translate)
+│   │   ├── server.ts        # HTTP server (Events + Playground + Modules + Settings + /api/test + /api/settings + /api/status + /api/modules + whitelist + translate)
 │   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
 │   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/
