@@ -17,6 +17,11 @@ import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
 import { randomUUID } from 'node:crypto';
+import net from 'node:net';
+import tls from 'node:tls';
+import type { Duplex } from 'node:stream';
+import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from '../proxy/websocket.js';
+import { relayRealtimeSession, WS_SKIPPED_HEADERS } from '../proxy/realtimeRelay.js';
 
 const log = createLogger('gateway');
 
@@ -51,6 +56,12 @@ export class GatewayServer {
   private apiKeys: Record<string, string>;
   private tenants: TenantRegistry;
   private modules: ModuleManager;
+  /**
+   * Upgraded WebSocket sockets. The http server stops tracking a socket once
+   * it is upgraded, but `close()` still waits for it, so without ending them
+   * a stop hung for as long as any Realtime session stayed open.
+   */
+  private sessions = new Set<Duplex>();
 
   constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager) {
     this.config = config;
@@ -109,6 +120,11 @@ export class GatewayServer {
         serve,
       )
       : http.createServer(serve);
+    this.server.on('upgrade', (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
+      this.sessions.add(socket);
+      socket.once('close', () => this.sessions.delete(socket));
+      this.handleUpgrade(req, socket, head);
+    });
   }
 
   /** Credential clients must present. Printed at startup by cli/start.ts. */
@@ -130,6 +146,7 @@ export class GatewayServer {
   }
 
   async stop(): Promise<void> {
+    for (const socket of this.sessions) socket.destroy();
     await Promise.all([
       new Promise<void>(resolve => this.server.close(() => resolve())),
       this.pipeline.close(),
@@ -163,29 +180,7 @@ export class GatewayServer {
           : this.json(res, 503, { status: 'loading', models });
       }
 
-      // Client credential: a dedicated header first so it never collides with
-      // the provider key, falling back to bearer for clients whose SDK only
-      // exposes the standard auth header (the key-custody case).
-      const dedicated = (req.headers['x-llm-fw-key'] as string | undefined)?.trim();
-      const presented = dedicated || credentialFromAuthHeader(req.headers.authorization);
-      // A tenant token authenticates on its own. The deployment-wide token
-      // keeps working alongside tenants, so adding tenants to an existing
-      // gateway never locks out the credential already in use.
-      const tenant = this.tenants.resolve(presented);
-      // Remember WHERE the gateway's own credential arrived. When it came in
-      // `Authorization` — which the docs allow, for SDKs that expose no other
-      // header — that header carries an internal firewall secret, not a
-      // provider key, and must not be forwarded upstream. Key custody replaces
-      // it anyway; with custody OFF nothing else would strip it, and the
-      // operator's token would land in a third party's access logs.
-      // Only a bearer that IS a gateway credential counts. Any other bearer is
-      // the caller's own provider key (OpenAI-style APIs, Claude Code's OAuth
-      // login), which custody-off passthrough must forward: stripping it on a
-      // local gateway that asks for no token left upstream with no key at all.
-      const authIsInternal = !dedicated && (tenant !== null
-        || (this.authPolicy.required && tokenMatches(presented, this.authPolicy.token)));
-      const authorised = tenant !== null
-        || authorizeClient(this.authPolicy, req.socket.remoteAddress, presented);
+      const { tenant, authIsInternal, authorised } = this.authenticate(req);
       if (!authorised) {
         res.setHeader('WWW-Authenticate', 'Bearer realm="llm-fw gateway"');
         return this.json(res, 401, {
@@ -249,6 +244,132 @@ export class GatewayServer {
       log.error(`${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
     }
+  }
+
+  /** Who is calling, from the request's credential. Shared by HTTP and WebSocket upgrades. */
+  private authenticate(req: http.IncomingMessage): { tenant: Tenant | null; authIsInternal: boolean; authorised: boolean } {
+    // Client credential: a dedicated header first so it never collides with
+    // the provider key, falling back to bearer for clients whose SDK only
+    // exposes the standard auth header (the key-custody case).
+    const dedicated = (req.headers['x-llm-fw-key'] as string | undefined)?.trim();
+    const presented = dedicated || credentialFromAuthHeader(req.headers.authorization);
+    // A tenant token authenticates on its own. The deployment-wide token
+    // keeps working alongside tenants, so adding tenants to an existing
+    // gateway never locks out the credential already in use.
+    const tenant = this.tenants.resolve(presented);
+    // Remember WHERE the gateway's own credential arrived. When it came in
+    // `Authorization` — which the docs allow, for SDKs that expose no other
+    // header — that header carries an internal firewall secret, not a
+    // provider key, and must not be forwarded upstream. Key custody replaces
+    // it anyway; with custody OFF nothing else would strip it, and the
+    // operator's token would land in a third party's access logs.
+    // Only a bearer that IS a gateway credential counts. Any other bearer is
+    // the caller's own provider key (OpenAI-style APIs, Claude Code's OAuth
+    // login), which custody-off passthrough must forward: stripping it on a
+    // local gateway that asks for no token left upstream with no key at all.
+    const authIsInternal = !dedicated && (tenant !== null
+      || (this.authPolicy.required && tokenMatches(presented, this.authPolicy.token)));
+    const authorised = tenant !== null
+      || authorizeClient(this.authPolicy, req.socket.remoteAddress, presented);
+    return { tenant, authIsInternal, authorised };
+  }
+
+  /**
+   * A WebSocket handshake (#344). The same gates as an HTTP request run first,
+   * in the same order: auth, route, the tenant's provider allowlist and quota
+   * (one charge per session). Then the OpenAI Realtime API and Gemini Live
+   * are relayed with their client messages inspected, exactly as on the
+   * proxy; any other WebSocket path answers 501. Key custody covers the
+   * handshake like a request: the operator key replaces the caller's, in the
+   * headers, the query and the browser-style `openai-insecure-api-key.`
+   * subprotocol.
+   */
+  private handleUpgrade(req: http.IncomingMessage, client: Duplex, head: Buffer): void {
+    client.on('error', () => client.destroy());
+    const answer = (status: number, reason: string, body: unknown, extra = ''): void => {
+      const json = JSON.stringify(body);
+      client.end(`HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(json)}\r\n${extra}Connection: close\r\n\r\n${json}`);
+    };
+    try {
+      const url = new URL(req.url ?? '/', 'http://gateway.local');
+      const { tenant, authIsInternal, authorised } = this.authenticate(req);
+      if (!authorised) {
+        return answer(401, 'Unauthorized', {
+          error: 'authentication required',
+          detail: 'Present the gateway token as X-Llm-Fw-Key or Authorization: Bearer.',
+        }, 'WWW-Authenticate: Bearer realm="llm-fw gateway"\r\n');
+      }
+      const route = resolveRoute(url.pathname, {
+        defaultProvider: this.config.gateway?.defaultProvider ?? 'openai',
+        providers: this.providers,
+      });
+      if (!route) return answer(404, 'Not Found', { error: 'no route for path' });
+      const protocol = realtimeProtocolFor(route.upstreamPath);
+      if (!protocol) return answer(501, 'Not Implemented', { error: 'websocket not inspectable', detail: WS_NOT_INSPECTABLE });
+
+      if (tenant) {
+        if (!this.tenants.allowsProvider(tenant, route.slug)) {
+          return answer(403, 'Forbidden', {
+            error: 'provider not permitted for this tenant', tenant: tenant.id, provider: route.slug, allowed: tenant.providers,
+          });
+        }
+        const quota = this.tenants.charge(tenant, Date.now());
+        if (!quota.allowed) {
+          this.eventBus.emit({
+            stage: 'dos', score: 0, similarity: 0, target: route.provider.host, method: 'WS', path: route.upstreamPath,
+            payload_preview: `tenant quota exceeded: ${quota.used}/${quota.limit} per minute`,
+            payload_full: `tenant ${tenant.id} exceeded ${quota.limit} requests/minute`,
+            action: 'blocked', kind: 'dos', dosReason: 'tenant-quota', tenant: tenant.id,
+          });
+          return answer(429, 'Too Many Requests', {
+            error: 'tenant quota exceeded', tenant: tenant.id, limit_per_minute: quota.limit, retry_after_seconds: quota.retryAfterSeconds,
+          }, `Retry-After: ${quota.retryAfterSeconds}\r\n`);
+        }
+      }
+
+      const requestHead = this.upgradeRequestHead(req, route, url.search, authIsInternal);
+      const plain = route.provider.protocol === 'http';
+      const port = route.provider.port ?? (plain ? 80 : 443);
+      const upstream = plain
+        ? net.connect({ host: route.provider.host, port })
+        : tls.connect({ host: route.provider.host, port, servername: route.provider.host });
+      relayRealtimeSession(
+        { config: this.config, pipeline: this.pipeline, dlp: this.dlp, eventBus: this.eventBus, dashboardUrl: () => this.dashboardUrl() },
+        {
+          protocol, target: route.provider.host, path: route.upstreamPath,
+          sessionKey: (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, ''),
+          tenant: tenant ? { id: tenant.id, enforcement: tenant.enforcement } : undefined,
+        },
+        { client, head, upstream, readyEvent: plain ? 'connect' : 'secureConnect', requestHead },
+      );
+    } catch (err) {
+      log.error(`upgrade ${req.url} — ${(err as Error)?.message ?? String(err)}`);
+      answer(502, 'Bad Gateway', { error: 'gateway error' });
+    }
+  }
+
+  /** The upstream handshake, with key custody applied as forward() applies it to a request. */
+  private upgradeRequestHead(req: http.IncomingMessage, route: GatewayRoute, rawQuery: string, authIsInternal: boolean): string {
+    const operatorKey = this.apiKeys[route.slug];
+    const headers: Record<string, string> = {};
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value === undefined || name === 'x-llm-fw-key' || WS_SKIPPED_HEADERS.has(name)) continue;
+      headers[name] = Array.isArray(value) ? value.join(', ') : value;
+    }
+    if (authIsInternal) delete headers['authorization'];
+    const outbound = applyUpstreamAuth(headers, route, operatorKey);
+    // A browser cannot set headers, so OpenAI takes its key as a subprotocol.
+    // Under custody that is a caller credential like any other, and goes.
+    if (operatorKey && outbound['sec-websocket-protocol']) {
+      const kept = outbound['sec-websocket-protocol'].split(',').map(p => p.trim())
+        .filter(p => p && !p.startsWith('openai-insecure-api-key.'));
+      if (kept.length) outbound['sec-websocket-protocol'] = kept.join(', ');
+      else delete outbound['sec-websocket-protocol'];
+    }
+    const query = operatorKey ? stripCredentialQuery(rawQuery) : rawQuery;
+    const lines = [`GET ${route.upstreamPath}${query} HTTP/1.1`, `host: ${upstreamHostHeader(route.provider)}`];
+    for (const [k, v] of Object.entries(outbound)) lines.push(`${k}: ${v}`);
+    return lines.join('\r\n') + '\r\n\r\n';
   }
 
   /** Buffer the request body under the configured cap. Null means answered. */

@@ -221,5 +221,9 @@ a test that was seen failing first:
 
 Phase 3's per-language fence handling (compressing brace-delimited code) was
 not built: every fence is preserved. The Playwright counter test in Phase 8
-and the Modules tab in the spec's section 6.2 were not built either; tracked in
-[#342](https://github.com/PIsberg/llm-fw/issues/342) and [#341](https://github.com/PIsberg/llm-fw/issues/341).
+and the Modules tab in the spec's section 6.2 followed in
+[#342](https://github.com/PIsberg/llm-fw/issues/342) and [#341](https://github.com/PIsberg/llm-fw/issues/341):
+`test/dashboard/modules.spec.ts`. Writing the observe-mode case found that
+`GET /api/modules` carried no `applied` flag, so a page whose summary landed
+after the event stream said "% saved" under `--observe`; the summary now
+carries the newest event's flag.

@@ -102,10 +102,12 @@ still counts as opaque media, so block
 mode refuses it whatever it says: a transcript adds a reading, it does not
 certify the audio.
 
-**Realtime API (WebSocket).** The forward proxy relays OpenAI Realtime sessions
-(`wss://api.openai.com/v1/realtime`) and inspects the client's events; until
-this release the proxy dropped every WebSocket handshake, so a Realtime session
-could not connect through it at all. A turn's
+**Realtime API and Gemini Live (WebSocket).** The forward proxy and the
+[gateway](gateway-mode.md) relay OpenAI Realtime sessions
+(`wss://api.openai.com/v1/realtime`) and Gemini Live sessions
+(`wss://generativelanguage.googleapis.com/ws/…BidiGenerateContent`) and inspect
+the client's messages; until this release the proxy dropped every WebSocket
+handshake, so a Realtime session could not connect through it at all. A turn's
 `input_audio_buffer.append` chunks (PCM16, 24 kHz) are held when the client
 commits them (`input_audio_buffer.commit`, or `response.create` with audio
 buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and
@@ -121,9 +123,26 @@ activity detection the client never commits, so every 15 s of buffered audio is
 also scanned while it streams; a block there ends the session, but that audio
 has already reached the provider. A block sends the client an `error` event
 with `code: "llm_fw_blocked"` and closes the socket with 1008. Each scan is
-capped at 120 s of audio. Other WebSocket paths on an inspected host are refused
-with 501 rather than tunnelled unscanned, and the gateway does not accept
-WebSockets (#344).
+capped at 120 s of audio.
+
+Gemini Live maps onto the same scan points. `realtimeInput` audio (PCM16 at the
+rate its `audio/pcm;rate=` mime type names, 16 kHz by default) is buffered and
+scanned when the turn ends (`activityEnd` or `audioStreamEnd`), and every 15 s
+while it streams under automatic activity detection. `realtimeInput` text and
+the user turns of `clientContent` are scanned as a prompt (model turns are
+history and pass), `toolResponse` function responses as tool results, and video
+frames as images, so `nonText.mode` applies to them. `setup` is
+developer-authored and passes, but DLP reads it. A message that carries only
+media skips DLP, whose patterns would otherwise run over base64. Gemini clients
+read errors from the close frame, so a block closes the socket with 1008 and a
+reason naming the event id, with no error event. Gemini's own server sends JSON
+in binary frames, so a binary frame holding a JSON event is inspected; any
+other binary frame still ends the session.
+
+Under observe mode (deployment-wide, or a gateway tenant's) no session is
+refused: blocks are recorded with `enforced: false`, DLP audits, and a message
+the relay cannot read is forwarded and recorded. Other WebSocket paths answer
+501 rather than being tunnelled unscanned.
 
 **Trusted recipients for indirect injection.** The indirect-instruction
 stage blocks a tool result that tells the agent to send data or money to an

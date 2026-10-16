@@ -100,6 +100,8 @@ function bareProviderFor(pathname: string): string | null {
     pathname.startsWith('/v1/oauth/')
   ) return 'anthropic';
   if (pathname.startsWith('/v1beta/')) return 'gemini';
+  // Gemini Live's WebSocket endpoint (#344).
+  if (pathname.startsWith('/ws/google.ai.generativelanguage.')) return 'gemini';
   // Gemini's v1 shape is /v1/models/<model>:<method>. Match the method names
   // rather than "ends with :something": OpenAI fine-tune ids are themselves
   // colon-delimited (ft:gpt-4o:acme:abcdef), so a generic suffix test would
