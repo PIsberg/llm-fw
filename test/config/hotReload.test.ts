@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Pipeline } from '../../src/detection/pipeline.js'
-import { DEFAULT_CONFIG, loadConfig } from '../../src/config/config.js'
+import { DEFAULT_CONFIG, applyObserveMode, loadConfig } from '../../src/config/config.js'
 import { Config } from '../../src/types.js'
 import { applyHotReload, startConfigHotReload, HotReloadHandle } from '../../src/config/hotReload.js'
 
@@ -246,5 +246,63 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
     await wait(DISABLED_WATCH_WINDOW_MS)
 
     expect(live.detection.heuristicBlockThreshold).toBe(1000)
+  }, 10000)
+
+  // Found live-testing the token pruner (#340): a dashboard toggle writes
+  // config.json, the watcher re-runs loadConfig(), and loadConfig re-applies
+  // the LLM_FW_* overrides. The reload diffed that result against LIVE config,
+  // so a toggle on any env-pinned key was silently reverted ~500 ms after the
+  // dashboard answered ok. A reload must only apply what changed since the
+  // previous load.
+  it('does not revert a live toggle on a key the environment pins', async () => {
+    const saved = process.env.LLM_FW_TOKEN_PRUNER_ENABLED
+    process.env.LLM_FW_TOKEN_PRUNER_ENABLED = 'true'
+    try {
+      tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-hotreload-envpin-'))
+      process.env.LLM_FW_DIR = tempDir
+      const configPath = join(tempDir, 'config.json')
+      fs.writeFileSync(configPath, JSON.stringify({}), 'utf8')
+
+      const live = await loadConfig()
+      expect(live.modules?.tokenPruner.enabled).toBe(true)
+      handle = startConfigHotReload(live, { debounceMs: 30 })
+
+      // What the dashboard does: change live config, then write the file. The
+      // threshold is a canary that proves the reload ran.
+      live.modules!.tokenPruner.enabled = false
+      fs.writeFileSync(configPath, JSON.stringify({ modules: { tokenPruner: { enabled: false } }, detection: { heuristicBlockThreshold: 77 } }), 'utf8')
+      await waitFor(() => live.detection.heuristicBlockThreshold === 77, 'the canary threshold to be applied')
+
+      expect(live.modules?.tokenPruner.enabled).toBe(false)
+    } finally {
+      if (saved === undefined) delete process.env.LLM_FW_TOKEN_PRUNER_ENABLED
+      else process.env.LLM_FW_TOKEN_PRUNER_ENABLED = saved
+    }
+  }, 10000)
+
+  it('does not undo --observe when config.json is rewritten', async () => {
+    tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-hotreload-observe-'))
+    process.env.LLM_FW_DIR = tempDir
+    const configPath = join(tempDir, 'config.json')
+    fs.writeFileSync(configPath, JSON.stringify({ dlp: { mode: 'block' } }), 'utf8')
+
+    const live = await loadConfig()
+    applyObserveMode(live)
+    const messages: string[] = []
+    handle = startConfigHotReload(live, { debounceMs: 30, log: (m) => messages.push(m) })
+
+    // An edit to an unrelated key: dlp.mode is "block" on disk, as it was at
+    // startup, so it has not changed and must stay relaxed.
+    fs.writeFileSync(configPath, JSON.stringify({ dlp: { mode: 'block' }, detection: { heuristicBlockThreshold: 77 } }), 'utf8')
+    await waitFor(() => live.detection.heuristicBlockThreshold === 77, 'the canary threshold to be applied')
+    expect(live.dlp.mode).toBe('audit')
+    // Reported as applied only if it ended up different: it did not.
+    expect(messages.join('\n')).not.toContain('dlp.mode')
+
+    // An explicit edit of a mode while observing is applied to the file's
+    // value and then relaxed again: observation never enforces.
+    fs.writeFileSync(configPath, JSON.stringify({ dlp: { mode: 'redact' }, detection: { heuristicBlockThreshold: 78 } }), 'utf8')
+    await waitFor(() => live.detection.heuristicBlockThreshold === 78, 'the second canary to be applied')
+    expect(live.dlp.mode).toBe('audit')
   }, 10000)
 })

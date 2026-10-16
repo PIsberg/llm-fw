@@ -334,6 +334,14 @@ export const DEFAULT_CONFIG: Config = {
       d: true,
     },
   },
+  // The module pipeline is on; the token pruner is opt-in because it rewrites
+  // the prompt text the provider receives.
+  modules: {
+    enabled: true,
+    tokenPruner: {
+      enabled: false,
+    },
+  },
   // Every major AI provider's API host — the proxy TLS-inspects these and the
   // sinkhole redirects them. Sourced from the provider registry (providers.ts)
   // so the firewall covers all supported services out of the box.
@@ -669,6 +677,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_WORKER_INFERENCE: (c, v) => { c.detection.workerInference = v === 'true'; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
+  LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
+  LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
   LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },
 };

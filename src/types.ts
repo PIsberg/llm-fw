@@ -424,6 +424,33 @@ export interface McpConfig {
   };
 }
 
+export interface TokenPrunerConfig {
+  enabled: boolean;
+}
+
+export interface ModulesConfig {
+  enabled: boolean;
+  tokenPruner: TokenPrunerConfig;
+}
+
+export interface ModuleEvent {
+  id: string;
+  timestamp: string;
+  moduleId: string;
+  moduleName: string;
+  target: string;
+  path: string;
+  tokensOriginal: number;
+  tokensPruned: number;
+  tokensSaved: number;
+  percentSaved: number;
+  totalTokensSaved: number;
+  overallPercentSaved: number;
+  // false when the request went upstream unmodified (observe mode): the
+  // figures are then what the module would have saved.
+  applied?: boolean;
+}
+
 /**
  * Durable audit trail. Without it, events live only in the dashboard's
  * in-memory ring (100 by default) and are lost on restart, which answers
@@ -547,6 +574,7 @@ export interface Config {
   memoryPoisoning?: { enabled: boolean; mode: 'audit' | 'block' };
   indirectInstruction?: IndirectInstructionConfig;
   harmfulRequest?: HarmfulRequestConfig;
+  modules?: ModulesConfig;
   targets: string[];
   // Extra hostnames appended to `targets` after all config layers are merged.
   // File-config arrays REPLACE the defaults wholesale, so overriding `targets`
@@ -619,7 +647,7 @@ export interface BlockEvent {
   payload_preview: string;
   payload_full: string;
   action: 'blocked' | 'warned' | 'passed';
-  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'memory-poisoning' | 'error' | undefined;
+  kind?: 'prompt' | 'url' | 'dlp' | 'dos' | 'rag' | 'mcp' | 'unparsed' | 'taint' | 'ascii-smuggling' | 'response-exfil' | 'response-harm' | 'non-text' | 'many-shot' | 'crescendo' | 'classifier' | 'tool-use-exfil' | 'memory-poisoning' | 'module' | 'error' | undefined;
   // Mime-type summary of opaque non-text blocks ("image/png ×2, audio/wav").
   mediaSummary?: string | undefined;
   urlBlockReason?: string | undefined;

@@ -69,6 +69,7 @@ feature must do; the matching `PLAN-` is how it was built.
 | MCP monitoring and firewall | [SPEC-mcp.md](specs/SPEC-mcp.md) | [PLAN-mcp.md](plans/PLAN-mcp.md) |
 | Live traffic monitoring | [SPEC-livetraffic.md](specs/SPEC-livetraffic.md) | [PLAN-livetraffic.md](plans/PLAN-livetraffic.md) |
 | Load testing | [SPEC-loadtests.md](specs/SPEC-loadtests.md) | [PLAN-loadtests.md](plans/PLAN-loadtests.md) |
+| Gateway custom modules & token pruner | [SPEC-modules.md](specs/SPEC-modules.md) | [PLAN-modules.md](plans/PLAN-modules.md) |
 
 Detection tuning rounds, which have no spec of their own:
 [PLAN-improvements-batch2.md](plans/PLAN-improvements-batch2.md) ·

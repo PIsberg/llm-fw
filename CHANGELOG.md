@@ -7,8 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Gateway modules, and an opt-in Token Pruner / Cost Optimizer (#340).** Request bodies
+  for LLM endpoints now pass through a module pipeline (`src/modules/`) on the proxy and the
+  gateway, before DLP and detection, so both scan what is forwarded. A module that throws is
+  logged and skipped; the request continues. The first module, the token pruner, is off by
+  default: turn it on with the Settings toggle, `POST /api/modules`,
+  `modules.tokenPruner.enabled` or `LLM_FW_TOKEN_PRUNER_ENABLED=true`, live and without a
+  restart. It collapses interior runs of spaces, runs of blank lines and trailing whitespace,
+  and minifies multiline JSON in prompt text, keeping leading indentation and fenced code. The
+  dashboard header shows tokens saved and the percentage, updated over SSE (`event: module`)
+  without a page refresh. Under observe mode it is a dry run and reports what it would have
+  saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
+
 ### Fixed
 
+- **A dashboard toggle under `start --observe` made the firewall enforce less after the next
+  restart.** Saving any setting wrote a snapshot of the whole live config to `config.json`,
+  including the stage modes `--observe` relaxes in memory, so `dlp`, `taint`, `manyShot`,
+  `crescendo` and `responseScan` modes stayed at `audit` after restarting without
+  `--observe`. It also copied `LLM_FW_*` values into the file. The dashboard now writes only
+  the settings the request changed.
+- **A dashboard toggle on a setting that an `LLM_FW_*` variable also sets was reverted half a
+  second later**, although the dashboard had answered `ok`. Saving rewrote `config.json`, the
+  hot reload re-ran `loadConfig()`, which re-applies the environment, and applied every
+  difference from live config. Hot reload now applies only keys whose loaded value changed since
+  the previous load, and re-relaxes stage modes while observing. Both found while live-testing
+  the token pruner.
 - **Claude Code and AI provider OAuth login flows were blocked or warned as unparsed.**
   Claude Code authenticates via OAuth on `claude.com`, exchanges tokens on
   `platform.claude.com`, and provisions CLI keys via `/api/oauth/...` and

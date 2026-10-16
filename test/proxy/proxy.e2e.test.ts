@@ -193,7 +193,10 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     dashboard: {
       ...DEFAULT_CONFIG.dashboard,
       port: 17731,
-    }
+    },
+    // The pruner is opt-in; Case 6 exercises it. A fresh object, so the
+    // module's live reference never points into DEFAULT_CONFIG.
+    modules: { enabled: true, tokenPruner: { enabled: true } },
   }
 
   beforeAll(async () => {
@@ -255,7 +258,8 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
 
     // 6. Start the Dashboard Server
     const pipeline = (proxy as any).pipeline
-    dashboard = createDashboardServer(testConfig, eventBus, pipeline)
+    const modules = (proxy as any).modules
+    dashboard = createDashboardServer(testConfig, eventBus, pipeline, undefined, undefined, modules)
     await new Promise<void>(resolve => dashboard.listen(testConfig.dashboard.port, '127.0.0.1', () => resolve()))
   })
 
@@ -514,5 +518,36 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     const json = JSON.parse(response.body)
     expect(json.id).toBe('mock-msg-id')
     expect(json.content[0].text).toContain('Clean response')
+  })
+
+  it('E2E Case 6: Token Pruner module prunes multiline JSON and spaces in proxy requests', async () => {
+    receivedRequests = []
+    const response = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      '/v1/messages',
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({
+        model: 'claude-3-opus-20240229',
+        messages: [{
+          role: 'user',
+          content: 'Hello    world   from   proxy!\n{\n  "nested": true,\n  "count": 42\n}\n```python\n    def test():\n        return 1\n```',
+        }],
+      })
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(receivedRequests).toHaveLength(1)
+    const forwarded = JSON.parse(receivedRequests[0]!.body)
+    const content = forwarded.messages[0].content
+    expect(content).toContain('{"nested":true,"count":42}')
+    expect(content).toContain('Hello world from proxy!')
+    expect(content).toContain('    def test():\n        return 1')
+
+    const moduleStats = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+    expect(moduleStats.totalTokensSaved).toBeGreaterThan(0)
+    expect(moduleStats.overallPercentSaved).toBeGreaterThan(0)
   })
 })

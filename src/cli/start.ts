@@ -9,6 +9,7 @@ import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
+import { ModuleManager } from '../modules/registry.js';
 import { startConfigHotReload } from '../config/hotReload.js';
 import forge from 'node-forge';
 import fs from 'node:fs';
@@ -398,12 +399,13 @@ export async function run(args: string[] = []): Promise<void> {
   await pipeline.init();
   console.log('Model ready.');
 
-  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics);
+  const modules = new ModuleManager(config);
+  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
   });
 
-  const proxy = new ProxyServer(config, eventBus, suppressions, metrics);
+  const proxy = new ProxyServer(config, eventBus, suppressions, metrics, modules);
   await proxy.init();
   proxy.start();
 
@@ -411,7 +413,7 @@ export async function run(args: string[] = []): Promise<void> {
   // the forward proxy rather than replacing it, so a team can migrate clients
   // to base_url one at a time instead of in a flag day.
   if (config.gateway?.enabled) {
-    gateway = new GatewayServer(config, eventBus, suppressions, metrics);
+    gateway = new GatewayServer(config, eventBus, suppressions, metrics, modules);
     await gateway.init();
     gateway.start();
     const gwHost = config.gateway.bindHost === '0.0.0.0' ? lanIPv4() : config.gateway.bindHost;

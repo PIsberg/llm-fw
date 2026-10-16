@@ -17,6 +17,7 @@ import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
+import { ModuleManager } from '../modules/registry.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('dashboard');
@@ -46,6 +47,7 @@ const HTML = `<!DOCTYPE html>
   .stat-value.blocked { color: #d32f2f; }
   .stat-value.warned  { color: #e65100; }
   .stat-value.total   { color: #1565c0; }
+  .stat-value.saved   { color: #2e7d32; }
 
   /* Tabs (Premium Segmented Control) */
   .tabs { display: inline-flex; background: #e4e6eb; padding: 4px; border-radius: 8px; margin-bottom: 16px; gap: 2px; }
@@ -310,6 +312,7 @@ const HTML = `<!DOCTYPE html>
     <div class="stat"><div class="stat-label">MCP / Tool Use</div><div class="stat-value blocked" id="s-mcp">0</div></div>
     <div class="stat"><div class="stat-label">ASCII Smuggling</div><div class="stat-value blocked" id="s-ascii">0</div></div>
     <div class="stat"><div class="stat-label">Response Exfil</div><div class="stat-value blocked" id="s-exfil">0</div></div>
+    <div class="stat" title="Tokens pruned across requests by Gateway Modules"><div class="stat-label">Tokens Saved</div><div class="stat-value saved" id="stat-tokens-saved">0</div><div id="stat-tokens-pct" style="font-size:0.72rem;color:#2e7d32;font-weight:600">0% saved</div></div>
   </div>
 
   <div class="tabs">
@@ -733,8 +736,37 @@ const es = new EventSource('/events');
 // table: no duplicated rows after a dropped connection, and no rows left over
 // from before a restart whose "Mark false positive" the server cannot honour.
 // The tiles count the same replay, so they start from zero too.
-es.onopen = () => { tbody.replaceChildren(); resetStats(); };
+es.onopen = () => { tbody.replaceChildren(); resetStats(); loadModuleStats(); };
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
+es.addEventListener('module', e => {
+  try {
+    updateModuleStats(JSON.parse(e.data));
+  } catch(_) {}
+});
+
+function updateModuleStats(data) {
+  if (!data) return;
+  const el = document.getElementById('stat-tokens-saved');
+  if (el && typeof data.totalTokensSaved === 'number') {
+    el.textContent = data.totalTokensSaved.toLocaleString();
+  }
+  const pctEl = document.getElementById('stat-tokens-pct');
+  if (pctEl && typeof data.overallPercentSaved === 'number') {
+    // applied === false: observe mode forwarded the original body.
+    pctEl.textContent = data.overallPercentSaved + (data.applied === false ? '% would be saved (observe)' : '% saved');
+  }
+}
+
+async function loadModuleStats() {
+  try {
+    const res = await fetch('/api/modules');
+    if (res.ok) {
+      const data = await res.json();
+      updateModuleStats(data);
+    }
+  } catch(_) {}
+}
+loadModuleStats();
 
 // ── Playground ────────────────────────────────────────────────────────────────
 // Per-category descriptions + curated examples that llm-fw actually catches.
@@ -1259,9 +1291,10 @@ const SETTINGS_SCHEMA = [
     { key: 'taint', label: 'Cross-turn taint tracking', sub: 'Track untrusted tokens (from tool results) that are later reused as an outbound destination' },
     { key: 'taintMode', label: 'Taint mode', type: 'select', options: ['audit', 'block'], sub: 'audit: warn only · block: refuse the tainted destination' },
   ]},
-  { group: 'Cost & Abuse (DoS)', desc: 'Behavioral circuit breakers against denial-of-wallet.', rows: [
+  { group: 'Cost & Abuse (DoS)', desc: 'Behavioral circuit breakers against denial-of-wallet and cost optimization.', rows: [
     { key: 'dos', label: 'Rate limit / token budget', sub: 'Per-minute request cap and a rolling per-session token budget (numeric limits in the Advanced section below)' },
     { key: 'dosLoopDetection', label: 'Agent loop detection', sub: 'Detect an agent firing the same request over and over and break the loop' },
+    { key: 'tokenPruner', label: 'Token Pruner / Cost Optimizer', sub: 'Smart content-aware prompt token optimization — minifies embedded JSON, compacts excessive whitespace, and preserves code indentation (Python, YAML, etc.)' },
   ]},
   { group: 'Advanced — Tuning', desc: 'Numeric thresholds and limits, plus the judge model. All take effect on the next request — no restart. Lowering a detection threshold catches more attacks but risks more false positives; raising it is more permissive.', rows: [
     { key: 'heuristicBlockThreshold', label: 'Heuristic block threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a prompt is blocked (default 50). Rules add weights; one strong rule scores 50' },
@@ -1592,6 +1625,7 @@ interface SettingsView {
   nonTextMode: 'audit' | 'block'
   nonTextOcr: boolean
   nonTextTranscribe: boolean
+  tokenPruner: boolean
   // Advanced — numeric/text tuning (all live, no restart).
   heuristicBlockThreshold: number
   embeddingBlockThreshold: number
@@ -1606,6 +1640,7 @@ interface SettingsView {
 // launcher) must never make this endpoint throw a 500.
 function readSettings(config: Config): SettingsView {
   return {
+    tokenPruner: config.modules?.tokenPruner?.enabled ?? false,
     asciiSmuggling: config.asciiSmuggling?.enabled ?? true,
     classifier: config.detection?.classifier?.enabled ?? false,
     classifierThreshold: config.detection?.classifier?.blockThreshold ?? 0.9,
@@ -1675,6 +1710,9 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   nonText: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).enabled = v },
   nonTextOcr: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).ocr = v },
   nonTextTranscribe: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).transcribe = v },
+  // Writes the config object the running TokenPrunerModule reads, so the
+  // toggle is live without telling the ModuleManager.
+  tokenPruner: (c, v) => { ((c.modules ??= { enabled: true, tokenPruner: { enabled: false } }).tokenPruner ??= { enabled: false }).enabled = v },
 }
 
 // Numeric tuning setters with an inclusive valid range (the POST allowlist for
@@ -1745,6 +1783,12 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       mode: config.responseScan?.mode ?? 'audit',
       harmfulCompliance: config.responseScan?.harmfulCompliance ?? true,
     },
+    modules: {
+      enabled: config.modules?.enabled ?? true,
+      tokenPruner: {
+        enabled: config.modules?.tokenPruner?.enabled ?? false,
+      },
+    },
   }
 }
 
@@ -1796,14 +1840,39 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
   return { applied, errors }
 }
 
-// Persist the current toggle state to ~/.llm-fw/config.json, deep-merging so
-// unrelated keys are preserved.
-function persistSettings(config: Config): void {
+// The leaves of `after` that differ from `before`, as a nested partial. Both
+// come from toPersistedPartial, so the keys are that function's static ones.
+function changedLeaves(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(after)) {
+    const prior = before[key]
+    const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+    if (isObj(value) && isObj(prior)) {
+      const sub = changedLeaves(prior, value)
+      if (Object.keys(sub).length) out[key] = sub
+    } else if (JSON.stringify(prior) !== JSON.stringify(value)) {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+// Persists to <LLM_FW_DIR>/config.json, deep-merging so unrelated keys are
+// preserved, and writes only the settings this request changed: `before` is
+// toPersistedPartial(config) taken before the change was applied. Writing the
+// whole live snapshot persisted values that are not file config: under
+// `start --observe` stage modes are relaxed in memory, so one toggle wrote
+// dlp.mode "audit" (and up to four more) to disk and the firewall stayed relaxed
+// after a restart without --observe; LLM_FW_* overrides were copied into the
+// file the same way.
+function persistSettings(config: Config, before: Record<string, unknown>): void {
+  const changed = changedLeaves(before, toPersistedPartial(config))
+  if (!Object.keys(changed).length) return
   const dir = getLlmFwDir()
   const file = join(dir, 'config.json')
   let existing: Record<string, unknown> = {}
   try { existing = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown> } catch { /* none */ }
-  const merged = deepMerge<Record<string, unknown>>(existing, toPersistedPartial(config))
+  const merged = deepMerge<Record<string, unknown>>(existing, changed)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(file, JSON.stringify(merged, null, 2), 'utf8')
 }
@@ -1854,7 +1923,8 @@ export function presentedToken(req: http.IncomingMessage, url: URL): string {
   return credentialFromAuthHeader(req.headers.authorization) || (url.searchParams.get('token') ?? '')
 }
 
-export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline, suppressions?: SuppressionStore, metrics?: MetricsRegistry): http.Server {
+export function createDashboardServer(config: Config, eventBus: EventBus, pipeline: Pipeline, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager): http.Server {
+  const modManager = moduleManager ?? new ModuleManager(config)
   // Defaults to a private store (behaviorally an always-empty suppression
   // list) when the caller doesn't share one — e.g. tests that construct the
   // dashboard server directly. cli/start.ts passes the SAME instance used by
@@ -1976,17 +2046,70 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             res.end(JSON.stringify({ error: 'body must be a JSON object of settings' }))
             return
           }
+          const before = toPersistedPartial(config)
           const { applied, errors } = applySettings(config, patch)
           if (errors.length && !applied.length) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'no valid settings', errors }))
             return
           }
-          if (applied.length) persistSettings(config)
+          if (applied.length) persistSettings(config, before)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, applied, errors, settings: readSettings(config) }))
         } catch (err) {
           log.error('/api/settings handler error', { err: err })
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'internal error' }))
+        }
+      })
+      req.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'request read error' }))
+      })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/api/modules') {
+      const summary = modManager.getSummaryStats()
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        ...summary,
+        modules: modManager.listModules().map(m => ({ ...m.getStats(), description: m.description })),
+        summary,
+      }))
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/modules') {
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        try {
+          const patch = JSON.parse(body || '{}') as { id?: string; enabled?: boolean }
+          if (!patch.id || typeof patch.enabled !== 'boolean') {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'id and enabled (boolean) are required' }))
+            return
+          }
+          const before = toPersistedPartial(config)
+          if (!modManager.setModuleEnabled(patch.id, patch.enabled)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'unknown module', id: patch.id }))
+            return
+          }
+          // A built-in module's enabled flag lives in config (the module holds
+          // a reference to it), so persisting config persists the toggle.
+          persistSettings(config, before)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, module: modManager.getModule(patch.id)?.getStats() }))
+        } catch (err) {
+          log.error('/api/modules handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'internal error' }))
         }
@@ -2488,3 +2611,5 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     res.end(JSON.stringify({ error: 'Not found' }))
   })
 }
+
+export { HTML as DASHBOARD_HTML }

@@ -1,4 +1,4 @@
-import { BlockEvent, DashboardConfig, TrafficMetric, WhitelistEntry } from '../types.js'
+import { BlockEvent, DashboardConfig, ModuleEvent, TrafficMetric, WhitelistEntry } from '../types.js'
 import { randomUUID } from 'node:crypto'
 import { ServerResponse } from 'node:http'
 import fs from 'node:fs'
@@ -17,6 +17,7 @@ export class EventBus {
   private subscribers: ServerResponse[] = []
   private trafficRing: TrafficMetric[] = []
   private trafficSubscribers: ServerResponse[] = []
+  private moduleEvents: ModuleEvent[] = []
   private static readonly TRAFFIC_MAX = 500
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   // Persisted store of events an operator marked as false positives.
@@ -96,10 +97,24 @@ export class EventBus {
     return event
   }
 
+  emitModuleEvent(event: ModuleEvent): ModuleEvent {
+    this.moduleEvents.push(event)
+    if (this.moduleEvents.length > this.maxSize) this.moduleEvents.shift()
+    const data = 'event: module\ndata: ' + JSON.stringify(event) + '\n\n'
+    this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
+    for (const res of this.subscribers) res.write(data)
+    return event
+  }
+
+  getRecentModuleEvents(limit = 50): ModuleEvent[] {
+    return this.moduleEvents.slice(-limit)
+  }
+
   subscribe(res: ServerResponse): void {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
     this.subscribers.push(res)
     for (const event of this.ring) res.write('data: ' + JSON.stringify(event) + '\n\n')
+    for (const me of this.moduleEvents) res.write('event: module\ndata: ' + JSON.stringify(me) + '\n\n')
     res.on('close', () => { this.subscribers = this.subscribers.filter(r => r !== res) })
   }
 

@@ -657,7 +657,11 @@ Check that `LLM_FW_BYPASS` is not set. Check that enforcement is not `observe`.
 
 **A config change did nothing.** Ports, bind hosts, `proxy.mode`, `bypass`,
 `targets` and `interceptDomains` are cold. Restart. Detection toggles and
-thresholds hot-reload from `<LLM_FW_DIR>/config.json`.
+thresholds hot-reload from `<LLM_FW_DIR>/config.json`. A reload applies only
+the keys whose loaded value changed since the previous load, so editing a key
+that an `LLM_FW_*` variable also sets does nothing until the variable is
+unset: the variable wins on every load. While observing, a mode edited on
+disk is relaxed to audit again; `--observe` never enforces.
 
 **A boolean environment variable did not take effect.** It must be exactly
 `true`. `1` and `yes` both mean false.
