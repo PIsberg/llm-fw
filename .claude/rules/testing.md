@@ -24,6 +24,7 @@ not run them:
 | --- | --- | --- |
 | `docker build` + run | Docker Image (`docker.yml`), on PRs touching `Dockerfile`, `docker/**`, `package*.json` or `data/**` | The image builds, runs a Node major the CI matrix tests, and its gateway reports `/readyz`. Needs a Docker daemon locally |
 | `npm run test:e2e` | E2E Tests | Playwright, dashboard UI. Needs `npx playwright install chromium` first. |
+| `npx vitest run test/cli/` on `windows-latest` | CLI on Windows | Windows-only CLI behaviour (`it.runIf(win32)` cases, Task Scheduler round trip). Runs locally on a Windows machine |
 | `npm run test:load:perf` | Load Tests | p99 latency ceiling |
 | `npm run test:load:accuracy` | Load Tests | FPR ceiling, TPR floor, under concurrency |
 | `npm run scorecard` | Load Tests | deterministic sweep, per-class recall |

@@ -45,7 +45,7 @@ async function runWorker(send: SendFn, prompts: string[], deadline: number): Pro
     const startMs = Date.now()
     try {
       const { statusCode, latencyMs } = await send(body)
-      samples.push({ startMs, latencyMs, fp: statusCode === 403 })
+      samples.push({ startMs, latencyMs, fp: statusCode === 422 || statusCode === 403 })
     } catch {
       errCount++
     }

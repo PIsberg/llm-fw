@@ -39,12 +39,16 @@ describe('llm-fw stop', () => {
     child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
     const pidFile = join(dir, 'llm-fw.pid')
     writeFileSync(pidFile, String(child.pid))
+    // ...and the runtime state it recorded at startup (#320).
+    const stateFile = join(dir, 'llm-fw.state.json')
+    writeFileSync(stateFile, JSON.stringify({ pid: child.pid }))
 
     // No stop watcher in this child, so stop falls back to a signal once the
     // stop request goes unanswered.
     await run({ requestWaitMs: 300 })
 
     expect(existsSync(pidFile)).toBe(false)
+    expect(existsSync(stateFile)).toBe(false)
     expect(() => process.kill(child!.pid!, 0)).toThrow()
   })
 

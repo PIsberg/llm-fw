@@ -53,7 +53,7 @@ Each detected secret maps to a provider-specific redaction marker such as `[REDA
 
 | Mode | Behaviour |
 |------|-----------|
-| `block` | Aborts the request with `403 Forbidden` and `{ "error": "sensitive data detected", "type": "…" }`. |
+| `block` | Aborts the request with `422` and `{ "error": "sensitive data detected", "type": "…" }`. |
 | `redact` (default) | Rewrites the JSON payload, replacing each secret with its marker, then forwards the request transparently. JSON structure and escaping are preserved (the raw string is patched in place — no re-serialisation). |
 | `audit` | Forwards the request unmodified, but logs a high-priority `dlp` event to the dashboard. |
 

@@ -245,7 +245,7 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
   it('blocks an injection before anything reaches the upstream', async () => {
     calls = []
     const res = await request({ path: '/v1/chat/completions', body: injection, headers: authed })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(422)
     expect(calls).toHaveLength(0)
   })
 
@@ -312,14 +312,14 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
 
   it('lets one tenant observe while the deployment enforces', async () => {
     calls = []
-    // The same injection the enforcing path blocks with a 403.
+    // The same injection the enforcing path blocks with a 422.
     const res = await request({ path: '/v1/chat/completions', body: injection, headers: { 'x-llm-fw-key': 'tok-newteam' } })
     expect(res.status).toBe(200)
     expect(calls).toHaveLength(1)
 
     // And the shared credential still enforces on the identical request.
     const enforced = await request({ path: '/v1/chat/completions', body: injection, headers: authed })
-    expect(enforced.status).toBe(403)
+    expect(enforced.status).toBe(422)
   })
 
   it('never forwards its own credential when the client sent it as a bearer', async () => {

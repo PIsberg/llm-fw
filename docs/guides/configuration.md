@@ -102,6 +102,29 @@ still counts as opaque media, so block
 mode refuses it whatever it says: a transcript adds a reading, it does not
 certify the audio.
 
+**Realtime API (WebSocket).** The forward proxy relays OpenAI Realtime sessions
+(`wss://api.openai.com/v1/realtime`) and inspects the client's events; until
+this release the proxy dropped every WebSocket handshake, so a Realtime session
+could not connect through it at all. A turn's
+`input_audio_buffer.append` chunks (PCM16, 24 kHz) are held when the client
+commits them (`input_audio_buffer.commit`, or `response.create` with audio
+buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and
+`nonText.mode` apply as above; user text, whether added with
+`conversation.item.create` or passed as `response.create` input, is scanned as
+a prompt and `function_call_output` as a tool result. `session.update` and
+`response.create` instructions and `system`-role items are developer-authored
+and pass, like a system prompt. Every text event except audio chunks goes
+through DLP as a request body would (`redact` rewrites the event). A binary
+message, or text that is not a JSON event, ends the session: it cannot be
+inspected. With server-side voice
+activity detection the client never commits, so every 15 s of buffered audio is
+also scanned while it streams; a block there ends the session, but that audio
+has already reached the provider. A block sends the client an `error` event
+with `code: "llm_fw_blocked"` and closes the socket with 1008. Each scan is
+capped at 120 s of audio. Other WebSocket paths on an inspected host are refused
+with 501 rather than tunnelled unscanned, and the gateway does not accept
+WebSockets (#344).
+
 **Trusted recipients for indirect injection.** The indirect-instruction
 stage blocks a tool result that tells the agent to send data or money to an
 address, which is how an injected email or web page exfiltrates. An inbox or
@@ -122,6 +145,16 @@ the same text (an address, URL, account number or IBAN) cancels the
 allowance, and an address counts as trusted only when whitespace or
 ordinary punctuation surrounds it and its local part has no `%` or `!`
 routing.
+
+**Refusal status.** A request refused for its content (detection, DLP, MCP,
+taint, a URL in the path, a response-side block) answers `422` on the proxy and
+the gateway, with the same JSON body as before. It used to be `403`, which
+Claude Code reports as "Failed to authenticate. API Error: 403" (#304);
+measured against Claude Code 2.1.301, `422` gets "API Error: 422" and the
+explanation, in one request, while `400` is retried once and `409` eight times.
+`blockStatus: 403` (or `LLM_FW_BLOCK_STATUS=403`) restores the old status for a
+client that branches on it. Refused CONNECT tunnels, authentication failures and
+a tenant's disallowed provider keep their own codes.
 
 **Token pruner (gateway modules).** `modules.tokenPruner.enabled: true` (or
 `LLM_FW_TOKEN_PRUNER_ENABLED=true`, or the Settings toggle in the Cost & Abuse
@@ -177,7 +210,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_87 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -186,6 +219,7 @@ _87 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_AUDIT_FILE` | `audit.file` | _unset_ |
 | `LLM_FW_AUDIT_PAYLOADS` | `audit.includePayloads` | `false` |
 | `LLM_FW_AUDIT_WEBHOOK` | `audit.webhookUrl` | _unset_ |
+| `LLM_FW_BLOCK_STATUS` | `blockStatus` | `422` |
 | `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
@@ -275,7 +309,7 @@ _87 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 
 What happens if the detection pipeline itself **fails** — a parser or stage throws on a request it should have scanned? That is a bug (the fuzz suite in `test/fuzz/` exists to keep it from happening), but the outcome must never be undefined behavior. `detection.failMode` makes it explicit:
 
-- **`closed`** (default) — the request is **blocked** with the standard `403` block response (`{ "error": "detection pipeline error — failing closed" }`) and a blocked `error` event appears on the dashboard. Nothing that could not be scanned reaches the provider. This matches the firewall's historical behavior, where a pipeline exception ended the request with an error response instead of forwarding it.
+- **`closed`** (default) — the request is **blocked** with the standard block response (`422`, or `blockStatus`) (`{ "error": "detection pipeline error — failing closed" }`) and a blocked `error` event appears on the dashboard. Nothing that could not be scanned reaches the provider. This matches the firewall's historical behavior, where a pipeline exception ended the request with an error response instead of forwarding it.
 - **`open`** — the request is **forwarded upstream unscanned**, and a warned `error` audit event records the failure (including the stack) on the dashboard. Choose this when availability matters more than a scan gap during a firewall bug.
 
 ```json

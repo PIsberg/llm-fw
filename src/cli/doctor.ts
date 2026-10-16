@@ -9,6 +9,7 @@ import { loadConfig } from '../config/config.js'
 import { licenseStatus, type LicenseStatus } from '../license/status.js'
 import { isKeygenConfigured, isOfflineLicenseConfigured } from '../license/account.js'
 import { statusLine, UNLICENSED_NOTICE, COMMERCIAL_URL, CONTACT_EMAIL } from './license.js'
+import { enforcementLine, readRuntimeState, type RuntimeState } from './runtimeState.js'
 
 /**
  * `llm-fw doctor` — diagnose whether the interception environment is set up
@@ -70,6 +71,8 @@ export interface DoctorProbe {
   portRedirectPresent: boolean | null
   /** Windows only: IP Helper service running (required for portproxy). */
   iphlpsvcRunning: boolean | null
+  /** What the running process recorded at startup (`--observe`, `--gateway`); null if none. */
+  runtime: RuntimeState | null
 }
 
 // ── pure helpers ────────────────────────────────────────────────────────────
@@ -132,6 +135,14 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
   checks.push(p.running
     ? { level: 'ok', title: `llm-fw process running (PID ${p.pid ?? '?'})` }
     : { level: 'fail', title: 'llm-fw process not running', fix: ['llm-fw setup   # if not yet configured', 'llm-fw start'] })
+
+  // How it was started: flags that live only in the process's memory (#320).
+  if (p.running && p.runtime) {
+    checks.push(p.runtime.enforcement === 'observe'
+      ? { level: 'warn', title: `Enforcement: ${enforcementLine(p.runtime)}`, fix: ['llm-fw start   # without --observe, to enforce'] }
+      : { level: 'ok', title: `Enforcement: ${enforcementLine(p.runtime)}` })
+    if (p.runtime.gatewayUrl) checks.push({ level: 'info', title: `Gateway listening at ${p.runtime.gatewayUrl}` })
+  }
 
   // CA certificate file
   checks.push(p.caCertExists
@@ -572,6 +583,7 @@ async function probe(): Promise<DoctorProbe> {
       try { process.kill(raw, 0); running = true } catch { running = false }
     }
   } catch { /* no pid file */ }
+  const runtime = running && pid !== null ? readRuntimeState(llmfwDir, pid) : null
 
   // Sinkhole is active if config says so OR the hosts file carries the marker
   // (covers an elevated setup whose user config.json wasn't written).
@@ -626,6 +638,7 @@ async function probe(): Promise<DoctorProbe> {
     hostsTargetCount,
     portRedirectPresent: sinkholeActive ? detectPortRedirect(os, config.proxy.httpsPort) : null,
     iphlpsvcRunning: sinkholeActive && os === 'win32' ? detectIphlpsvc() : null,
+    runtime,
   }
 }
 

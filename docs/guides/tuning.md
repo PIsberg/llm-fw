@@ -19,7 +19,7 @@ Every threshold in this firewall is a trade-off, and no threshold is perfect —
 From the dashboard **Events** tab, opening a blocked event on the `prompt`/`system` surface shows a **"Mark false positive (suppress future matches)"** button. Clicking it:
 
 1. Computes the sha256 hash of the **normalized** prompt text (the same normalization the embedding cache uses) — never the raw prompt itself is stored.
-2. Appends `{ hash, preview, addedAt }` to `~/.llm-fw/suppressions.json` (`preview` is a short truncated excerpt kept only so you can recognize the entry later; it plays no role in matching).
+2. Appends `{ hash, preview, addedAt }` (`addedAt` in UTC) to `~/.llm-fw/suppressions.json` (`preview` is a short truncated excerpt kept only so you can recognize the entry later; it plays no role in matching).
 3. From then on, an **identical** future prompt that would have been **blocked** on the `prompt`/`system` surface is downgraded to a **warn** instead (logged with a `[suppressed-fp]` note) — every other prompt is scored exactly as before.
 
 The button works on events the running process still holds. Events live in memory only: a restart forgets them, and the process keeps the last `dashboard.maxEvents` (default 100) blocked events, separately from other traffic, so a busy agent session cannot push a false positive out before you mark it. For an event from before a restart, re-send the request and mark the new event.

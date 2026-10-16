@@ -17,7 +17,7 @@ Two legitimate uses of the blocked ranges pass, matched by exact shape:
 - **The England, Scotland and Wales flag emoji.** Each is a black flag followed by tag characters spelling `gbeng`, `gbsct` or `gbwls` and a cancel tag. Only those three exact sequences pass: tag text dressed up as any other flag, or appended after a real one, still blocks. Other subdivision flags still block too; no major platform renders them.
 - **Ideographic variation sequences.** One CJK ideograph followed by exactly one plane-14 selector picks a registered glyph variant, which Japanese personal and place names need (for example the one-dot form of 辻 in a surname). A run of two or more selectors, or a selector on anything that is not an ideograph, still blocks, because that is how a byte-per-selector payload is carried.
 
-A hit is blocked with `403 { "error": "prompt injection detected", "stage": "ascii-smuggling", … }`; the **decoded** hidden instruction is surfaced in the event so an operator can see exactly what was concealed. Events appear on the dashboard under the **ASCII Smuggling** badge with an `ascii-smuggling` stage chip.
+A hit is blocked with `422 { "error": "prompt injection detected", "stage": "ascii-smuggling", … }`; the **decoded** hidden instruction is surfaced in the event so an operator can see exactly what was concealed. Events appear on the dashboard under the **ASCII Smuggling** badge with an `ascii-smuggling` stage chip.
 
 ### Configuration
 

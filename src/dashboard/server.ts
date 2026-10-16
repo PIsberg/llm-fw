@@ -2,7 +2,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
-import { Config } from '../types.js'
+import { Config, PipelineResult } from '../types.js'
 import { deepMerge } from '../config/config.js'
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
@@ -18,6 +18,7 @@ import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
+import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('dashboard');
@@ -36,6 +37,12 @@ const HTML = `<!DOCTYPE html>
   /* Header */
   .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .header h1 { font-size: 1.25rem; font-weight: 700; }
+  .events-filter { width: 100%; max-width: 420px; padding: 6px 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85rem; }
+  .mode-chips { display: flex; gap: 8px; }
+  .mode-chip { font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; cursor: help; }
+  .mode-chip.observe { background: #fff3e0; color: #e65100; border: 1px solid #e65100; }
+  .mode-chip.sinkhole { background: #e3f2fd; color: #1565c0; border: 1px solid #1565c0; }
+  .mode-chip.gateway { background: #ede7f6; color: #4527a0; border: 1px solid #4527a0; }
   .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4caf50; margin-right: 6px; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
@@ -257,6 +264,10 @@ const HTML = `<!DOCTYPE html>
   .tlog-drawer dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 0.82rem; }
   .tlog-drawer dt { color: #888; white-space: nowrap; }
   .tlog-drawer dd { font-family: monospace; word-break: break-all; }
+  .insp-badge { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .insp-yes { background: #e8f5e9; color: #2e7d32; border: 1px solid #2e7d32; }
+  .insp-no { background: #f5f5f5; color: #616161; border: 1px solid #9e9e9e; }
+  .insp-legend { color: #666; font-size: 0.82rem; margin: 4px 0 12px; }
   .tlog-body-box { font-family: monospace; font-size: 0.8rem; background: #1e1e1e; color: #d4d4d4;
     padding: 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all;
     max-height: 320px; overflow-y: auto; line-height: 1.5; }
@@ -295,6 +306,7 @@ const HTML = `<!DOCTYPE html>
 <div class="container">
   <div class="header">
     <h1><span class="live-dot"></span>LLM Firewall Dashboard</h1>
+    <div id="mode-chips" class="mode-chips"></div>
   </div>
 
   <div class="stats">
@@ -319,10 +331,12 @@ const HTML = `<!DOCTYPE html>
     <button class="tab-btn active" onclick="showTab('events', this)">Events</button>
     <button class="tab-btn" onclick="showTab('playground', this)">Prompt Testing</button>
     <button class="tab-btn" onclick="showTab('traffic', this)">Live Traffic</button>
+    <button class="tab-btn" onclick="showTab('mcp', this)">MCP Traffic <span id="mcp-count">0</span></button>
     <button class="tab-btn" onclick="showTab('settings', this)">Settings</button>
   </div>
 
   <div id="tab-events" class="tab-panel active">
+    <input id="events-filter" class="events-filter" type="search" placeholder="Filter by event ID, endpoint, target or payload" oninput="filterEvents(this.value)">
     <div class="table-wrap">
       <table id="events-table">
         <thead>
@@ -341,6 +355,20 @@ const HTML = `<!DOCTYPE html>
         <tbody id="events-body">
           <tr id="no-events"><td colspan="9" id="no-events-cell">No events yet.</td></tr>
         </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-mcp" class="tab-panel">
+    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">MCP and tool-use traffic that passed every check: the tools each request exposed to the model. Blocks and warnings stay in Events.</p>
+    <div class="table-wrap">
+      <table id="mcp-table">
+        <thead>
+          <tr>
+            <th>Action</th><th>Time</th><th>Stage</th><th>Endpoint</th><th>Target</th><th>Score</th><th>Similarity</th><th>Detection Detail</th><th>Payload</th>
+          </tr>
+        </thead>
+        <tbody id="mcp-body"></tbody>
       </table>
     </div>
   </div>
@@ -427,7 +455,10 @@ const HTML = `<!DOCTYPE html>
         <div class="stat"><div class="stat-label">Total Sent</div><div class="stat-value" id="t-sent">—</div></div>
         <div class="stat"><div class="stat-label">Total Received</div><div class="stat-value" id="t-recv">—</div></div>
         <div class="stat"><div class="stat-label">Req / sec</div><div class="stat-value" id="t-rps">0</div></div>
+        <div class="stat" title="Connections to a target AI host: TLS-intercepted and scanned"><div class="stat-label">Inspected</div><div class="stat-value saved" id="t-inspected">0</div></div>
+        <div class="stat" title="Connections to any other host: tunneled end-to-end, never decrypted or scanned"><div class="stat-label">Not inspected</div><div class="stat-value" id="t-tunneled">0</div></div>
       </div>
+      <p class="insp-legend">Only hosts in <code>targets</code> / <code>interceptDomains</code> are decrypted and scanned. Every other connection is a <b>Not inspected</b> tunnel: llm-fw sees its host and byte counts, never its contents.</p>
       <div class="chart-card">
         <div class="chart-card-title">Throughput — Bytes / sec (last 60 s)</div>
         <canvas id="traffic-canvas" height="100"></canvas>
@@ -439,7 +470,7 @@ const HTML = `<!DOCTYPE html>
       <div class="tlog-wrap">
         <div class="tlog-title">Recent Connections <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#999">— click a row for full request details</span></div>
         <table class="tlog">
-          <thead><tr><th>Time</th><th>From IP</th><th>Service</th><th>Host</th><th>Request</th><th>Sent</th><th>Received</th></tr></thead>
+          <thead><tr><th>Time</th><th>From IP</th><th>Inspection</th><th>Service</th><th>Host</th><th>Request</th><th>Sent</th><th>Received</th></tr></thead>
           <tbody id="tlog-body"></tbody>
         </table>
       </div>
@@ -604,6 +635,7 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section">' +
         '<h4>Request</h4>' +
         '<dl class="meta-grid">' +
+          '<dt>Event ID</dt><dd>' + esc(id) + '</dd>' +
           '<dt>Target</dt><dd>' + esc(ev.target) + '</dd>' +
           '<dt>Method</dt><dd>' + esc(ev.method) + '</dd>' +
           '<dt>Path</dt><dd>' + esc(ev.path) + '</dd>' +
@@ -628,7 +660,7 @@ function toggleDrawer(id, ev) {
         '<h4>Nearest Attack Template</h4>' + nearestHtml +
       '</div>' +
       '<div class="drawer-section drawer-full">' +
-        '<button class="btn" id="wl-btn-' + esc(id) + '">Mark as false positive</button>' +
+        '<button class="btn" id="wl-btn-' + esc(id) + '" title="Records the event in whitelist.json for review. It does not change what future requests get">Record as false positive (audit only)</button>' +
         '<span id="wl-status-' + esc(id) + '" style="margin-left:12px;font-size:0.82rem;color:#388e3c"></span>' +
         (ev.action === 'blocked'
           ? '<button class="btn" id="fp-btn-' + esc(id) + '" style="margin-left:12px" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
@@ -701,9 +733,21 @@ async function whitelistEvent(id, btn) {
 const tbody = document.getElementById('events-body');
 const noEventsRow = document.getElementById('no-events');
 
+// Events lists findings only (#337). A passed event is inventory, not a
+// finding: MCP tool listings arrive on every agent request and buried the
+// blocks and warns, and they counted in the Total and MCP tiles. They go to
+// the MCP Traffic tab and count only there.
+const mcpBody = document.getElementById('mcp-body');
+let mcpCount = 0;
 function appendRow(ev) {
-  if (noEventsRow && noEventsRow.parentNode) noEventsRow.parentNode.removeChild(noEventsRow);
-  updateStats(ev);
+  const isPassed = ev.action === 'passed';
+  const body = isPassed ? mcpBody : tbody;
+  if (isPassed) {
+    document.getElementById('mcp-count').textContent = String(++mcpCount);
+  } else {
+    if (noEventsRow && noEventsRow.parentNode) noEventsRow.parentNode.removeChild(noEventsRow);
+    updateStats(ev);
+  }
 
   const actionBadge = isObservedBlock(ev)
     ? '<span class="badge badge-observed" title="Observe mode: recorded, not refused">WOULD BLOCK</span>'
@@ -726,8 +770,41 @@ function appendRow(ev) {
     '<td class="payload-preview" title="Click row to expand">' + esc((ev.payload_preview || '').slice(0, 60)) + (ev.payload_preview && ev.payload_preview.length > 60 ? '…' : '') + '</td>';
 
   tr.onclick = () => toggleDrawer(ev.id, ev);
-  tbody.insertBefore(tr, tbody.firstChild);
-  while (tbody.rows.length > 200) tbody.deleteRow(tbody.rows.length - 1);
+  tr.dataset.search = [ev.id, ev.method, ev.path, ev.target, ev.stage, ev.payload_preview].join(' ').toLowerCase();
+  body.insertBefore(tr, body.firstChild);
+  while (body.rows.length > 200) body.deleteRow(body.rows.length - 1);
+  applyFilter(tr);
+  if (ev.id && ev.id === deepLinkEventId()) openDeepLinkedEvent(tr, ev);
+}
+
+// #319: a blocked client is told to open /#event=<id>. The event arrives
+// with the SSE replay, so the drawer opens when its row does, once per load.
+let deepLinkOpened = null;
+function deepLinkEventId() {
+  const m = /^#event=(.+)$/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+function openDeepLinkedEvent(tr, ev) {
+  if (deepLinkOpened === ev.id) return;
+  deepLinkOpened = ev.id;
+  showTab('events', document.querySelector('.tab-btn'));
+  if (!document.getElementById('drawer-' + ev.id)) toggleDrawer(ev.id, ev);
+  tr.scrollIntoView({ block: 'center' });
+}
+window.addEventListener('hashchange', () => {
+  const id = deepLinkEventId();
+  const tr = id && document.getElementById('row-' + id);
+  if (tr) tr.click();
+});
+
+// Filter the Events table by id, endpoint, target, stage or payload.
+let eventsFilter = '';
+function applyFilter(tr) {
+  tr.style.display = !eventsFilter || (tr.dataset.search || '').includes(eventsFilter) ? '' : 'none';
+}
+function filterEvents(value) {
+  eventsFilter = String(value || '').trim().toLowerCase();
+  document.querySelectorAll('#events-body tr.event-row').forEach(applyFilter);
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
@@ -736,7 +813,35 @@ const es = new EventSource('/events');
 // table: no duplicated rows after a dropped connection, and no rows left over
 // from before a restart whose "Mark false positive" the server cannot honour.
 // The tiles count the same replay, so they start from zero too.
-es.onopen = () => { tbody.replaceChildren(); resetStats(); loadModuleStats(); };
+es.onopen = () => {
+  tbody.replaceChildren(); mcpBody.replaceChildren(); mcpCount = 0;
+  document.getElementById('mcp-count').textContent = '0';
+  resetStats(); loadModuleStats(); loadModeChips();
+};
+
+// How this process was started (#338): --observe, the sinkhole and the gateway
+// change what the firewall does to every client on the machine, so they are
+// shown above everything else rather than discovered in Settings.
+async function loadModeChips() {
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const s = await res.json();
+    const chips = [];
+    if (s.enforcement === 'observe') chips.push(['observe', 'Observe mode: nothing is blocked', 'Every detector runs and would-be blocks are recorded, but no request is refused. Restart without --observe to enforce.']);
+    if (s.sinkhole) chips.push(['sinkhole', 'Sinkhole active', 'Provider hostnames resolve to this machine (hosts file plus a :443 redirect), so Node.js and native clients are inspected without HTTPS_PROXY. llm-fw stop or uninstall restores them.']);
+    if (s.gatewayUrl) chips.push(['gateway', 'Gateway ' + s.gatewayUrl, 'Reverse-proxy endpoint: point an SDK base_url here.']);
+    const box = document.getElementById('mode-chips');
+    box.replaceChildren(...chips.map(([cls, text, tip]) => {
+      const el = document.createElement('span');
+      el.className = 'mode-chip ' + cls;
+      el.textContent = text;
+      el.title = tip;
+      return el;
+    }));
+  } catch (_) {}
+}
+loadModeChips();
 es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 es.addEventListener('module', e => {
   try {
@@ -857,7 +962,7 @@ const PNG_1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
 
 function badgeHtml(action) {
   const a = (action || 'PASS').toUpperCase();
-  const cls = (a === 'BLOCK' || a === 'BLOCKED') ? 'BLOCK'
+  const cls = (a === 'BLOCK' || a === 'BLOCKED' || a === 'WOULD BLOCK') ? 'BLOCK'
     : (a === 'WARN' || a === 'WARNED' || a === 'REDACT') ? 'WARN' : 'PASS';
   return '<span class="pg-badge pg-badge-' + cls + '">' + esc(a) + '</span>';
 }
@@ -979,7 +1084,9 @@ function onImageFile(input) {
 }
 
 function renderPipeline(d) {
-  const action = (d.action || 'PASS').toUpperCase();
+  // enforced === false: observe mode, so the block is recorded, not refused (#318).
+  const wouldBlock = d.enforced === false && d.action === 'block';
+  const action = wouldBlock ? 'WOULD BLOCK' : (d.action || 'PASS').toUpperCase();
   let judgeStatus;
   if (d.verdict) judgeStatus = d.verdict;
   else if (!d.judgeEnabled) judgeStatus = 'disabled — run llm-fw setup-judge to enable';
@@ -1002,7 +1109,8 @@ function renderPipeline(d) {
     : '';
 
   return '<div class="pg-verdict">Verdict: ' + badgeHtml(action) +
-      (d.stage && d.stage !== 'none' ? ' <span style="font-size:0.8rem;color:#666">— stage: ' + esc(d.stage) + '</span>' : '') + '</div>' +
+      (d.stage && d.stage !== 'none' ? ' <span style="font-size:0.8rem;color:#666">— stage: ' + esc(d.stage) + '</span>' : '') +
+      (wouldBlock ? ' <span style="font-size:0.8rem;color:#e65100">(observe mode: recorded, not refused; enforcing would block it)</span>' : '') + '</div>' +
     '<div class="pg-stages">' +
       '<div class="pg-stage"><h3>Stage 1 — Heuristic</h3><div class="val">' +
         (d.score != null ? 'Score: ' + Number(d.score).toFixed(1) : 'Score: n/a') + '</div><div class="sub">' +
@@ -1056,7 +1164,7 @@ function renderImage(d) {
   // stage breakdown (which includes the verdict). For opaque-only media the
   // pipeline has nothing to score, so render just the verdict + media card.
   if (d.media && d.media.scannedCount) return renderPipeline(d) + card;
-  const action = (d.action || 'PASS').toUpperCase();
+  const action = d.enforced === false && d.action === 'block' ? 'WOULD BLOCK' : (d.action || 'PASS').toUpperCase();
   const verdict = '<div class="pg-verdict">Verdict: ' + badgeHtml(action) +
     (d.stage && d.stage !== 'none' ? ' <span style="font-size:0.8rem;color:#666">— stage: ' + esc(d.stage) + '</span>' : '') + '</div>';
   return verdict + card;
@@ -1391,7 +1499,7 @@ loadSettings();
 const CHART_LEN = 60;
 let chartHead = Math.floor(Date.now() / 1000);
 const chartData = Array.from({length: CHART_LEN}, () => ({sent:0, recv:0, n:0}));
-const tStats = {conn:0, sent:0, recv:0};
+const tStats = {conn:0, sent:0, recv:0, inspected:0, tunneled:0};
 const svcBytes = {};
 
 function fmtB(b) {
@@ -1417,6 +1525,9 @@ function addTraffic(m) {
     chartData[sec % CHART_LEN].n++;
   }
   tStats.conn++;
+  if (m.inspected) tStats.inspected++; else tStats.tunneled++;
+  document.getElementById('t-inspected').textContent = tStats.inspected;
+  document.getElementById('t-tunneled').textContent = tStats.tunneled;
   tStats.sent += m.bytesSent;
   tStats.recv += m.bytesReceived;
   svcBytes[m.service] = (svcBytes[m.service] || 0) + m.bytesSent + m.bytesReceived;
@@ -1508,7 +1619,7 @@ function toggleTrafficDrawer(id) {
   if (!row) return;
   row.classList.add('selected');
   row.insertAdjacentHTML('afterend',
-    '<tr class="tlog-drawer-row" id="tdrawer-' + id + '"><td colspan="7">' + renderTrafficDrawer(m) + '</td></tr>');
+    '<tr class="tlog-drawer-row" id="tdrawer-' + id + '"><td colspan="8">' + renderTrafficDrawer(m) + '</td></tr>');
 }
 
 function addTlogRow(m) {
@@ -1520,6 +1631,10 @@ function addTlogRow(m) {
   tr.innerHTML =
     '<td>' + esc(m.timestamp || '') + '</td>' +
     '<td class="ip-cell">' + esc(m.fromIp || 'unknown') + '</td>' +
+    // #336: say outright whether llm-fw saw the contents.
+    '<td>' + (m.inspected
+      ? '<span class="insp-badge insp-yes" title="TLS intercepted: the request was decrypted and scanned">Inspected</span>'
+      : '<span class="insp-badge insp-no" title="Passthrough tunnel: encrypted end to end, never decrypted or scanned">Not inspected</span>') + '</td>' +
     '<td><span class="svc-badge ' + cls + '">' + esc(m.service) + '</span></td>' +
     '<td>' + esc(m.host) + '</td>' +
     '<td>' + reqSummary(m) + '</td>' +
@@ -1918,6 +2033,14 @@ const AUTH_EXEMPT_PATHS = new Set(['/ca.crt', '/ca.pem', '/crl'])
 // they were part of this module's surface before the move.
 export { isLoopbackAddr, tokenMatches } from '../auth.js'
 
+// The playground answers "would this be blocked?". Under observe mode the
+// pipeline downgrades a block to warn so nothing is refused, and marks it
+// enforced: false; report the underlying verdict instead of the downgrade
+// (#318), and keep the flag so the UI can say it is not enforced.
+function playgroundVerdict(result: PipelineResult): PipelineResult {
+  return result.enforced === false ? { ...result, action: 'block' } : result
+}
+
 /** Pull a presented token from Authorization (Bearer/Basic), ?token=, in that order. */
 export function presentedToken(req: http.IncomingMessage, url: URL): string {
   return credentialFromAuthHeader(req.headers.authorization) || (url.searchParams.get('token') ?? '')
@@ -2066,6 +2189,22 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))
       })
+      return
+    }
+
+    // What this process started (#338). The runtime record is written by
+    // `llm-fw start` (src/cli/runtimeState.ts) and trusted only for this pid;
+    // enforcement comes from live config, which is authoritative in-process.
+    if (req.method === 'GET' && path === '/api/status') {
+      const state = readRuntimeState(getLlmFwDir(), process.pid)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        enforcement: config.enforcement === 'observe' ? 'observe' : 'enforce',
+        sinkhole: state?.sinkhole ?? false,
+        gatewayUrl: state?.gatewayUrl ?? null,
+        proxyUrl: state?.proxyUrl ?? null,
+        startedAt: state?.startedAt ?? null,
+      }))
       return
     }
 
@@ -2220,9 +2359,17 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               }
             }
             const opaque = blocks.filter(b => !b.text)
+            // #334: in audit mode the pipeline forwards opaque media (verdict
+            // pass) and raises a warn event. The playground reports what an
+            // operator sees in Events, a warning, rather than a bare PASS.
+            const auditedOpaque = imageResult.action === 'pass' && opaque.length > 0
+              && (config.nonText?.enabled ?? false) && (config.nonText?.mode ?? 'audit') === 'audit'
+            const verdict: PipelineResult = auditedOpaque
+              ? { ...imageResult, action: 'warn', stage: 'non-text' }
+              : playgroundVerdict(imageResult)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({
-              ...imageResult,
+              ...verdict,
               category: 'image',
               judgeEnabled: config.detection.judgeEnabled,
               nonTextEnabled: config.nonText?.enabled ?? false,
@@ -2349,7 +2496,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           )
           metricsRegistry.recordScan('playground', Date.now() - textScanStart)
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ ...result, judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
+          res.end(JSON.stringify({ ...playgroundVerdict(result), judgeEnabled: config.detection.judgeEnabled, category: category ?? 'injection' }))
         } catch (err) {
           log.error('/api/test handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })

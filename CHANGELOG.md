@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The dashboard header shows how the firewall is running (#338).** Chips for
+  **Observe mode: nothing is blocked**, **Sinkhole active** and the gateway URL, read from the
+  new `GET /api/status` (enforcement, sinkhole, gateway and proxy URLs, start time). The sinkhole
+  redirects every Node.js and native client on the machine, and nothing on the dashboard said so.
 - **Gateway modules, and an opt-in Token Pruner / Cost Optimizer (#340).** Request bodies
   for LLM endpoints now pass through a module pipeline (`src/modules/`) on the proxy and the
   gateway, before DLP and detection, so both scan what is forwarded. A module that throws is
@@ -21,8 +25,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a page refresh. Under observe mode it is a dry run and reports what it would have
   saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
 
+### Security
+
+- **The node-forge advisory's "not reachable" claim is now enforced (#254).** node-forge
+  `<= 1.4.0` (Dependabot #57, high, still no patched release) mis-verifies RSA PKCS#1 v1.5
+  signatures; llm-fw only signs and parses with forge. `test/proxy/forge-advisory.test.ts` fails
+  if a file importing node-forge calls a forge verification API, and `SECURITY.md` records the
+  assessment. The adm-zip advisory from the same issue no longer applies: it now resolves to
+  0.6.1.
+
+### Changed
+
+- **A content refusal answers `422`, not `403` (#304).** Claude Code reports every 403 as
+  "Failed to authenticate. API Error: 403", so a blocked prompt read as a credentials problem.
+  Measured against Claude Code 2.1.301 with a loopback mock: 422 shows "API Error: 422" and the
+  llm-fw explanation, in one request (400 is retried once, 409 eight times). Applies to
+  detection, DLP, MCP, taint, URL-path and response-side refusals on the proxy and gateway;
+  the body is unchanged. **Breaking for clients that match on 403:** set `blockStatus: 403`
+  (`LLM_FW_BLOCK_STATUS=403`) to keep it. CONNECT-level refusals, auth failures and a tenant's
+  disallowed provider keep their codes.
+- **`npm run verdicts:dump` and `npm run verdicts:diff` (#312).** The row-by-row comparison
+  behind "N of 23,938 eval verdicts changed" now lives in `scripts/` instead of session scratch
+  files. First use: the transformers 4.3 drift that keeps llm-fw on 4.2.x is onnxruntime's
+  alone. transformers 4.3.1 with `onnxruntime-node` held at 1.24.3 moved 0 of 23,938 verdicts;
+  with its own 1.30.0 it moved 10, the same rows #278 reported.
+- **CI proves llm-fw works under npm 12's install-time defaults (#330).** npm 12 runs no
+  dependency install scripts unless allowed. A new job installs the packed tarball with
+  `--ignore-scripts` and runs `scripts/smoke-installed.mjs` against it: an attack blocks, a
+  benign prompt passes with a non-zero embedding similarity, so the ONNX stage loaded. Verified
+  locally on Windows the same way (similarity 0.734). Publishing already uses trusted publishing
+  (OIDC), the other half of the npm change, so no 2FA-bypass token is involved.
+- **CI runs the CLI suite on Windows (#323).** A `windows-latest` job runs `test/cli/` (so its
+  `it.runIf(win32)` cases execute) and registers, queries and removes the Task Scheduler task
+  unelevated. Four Windows-only CLI defects had been found by hand in one live test, none of
+  them visible to the ubuntu-only CI.
+- **`llm-fw uninstall` keeps what you authored (#322).** It used to delete `config.json`
+  (hand-tuned settings) and `whitelist.json` even with `--keep-model`, while keeping
+  `suppressions.json`, so the two false-positive stores were treated oppositely and a reinstall
+  lost every setting. It now removes what makes the machine intercept traffic (the CA, PID and
+  runtime state, the model cache, and the `proxy.mode` key setup wrote, which a later `start`
+  would act on) and keeps your other settings, both false-positive stores, the audit log and the
+  licence. The new `--purge` deletes everything except the licence key.
+
 ### Fixed
 
+- **OpenAI Realtime sessions work through the proxy, and their audio is scanned (#270).** The
+  proxy's TLS interception had no WebSocket handler, so every handshake to an inspected host
+  was dropped and a Realtime session could not connect at all. `/v1/realtime` is now relayed:
+  a committed audio turn is held and scanned like an `input_audio` part (`nonText.transcribe`
+  and `nonText.mode` apply), user text is scanned as a prompt and `function_call_output` as a
+  tool result, and with server-side voice activity detection every 15 s of audio is scanned as
+  it streams (a block then ends the session). A block sends an `error` event
+  (`code: "llm_fw_blocked"`) and closes with 1008. Other WebSocket paths answer 501. Found
+  while building it and fixed: a finished session would have leaked its upstream connection,
+  because a disconnecting client only emits `end` on the half-open socket. After review, every
+  text event also goes through DLP, user items in `response.create` input are scanned, and a
+  binary or non-JSON message ends the session instead of being forwarded unread. The gateway
+  and Gemini Live are #344.
+- **Documented: a JSON-escaped `\n` in a nested tool result is not a clause boundary for the
+  indirect-instruction rule (#314).** Both cheap fixes were measured on real Claude Code tool
+  results and rejected (852 to 895 and 870 to 895 flagged, the additions benign git/gh output);
+  `docs/guides/detection-stages.md` now says so instead of leaving it in an issue.
+- **Prompt Testing's "Opaque image" example showed PASS (#334).** In the default audit mode an
+  opaque image is forwarded and raises a warn event, and the playground showed the pipeline's
+  pass verdict beside it. `/api/test` now reports `action: "warn"`, `stage: "non-text"` for
+  opaque media forwarded under audit, matching the Events tab. What the proxy and gateway
+  forward is unchanged.
+- **The URL filter's DGA check never fired on a realistic generated domain (#335).** The
+  Prompt Testing example `https://x7f9q2k8z1p3v6w4.com/collect` passed. The check was Shannon
+  entropy at 4.8 bits, which an n-character label cannot exceed log2(n) of, so it needed about
+  28 characters; that label has 16 and scores 4.0. The registrable label is now also refused
+  when it interleaves letters and digits (6+ switches, 3+ of each, 12+ characters) with vowels
+  at most 20% of the letters. On the Tranco top 1M the filter blocks 180 hosts instead of 18;
+  the 162 added are all hash- or random-named. Subdomains are not screened this way, so
+  CloudFront and S3 hosts are unaffected.
+- **A block's false-positive instructions can now be followed (#319).** The 403 body said to
+  open `/#events`, find the event and mark it "not an attack": the link selected nothing, the
+  table had no way to find an id, and no button had that label. It now gives
+  `<dashboard>/#event=<id>`, which opens that event's drawer, and names the button that works,
+  "Mark false positive (suppress future matches)". The Events tab gained a filter box (id,
+  endpoint, target, payload) and the drawer shows the event id. The audit-only button is now
+  labelled **Record as false positive (audit only)**, since it never unblocked anything.
+- **Prompt Testing under `--observe` showed WARN for a prompt enforcement blocks (#318).** The
+  playground took the observe-mode downgrade as its verdict. `/api/test` now returns the
+  underlying `action: "block"` with `enforced: false`, and the playground shows **WOULD BLOCK**.
+  What the proxy, gateway and `createFirewall().scan()` enforce is unchanged.
+- **Live Traffic says which connections were inspected (#336).** Every connection now has an
+  **Inspected** or **Not inspected** label and the tab counts both, with a line explaining that
+  only `targets` / `interceptDomains` hosts are decrypted. Before, a tunnel was told apart only
+  by the grey "encrypted tunnel" text in the Request column.
+- **The Events feed shows only blocks and warnings (#337).** Passed MCP inventory events
+  ("Exposed 14 tools to LLM") arrived on every agent request, buried the findings, and counted
+  in the Total and MCP / Tool Use tiles as if they were findings. They now have their own
+  **MCP Traffic** tab and count only there.
+- **`llm-fw status` and `llm-fw doctor` now say how the running process was started (#320).**
+  A process started with `--observe` or `--gateway` used to look exactly like a plain one,
+  because those flags exist only in its memory. `start` now records its enforcement, listener
+  URLs and sinkhole state in `<LLM_FW_DIR>/llm-fw.state.json`; `status` prints
+  `Enforcement: observe (nothing is blocked)` and the gateway URL, and `doctor` warns on observe.
+  `stop` and `uninstall` remove the file.
+- **A suppression's `addedAt` was local time with a `Z` suffix (#321).** On a UTC+2 machine a
+  suppression added at 12:10 UTC read `14:10:15Z`. It is now UTC, like event and whitelist
+  timestamps.
 - **A dashboard toggle under `start --observe` made the firewall enforce less after the next
   restart.** Saving any setting wrote a snapshot of the whole live config to `config.json`,
   including the stage modes `--observe` relaxes in memory, so `dlp`, `taint`, `manyShot`,

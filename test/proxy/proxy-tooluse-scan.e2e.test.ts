@@ -202,7 +202,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
     blockEvents.length = 0
     const res = await sendProxyRequest(blockConfig.proxy.port, 'api.anthropic.com', upstreamPort, req('secret'))
 
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(422)
     expect(res.body).toContain('tool-call exfiltration guard')
     expect(res.body).not.toContain(AWS_KEY)
     const ev = blockEvents.find(e => e.kind === 'tool-use-exfil')
@@ -225,7 +225,7 @@ describe('Proxy tool-use argument exfiltration scan (E2E)', { timeout: 20000 }, 
     blockEvents.length = 0
     const res = await sendProxyRequest(blockConfig.proxy.port, 'api.anthropic.com', upstreamPort, req('dga'))
 
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(422)
     const ev = blockEvents.find(e => e.kind === 'tool-use-exfil')
     expect(ev).toBeDefined()
     expect(ev!.action).toBe('blocked')

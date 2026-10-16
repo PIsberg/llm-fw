@@ -15,7 +15,7 @@
 
 - 🛡️ **Catches what signatures can't.** A three-stage pipeline — fast heuristics → cross-lingual embeddings → an optional local LLM judge — detects *semantic* attacks by intent, not just known strings.
 - 🌍 **Every major provider, 20+ languages, zero config.** OpenAI, Anthropic, Gemini/Vertex, Azure, Mistral, Groq, and 9 more are covered out of the box — and an injection lands the same whether it's written in English, Urdu, or Thai.
-- ⚡ **Real-time, in-line blocking.** A malicious request is refused with a `403` before it ever leaves your machine. Clean traffic forwards with zero added latency.
+- ⚡ **Real-time, in-line blocking.** A malicious request is refused with a `422` before it ever leaves your machine. Clean traffic forwards with zero added latency.
 - 🔌 **No code changes.** Point `HTTPS_PROXY` at it — or enable the OS-level sinkhole for Node.js and native binaries that ignore proxies — and you're protected.
 - 🏠 **Fully local & private.** No cloud calls, no API keys, no telemetry. Boots in under 2 seconds.
 - 📊 **A dashboard that shows its work.** Watch blocked attempts live, replay any prompt through the pipeline in the playground, audit traffic at `localhost:7731`, and one-click **mark a false positive** so an identical prompt is never blocked again.
@@ -79,7 +79,7 @@ All intercepted requests appear instantly with detection stage, score, and paylo
 
 ### Expanded event detail
 
-Click any row to open the detail drawer: full decoded payload, heuristic match tags, nearest attack template, and request metadata. A **Mark as false positive** button whitelists the event — its payload is appended to `~/.llm-fw/whitelist.json` as an audit trail of benign prompts the detectors flagged (it does not change future pipeline behavior). On a **blocked** event from the `prompt`/`system` surface, a second button — **Mark false positive (suppress future matches)** — does change behavior: it adds the event's normalized-prompt hash to the [suppression list](docs/guides/tuning.md#false-positive-suppression-list), so an identical future prompt is downgraded to a warn instead of blocked again.
+Click any row to open the detail drawer: full decoded payload, heuristic match tags, nearest attack template, and request metadata. A **Record as false positive (audit only)** button whitelists the event — its payload is appended to `~/.llm-fw/whitelist.json` as an audit trail of benign prompts the detectors flagged (it does not change future pipeline behavior). On a **blocked** event from the `prompt`/`system` surface, a second button — **Mark false positive (suppress future matches)** — does change behavior: it adds the event's normalized-prompt hash to the [suppression list](docs/guides/tuning.md#false-positive-suppression-list), so an identical future prompt is downgraded to a warn instead of blocked again. A blocked client is sent a link of the form `http://127.0.0.1:7731/#event=<id>`, which opens that event's drawer directly; the filter box above the table also finds an event by id.
 
 ![Event detail drawer](docs/images/ss-02-event-detail.png)
 
@@ -123,7 +123,7 @@ The proxy inspects the tools being exposed to the LLM (Definitions), intercepted
 
 ## How it works
 
-llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately aborts the connection with a `403 Forbidden` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.
+llm-fw sits between your client and the API using a standard HTTP proxy (`HTTPS_PROXY`). It terminates TLS locally, evaluates the request body **in real-time as it streams in** (using high-speed streaming heuristics), and immediately refuses it with a `422` if an injection attempt is detected. Safe requests proceed to the full three-stage detection pipeline and forward transparently with **zero-latency impact** on safe traffic. All blocked requests are logged and auditable in a local web dashboard at `localhost:7731`.
 
 Detection pipeline:
 1. **Heuristic scoring** — weighted phrase matching (< 1ms) over a multi-candidate normalization pass that defeats spacing/case/homoglyph/leetspeak evasion and decodes base64, base32, ascii85, hex, binary, morse, Caesar, ROT13, URL-encoding, reversed and pig-latin payloads back to plaintext. Covers direct override, persona/DAN jailbreaks, system-prompt exfiltration, payload-splitting, refusal-suppression/override, and affirmative prefix-injection.
@@ -191,10 +191,14 @@ npm install -g llm-fw
 npx llm-fw <command>
 ```
 
-npm 11 skips dependency install scripts by default and warns about two:
-`onnxruntime-node` and `protobufjs`. Both are safe to leave skipped. The
-`onnxruntime-node` script only fetches optional CUDA binaries; the CPU binaries
-llm-fw runs on ship inside the package.
+npm 12 runs no dependency install scripts by default (npm 11.16 and later warn
+about them), and llm-fw needs none. The two you may be warned about,
+`onnxruntime-node` and `protobufjs`, are safe to leave unapproved: the
+`onnxruntime-node` script only fetches optional CUDA binaries on linux/x64, and
+the CPU binaries llm-fw runs on ship inside the package; the `protobufjs` one
+only checks version ranges. CI installs the packed package with
+`--ignore-scripts` on every PR and runs a detection smoke test, the ONNX
+embedding stage included. Nothing needs `npm approve-scripts`.
 
 ---
 

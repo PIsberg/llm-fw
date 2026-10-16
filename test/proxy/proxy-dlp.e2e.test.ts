@@ -131,7 +131,7 @@ describe('Proxy DLP block mode (E2E)', { timeout: 20000 }, () => {
 
   it('blocks a request whose prompt embeds a GitHub token with 403', async () => {
     const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', anthropicBody(GH_TOKEN))
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(422)
     const json = JSON.parse(res.body)
     expect(json.error).toBe('sensitive data detected')
     expect(json.type).toBe('GITHUB_TOKEN')

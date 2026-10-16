@@ -334,6 +334,8 @@ export const DEFAULT_CONFIG: Config = {
       d: true,
     },
   },
+  // Status of a content refusal; see Config.blockStatus (#304).
+  blockStatus: 422,
   // The module pipeline is on; the token pruner is opt-in because it rewrites
   // the prompt text the provider receives.
   modules: {
@@ -677,6 +679,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_WORKER_INFERENCE: (c, v) => { c.detection.workerInference = v === 'true'; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
+  LLM_FW_BLOCK_STATUS: (c, v) => { if (v === '403' || v === '422') c.blockStatus = v === '403' ? 403 : 422; },
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).

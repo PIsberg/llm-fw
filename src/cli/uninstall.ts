@@ -247,25 +247,56 @@ function cleanProjectConfig(): void {
   }
 }
 
-// What uninstall deletes from ~/.llm-fw, with what each file means to the user.
+// What uninstall deletes from ~/.llm-fw (#322), with what each file means to
+// the user. The policy: what makes this machine intercept traffic always
+// goes; what the user authored stays unless --purge; the licence key always
+// stays, since losing it costs a purchase.
 const REMOVED_FILES: ReadonlyArray<readonly [string, string]> = [
-  ['ca.crt', ''], ['ca.key', ''], ['ca.crl', ''], ['llm-fw.pid', ''],
-  ['config.json', 'your settings'],
-  ['whitelist.json', 'events marked "not an attack"'],
+  ['ca.crt', ''], ['ca.key', ''], ['ca.crl', ''], ['llm-fw.pid', ''], ['llm-fw.state.json', ''], ['llm-fw.stop', ''],
 ];
+const PURGED_FILES: ReadonlyArray<readonly [string, string]> = [
+  ['config.json', 'your settings'],
+  ['whitelist.json', 'events recorded as false positives (audit only)'],
+  ['suppressions.json', 'false positives that unblock future matches'],
+  ['audit.jsonl', 'audit log'], ['audit.jsonl.1', 'rotated audit log'],
+  ['ocr-cache', 'OCR cache'],
+];
+
+/**
+ * Remove the `proxy.mode` setup wrote from config.json, keeping every other
+ * setting; delete the file when that was all it held. Left in place, the mode
+ * survives an uninstall and the next `start` acts on it, re-adding the
+ * sinkhole's hosts entries. Returns true when the file changed.
+ */
+export function stripSetupMode(configPath: string): boolean {
+  let parsed: Record<string, unknown>;
+  try { parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>; } catch { return false; }
+  const proxy = parsed.proxy as Record<string, unknown> | undefined;
+  if (!proxy || typeof proxy !== 'object' || !('mode' in proxy)) return false;
+  delete proxy.mode;
+  if (Object.keys(proxy).length === 0) delete parsed.proxy;
+  if (Object.keys(parsed).length === 0) fs.rmSync(configPath, { force: true });
+  else fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf8');
+  return true;
+}
 
 /**
  * Remove the files llm-fw created under ~/.llm-fw, then the dir if it's empty.
  * Reports each file it removed and each one it left, so a surviving ~/.llm-fw
- * (licence key, audit log, suppressions) is explained rather than discovered.
+ * (licence key, settings, audit log, suppressions) is explained rather than
+ * discovered.
  */
-export function removeLlmfwFiles(llmfwDir: string, keepModel: boolean): void {
+export function removeLlmfwFiles(llmfwDir: string, opts: { keepModel: boolean; purge: boolean }): void {
   const removed: string[] = [];
-  for (const [f, meaning] of REMOVED_FILES) {
+  for (const [f, meaning] of opts.purge ? [...REMOVED_FILES, ...PURGED_FILES] : REMOVED_FILES) {
     const p = join(llmfwDir, f);
     if (!fs.existsSync(p)) continue;
-    try { fs.rmSync(p, { force: true }); removed.push(meaning ? `${f} (${meaning})` : f); } catch { /* ignore */ }
+    try { fs.rmSync(p, { recursive: true, force: true }); removed.push(meaning ? `${f} (${meaning})` : f); } catch { /* ignore */ }
   }
+  if (!opts.purge && stripSetupMode(join(llmfwDir, 'config.json'))) {
+    removed.push('proxy.mode from config.json (the mode setup chose; your other settings are kept)');
+  }
+  const keepModel = opts.keepModel;
   if (!keepModel && fs.existsSync(join(llmfwDir, 'models'))) {
     try { fs.rmSync(join(llmfwDir, 'models'), { recursive: true, force: true }); removed.push('models/ (model cache)'); } catch { /* ignore */ }
   }
@@ -370,14 +401,17 @@ function removeIdeProxySettings(): void {
 export async function run(args: string[]): Promise<void> {
   const yes = args.includes('--yes') || args.includes('-y');
   const keepModel = args.includes('--keep-model');
+  const purge = args.includes('--purge');
 
   const config = await loadConfig();
   const llmfwDir = getLlmFwDir();
   const elevated = isElevated();
 
   console.log('llm-fw uninstall — this reverses every change made by setup:');
-  console.log('  • removes the root CA from the OS trust store, and the CA, your settings');
-  console.log('    (config.json) and events marked "not an attack" from ~/.llm-fw');
+  console.log('  • removes the root CA from the OS trust store, and the CA from ~/.llm-fw');
+  console.log(purge
+    ? '  • --purge: also deletes your settings, false-positive lists and audit log (keeps the licence key)'
+    : '  • keeps your settings, false-positive lists, audit log and licence key (--purge deletes all but the licence)');
   console.log('  • restores the hosts file and removes the :443 port redirect (sinkhole)');
   console.log('  • removes judge settings written to .llm-fw.json');
   console.log(keepModel ? '  • keeps the cached embedding model' : '  • deletes the cached embedding model');
@@ -406,7 +440,7 @@ export async function run(args: string[]): Promise<void> {
 
   // 3. Local files.
   cleanProjectConfig();
-  removeLlmfwFiles(llmfwDir, keepModel);
+  removeLlmfwFiles(llmfwDir, { keepModel, purge });
   removeEnvVars();
   removeIdeProxySettings();
 

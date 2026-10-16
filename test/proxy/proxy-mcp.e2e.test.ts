@@ -217,7 +217,7 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
       tools: [{ name: 'execute_command', input_schema: { type: 'object', properties: {} } }],
       messages: [{ role: 'user', content: 'hi' }],
     }))
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(422)
     expect(JSON.parse(res.body).error).toContain('blocked by policy')
     expect(upstreamHits).toBe(before) // request never forwarded
     expect(mcpEvents().some((e) => e.action === 'blocked' && e.payload_preview.includes('tool definition'))).toBe(true)

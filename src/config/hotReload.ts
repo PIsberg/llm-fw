@@ -152,6 +152,7 @@ const HOT_PATHS: Path[] = [
   ['responseScan', 'classifier', 'enabled'],
   ['responseScan', 'toolUse', 'enabled'],
   ['responseScan', 'toolUse', 'mode'],
+  ['blockStatus'],
   ['modules', 'enabled'],
   ['modules', 'tokenPruner', 'enabled'],
 ]

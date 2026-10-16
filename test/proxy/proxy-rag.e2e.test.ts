@@ -134,7 +134,7 @@ describe('Proxy RAG context-poisoning (E2E)', { timeout: 20000 }, () => {
 
     const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body)
 
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(422)
     const json = JSON.parse(res.body)
     expect(json.error).toBe('prompt injection detected')
     expect(json.stage).toBe('rag')

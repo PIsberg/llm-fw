@@ -254,8 +254,10 @@ export class Pipeline {
     // meta.enforcement lets ONE request observe while the deployment enforces:
     // the gateway passes it per tenant, so a newly onboarded team can watch its
     // own false positives without the firewall being turned down for everyone.
+    // `enforced: false` marks the downgrade, so a caller that reports verdicts
+    // (the playground, #318) can tell a would-be block from a genuine warn.
     if (isObserving(this.config.enforcement, meta.enforcement) && result.action === 'block') {
-      return { ...result, action: 'warn' }
+      return { ...result, action: 'warn', enforced: false }
     }
     return result
   }

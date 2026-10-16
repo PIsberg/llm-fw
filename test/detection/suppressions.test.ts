@@ -118,3 +118,23 @@ describe('SuppressionStore', () => {
     expect(b.list().map(e => e.preview).sort()).toEqual(['first', 'second'])
   })
 })
+
+/**
+ * addedAt used to be local wall-clock time with a Z suffix: on a UTC+2 machine
+ * a suppression added at 12:10 UTC read 14:10:15Z (seen live 2026-10-12, #321).
+ * CI runs in UTC, where the two agree, so the zone is forced here.
+ */
+describe('SuppressionStore addedAt', () => {
+  const origTz = process.env.TZ
+  beforeEach(() => { process.env.TZ = 'Asia/Tokyo' })
+  afterEach(() => {
+    if (origTz === undefined) delete process.env.TZ
+    else process.env.TZ = origTz
+  })
+
+  it('is the UTC time its Z suffix claims', () => {
+    const entry = new SuppressionStore().add(`utc check ${Math.random()}`)
+    expect(entry.addedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z$/)
+    expect(Math.abs(Date.parse(entry.addedAt.replace(' ', 'T')) - Date.now())).toBeLessThan(5_000)
+  })
+})

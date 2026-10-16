@@ -452,6 +452,7 @@ image).
 | `license.key`, `license-offline.lfw` | Yes | Your licence |
 | `audit.jsonl`, `audit.jsonl.1` | Ship it, do not back it up | Rotating log; send it to a SIEM |
 | `llm-fw.pid` | No | Recreated at start |
+| `llm-fw.state.json` | No | Recreated at start |
 | `models/` | No | Re-downloadable cache |
 
 `ca.key` is the sensitive one. Anyone holding it can mint a certificate that
@@ -601,7 +602,8 @@ the start, but **your internal hosts are not in that list**. Without them, a
 client sends all of its HTTPS traffic across the network to your server.
 Non-provider hosts are tunneled without decryption, but they still transit the
 box and still pass the URL filter, which blocks on high-entropy hostname labels
-and can therefore refuse some legitimate hashed CDN hosts. Give clients an
+and on generated-looking (DGA) registrable domains, and can therefore refuse some
+legitimate hashed CDN hosts; `proxy.urlFilter.allowlistDomains` exempts them. Give clients an
 exclusion list, and prefer scoping the proxy variable to the shells that need it
 over exporting it globally.
 

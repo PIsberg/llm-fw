@@ -376,7 +376,7 @@ export class GatewayServer {
         });
         if (mode === 'block') {
           return {
-            blocked: true, status: 403,
+            blocked: true, status: this.config.blockStatus ?? 422,
             body: explainGate({
               eventId: event.id, error: 'sensitive data detected',
               stage: 'dlp', kind: 'dlp', detail: types.join(', '), dashboardUrl,
@@ -429,7 +429,7 @@ export class GatewayServer {
       log.error(`pipeline error on ${method} ${path}: ${message}`);
       if (failOpen) return { blocked: false, body: bodyBuf };
       return {
-        blocked: true, status: 403,
+        blocked: true, status: this.config.blockStatus ?? 422,
         body: explainGate({
           eventId: event.id, error: 'detection unavailable',
           stage: 'none', kind: 'error', detail: message, dashboardUrl,
@@ -441,7 +441,7 @@ export class GatewayServer {
 
     if (result.action === 'block') {
       return {
-        blocked: true, status: 403,
+        blocked: true, status: this.config.blockStatus ?? 422,
         body: explainBlock({ eventId, result, dashboardUrl }),
       };
     }

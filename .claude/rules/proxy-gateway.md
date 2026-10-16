@@ -36,7 +36,7 @@ Rules that must not regress:
 - State-changing dashboard routes keep the JSON content-type plus same-origin
   check.
 - A refusal written before the request body has finished uploading (413, the
-  early 429s, the URL-block 403) drains the
+  early 429s, the URL-path refusal) drains the
   rest with `drainRefusedUpload` in `src/proxy/proxy.ts`. Never
   `innerReq.destroy()` there: it resets a client that is still writing, so it
   never reads the refusal, and Claude Code retried a blocked request 11 times
@@ -65,6 +65,13 @@ that needs a changelog entry, not a cleanup.
   instead of hanging. Do not grow it into a plain-HTTP forward path without
   deciding what that means for the URL filter and for open-relay exposure.
   Pinned by `test/proxy/proxy-plain-http.e2e.test.ts`.
+- **WebSockets: only the OpenAI Realtime API is relayed.** An upgrade to
+  `/v1/realtime` on an inspected host is relayed with its client events
+  scanned (`handleUpgrade` in `src/proxy/proxy.ts`, codec in
+  `src/proxy/websocket.ts`); any other WebSocket path answers 501 rather than
+  being tunnelled unscanned. `Sec-WebSocket-Extensions` is stripped so frames
+  stay readable. The gateway accepts no WebSockets. Pinned by
+  `test/proxy/proxy-realtime.e2e.test.ts`.
 - **`NO_PROXY` is a client-side variable.** Nothing in llm-fw reads it and
   nothing should: it instructs the caller's HTTP stack. The only lever here is
   the default `setup` persists (`DEFAULT_NO_PROXY` in `src/cli/setup.ts`).

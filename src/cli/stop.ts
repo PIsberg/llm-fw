@@ -1,7 +1,8 @@
 import fs from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { getLlmFwDir } from '../config/paths.js';
 import { clearStopRequest, requestStop } from './stopRequest.js';
+import { readRuntimeState, removeRuntimeState } from './runtimeState.js';
 
 export interface StopOptions {
   /** How long to wait for the process to answer the stop request before signalling it. */
@@ -109,8 +110,10 @@ async function waitForExit(pid: number, pidFile: string, timeoutMs: number): Pro
   return false;
 }
 
-/** Remove the pid file only if it still names the process we stopped. */
+/** Remove the pid file, and the runtime state beside it, only if they still name the process we stopped. */
 function removePidFile(pidFile: string, pid: number): void {
+  const dir = dirname(pidFile);
+  if (readRuntimeState(dir, pid)) removeRuntimeState(dir);
   try {
     if (parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10) === pid) fs.unlinkSync(pidFile);
   } catch { /* already gone */ }

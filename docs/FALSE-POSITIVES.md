@@ -60,6 +60,43 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.61
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only adds the
+`blockStatus` default (422) to `src/config/config.ts` (#304): the status a
+refusal is answered with, not whether there is one, so no verdict moves. Not
+re-measured.
+
+## Result, ruleset 2026.10.60
+
+**2.68% overall (9 of 336), unchanged.** This ruleset adds a DGA-label check
+to the URL filter (#335), which the prompt pipeline these rows run through
+does not call. Measured instead on hostnames: of the Tranco top 1M, the URL
+filter blocked 18 before and 180 after; the 162 added are all hash- or
+random-named registrable domains (8 in the top 100k), and 14 hand-picked
+brands that mix letters and digits (`1password`, `x10hosting`,
+`covid19vaccine`, ...) still pass.
+
+## Result, ruleset 2026.10.59
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only rewrites the
+remediation sentence in a block body (#319: a `/#event=<id>` link and the
+exact button label). It is text returned to the client, never scored, so no
+verdict moves. Not re-measured.
+
+## Result, ruleset 2026.10.58
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only marks an observe-mode
+downgrade with `enforced: false` on the pipeline result (#318). The action is
+unchanged (`warn` under observe, `block` otherwise), so no verdict moves. Not
+re-measured.
+
+## Result, ruleset 2026.10.57
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only stamps a
+suppression's `addedAt` in UTC (#321); the field is metadata and never read
+when matching, so no verdict can move. Not re-measured.
+
 ## Result, ruleset 2026.10.56
 
 **2.68% overall (9 of 336), unchanged, on the same rows; Dolly and oasst1 samples

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { platform } from 'node:os';
 import { loadConfig } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
+import { enforcementLine, readRuntimeState } from './runtimeState.js';
 
 export async function run(): Promise<void> {
   await reportStatus();
@@ -10,7 +11,7 @@ export async function run(): Promise<void> {
   // Printed on every path, including the stopped ones. A licence notice you can
   // dodge by not starting the firewall is a licence notice nobody sees.
   const { statusLine, unlicensedBanner } = await import('./license.js');
-  console.log(`  Licence:   ${statusLine()}`);
+  console.log(`  Licence:     ${statusLine()}`);
   for (const line of unlicensedBanner()) console.log(line);
 }
 
@@ -39,11 +40,14 @@ async function reportStatus(): Promise<void> {
     return;
   }
 
+  // What the running process recorded at startup. `--observe` and `--gateway`
+  // exist only in its memory, so config.json alone cannot answer (#320).
+  const state = readRuntimeState(getLlmFwDir(), pid);
   const config = await loadConfig();
 
-  // The proxy always runs; the sinkhole runs additionally when active. Detect it
-  // from config OR the hosts file (covers an elevated setup whose config.json
-  // wasn't written), mirroring how `start` decides.
+  // The proxy always runs; the sinkhole runs additionally when active. Without
+  // a recorded state, detect it from config OR the hosts file (covers an
+  // elevated setup whose config.json wasn't written), mirroring `start`.
   const hostsPath = platform() === 'win32'
     ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
     : '/etc/hosts';
@@ -51,11 +55,13 @@ async function reportStatus(): Promise<void> {
     try { return fs.readFileSync(hostsPath, 'utf8').includes('# llm-fw sinkhole'); }
     catch { return false; }
   })();
-  const sinkholeActive = config.proxy.mode === 'sinkhole' || hostsHasSinkhole;
+  const sinkholeActive = state ? state.sinkhole : config.proxy.mode === 'sinkhole' || hostsHasSinkhole;
 
   console.log(`llm-fw: running`);
-  console.log(`  PID:       ${pid}`);
-  console.log(`  Proxy:     http://127.0.0.1:${config.proxy.port}  — HTTPS_PROXY tools (curl, Python, …)`);
-  console.log(`  Sinkhole:  ${sinkholeActive ? 'active — Node.js & native tools (Claude Code, SDKs, …)' : 'off — run "llm-fw setup" elevated to enable'}`);
-  console.log(`  Dashboard: http://127.0.0.1:${config.dashboard.port}`);
+  console.log(`  PID:         ${pid}`);
+  console.log(`  Enforcement: ${enforcementLine(state)}`);
+  console.log(`  Proxy:       ${state?.proxyUrl ?? `http://127.0.0.1:${config.proxy.port}`}  — HTTPS_PROXY tools (curl, Python, …)`);
+  console.log(`  Sinkhole:    ${sinkholeActive ? 'active — Node.js & native tools (Claude Code, SDKs, …)' : 'off — run "llm-fw setup" elevated to enable'}`);
+  if (state) console.log(`  Gateway:     ${state.gatewayUrl ?? 'off'}`);
+  console.log(`  Dashboard:   ${state?.dashboardUrl ?? `http://127.0.0.1:${config.dashboard.port}`}`);
 }

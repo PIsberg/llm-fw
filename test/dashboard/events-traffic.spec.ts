@@ -29,7 +29,7 @@ test.describe('Events feed', () => {
     await expect(drawer).toContainText('Full Payload')
     await expect(drawer).toContainText('Detection')
     // The false-positive control is present (not clicked — avoids a whitelist write).
-    await expect(drawer.locator('button:has-text("Mark as false positive")')).toBeVisible()
+    await expect(drawer.locator('button:has-text("Record as false positive (audit only)")')).toBeVisible()
   })
 })
 
@@ -96,6 +96,103 @@ test.describe('Events feed under observe mode', () => {
     await expect(page.locator('#s-blocked')).toHaveText('1')
     await expect(page.locator('#s-observed')).toHaveText('1')
     await expect(page.locator('#s-total')).toHaveText('2')
+  })
+})
+
+test.describe('Events feed shows only harmful events (#337)', () => {
+  // MCP inventory events ("Exposed 14 tools to LLM", action passed) arrive on
+  // every Claude Code request. In the Events table they buried the blocks and
+  // warns, and they counted in the Total and MCP / Tool Use tiles as if they
+  // were findings. They now have their own tab.
+  test('puts a passed MCP event in the MCP Traffic tab, not in Events or the harm tiles', async ({ page }) => {
+    const ev = (id: string, action: string, stage: string, text: string, kind?: string) => JSON.stringify({
+      id, timestamp: '2026-10-15 20:00:00Z', stage, score: action === 'passed' ? 0 : 90, similarity: 0,
+      target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action, kind,
+      payload_preview: text, payload_full: text,
+    })
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + ev('mcp-1', 'passed', 'mcp-filter', 'Exposed 14 tools to LLM', 'mcp') + '\n\n' +
+        'data: ' + ev('blk-1', 'blocked', 'heuristic', 'a real injection') + '\n\n',
+    }))
+
+    await page.goto('/')
+    const eventRows = page.locator('#events-body tr.event-row')
+    await expect(eventRows.filter({ hasText: 'a real injection' })).toHaveCount(1, { timeout: 10_000 })
+    await expect(eventRows.filter({ hasText: 'Exposed 14 tools' })).toHaveCount(0)
+    await expect(page.locator('#s-total')).toHaveText('1')
+    await expect(page.locator('#s-mcp')).toHaveText('0')
+
+    await page.click('button:has-text("MCP Traffic")')
+    const mcpRows = page.locator('#mcp-body tr.event-row')
+    await expect(mcpRows).toHaveCount(1)
+    await expect(mcpRows.first()).toContainText('Exposed 14 tools to LLM')
+    await expect(page.locator('#mcp-count')).toHaveText('1')
+  })
+})
+
+test.describe('A block remediation link opens the event (#319)', () => {
+  // A blocked client is told to open /#event=<id>. Before, the link was
+  // /#events, which opened the dashboard and selected nothing, and the table
+  // had no way to find an id short of opening drawers one by one.
+  const ev = (id: string, text: string) => JSON.stringify({
+    id, timestamp: '2026-10-15 20:00:00Z', stage: 'heuristic', score: 90, similarity: 0,
+    target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked',
+    payload_preview: text, payload_full: text,
+  })
+  const stub = (page: Page) => page.route('**/events', route => route.fulfill({
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+    body: 'retry: 60000\n' +
+      'data: ' + ev('older-1', 'some other block') + '\n\n' +
+      'data: ' + ev('deep-1', 'the block the client was shown') + '\n\n' +
+      'data: ' + ev('newer-1', 'a later block') + '\n\n',
+  }))
+
+  test('/#event=<id> opens that event\'s drawer with the unblock button', async ({ page }) => {
+    await stub(page)
+    await page.goto('/#event=deep-1')
+    const drawer = page.locator('#drawer-deep-1')
+    await expect(drawer).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('#row-deep-1')).toHaveClass(/selected/)
+    await expect(drawer.locator('button:has-text("Mark false positive (suppress future matches)")')).toBeVisible()
+    await expect(drawer).toContainText('deep-1')
+  })
+
+  test('the filter box finds an event by id', async ({ page }) => {
+    await stub(page)
+    await page.goto('/')
+    const rows = page.locator('#events-body tr.event-row')
+    await expect(rows).toHaveCount(3, { timeout: 10_000 })
+    await page.fill('#events-filter', 'deep-1')
+    await expect(rows.filter({ visible: true })).toHaveCount(1)
+    await expect(rows.filter({ visible: true }).first()).toContainText('the block the client was shown')
+  })
+})
+
+test.describe('Live Traffic says what was inspected (#336)', () => {
+  test('labels each connection inspected or not and counts both', async ({ page }) => {
+    const m = (id: string, host: string, inspected: boolean) => JSON.stringify({
+      id, timestamp: '2026-10-15 20:00:00Z', service: inspected ? 'Anthropic' : 'Other', host,
+      bytesSent: 100, bytesReceived: 200, fromIp: '127.0.0.1', inspected,
+      ...(inspected ? { method: 'POST', path: '/v1/messages' } : {}),
+    })
+    await page.route('**/traffic-events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + m('t-1', 'api.anthropic.com', true) + '\n\n' +
+        'data: ' + m('t-2', 'registry.npmjs.org', false) + '\n\n',
+    }))
+
+    await page.goto('/')
+    await page.click('button:has-text("Live Traffic")')
+    await expect(page.locator('#t-inspected')).toHaveText('1', { timeout: 10_000 })
+    await expect(page.locator('#t-tunneled')).toHaveText('1')
+    await expect(page.locator('#trow-t-1 .insp-badge')).toHaveText('Inspected')
+    await expect(page.locator('#trow-t-2 .insp-badge')).toHaveText('Not inspected')
   })
 })
 

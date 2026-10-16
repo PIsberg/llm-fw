@@ -111,6 +111,30 @@ describe('UrlClassifier — subdomain entropy (DNS tunneling)', () => {
     const dga = 'x7Kq9Zw2Pm4Lt8Gb5Yj1Hr6Cs3Fa0D'
     expect(c.classify(`${dga}.net`).action).toBe('block')
   })
+  // #335: the playground's own "Random/DGA host" example passed. Shannon
+  // entropy of an n-character label cannot exceed log2(n), so the 4.8 gate is
+  // unreachable below ~28 characters; x7f9q2k8z1p3v6w4 (16 distinct) is 4.0.
+  // The registrable label is now also screened for interleaved
+  // letters and digits with almost no vowels.
+  it('blocks a realistic 16-character DGA apex', () => {
+    const r = c.classify('x7f9q2k8z1p3v6w4.com')
+    expect(r.action).toBe('block')
+    expect(r.reason).toMatch('dga-label')
+  })
+  it('blocks other interleaved random apexes', () => {
+    for (const h of ['g874v3fpi3s1.com', 'mg8sh1npdm3b.com', 'uh9f87a4jqgrvq3p.info']) {
+      expect(c.classify(h).action, h).toBe('block')
+    }
+  })
+  it('passes real brands that mix letters and digits', () => {
+    for (const h of ['1password.com', '123movies.to', 'web3auth.io', 'x10hosting.com', 'm365copilot.com', 'studio3t.com', 'win10tweaker.ru', 'covid19vaccine.gov', 'ex2018edition.net']) {
+      expect(c.classify(h).action, h).toBe('pass')
+    }
+  })
+  it('does not screen CDN subdomain hashes this way (only the registrable label)', () => {
+    expect(c.classify('d2c8v52ll5s99u.cloudfront.net').action).toBe('pass')
+    expect(c.classify('a1b2c3d4e5f6g7h8.s3.amazonaws.com').action).toBe('pass')
+  })
   it('passes short subdomain even if high entropy', () => {
     // "xk3f" — 4 chars, below 12 minimum
     expect(c.classify('xk3f.example.com').action).toBe('pass')
