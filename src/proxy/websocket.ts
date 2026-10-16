@@ -2,14 +2,15 @@ import { randomBytes } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 
 /**
- * WebSocket support for the OpenAI Realtime API (#270).
+ * WebSocket support for the OpenAI Realtime API (#270) and Gemini Live (#344).
  *
  * The proxy's MITM servers had no `upgrade` listener, so Node destroyed every
  * WebSocket handshake to an intercepted host: a Realtime session could not
  * connect through llm-fw at all, and its audio was never scanned. This module
- * holds the pieces the relay in proxy.ts is built from, kept free of I/O so
- * they are unit-testable: an RFC 6455 frame codec, the per-session audio
- * buffer, and the decision of what to scan in each client event.
+ * holds the pieces the relay in realtimeRelay.ts is built from, kept free of
+ * I/O so they are unit-testable: an RFC 6455 frame codec, the per-session
+ * audio buffer, and, per protocol, the decision of what to scan in each
+ * client event.
  */
 
 export const OPCODE = { continuation: 0x0, text: 0x1, binary: 0x2, close: 0x8, ping: 0x9, pong: 0xa } as const
@@ -94,24 +95,28 @@ export class FrameReader {
 /** The Realtime API's default input format: 16-bit little-endian PCM, mono, 24 kHz. */
 export const REALTIME_SAMPLE_RATE = 24_000
 
+/** Gemini Live's default input format: 16-bit little-endian PCM, mono, 16 kHz. */
+export const GEMINI_LIVE_SAMPLE_RATE = 16_000
+
 /**
- * The `input_audio_buffer.append` chunks of one turn, as PCM16. Stops growing
- * at `maxSeconds` (the transcriber's own cap), so a session that streams audio
- * faster than real time cannot make one scan arbitrarily expensive.
+ * The streamed audio chunks of one turn, as PCM16 at `sampleRate`. Stops
+ * growing at `maxSeconds` (the transcriber's own cap), so a session that
+ * streams audio faster than real time cannot make one scan arbitrarily
+ * expensive.
  */
 export class RealtimeAudioBuffer {
   private chunks: Buffer[] = []
   private bytes = 0
   truncated = false
 
-  constructor(private readonly maxSeconds: number) {}
+  constructor(private readonly maxSeconds: number, readonly sampleRate = REALTIME_SAMPLE_RATE) {}
 
   get seconds(): number {
-    return this.bytes / 2 / REALTIME_SAMPLE_RATE
+    return this.bytes / 2 / this.sampleRate
   }
 
   append(base64: string): void {
-    const room = Math.floor(this.maxSeconds * REALTIME_SAMPLE_RATE) * 2 - this.bytes
+    const room = Math.floor(this.maxSeconds * this.sampleRate) * 2 - this.bytes
     if (room <= 0) { this.truncated = true; return }
     let pcm = Buffer.from(base64, 'base64')
     if (pcm.length > room) { pcm = pcm.subarray(0, room - (room % 2)); this.truncated = true }
@@ -136,8 +141,8 @@ export class RealtimeAudioBuffer {
     header.writeUInt32LE(16, 16)
     header.writeUInt16LE(1, 20) // PCM
     header.writeUInt16LE(1, 22) // mono
-    header.writeUInt32LE(REALTIME_SAMPLE_RATE, 24)
-    header.writeUInt32LE(REALTIME_SAMPLE_RATE * 2, 28)
+    header.writeUInt32LE(this.sampleRate, 24)
+    header.writeUInt32LE(this.sampleRate * 2, 28)
     header.writeUInt16LE(2, 32)
     header.writeUInt16LE(16, 34)
     header.write('data', 36, 'latin1')
@@ -150,7 +155,160 @@ export class RealtimeAudioBuffer {
 export type RealtimeScan =
   | { kind: 'none' }
   | { kind: 'audio' }
-  | { kind: 'body'; body: string; surface: 'prompt' | 'tool_result' | 'audio-item' }
+  | { kind: 'body'; body: string; surface: 'prompt' | 'tool_result' | 'audio-item' | 'video' }
+
+/** One streamed audio chunk, base64 PCM16. */
+export interface AudioChunk { data: string; sampleRate: number }
+
+/** What the relay does with one client message before forwarding it. */
+export interface ClientMessagePlan {
+  /** Audio to append to the session's buffer, in order. */
+  audio: AudioChunk[]
+  /** Drop the buffered audio (the client discarded its turn). */
+  clearAudio: boolean
+  /** Whether DLP reads the message. False when it carries only media, whose base64 is not text. */
+  dlp: boolean
+  /** Scans to pass before the message is forwarded; `audio` scans the buffer. */
+  scans: RealtimeScan[]
+}
+
+/** A WebSocket protocol the relay can inspect. */
+export interface RealtimeProtocol {
+  /** For events and log lines. */
+  readonly label: string
+  /** Whether a JSON event in a binary frame is read like text instead of refused. */
+  readonly jsonInBinary: boolean
+  plan(event: Record<string, unknown>, audioBuffered: boolean): ClientMessagePlan
+  /** The event a client of this protocol reads as an error, or null when only the close frame carries it. */
+  errorEvent(message: string, eventId: string): Record<string, unknown> | null
+}
+
+export const OPENAI_REALTIME: RealtimeProtocol = {
+  label: 'Realtime',
+  jsonInBinary: false,
+  plan(event, audioBuffered) {
+    if (event.type === 'input_audio_buffer.append' && typeof event.audio === 'string') {
+      return { audio: [{ data: event.audio, sampleRate: REALTIME_SAMPLE_RATE }], clearAudio: false, dlp: false, scans: [] }
+    }
+    if (event.type === 'input_audio_buffer.clear') return { audio: [], clearAudio: true, dlp: true, scans: [] }
+    return { audio: [], clearAudio: false, dlp: true, scans: realtimeScansFor(event, audioBuffered) }
+  },
+  errorEvent(message, eventId) {
+    return { type: 'error', error: { type: 'invalid_request_error', code: 'llm_fw_blocked', message, event_id: eventId } }
+  },
+}
+
+/**
+ * Gemini Live (`BidiGenerateContent`). Client messages carry one top-level
+ * key: `setup` (developer-authored, like a system prompt), `clientContent`
+ * (conversation turns), `realtimeInput` (streamed audio, video frames, text,
+ * and the activity markers that end a turn) or `toolResponse`. Its server
+ * reports errors by closing the socket with a reason, so a refusal does too.
+ */
+export const GEMINI_LIVE: RealtimeProtocol = {
+  label: 'Gemini Live',
+  jsonInBinary: true,
+  plan(event, audioBuffered) {
+    const ri = asRecord(event.realtimeInput)
+    if (ri) return geminiRealtimeInput(ri, audioBuffered)
+    const scans: RealtimeScan[] = []
+    const cc = asRecord(event.clientContent)
+    if (cc && Array.isArray(cc.turns)) scans.push(...geminiClientContent(cc.turns))
+    const tr = asRecord(event.toolResponse)
+    if (tr && Array.isArray(tr.functionResponses)) scans.push(...geminiToolResponse(tr.functionResponses))
+    return { audio: [], clearAudio: false, dlp: true, scans }
+  },
+  errorEvent() {
+    return null
+  },
+}
+
+function geminiRealtimeInput(ri: Record<string, unknown>, audioBuffered: boolean): ClientMessagePlan {
+  const media: Array<Record<string, unknown>> = []
+  if (Array.isArray(ri.mediaChunks)) for (const c of ri.mediaChunks) { const r = asRecord(c); if (r) media.push(r) }
+  for (const key of ['audio', 'video'] as const) { const r = asRecord(ri[key]); if (r) media.push(r) }
+  const audio: AudioChunk[] = []
+  const images: unknown[] = []
+  for (const m of media) {
+    if (typeof m.data !== 'string' || typeof m.mimeType !== 'string') continue
+    if (m.mimeType.startsWith('audio/pcm')) audio.push({ data: m.data, sampleRate: pcmRate(m.mimeType) })
+    else if (m.mimeType.startsWith('image/')) images.push(imagePart(m.mimeType, m.data))
+  }
+  const text = typeof ri.text === 'string' && ri.text ? ri.text : null
+  const scans: RealtimeScan[] = []
+  // The turn ends: scan what was buffered, plus this message's own audio.
+  if ((ri.activityEnd || ri.audioStreamEnd) && (audioBuffered || audio.length > 0)) scans.push({ kind: 'audio' })
+  if (images.length) scans.push({ kind: 'body', surface: 'video', body: chatBody([{ role: 'user', content: images }]) })
+  if (text !== null) scans.push({ kind: 'body', surface: 'prompt', body: chatBody([{ role: 'user', content: [{ type: 'text', text }] }]) })
+  // Only media: DLP would read base64, and a random run of it can look like a key.
+  return { audio, clearAudio: false, dlp: text !== null, scans }
+}
+
+function geminiClientContent(turns: unknown[]): RealtimeScan[] {
+  const messages: unknown[] = []
+  let hasAudio = false
+  for (const t of turns) {
+    const turn = asRecord(t)
+    // Model turns are history, skipped like assistant messages on the HTTP path.
+    if (!turn || turn.role === 'model' || !Array.isArray(turn.parts)) continue
+    const content: unknown[] = []
+    for (const p of turn.parts) {
+      const part = asRecord(p)
+      if (typeof part?.text === 'string') content.push({ type: 'text', text: part.text })
+      const inline = asRecord(part?.inlineData)
+      if (!inline || typeof inline.data !== 'string' || typeof inline.mimeType !== 'string') continue
+      if (inline.mimeType.startsWith('audio/pcm')) {
+        const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY, pcmRate(inline.mimeType))
+        buf.append(inline.data)
+        content.push({ type: 'input_audio', input_audio: { data: buf.toWav().toString('base64'), format: 'wav' } })
+        hasAudio = true
+      } else if (inline.mimeType.startsWith('image/')) {
+        content.push(imagePart(inline.mimeType, inline.data))
+      }
+    }
+    if (content.length) messages.push({ role: 'user', content })
+  }
+  return messages.length ? [{ kind: 'body', surface: hasAudio ? 'audio-item' : 'prompt', body: chatBody(messages) }] : []
+}
+
+function geminiToolResponse(responses: unknown[]): RealtimeScan[] {
+  const messages = responses.map(f => {
+    const fr = asRecord(f) ?? {}
+    const id = typeof fr.id === 'string' ? fr.id : typeof fr.name === 'string' ? fr.name : 'gemini-live'
+    return { role: 'tool', tool_call_id: id, content: JSON.stringify(fr.response ?? {}) }
+  })
+  return messages.length ? [{ kind: 'body', surface: 'tool_result', body: chatBody(messages) }] : []
+}
+
+function imagePart(mimeType: string, data: string): unknown {
+  return { type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } }
+}
+
+const GEMINI_LIVE_PATH_RE = /^\/ws\/google\.ai\.generativelanguage\.v1(?:alpha|beta)?\.GenerativeService\.BidiGenerateContent(?:Constrained)?(?:[/?]|$)/
+
+/** Why a WebSocket path is answered 501, on the proxy and the gateway. */
+export const WS_NOT_INSPECTABLE = 'llm-fw relays only the OpenAI Realtime API (/v1/realtime) and Gemini Live (BidiGenerateContent) over WebSocket; this path is refused rather than tunnelled unscanned.'
+
+/** The protocol a WebSocket path speaks, or null when the relay cannot inspect it. */
+export function realtimeProtocolFor(path: string): RealtimeProtocol | null {
+  if (/^\/v1\/realtime(?:[/?]|$)/.test(path)) return OPENAI_REALTIME
+  if (GEMINI_LIVE_PATH_RE.test(path)) return GEMINI_LIVE
+  return null
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
+}
+
+/** `audio/pcm;rate=24000` names its rate; plain `audio/pcm` is Gemini Live's 16 kHz. */
+function pcmRate(mimeType: string): number {
+  const rate = Number(/rate=(\d+)/.exec(mimeType)?.[1])
+  return rate >= 8_000 && rate <= 48_000 ? rate : GEMINI_LIVE_SAMPLE_RATE
+}
+
+function chatBody(messages: unknown[]): string {
+  return JSON.stringify({ model: 'realtime', messages })
+}
 
 /**
  * Decide what one client event needs scanned; empty means forward as is.
@@ -207,10 +365,14 @@ export function audioScanBody(wav: Buffer): string {
   return JSON.stringify({ model: 'realtime', messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: wav.toString('base64'), format: 'wav' } }] }] })
 }
 
-/** Write an unmasked (server-to-client) text frame and a close frame, then end the socket. */
-export function refuseRealtime(client: Duplex, errorEvent: Record<string, unknown>, reason: string): void {
+/**
+ * Write an unmasked (server-to-client) error event when the protocol has one,
+ * and a close frame whose reason is capped at the 123 bytes RFC 6455 allows,
+ * then end the socket.
+ */
+export function refuseRealtime(client: Duplex, errorEvent: Record<string, unknown> | null, reason: string): void {
   try {
-    client.write(encodeFrame(OPCODE.text, Buffer.from(JSON.stringify(errorEvent)), false))
+    if (errorEvent) client.write(encodeFrame(OPCODE.text, Buffer.from(JSON.stringify(errorEvent)), false))
     const close = Buffer.alloc(2 + Buffer.byteLength(reason.slice(0, 120)))
     close.writeUInt16BE(1008, 0) // policy violation
     close.write(reason.slice(0, 120), 2)

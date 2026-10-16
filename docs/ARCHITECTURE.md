@@ -434,6 +434,8 @@ llm-fw/
 │   ├── proxy/
 │   │   ├── proxy.ts         # CONNECT handler, dual-mode (8080/443)
 │   │   ├── certs.ts         # CA + per-host SAN cert factory
+│   │   ├── websocket.ts     # RFC 6455 codec + Realtime / Gemini Live scan plans
+│   │   ├── realtimeRelay.ts # inspected WebSocket relay, shared by proxy and gateway
 │   │   └── upstream.ts      # external DNS resolver + LRU cache
 │   ├── detection/
 │   │   ├── normalize.ts     # NFKC + homoglyph/leetspeak fold + base64/32/ascii85/hex/morse/… decoders
@@ -448,7 +450,7 @@ llm-fw/
 │   │   ├── judge.ts         # Ollama HTTP client
 │   │   └── pipeline.ts      # orchestrator
 │   ├── dashboard/
-│   │   ├── server.ts        # HTTP server (Events + Playground + Settings + /api/test + /api/settings + /api/status + /api/modules + whitelist + translate)
+│   │   ├── server.ts        # HTTP server (Events + Playground + Modules + Settings + /api/test + /api/settings + /api/status + /api/modules + whitelist + translate)
 │   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
 │   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/
