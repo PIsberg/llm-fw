@@ -32,6 +32,13 @@ describe('resolveRoute — bare provider-shaped paths', () => {
     expect(resolveRoute('/v1/models/gemini-pro:streamGenerateContent', opts)?.slug).toBe('gemini')
   })
 
+  // #344: a Gemini Live client points its WebSocket at the gateway's host
+  // with the provider's own path.
+  it('routes the bare Gemini Live WebSocket path to Google, path intact', () => {
+    const path = '/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
+    expect(resolveRoute(path, opts)).toMatchObject({ slug: 'gemini', upstreamPath: path })
+  })
+
   it('leaves OpenAI-shaped /v1/models/{id} with the default provider', () => {
     // `/v1/models/{id}` is OpenAI's model-retrieval endpoint, cloned by Groq,
     // OpenRouter, Together and every OpenAI-compatible self-hosted endpoint.

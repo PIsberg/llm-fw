@@ -29,6 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests a module rewrote, newest first, with "would save" on observe-mode dry runs.
   `test/dashboard/modules.spec.ts` drives it, and pins that the Tokens Saved tile changes from
   the event stream while the page stays loaded (#342).
+- **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
+  (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
+  the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and
+  every 15 s while it streams), text and user turns as a prompt, function responses as tool
+  results, video frames as images. Before, the proxy answered a Gemini Live handshake 501 and
+  the gateway, which had no `upgrade` handler, dropped every WebSocket handshake, so neither
+  protocol could run through it. The gateway's upgrade path applies the same token, tenant
+  allowlist, quota and key custody as a request, including a browser client's
+  `openai-insecure-api-key.` subprotocol.
 
 ### Security
 
@@ -74,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Realtime session under `--observe` is no longer refused.** A binary frame, or text that
+  was not a JSON event, ended the session even when nothing was meant to be refused, and DLP
+  `redact` could rewrite an event for a gateway tenant in observation. Both are now recorded
+  with `enforced: false` and forwarded.
 - **The Tokens Saved tile no longer claims savings under `--observe` after a reload.**
   `GET /api/modules` had no `applied` flag, so when its answer landed after the event stream's
   replay, the tile read "% saved" for savings that were never applied. The summary now carries
