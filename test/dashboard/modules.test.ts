@@ -153,4 +153,21 @@ describe('/api/modules', () => {
     const saved = JSON.parse(fs.readFileSync(join(tempDir, 'config.json'), 'utf8'))
     expect(saved.modules.tokenPruner.enabled).toBe(true)
   })
+
+  // The dashboard fetches this summary every time its event stream opens and
+  // renders whatever answers last. Without the flag, a page reloaded under
+  // --observe said "% saved" for savings that were never applied.
+  it('says whether the latest savings were applied or only a dry run', async () => {
+    const body = JSON.stringify({ messages: [{ role: 'user', content: 'Hello    world     again.' }] })
+    const ctx = { target: 'api.openai.com', method: 'POST', path: '/v1/chat/completions', isLlmRequest: true, parser: null }
+
+    await mgr.transformRequest(body, { ...ctx, dryRun: true })
+    const observed = await call('GET', '/api/modules')
+    expect(observed.json.applied).toBe(false)
+    expect(observed.json.summary.applied).toBe(false)
+
+    await mgr.transformRequest(body, ctx)
+    const applied = await call('GET', '/api/modules')
+    expect(applied.json.applied).toBe(true)
+  })
 })

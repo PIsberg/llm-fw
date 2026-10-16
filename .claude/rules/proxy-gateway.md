@@ -65,13 +65,17 @@ that needs a changelog entry, not a cleanup.
   instead of hanging. Do not grow it into a plain-HTTP forward path without
   deciding what that means for the URL filter and for open-relay exposure.
   Pinned by `test/proxy/proxy-plain-http.e2e.test.ts`.
-- **WebSockets: only the OpenAI Realtime API is relayed.** An upgrade to
-  `/v1/realtime` on an inspected host is relayed with its client events
-  scanned (`handleUpgrade` in `src/proxy/proxy.ts`, codec in
-  `src/proxy/websocket.ts`); any other WebSocket path answers 501 rather than
+- **WebSockets: only the OpenAI Realtime API and Gemini Live are relayed.**
+  An upgrade to `/v1/realtime` or Gemini's `BidiGenerateContent`, on an
+  inspected host or through the gateway, is relayed with its client messages
+  scanned (`relayRealtimeSession` in `src/proxy/realtimeRelay.ts`, shared by
+  `handleUpgrade` in the proxy and the gateway; per-protocol plans in
+  `src/proxy/websocket.ts`). Any other WebSocket path answers 501 rather than
   being tunnelled unscanned. `Sec-WebSocket-Extensions` is stripped so frames
-  stay readable. The gateway accepts no WebSockets. Pinned by
-  `test/proxy/proxy-realtime.e2e.test.ts`.
+  stay readable. The gateway's upgrade path runs the same auth, tenant and
+  custody gates as a request. Pinned by `test/proxy/proxy-realtime.e2e.test.ts`,
+  `test/proxy/proxy-gemini-live.e2e.test.ts` and
+  `test/gateway/gateway-realtime.e2e.test.ts`.
 - **`NO_PROXY` is a client-side variable.** Nothing in llm-fw reads it and
   nothing should: it instructs the caller's HTTP stack. The only lever here is
   the default `setup` persists (`DEFAULT_NO_PROXY` in `src/cli/setup.ts`).

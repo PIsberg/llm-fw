@@ -10,6 +10,9 @@ export interface ModulesSummaryStats {
   totalTokensPruned: number
   totalTokensSaved: number
   overallPercentSaved: number
+  // The newest event's flag: false when it was an observe-mode dry run, so
+  // the totals are what would have been saved. Absent before any event.
+  applied?: boolean
 }
 
 export class ModuleManager {
@@ -91,12 +94,16 @@ export class ModuleManager {
     let totalTokensOriginal = 0
     let totalTokensPruned = 0
     let totalTokensSaved = 0
+    let latest: ModuleEvent | undefined
 
     for (const mod of this.modules.values()) {
       const stats: ModuleStats = mod.getStats()
       totalTokensOriginal += stats.tokensOriginal
       totalTokensPruned += stats.tokensPruned
       totalTokensSaved += stats.tokensSaved
+      // recentEvents is newest first
+      const newest = stats.recentEvents[0]
+      if (newest && (!latest || newest.timestamp > latest.timestamp)) latest = newest
     }
 
     const overallPercentSaved = totalTokensOriginal > 0
@@ -108,6 +115,7 @@ export class ModuleManager {
       totalTokensPruned,
       totalTokensSaved,
       overallPercentSaved,
+      ...(latest?.applied === undefined ? {} : { applied: latest.applied }),
     }
   }
 }

@@ -29,16 +29,12 @@ import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
 import { explainBlock } from '../detection/explain.js'
-import { FrameReader, OPCODE, RealtimeAudioBuffer, realtimeScansFor, audioScanBody, refuseRealtime, encodeFrame, type Frame } from './websocket.js'
-import { MAX_TRANSCRIBE_SECONDS } from '../detection/transcribe.js'
+import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
+import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('proxy');
-
-// Realtime sessions with server-side voice activity detection never commit
-// a turn, so buffered audio is scanned every this many seconds (#270).
-const REALTIME_AUDIO_WINDOW_S = 15;
 
 /**
  * Decompress a fully-buffered response body by its Content-Encoding so the
@@ -1259,28 +1255,19 @@ export class ProxyServer {
   }
 
   /**
-   * A WebSocket handshake on an intercepted host (#270). Only the OpenAI
-   * Realtime API (`/v1/realtime`) is relayed, with its client events
-   * inspected; any other WebSocket path is refused with 501 rather than
-   * tunnelled unscanned, which is what destroying the socket used to amount to
-   * without saying why.
-   *
-   * Decision points. A committed turn (`input_audio_buffer.commit`, or
-   * `response.create` with audio buffered) is held until its audio has been
-   * scanned; text and tool output are held when they are added to the
-   * conversation. With server-side voice activity detection the client never
-   * commits, so every REALTIME_AUDIO_WINDOW_S of buffered audio is also scanned
-   * as it streams, and a block there terminates the session: that audio has
-   * already reached the provider. Audio goes through the same path as an
-   * `input_audio` part in a chat request, so `nonText.transcribe` and
-   * `nonText.mode` apply unchanged, and each scan is capped at
-   * MAX_TRANSCRIBE_SECONDS.
+   * A WebSocket handshake on an intercepted host. The OpenAI Realtime API
+   * (`/v1/realtime`, #270) and Gemini Live (`BidiGenerateContent`, #344)
+   * are relayed with their client messages inspected (see relayRealtimeSession);
+   * any other WebSocket path is refused with 501 rather than tunnelled
+   * unscanned, which is what destroying the socket used to amount to without
+   * saying why.
    */
   private async handleUpgrade(hostname: string, port: number, req: http.IncomingMessage, client: Duplex, head: Buffer): Promise<void> {
     const path = req.url ?? '/'
     client.on('error', () => client.destroy())
-    if (!/^\/v1\/realtime(?:[/?]|$)/.test(path)) {
-      const body = JSON.stringify({ error: 'websocket not inspectable', detail: 'llm-fw relays only the OpenAI Realtime API (/v1/realtime) over WebSocket; this path is refused rather than tunnelled unscanned.' })
+    const protocol = realtimeProtocolFor(path)
+    if (!protocol) {
+      const body = JSON.stringify({ error: 'websocket not inspectable', detail: WS_NOT_INSPECTABLE })
       client.end(`HTTP/1.1 501 Not Implemented\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
       return
     }
@@ -1290,173 +1277,19 @@ export class ProxyServer {
       const ip = await this.resolver.resolve(hostname)
       upstream = tls.connect({ host: ip, port, servername: hostname })
     } catch (err) {
-      log.warn(`realtime upstream connect failed for ${hostname}: ${(err as Error).message}`)
+      log.warn(`${protocol.label} upstream connect failed for ${hostname}: ${(err as Error).message}`)
       client.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
       return
     }
-    upstream.on('error', () => { client.destroy(); upstream.destroy() })
-    // Either side going away ends the session. 'end' as well as 'close': the
-    // socket handed over by the http server allows half-open connections, so a
-    // client that disconnected only ever emits 'end', and waiting for 'close'
-    // leaked the upstream connection of every finished session.
-    client.on('end', () => { upstream.destroy(); client.destroy() })
-    client.on('close', () => upstream.destroy())
-    upstream.on('end', () => { client.destroy(); upstream.destroy() })
-    upstream.on('close', () => client.destroy())
-
-    upstream.once('secureConnect', () => {
-      // Extensions are stripped: permessage-deflate would compress every frame
-      // and leave nothing readable to inspect.
-      const skip = new Set(['host', 'proxy-authorization', 'proxy-connection', 'sec-websocket-extensions'])
-      const lines = [`GET ${path} HTTP/1.1`, `host: ${hostname}`]
-      for (const [k, v] of Object.entries(req.headers)) {
-        if (v !== undefined && !skip.has(k)) lines.push(`${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
-      }
-      upstream.write(lines.join('\r\n') + '\r\n\r\n')
-    })
-
-    let headBuf = Buffer.alloc(0)
-    const onHead = (chunk: Buffer): void => {
-      headBuf = Buffer.concat([headBuf, chunk])
-      const end = headBuf.indexOf('\r\n\r\n')
-      if (end < 0) return
-      upstream.off('data', onHead)
-      client.write(headBuf.subarray(0, end + 4))
-      const rest = headBuf.subarray(end + 4)
-      if (rest.length) client.write(rest)
-      upstream.pipe(client)
-      if (!/^HTTP\/1\.1 101/.test(headBuf.subarray(0, headBuf.indexOf('\r\n')).toString('latin1'))) return
-      this.relayRealtimeClient(hostname, path, req, client, upstream, head)
+    const lines = [`GET ${path} HTTP/1.1`, `host: ${hostname}`]
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (v !== undefined && !WS_SKIPPED_HEADERS.has(k)) lines.push(`${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
     }
-    upstream.on('data', onHead)
-  }
-
-  /** Client-to-upstream half of a Realtime session: inspect, then forward each message in order. */
-  private relayRealtimeClient(hostname: string, path: string, req: http.IncomingMessage, client: Duplex, upstream: tls.TLSSocket, head: Buffer): void {
-    const reader = new FrameReader(this.config.proxy.maxBodyBytes > 0 ? this.config.proxy.maxBodyBytes : undefined)
-    const audio = new RealtimeAudioBuffer(MAX_TRANSCRIBE_SECONDS)
-    const sessionKey = normalizeIp(req.socket.remoteAddress)
-    let fragments: Frame[] = []
-    let refused = false
-    let queue: Promise<void> = Promise.resolve()
-
-    const endSession = (message: string, eventId: string): void => {
-      if (refused) return
-      refused = true
-      refuseRealtime(client, {
-        type: 'error',
-        error: { type: 'invalid_request_error', code: 'llm_fw_blocked', message, event_id: eventId },
-      }, 'llm-fw blocked this session')
-      try { upstream.end(encodeFrame(OPCODE.close, Buffer.from([0x03, 0xf0]), true)) } catch { upstream.destroy() }
-    }
-    const refuse = (result: PipelineResult, eventId: string, what: string): void => {
-      const explanation = explainBlock({ eventId, result, dashboardUrl: this.dashboardUrl() })
-      endSession(`llm-fw blocked this ${what}: ${explanation.error} (stage ${result.stage}, event ${eventId}). ${explanation.remediation}`, eventId)
-    }
-    const emit = (partial: Parameters<EventBus['emit']>[0]): string => this.eventBus.emit(partial).id
-
-    const scan = async (body: string, what: string): Promise<boolean> => {
-      let eventId = ''
-      const result = await this.pipeline.run('/v1/chat/completions', body, {
-        target: hostname, method: 'WS', path, sessionKey, onEvent: (e) => { eventId = e.id },
-      })
-      if (result.action !== 'block') return true
-      refuse(result, eventId, what)
-      return false
-    }
-
-    const handle = async (frames: Frame[]): Promise<void> => {
-      for (const frame of frames) {
-        if (refused) return
-        // Control frames go straight through; close ends our side too.
-        if (frame.opcode >= OPCODE.close) { upstream.write(frame.raw); continue }
-        fragments.push(frame)
-        if (!frame.fin) continue
-        const message = fragments
-        fragments = []
-        let raw: Buffer = Buffer.concat(message.map(m => m.raw))
-        // Fail closed on anything this relay cannot read: the Realtime API
-        // speaks JSON text events only, so a binary or non-JSON message is
-        // either a protocol error or an attempt to get bytes past inspection.
-        const uninspectable = (why: string): void => {
-          const id = emit({
-            stage: 'none', score: 100, similarity: 0, target: hostname, method: 'WS', path,
-            payload_preview: `Realtime ${why}: refused, cannot be inspected`, payload_full: `Realtime ${why}`,
-            action: 'blocked', kind: 'unparsed',
-          })
-          endSession(`llm-fw refused this session: a ${why} cannot be inspected (event ${id}).`, id)
-        }
-        if (message[0]?.opcode !== OPCODE.text) { uninspectable('binary message'); return }
-        let text = Buffer.concat(message.map(m => m.payload)).toString('utf8')
-        let event: Record<string, unknown>
-        try { event = JSON.parse(text) as Record<string, unknown> }
-        catch { uninspectable('text message that is not a JSON event'); return }
-        if (!event || typeof event !== 'object' || Array.isArray(event)) { uninspectable('text message that is not a JSON event'); return }
-
-        // DLP, as for an HTTP request body. Audio chunks are base64 PCM, not
-        // text, and are skipped. Redaction re-encodes the event as a new frame.
-        if (this.config.dlp.enabled && event.type !== 'input_audio_buffer.append') {
-          const findings = this.dlp.scan(text)
-          if (findings.length) {
-            const types = Array.from(new Set(findings.map(f => f.type))).join(', ')
-            const mode = this.config.dlp.mode
-            const id = emit({
-              stage: 'dlp', score: 100, similarity: 0, target: hostname, method: 'WS', path,
-              payload_preview: types, payload_full: types,
-              action: mode === 'block' ? 'blocked' : 'warned', kind: 'dlp', dlpType: findings[0]!.type,
-            })
-            if (mode === 'block') { endSession(`llm-fw blocked this message: sensitive data detected (${types}, event ${id}).`, id); return }
-            if (mode === 'redact') {
-              text = this.dlp.redact(text, findings)
-              event = JSON.parse(text) as Record<string, unknown>
-              raw = encodeFrame(OPCODE.text, Buffer.from(text, 'utf8'), true)
-            }
-          }
-        }
-
-        if (event.type === 'input_audio_buffer.append' && typeof event.audio === 'string') {
-          audio.append(event.audio)
-          upstream.write(raw)
-          if (audio.seconds >= REALTIME_AUDIO_WINDOW_S) {
-            // Server VAD never commits: scan the window as it streams.
-            const wav = audio.toWav()
-            audio.clear()
-            void scan(audioScanBody(wav), 'spoken audio').catch(err => log.error('realtime audio scan failed', { err }))
-          }
-          continue
-        }
-        if (event.type === 'input_audio_buffer.clear') { audio.clear(); upstream.write(raw); continue }
-
-        for (const decision of realtimeScansFor(event, audio.seconds > 0)) {
-          if (decision.kind === 'audio') {
-            const wav = audio.toWav()
-            audio.clear()
-            if (!await scan(audioScanBody(wav), 'spoken turn')) return
-          } else if (decision.kind === 'body') {
-            const what = decision.surface === 'tool_result' ? 'tool output' : decision.surface === 'audio-item' ? 'audio item' : 'message'
-            if (!await scan(decision.body, what)) return
-          }
-        }
-        if (!refused) upstream.write(raw)
-      }
-    }
-
-    const feed = (chunk: Buffer): void => {
-      let frames: Frame[]
-      try { frames = reader.push(chunk) }
-      catch (err) {
-        log.warn(`realtime session closed: ${(err as Error).message}`)
-        client.destroy(); upstream.destroy()
-        return
-      }
-      // One message at a time, in order: a held event must not be overtaken.
-      queue = queue.then(() => handle(frames)).catch(err => {
-        log.error('realtime relay error', { err })
-        client.destroy(); upstream.destroy()
-      })
-    }
-    if (head.length) feed(head)
-    client.on('data', feed)
+    relayRealtimeSession(
+      { config: this.config, pipeline: this.pipeline, dlp: this.dlp, eventBus: this.eventBus, dashboardUrl: () => this.dashboardUrl() },
+      { protocol, target: hostname, path, sessionKey: normalizeIp(req.socket.remoteAddress) },
+      { client, head, upstream, readyEvent: 'secureConnect', requestHead: lines.join('\r\n') + '\r\n\r\n' },
+    )
   }
 
   // One-line, context-rich console output for failed requests. Expected

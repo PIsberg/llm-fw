@@ -60,6 +60,18 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.62
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** Measured with `npm run fpr`. This ruleset decodes one level of JSON
+string escapes before the indirect-instruction rules run and stops reading
+git's `create mode 100644 <path>` as an order (#314). The rows here are not
+JSON-encoded tool output, so none moved: `npm run verdicts:diff` reports 0 of
+23,938 eval verdicts changed. The shape it fixes was measured on real traffic
+instead: replaying 50,816 Claude Code tool results, 31 fewer were flagged
+(26 git commit outputs, 5 benign) and 11 more, all attack strings quoted from
+llm-fw's own tests.
+
 ## Result, ruleset 2026.10.61
 
 **2.68% overall (9 of 336), unchanged.** This ruleset only adds the
