@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Module savings no longer count whitespace as text.** The Modules tab and the Tokens Saved
+  tile estimated 4 characters per token, so collapsing a run of spaces reported a token saved
+  per four spaces where a BPE tokenizer spends one token on the whole run. Measured against
+  cl100k and o200k, that overstated the pruner's saving on column-aligned tool output by 75%
+  (1,395 tokens estimated, 797 real) and missed total counts by 33% on JSON. The new estimate
+  cuts text the way a BPE pre-tokenizer does; its mean error is 4 to 8% on prose, code, JSON,
+  prompts and tool output. Budgets (`dos.maxTokensPerSession`) still use 4 characters per token.
 - **A content refusal answers `422`, not `403` (#304).** Claude Code reports every 403 as
   "Failed to authenticate. API Error: 403", so a blocked prompt read as a credentials problem.
   Measured against Claude Code 2.1.301 with a loopback mock: 422 shows "API Error: 422" and the

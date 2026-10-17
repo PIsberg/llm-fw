@@ -106,14 +106,6 @@ Please check authorization.`
   })
 })
 
-describe('estimateTokens', () => {
-  it('estimates ~4 characters per token', () => {
-    expect(estimateTokens('abcd')).toBe(1)
-    expect(estimateTokens('12345678')).toBe(2)
-    expect(estimateTokens('')).toBe(0)
-  })
-})
-
 describe('TokenPrunerModule — payload transformation', () => {
   const dummyCtx: GatewayModuleContext = {
     target: 'api.openai.com',
@@ -271,13 +263,15 @@ describe('TokenPrunerModule — running totals cover every examined request', ()
     // percentage described only the requests that happened to shrink.
     const module = new TokenPrunerModule({ enabled: true })
     const clean = 'x'.repeat(400)
+    const spaced = 'a' + ' '.repeat(41) + 'b. Some more text after the run.'
     module.transformRequest(JSON.stringify({ messages: [{ role: 'user', content: clean }] }), ctx)
-    module.transformRequest(JSON.stringify({ messages: [{ role: 'user', content: 'a' + ' '.repeat(41) + 'b' }] }), ctx)
+    module.transformRequest(JSON.stringify({ messages: [{ role: 'user', content: spaced }] }), ctx)
 
     const stats = module.getStats()
     expect(stats.totalInvocations).toBe(2)
-    expect(stats.tokensOriginal).toBe(estimateTokens(clean) + 11)
-    expect(stats.tokensSaved).toBe(10)
+    expect(stats.tokensOriginal).toBe(estimateTokens(clean) + estimateTokens(spaced))
+    expect(stats.tokensSaved).toBe(estimateTokens(spaced) - estimateTokens(pruneText(spaced)))
+    expect(stats.tokensSaved).toBeGreaterThan(0)
   })
 })
 

@@ -183,8 +183,8 @@ become one space, runs of blank lines become one, trailing whitespace goes, and
 multiline JSON embedded in the text is minified. Leading indentation and fenced
 code are kept, and tool output is never touched. It is off by default because it changes what the provider
 receives: an unfenced string literal with aligned spaces, for example, is
-altered. Savings are estimated at 4 characters per token over the text it
-examined and shown live in the dashboard header and at `GET /api/modules`.
+altered. Savings are estimated over the text it examined, with a run of
+spaces counted as one token (see [Token savings](token-savings.md#how-savings-are-counted)), and shown live in the dashboard header and at `GET /api/modules`.
 Under observe mode it runs as a dry run and forwards the original body.
 `modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
 whole module pipeline. Both keys are hot-reloaded. Every token-saving module,

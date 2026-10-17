@@ -49,6 +49,21 @@ provider enforces the check for (Anthropic accounts created on or after
 conversation." Start a new conversation after changing a module, or change
 modules between sessions.
 
+## How savings are counted
+
+Each card counts tokens over the text the module examined, before and after,
+never over the request body: re-serialising a pretty-printed JSON envelope
+shrinks the body by bytes the model never sees.
+
+The count is an estimate, made without a tokenizer dependency
+(`src/modules/tokens.ts`). It cuts text the way a BPE pre-tokenizer does, so a
+run of spaces counts as one token however long it is. Against the public
+cl100k and o200k tokenizers its mean error is 4 to 8% on prose, code, JSON,
+prompts and tool output, and 28% on base64. The 4-characters-per-token rule
+it replaced overstated what collapsing whitespace saves on column-aligned
+tool output by 75%. Claude's tokenizer is not public, so treat the numbers as
+an approximation of any provider's bill.
+
 ## Modules
 
 | Module id | Config key | Rewrites |

@@ -163,7 +163,7 @@ The module pipeline integrates into both `ProxyServer.handleRequest` (`src/proxy
 
 ### 5.1 Token Estimation Algorithm
 To remain fast and dependency-free while maintaining fidelity across OpenAI (cl100k/o200k), Anthropic, and Gemini tokenizers:
-- Matches the heuristic used in `QuotaManager.estimateTokens`: approximately ~4 characters per token for English text and code.
+- `estimateTokens` in `src/modules/tokens.ts` walks the text once in the pieces a BPE pre-tokenizer would cut (letter, digit and punctuation runs, whitespace runs, line breaks) and charges each piece. A run of spaces is one token however long, which chars/4 got wrong: it overstated the pruner's saving on column-aligned tool output by 75% against cl100k and o200k. Measured errors and the fitting corpus are in the file's header comment; `test/modules/tokens.test.ts` pins five measured counts. `QuotaManager.estimateTokens` keeps ~4 characters per token for budgets.
 - Counted on the prompt text the pruner examined, never on the request body. Re-serialising a pretty-printed JSON envelope shrinks the body by bytes the model never sees as tokens; the first cut counted those and reported 62 tokens saved where the prompt text shrank by 11.
 - `tokensSaved = Math.max(0, tokensBefore - tokensAfter)`.
 - `percentSaved = tokensOriginal > 0 ? ((tokensSaved / tokensOriginal) * 100) : 0`. The denominator is the examined text, so tool results, images and tool definitions, which are billed but not pruned, are not in it.
