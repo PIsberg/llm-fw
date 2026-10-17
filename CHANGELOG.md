@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Spec Kit for planned feature work (contributors).** `.specify/` (Spec Kit 1.1.2) and ten
+  `speckit-*` skills under `.claude/skills/` take a feature through spec, plan, audit, test-first
+  build and verification. `.specify/memory/constitution.md` restates six rules from `CLAUDE.md`,
+  `.claude/rules/` and `CONTRIBUTING.md`, each with its source, and those files stay authoritative
+  on detail. `.specify/projects/llm-fw/` holds working rules and measured token-savings findings
+  for agents. No runtime change.
 - **The dashboard header shows how the firewall is running (#338).** Chips for
   **Observe mode: nothing is blocked**, **Sinkhole active** and the gateway URL, read from the
   new `GET /api/status` (enforcement, sinkhole, gateway and proxy URLs, start time). The sinkhole
