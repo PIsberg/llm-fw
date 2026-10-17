@@ -70,6 +70,19 @@ jobs:
           path: ${{ github.workspace }}/.hf-model-cache
           key: llm-fw-model-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-whisper
 
+      # test/modules/leanCtx.real.test.ts runs the lean-ctx module against
+      # the real lean-ctx and skips where none is installed. Pinned by version
+      # and by the SHA-256 in that release's SHA256SUMS (checked 2026-10-17):
+      # 3.11.0 is the version docs/guides/token-savings.md was measured with.
+      - name: Install lean-ctx 3.11.0
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/lean-ctx.tar.gz" https://github.com/yvgude/lean-ctx/releases/download/v3.11.0/lean-ctx-x86_64-unknown-linux-gnu.tar.gz
+          echo "32004ef3e8bea38e8f9b6effcb34ace3243c35a520d39cfc7ebbfce322790c0d  $RUNNER_TEMP/lean-ctx.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/lean-ctx"
+          tar -xzf "$RUNNER_TEMP/lean-ctx.tar.gz" -C "$RUNNER_TEMP/lean-ctx"
+          "$RUNNER_TEMP/lean-ctx/lean-ctx" --version
+          echo "LLM_FW_LEAN_CTX_BIN=$RUNNER_TEMP/lean-ctx/lean-ctx" >> "$GITHUB_ENV"
+
       - name: Run tests
         run: npm run test:run
 

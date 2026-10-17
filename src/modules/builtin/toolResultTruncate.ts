@@ -4,7 +4,7 @@ import type { CapturedResponse } from '../responseTap.js'
 import { DEFAULT_CONFIG } from '../../config/config.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind, TextSlot } from '../payload.js'
-import { responseEvents } from '../usage.js'
+import { RememberedCalls } from '../toolCalls.js'
 
 type Limits = Pick<ToolResultTruncateConfig, 'headLines' | 'tailLines' | 'maxChars'>
 
@@ -41,37 +41,6 @@ export function truncateMiddle(text: string, { headLines, tailLines, maxChars }:
 
 const TOOL_OUTPUT: ReadonlySet<SlotKind> = new Set(['tool_result'])
 
-type Obj = Record<string, unknown>
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
-
-// Tool names remembered from responses. A thread continuation answers the
-// calls of the response just before it, so this covers many sessions at once.
-const MAX_REMEMBERED = 4096
-
-/**
- * [id, name] of every tool call in a response's events: Anthropic tool_use
- * blocks (a whole message, or content_block_start events) and Responses API
- * function_call items (a whole response, response.completed, or the
- * output_item events). OpenAI chat and Gemini resend every call with its
- * result, so the request itself names the tool.
- */
-function toolCalls(events: unknown[]): Array<[string, string]> {
-  const out: Array<[string, string]> = []
-  for (const event of events) {
-    if (!isObj(event)) continue
-    const response = isObj(event.response) ? event.response : event
-    const items = Array.isArray(event.content) ? event.content
-      : Array.isArray(response.output) ? response.output
-      : [event.content_block, event.item]
-    for (const item of items) {
-      if (!isObj(item) || typeof item.name !== 'string') continue
-      if (item.type === 'tool_use' && typeof item.id === 'string') out.push([item.id, item.name])
-      else if (item.type === 'function_call' && typeof item.call_id === 'string') out.push([item.call_id, item.name])
-    }
-  }
-  return out
-}
-
 /**
  * A build log or a full test run can be tens of thousands of tokens, re-sent
  * on every later turn. The head and tail usually carry what matters (the
@@ -87,30 +56,22 @@ export class ToolResultTruncateModule extends SlotModule<ToolResultTruncateConfi
   readonly description = 'Keeps the head and tail of oversized tool output, file reads aside, and replaces the middle with a marker'
   protected readonly kinds = TOOL_OUTPUT
 
-  // Tool call id to tool name, learned from responses, oldest first. A
-  // request that continues a server-side thread (Claude Code through the
-  // proxy, the Responses API with previous_response_id) carries tool results
-  // without the calls, which the provider keeps. Ids are unique per call, so
-  // one map serves every client: a forged id only decides whether the
-  // forger's own result is cut.
-  private readonly names = new Map<string, string>()
+  // Tool calls learned from responses, for thread continuations that carry
+  // results without their calls.
+  private readonly calls = new RememberedCalls()
 
   constructor(config?: ToolResultTruncateConfig) {
     super(config ?? structuredClone(DEFAULT_CONFIG.modules!.toolResultTruncate!))
   }
 
   observeResponse(_requestBody: string, _ctx: GatewayModuleContext, response: CapturedResponse): void {
-    for (const [id, name] of toolCalls(responseEvents(response.body, response.headers) ?? [])) {
-      this.names.delete(id)
-      this.names.set(id, name)
-      if (this.names.size > MAX_REMEMBERED) this.names.delete(this.names.keys().next().value!)
-    }
+    this.calls.learn(response)
   }
 
   // A tool the request does not name, and no response seen here named
   // either, is cut as any other.
   protected rewrite(text: string, slot: TextSlot): string {
-    const tool = slot.toolName ?? (slot.toolCallId === undefined ? undefined : this.names.get(slot.toolCallId))
+    const tool = slot.toolName ?? this.calls.get(slot.toolCallId)?.name
     if (tool !== undefined && this.cfg.skipTools.some(skip => tool === skip || tool.endsWith(`__${skip}`))) return text
     return truncateMiddle(text, this.cfg)
   }

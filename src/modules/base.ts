@@ -81,6 +81,14 @@ export abstract class PayloadModule<C extends ModuleSwitch = ModuleSwitch> imple
    */
   protected abstract apply(payload: Record<string, unknown>, ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null
 
+  /**
+   * An optional asynchronous step before `apply`, for a module that has to
+   * ask something outside the process first (lean-ctx). It sees the payload
+   * `apply` will rewrite; ModuleManager awaits it, and `apply` stays
+   * synchronous for every module.
+   */
+  prepare?(payload: Record<string, unknown>, ctx: GatewayModuleContext): Promise<void>
+
   getStats(): ModuleStats {
     const percentSaved = this.tokensOriginal > 0
       ? (this.tokensSaved / this.tokensOriginal) * 100
@@ -106,14 +114,18 @@ export abstract class PayloadModule<C extends ModuleSwitch = ModuleSwitch> imple
     this.recentEvents = []
   }
 
-  transformRequest(body: string, ctx: GatewayModuleContext): ModuleTransformResult {
+  // Synchronous unless the module has a prepare step.
+  transformRequest(body: string, ctx: GatewayModuleContext): ModuleTransformResult | Promise<ModuleTransformResult> {
     if (!this.enabled) {
       return { body, modified: false }
     }
     const parsed = parsePayload(body)
     if (!parsed) return { body, modified: false }
-    const result = this.transformParsed(parsed, ctx, new Map())
-    return result.modified ? { ...result, body: JSON.stringify(parsed) } : { body, modified: false }
+    const finish = (): ModuleTransformResult => {
+      const result = this.transformParsed(parsed, ctx, new Map())
+      return result.modified ? { ...result, body: JSON.stringify(parsed) } : { body, modified: false }
+    }
+    return this.prepare ? this.prepare(parsed, ctx).then(finish) : finish()
   }
 
   /**

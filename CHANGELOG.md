@@ -75,6 +75,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Anthropic's text editor tool; a name also matches an MCP tool ending in `__` and that name. On Claude
   Code's server-side threads through the proxy, where a tool result arrives without the call
   that named its tool, the module learns the name from the response that made the call.
+- **A lean-ctx Shell Output Compressor module, opt-in and lossy (`modules.leanCtx.enabled`,
+  `LLM_FW_LEAN_CTX_ENABLED`, `tools`, `skipCommands`, `timeoutMs` 500).** The output of a
+  `Bash` or `PowerShell` command goes to a private [lean-ctx](https://github.com/yvgude/lean-ctx)
+  that llm-fw starts on a loopback port, using the lean-ctx you installed (on `PATH`, or
+  `LLM_FW_LEAN_CTX_BIN`, read from the process environment only). Results of commands that print
+  files or search them (`cat`, `sed`, `grep`, `| tail`, `Get-Content` and others) stay whole, as
+  do results whose command is unknown: sent everything, lean-ctx cut a 361-line file read to 15
+  lines. lean-ctx runs with telemetry off, its own folders under `LLM_FW_DIR`, none of llm-fw's
+  environment, no copy of tool output on disk and no retrieve instruction added to the result.
+  Over 30 days of one developer's Claude Code transcripts it removed 0.64% of tool-result tokens;
+  its effect on the bill has not been measured. Without lean-ctx, results pass through whole.
 - **A History Window module, opt-in and lossy (`modules.historyWindow.enabled`,
   `LLM_FW_HISTORY_WINDOW_ENABLED`, `maxMessages` 100, `step` 25).** A long conversation keeps its
   system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user
