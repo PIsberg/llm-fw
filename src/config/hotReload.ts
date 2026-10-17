@@ -155,6 +155,7 @@ const HOT_PATHS: Path[] = [
   ['blockStatus'],
   ['modules', 'enabled'],
   ['modules', 'tokenPruner', 'enabled'],
+  ['modules', 'usageMeter', 'enabled'],
 ]
 
 // COLD keys (Task C5) — changing any of these while the process is running

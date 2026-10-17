@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests a module rewrote, newest first, with "would save" on observe-mode dry runs.
   `test/dashboard/modules.spec.ts` drives it, and pins that the Tokens Saved tile changes from
   the event stream while the page stays loaded (#342).
+- **A Usage Meter module: the provider's own token counts.** The savings on the other module
+  cards are estimates made before a request leaves; the meter adds up what the provider reports
+  in each response (uncached input, cache reads, cache writes, output, and the share of input
+  served from cache), from Anthropic, OpenAI chat, the Responses API and Gemini, streaming or
+  not, gzip or plain. On by default because it only reads responses
+  (`modules.usageMeter.enabled`, `LLM_FW_USAGE_METER_ENABLED`); a response larger than
+  `proxy.maxBodyBytes` is not metered. See [Token savings](docs/guides/token-savings.md).
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

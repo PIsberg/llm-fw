@@ -902,17 +902,20 @@ function renderModuleCards(mods) {
     card.className = 'module-card';
     card.dataset.module = m.id;
     const kpi = (key, label, value) =>
-      '<div><div class="stat-label">' + label + '</div><div class="module-kpi-value" data-kpi="' + key + '">' + esc(value) + '</div></div>';
+      '<div><div class="stat-label">' + esc(label) + '</div><div class="module-kpi-value" data-kpi="' + esc(key) + '">' + esc(value) + '</div></div>';
+    // A module that measures something other than savings (the usage meter)
+    // sends its own KPIs.
+    const kpis = Array.isArray(m.kpis)
+      ? m.kpis.map(k => kpi(k.key, k.label, typeof k.value === 'number' ? k.value.toLocaleString() : k.value)).join('')
+      : kpi('saved', 'Tokens saved', Number(m.tokensSaved || 0).toLocaleString()) +
+        kpi('original', 'Original tokens', Number(m.tokensOriginal || 0).toLocaleString()) +
+        kpi('ratio', 'Savings ratio', (m.percentSaved || 0) + '%') +
+        kpi('requests', 'Requests examined', Number(m.totalInvocations || 0).toLocaleString());
     card.innerHTML =
       '<div class="module-card-head"><span class="module-card-name">' + esc(m.name) + '</span>' +
       '<label style="font-size:0.8rem;cursor:pointer"><input type="checkbox"' + (m.enabled ? ' checked' : '') + '> Enabled</label></div>' +
       '<div class="module-card-desc">' + esc(m.description || '') + '</div>' +
-      '<div class="module-kpis">' +
-        kpi('saved', 'Tokens saved', Number(m.tokensSaved || 0).toLocaleString()) +
-        kpi('original', 'Original tokens', Number(m.tokensOriginal || 0).toLocaleString()) +
-        kpi('ratio', 'Savings ratio', (m.percentSaved || 0) + '%') +
-        kpi('requests', 'Requests examined', Number(m.totalInvocations || 0).toLocaleString()) +
-      '</div>';
+      '<div class="module-kpis">' + kpis + '</div>';
     const toggle = card.querySelector('input');
     toggle.onchange = () => setModuleEnabled(m.id, toggle);
     return card;
@@ -1990,12 +1993,10 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       mode: config.responseScan?.mode ?? 'audit',
       harmfulCompliance: config.responseScan?.harmfulCompliance ?? true,
     },
-    modules: {
-      enabled: config.modules?.enabled ?? true,
-      tokenPruner: {
-        enabled: config.modules?.tokenPruner?.enabled ?? false,
-      },
-    },
+    // Every module's switch and options. persistSettings writes only the
+    // leaves that changed, so a module added later persists without an edit
+    // here.
+    modules: structuredClone(config.modules ?? { enabled: true, tokenPruner: { enabled: false } }),
   }
 }
 

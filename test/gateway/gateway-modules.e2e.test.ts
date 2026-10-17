@@ -71,7 +71,7 @@ describe('Gateway & Dashboard Modules Live Session', { timeout: 30000 }, () => {
       req.on('end', () => {
         calls.push({ path: req.url ?? '', headers: req.headers, body })
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ ok: true, received: body }))
+        res.end(JSON.stringify({ ok: true, received: body, usage: { prompt_tokens: 120, completion_tokens: 8, prompt_tokens_details: { cached_tokens: 100 } } }))
       })
     })
     await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()))
@@ -177,9 +177,25 @@ def calculate(x):
     const stats = JSON.parse(statsRes.body)
     expect(stats.totalTokensSaved).toBeGreaterThan(0)
     expect(stats.overallPercentSaved).toBeGreaterThan(0)
-    expect(stats.modules).toHaveLength(1)
-    expect(stats.modules[0].id).toBe('token-pruner')
-    expect(stats.modules[0].enabled).toBe(true)
+    const pruner = stats.modules.find((m: { id: string }) => m.id === 'token-pruner')
+    expect(pruner?.enabled).toBe(true)
+  })
+
+  it('meters the usage the provider reported in its response', async () => {
+    const before = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
+    const kpi = (stats: any, key: string) =>
+      stats.modules.find((m: { id: string }) => m.id === 'usage-meter').kpis.find((k: { key: string }) => k.key === key).value
+    const res = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', JSON.stringify({
+      model: 'test',
+      messages: [{ role: 'user', content: 'hello' }],
+    }), { 'x-llm-fw-key': TOKEN })
+    expect(res.status).toBe(200)
+
+    const after = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
+    expect(kpi(after, 'responses') - kpi(before, 'responses')).toBe(1)
+    expect(kpi(after, 'cacheRead') - kpi(before, 'cacheRead')).toBe(100)
+    expect(kpi(after, 'input') - kpi(before, 'input')).toBe(20)
+    expect(kpi(after, 'output') - kpi(before, 'output')).toBe(8)
   })
 
   it('SSE endpoint /events receives replayed module events', async () => {

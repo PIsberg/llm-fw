@@ -228,7 +228,8 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Clean response from mock upstream' }],
-          model: 'claude-3-opus-20240229'
+          model: 'claude-3-opus-20240229',
+          usage: { input_tokens: 25, cache_read_input_tokens: 4000, cache_creation_input_tokens: 0, output_tokens: 7 },
         })
         // When the path asks for it, reply with Transfer-Encoding: chunked split
         // across several writes (no Content-Length). This exercises the proxy's
@@ -564,6 +565,25 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     const moduleStats = await queryDashboard(testConfig.dashboard.port, '/api/modules')
     expect(moduleStats.totalTokensSaved).toBeGreaterThan(0)
     expect(moduleStats.overallPercentSaved).toBeGreaterThan(0)
+  })
+
+  it('E2E Case 7: the usage meter adds up what the provider reported, chunked or not', async () => {
+    const kpi = (stats: any, key: string): number =>
+      stats.modules.find((m: { id: string }) => m.id === 'usage-meter').kpis.find((k: { key: string }) => k.key === key).value
+    const before = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+    for (const path of ['/v1/messages', '/v1/messages?chunked=1']) {
+      const response = await sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', path,
+        { 'Content-Type': 'application/json' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'meter me' }] }),
+      )
+      expect(response.statusCode).toBe(200)
+    }
+    const after = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+    expect(kpi(after, 'responses') - kpi(before, 'responses')).toBe(2)
+    expect(kpi(after, 'cacheRead') - kpi(before, 'cacheRead')).toBe(8000)
+    expect(kpi(after, 'input') - kpi(before, 'input')).toBe(50)
+    expect(kpi(after, 'output') - kpi(before, 'output')).toBe(14)
   })
 })
 

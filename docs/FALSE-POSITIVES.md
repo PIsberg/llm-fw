@@ -60,6 +60,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.64
+
+**2.68% overall (9 of 336), unchanged.** This ruleset only adds the
+token-saving module defaults to `src/config/config.ts`: every module that
+rewrites a request is off by default, and the one that is on, the usage meter,
+reads responses only. Modules run before detection on the proxy and gateway,
+not in the pipeline this evaluation calls, so no verdict moves. Not
+re-measured.
+
 ## Result, ruleset 2026.10.63
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

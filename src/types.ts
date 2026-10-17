@@ -424,13 +424,20 @@ export interface McpConfig {
   };
 }
 
-export interface TokenPrunerConfig {
+/** The on/off switch every built-in gateway module reads, live. */
+export interface ModuleSwitchConfig {
   enabled: boolean;
 }
 
+export type TokenPrunerConfig = ModuleSwitchConfig;
+
+// Keys after tokenPruner are optional so a config object written before they
+// existed still type-checks; ModuleManager fills in the defaults.
 export interface ModulesConfig {
   enabled: boolean;
   tokenPruner: TokenPrunerConfig;
+  /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
+  usageMeter?: ModuleSwitchConfig;
 }
 
 export interface ModuleEvent {

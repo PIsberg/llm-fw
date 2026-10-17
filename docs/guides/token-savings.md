@@ -69,6 +69,26 @@ an approximation of any provider's bill.
 | Module id | Config key | Rewrites |
 | --- | --- | --- |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
+| `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
+
+### Usage meter
+
+`modules.usageMeter.enabled` (`LLM_FW_USAGE_METER_ENABLED`), **on by
+default**, because it reads responses and changes nothing. It adds up the token
+counts the provider reports in each response, so the estimates on the other
+cards can be checked against the bill:
+
+- **Uncached input**: input billed at the full rate,
+- **Cache reads** and **cache writes**: the prompt-cache traffic that decides
+  what a long agent session costs,
+- **Output**,
+- **Input served from cache**: cache reads over all input.
+
+It reads Anthropic `usage` (JSON and the `message_start` / `message_delta`
+stream events), OpenAI chat `usage` (a stream carries it only when the client
+sends `stream_options.include_usage`), the Responses API `response.completed`
+event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
+is not metered, so a large download is never held in memory twice.
 
 ### Token pruner
 

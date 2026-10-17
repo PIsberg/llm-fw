@@ -16,6 +16,8 @@ import { isObserving } from '../config/config.js';
 import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
+import { tapResponse } from '../modules/responseTap.js';
+import type { GatewayModuleContext } from '../modules/types.js';
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
@@ -239,7 +241,15 @@ export class GatewayServer {
         return;
       }
 
+      // Modules that read responses (the usage meter) see what the client
+      // received, captured as it streams through.
+      const moduleCtx = this.moduleContext(req, route, tenant);
+      const captured = moduleCtx && this.modules.wantsResponses()
+        ? tapResponse(res, this.config.proxy.maxBodyBytes)
+        : null;
       await this.forward(req, res, route, decision.body, authIsInternal);
+      const response = captured?.();
+      if (moduleCtx && response) this.modules.observeResponse(decision.body.toString('utf-8'), moduleCtx, response);
     } catch (err) {
       log.error(`${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
@@ -453,18 +463,9 @@ export class GatewayServer {
     const tenantTag = tenant ? { tenant: tenant.id } : {};
     const observedTag = observing ? { enforced: false } : {};
 
-    const parser = getParser(path);
-    if (this.config.modules?.enabled && parser !== null) {
-      const modRes = await this.modules.transformRequest(text, {
-        target,
-        method,
-        path,
-        isLlmRequest: true,
-        parser,
-        sessionKey,
-        tenant: tenant?.id,
-        dryRun: observing,
-      });
+    const moduleCtx = this.moduleContext(req, route, tenant);
+    if (moduleCtx) {
+      const modRes = await this.modules.transformRequest(text, { ...moduleCtx, dryRun: observing });
       if (modRes.modified && !observing) {
         text = modRes.body;
         bodyBuf = Buffer.from(text, 'utf-8');
@@ -568,6 +569,21 @@ export class GatewayServer {
     }
 
     return { blocked: false, body: bodyBuf };
+  }
+
+  /** What the module pipeline sees of a request; null when modules do not run on it. */
+  private moduleContext(req: http.IncomingMessage, route: GatewayRoute, tenant: Tenant | null): GatewayModuleContext | null {
+    const parser = getParser(route.upstreamPath);
+    if (!this.config.modules?.enabled || parser === null) return null;
+    return {
+      target: route.provider.host,
+      method: req.method ?? 'POST',
+      path: route.upstreamPath,
+      isLlmRequest: true,
+      parser,
+      sessionKey: (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, ''),
+      tenant: tenant?.id,
+    };
   }
 
   /** Dashboard base URL for block remediation hints, when it is reachable. */

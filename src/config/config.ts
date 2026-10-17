@@ -336,12 +336,16 @@ export const DEFAULT_CONFIG: Config = {
   },
   // Status of a content refusal; see Config.blockStatus (#304).
   blockStatus: 422,
-  // The module pipeline is on; the token pruner is opt-in because it rewrites
-  // the prompt text the provider receives.
+  // The module pipeline is on. Every module that rewrites a request is
+  // opt-in, because it changes what the provider receives; the usage meter
+  // only reads responses. See docs/guides/token-savings.md.
   modules: {
     enabled: true,
     tokenPruner: {
       enabled: false,
+    },
+    usageMeter: {
+      enabled: true,
     },
   },
   // Every major AI provider's API host — the proxy TLS-inspects these and the
@@ -682,6 +686,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_BLOCK_STATUS: (c, v) => { if (v === '403' || v === '422') c.blockStatus = v === '403' ? 403 : 422; },
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
+  LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
   LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },
 };

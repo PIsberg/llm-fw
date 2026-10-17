@@ -1,9 +1,21 @@
 import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, TokenPrunerConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig } from '../types.js'
+import type { CapturedResponse } from './responseTap.js'
 import { TokenPrunerModule } from './builtin/tokenPruner.js'
+import { UsageMeterModule } from './builtin/usageMeter.js'
+import { DEFAULT_CONFIG } from '../config/config.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('modules')
+
+type BuiltinKey = Exclude<keyof ModulesConfig, 'enabled'>
+
+// Built-in modules in pipeline order, each keyed by the `modules.<key>`
+// object that holds its switch and options.
+const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
+  { key: 'tokenPruner', create: cfg => new TokenPrunerModule(cfg) },
+  { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
+]
 
 export interface ModulesSummaryStats {
   totalTokensOriginal: number
@@ -20,15 +32,40 @@ export class ModuleManager {
 
   constructor(config?: Config, registerBuiltins = true) {
     if (registerBuiltins) {
-      // Hand the module the live config sub-object, creating it if a caller's
-      // config predates modules, so hot reload and the dashboard toggle reach
-      // it (see TokenPrunerModule.cfg).
-      let prunerConfig: TokenPrunerConfig | undefined
-      if (config) {
-        const modules = (config.modules ??= { enabled: true, tokenPruner: { enabled: false } })
-        prunerConfig = (modules.tokenPruner ??= { enabled: false })
+      // Hand each module the live config sub-object, creating it from the
+      // defaults if a caller's config predates it, so hot reload and the
+      // dashboard toggle reach the running module (see PayloadModule.cfg).
+      // Without a config, each module gets a private copy of its defaults.
+      const defaults = DEFAULT_CONFIG.modules!
+      const modules: ModulesConfig = config
+        ? (config.modules ??= structuredClone(defaults))
+        : structuredClone(defaults)
+      const slots = modules as unknown as Record<BuiltinKey, ModuleSwitchConfig | undefined>
+      for (const { key, create } of BUILTINS) {
+        const cfg = (slots[key] ??= structuredClone(defaults[key]) ?? { enabled: false })
+        this.register(create(cfg))
       }
-      this.register(new TokenPrunerModule(prunerConfig))
+    }
+  }
+
+  /** True when an enabled module wants to see responses, so callers capture them. */
+  wantsResponses(): boolean {
+    for (const mod of this.modules.values()) {
+      if (mod.enabled && mod.observeResponse) return true
+    }
+    return false
+  }
+
+  // Fails open like transformRequest: a module that throws is logged and the
+  // others still see the response.
+  observeResponse(requestBody: string, ctx: GatewayModuleContext, response: CapturedResponse): void {
+    for (const mod of this.modules.values()) {
+      if (!mod.enabled || !mod.observeResponse) continue
+      try {
+        mod.observeResponse(requestBody, ctx, response)
+      } catch (err) {
+        log.error('module failed on a response; ignored', { module: mod.id, err })
+      }
     }
   }
 
