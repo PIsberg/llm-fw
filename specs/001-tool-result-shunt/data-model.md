@@ -47,8 +47,9 @@ reason the result is forwarded whole:
 4. Below the size threshold: `below-threshold`.
 5. `chars > maxInputChars`: `too-large`.
 6. `isLoopbackAddr(ctx.remoteAddress)` (`src/auth.ts`) false: `remote-client`.
-7. Its slot in the Screening record's `flagged` (which includes a slot detection did not scan), or,
-   for a result not yet decided, `all` true or no record on the context: `flagged`.
+7. Its slot in the Screening record's `flagged` (which includes a slot a complete scan did not
+   reach), or, for a result not yet decided, its slot in `unreached`, `all` true or no record on
+   the context: `flagged`.
 
 An eligible result is then decided once (Remembered outcome): condensed, or whole with
 `worker-failed` (no worker, worker not local, error, timeout, empty or malformed answer),
@@ -83,9 +84,17 @@ result sets its `carriedAt` to `Date.now()`, dry run included.
 - **Flags.** A condensed outcome is replayed byte-identical on every request that carries the
   result, until a request puts its own slot in `flagged`: it then becomes `flagged`, its outcome
   file is rewritten as `flagged` and its stored original deleted, outside dry run (plan Design 8,
-  D11). `all` and a missing record never change a remembered outcome: a result first condensed was
-  judged clean, by the same key, in a scan that judged every item. Nothing replaces a `flagged`
-  outcome, a settling in-flight decision included (FR-012).
+  D11). `all`, `unreached` and a missing record never change a remembered outcome: a result first
+  condensed was judged clean, by the same key, in a scan that reached it. Nothing replaces a
+  `flagged` outcome, a settling in-flight decision included (FR-012).
+- **Disk order (FR-012, SC-009; audit 4 M2).** Every disk write for one key (the decision's
+  `store.write` and `writeOutcome`, a write-back of FR-024, the flip of D11) runs in turn on one
+  per-key chain. A write that leaves condensed state (a stored original, a `condensed` outcome
+  file) re-checks the remembered outcome when its turn comes and is skipped once it is `flagged`.
+  A flag on a key that another request is deciding or writing back is set in memory at once, and
+  its flip is queued behind those writes, so it is the key's last write: no stored original stays,
+  and the outcome file a restart reads is `flagged`. The flagging request awaits its flip, within
+  the bound a joiner of the decision has (FR-008).
 
 ## Screening record (FR-012, D1)
 
@@ -98,13 +107,21 @@ while they screen, read by the module through `ctx.screening`.
 | scan-item text with a warn outcome, or handed to the async judge | `noteItemFlag(text)` from `Pipeline.run` meta `onItemFlag` |
 | DLP findings and the body before redaction | `noteDlp(preDlpBody, findings)` |
 | MCP tool-result audit | `noteMcpAudit(toolUseId)` |
-| scan did not judge every item (fail-open pipeline error; `result.enforced === false`) | `incomplete()` |
+| fail-open pipeline error | `incomplete()` |
+| an observe-mode block ended the scan (`result.enforced === false`) | `cutShort()` |
+
+`cutShort()` makes the text last passed to `noteItemScanned`, if any, a noted item flag: it is the
+item the scan stopped on, because T010 notes each item first in its pass of the item loop of
+`scan` (`src/detection/pipeline.ts`) and every block there returns within that pass; the
+`crescendo` and `non-text` blocks return before the loop, with nothing noted.
 
 `flaggedSlots(slots)` takes the request's slots as the module sees them (after DLP) and returns
-`{ flagged, all }`. `all` is true when `incomplete()` was called, when the pre-DLP body's slot
+`{ flagged, unreached, all }`. `all` is true when `incomplete()` was called, when the pre-DLP body's slot
 count differs from `slots.length`, or when a DLP finding's `match` appears in no pre-DLP slot text
 of any kind, raw or in its `JSON.stringify` form; it applies only to results not yet decided
-(Remembered outcome). `flagged`, filled whatever `all` is, holds the indices of `tool_result` slots
+(Remembered outcome). `unreached`, empty unless `cutShort()` was called and `all` is false, holds
+the `tool_result` slots no noted scanned text contains; like `all` it applies only to results not
+yet decided. `flagged`, filled whatever `all` is, holds the indices of `tool_result` slots
 where:
 
 - a noted item-flag text contains the slot's text (a parser may join a result's text parts), or
@@ -112,12 +129,12 @@ where:
 - the slot counts match and the pre-DLP slot at the same index contains a DLP `match`, raw or
   `JSON.stringify`-escaped. When they differ this rule is skipped: a slot DLP redacted no longer
   has its remembered key, so the module decides it as new and `all` keeps it whole, or
-- `all` is false and no noted scanned text contains the slot's text: detection did not scan it
-  (FR-012). Today that is every OpenAI Responses `function_call_output`, which
+- `all` is false, `cutShort()` was not called, and no noted scanned text contains the slot's
+  text: detection did not scan it (FR-012). Today that is every OpenAI Responses `function_call_output`, which
   `src/detection/parsers.ts` never extracts; extending the parser changes verdicts and is a
   follow-up. Exact match against a set of the scanned texts first, containment only for the rest
-  (SC-005). Skipped when `all` is true: an incomplete scan leaves items unscanned by design, and
-  `all` already keeps new results whole (plan Design 8).
+  (SC-005). Skipped when `all` is true or the scan was cut short: such a scan leaves items
+  unscanned by design, and `all` or `unreached` already keeps new results whole (plan Design 8).
 
 DLP `match` values stay in memory for the request and are never logged.
 
@@ -151,7 +168,8 @@ DLP `match` values stay in memory for the request and are never logged.
 - **Sweep**: deletes every file in the folder (temp files included) whose mtime is expired; runs at
   start and every hour from `src/cli/start.ts`, module on or off.
 - **Purge**: deletes every file in the folder, from the dashboard (contracts section 5).
-- **Flip (D11)**: the stored original of a condensed outcome that becomes `flagged` is deleted.
+- **Flip (D11)**: the stored original of a condensed outcome that becomes `flagged` is deleted, as
+  the key's last write (Remembered outcome, "Disk order").
 - **Write-back (FR-024)**: a carried remembered outcome whose outcome file is missing, or a
   condensed one whose stored original is missing, has the missing file written again at the same
   path before forwarding; if that fails the remembered outcome is forwarded anyway and one warning

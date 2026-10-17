@@ -19,8 +19,8 @@ the two measurement harnesses of User Story 5.
 
 **Primary Dependencies**: none new. The worker is called with `fetch`. The measurement harness
 counts tokens with `Xenova/gpt-4o` (o200k) through `AutoTokenizer` from `@huggingface/transformers`,
-already a dependency and the tokenizer `test/modules/tokens.test.ts` was calibrated against;
-Claude's tokenizer is not public (FR-019).
+already a dependency, the tokenizer `test/modules/tokens.test.ts` was calibrated against and the one
+T000 used; Claude's tokenizer is not public (FR-019; open as D14).
 
 **Storage**: stored originals and remembered outcomes as files under `getLlmFwDir()` (data-model.md
 "Stored original"); outcomes also in memory, read back from disk after a restart, dropped after a
@@ -58,11 +58,13 @@ either settled below or listed under Decisions. No `research.md`: the two techno
 2. **What detection flagged (FR-012, D1).** A per-request `Screening` record (`src/modules/screening.ts`)
    is filled while screening: every scan item the pipeline reaches (`Pipeline.run` meta
    `onItemScanned`, T010), scan items with a warn outcome or a pending async-judge verdict
-   (`onItemFlag`, T010), DLP findings, MCP tool-result audits, and an "incomplete" mark when the
-   scan did not judge every item (fail-open pipeline error, or `result.enforced === false`, an
-   observe-mode block that ended the scan). A tool result the scan never reached counts as flagged
-   (FR-012); the parser is not extended (no verdict changes). Attribution rules: data-model.md
-   "Screening record".
+   (`onItemFlag`, T010), DLP findings, MCP tool-result audits, an "incomplete" mark when the
+   pipeline failed open, and a "cut short" mark when an observe-mode block ended the scan
+   (`result.enforced === false`; audit 4 M1). After a cut-short scan the item it stopped on counts
+   as flagged, items it judged before keep their own verdict (US6-3), and only tool results it
+   never reached are unscanned: new ones stay whole, remembered ones stay as they are (Design 8).
+   After a complete scan a tool result it never reached counts as flagged (FR-012); the parser is
+   not extended (no verdict changes). Attribution rules: data-model.md "Screening record".
 3. **One decision per distinct result (FR-006, FR-008).** Key `sha256(toolName \0 text)`, kept in
    memory while carried and on disk beside the stored originals, read back on a miss (D9); requests
    carrying the same key at once share one decision. All new results of a
@@ -83,20 +85,39 @@ either settled below or listed under Decisions. No `research.md`: the two techno
 8. **FR-012 over FR-006**: a remembered condensed result whose own slot detection flags on a later
    request (Screening `flagged`, for example after a detection setting or suppression change) is
    forwarded whole from then on, its stored original deleted and its outcome file rewritten
-   (D11); a slot the scan did not reach counts as such a flag. A flag the
-   record cannot place on a slot (`all`: an incomplete scan, a DLP match outside any text slot such
-   as a tool call's input) and a missing record keep only results not yet decided whole; a
-   remembered outcome stays as it is (FR-006), so earlier turns never change because of one. Under
-   `all` an unscanned slot is expected and is not counted.
+   (D11); a slot a complete scan did not reach counts as such a flag. A flag the
+   record cannot place on a slot (`all`: a fail-open scan, a DLP match outside any text slot such
+   as a tool call's input), a slot a cut-short scan never reached (`unreached`) and a missing
+   record keep only results not yet decided whole; a remembered outcome stays as it is (FR-006), so
+   earlier turns never change because of one. Under `all` an unscanned slot is expected and is not
+   counted. A flag wins on disk as well as in memory: a key's disk writes run in turn and a write of
+   condensed state re-checks the flag (data-model.md "Remembered outcome", audit 4 M2).
 9. **Measurement (US5)**: T000 measured the ceiling from local transcripts before Phase 1 (D10: go);
    then `test/eval/shunt/replay.ts` (free) and `test/eval/shunt/compare.ts`
    (billed, refuses to run without `--approve-spend`), both on a scratch `LLM_FW_DIR` (FR-020); how
-   to run them is in quickstart.md.
+   to run them is in quickstart.md. The replay's savings measure (FR-019, US5-1, SC-006; audit 4
+   M4):
+   - **Only what the module would condense.** Detection runs on each eligible result first
+     (DLP and `Pipeline.run`, noted into a `Screening` as the proxy does), and only results neither
+     flagged nor unscanned are condensed and counted; the report gives the excluded counts and says
+     so.
+   - **Tokens avoided** per condensed result: original tokens minus condensed tokens (the whole
+     condensed result as forwarded), counted once, when the result first enters the conversation
+     as new input.
+   - **Bill-weighted saving**: that difference × 1.25 (the cache write), plus that difference × 0.1
+     for every later model turn in the same transcript that re-reads it from cache, until a
+     compaction drops it, as T000 measured. A model turn is one distinct assistant `message.id`;
+     the first after the result is the one that reads it as new input; a compaction is a
+     `"subtype":"compact_boundary"` entry (found in 12 of the 400 newest local transcripts,
+     2026-10-17).
+   - **Worker tokens**, read and written, are reported separately as the local cost, and each
+     figure's net against them.
+   - **Counted** on LF-normalised text with the tokenizer of Technical Context (D14).
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.* Result: PASS, no
-violations, re-checked after the audit-3 revision.
+violations, re-checked after the audit-4 revision.
 
 | Rule | Tasks | How |
 | --- | --- | --- |
@@ -107,7 +128,7 @@ violations, re-checked after the audit-3 revision.
 | IV. Tool results and prompt text never logged | T006, T008, T014, T016, T023 | worker and store problems warn with counts only; marker test on events, card, logs; traffic event body unchanged |
 | V. Config key as five edits, env table regenerated | T002, T029 | type, default, `ENV_OVERRIDES`, `HOT_PATHS`, docs; `npm run config:reference` in T002 |
 | V. Module: `BUILTINS` entry, `LLM_FW_<KEY>_ENABLED`, warm options, off by default, fails open | T002, T012, T016, T028 | `test/modules/builtins.test.ts` walks `BUILTINS`; worker and store failures forward whole |
-| VI. Docs the change makes wrong, `## [Unreleased]` entry | T020, T029 | dashboard modules blurb (T020); token-savings guide's "runs before DLP and detection" and "byte-identical, never on time" guarantees, module section, configuration guide, CHANGELOG (T029) |
+| VI. Docs the change makes wrong, `## [Unreleased]` entry | T020, T029 | dashboard modules blurb (T020); token-savings guide's "runs before DLP and detection" and "byte-identical, never on time" guarantees, its "## Modules" table row, module section; `docs/specs/SPEC-modules.md` §4.1 interfaces and §4.2 "DLP and detection scan the pruned payload"; configuration guide, CHANGELOG (T029) |
 | VI. Savings claims carry measured numbers | T021, T022, T030 | replay harness, then measured numbers in the guide |
 | VI. Generated markers not hand-edited | T002 | env table via `npm run config:reference` |
 | Engineering: strict TS, ESM, domain structure, `test/` mirrors `src/` | all implementation tasks | new code under `src/modules/`, tests under `test/modules/` |
@@ -143,7 +164,7 @@ test/detection/pipeline-item-flag.test.ts
 test/cli/start-shunt.test.ts             new: sweep wiring in start.ts
 test/gateway/gateway-shunt.e2e.test.ts   new, port 18231
 test/eval/shunt/{replay.ts,compare.ts,compare-tasks.json,fixtures/}, test/eval/shunt{Replay,Compare}.test.ts
-docs/guides/token-savings.md, docs/guides/configuration.md, CHANGELOG.md, package.json
+docs/guides/token-savings.md, docs/guides/configuration.md, docs/specs/SPEC-modules.md, CHANGELOG.md, package.json
 ```
 
 **Structure Decision**: single project; the module and its helpers live in `src/modules/` beside
@@ -326,8 +347,9 @@ deleted, so no flagged text stays in the folder (FR-012, SC-009). A flag the rec
 (`all`, no record) changes nothing (Design 8). In dry run only memory changes. Follows: that
 conversation's history changes shape once, so its prompt cache misses and a model with preserved
 thinking may refuse that one request; the guide says so. Another remembered condensed result with
-the same text under a different tool name finds the file gone and writes it back (FR-024). Tasks:
-T017, T018, T029.
+the same text under a different tool name finds the file gone and writes it back (FR-024). The flip
+is the key's last disk write even when it lands during another request's decision or write-back
+(Design 8, audit 4 M2). Tasks: T017, T018, T027, T028, T029.
   Spec: FR-012: append "This takes precedence over FR-006: a result condensed on an earlier request is forwarded whole from the first request on which the detection flags it or does not scan it, and its stored original is deleted. The module may keep on disk the decision to forward a flagged result whole (FR-006), never its text."
   Spec: FR-018: append "It MUST also say that a result condensed earlier is forwarded whole from the first request on which the detection flags it, which changes that conversation's history once."
   Spec: Edge Cases: add "A result condensed on an earlier request is flagged by the detection on a later one (after a detection setting or suppression change): it is forwarded whole from then on and its stored original is deleted. The conversation's history changes once, and the documentation says so."
@@ -369,3 +391,27 @@ D12)? No FR sets this default (FR-002 names only "the worker's allowed input").
   and no wait; an operator with a larger window raises it; fewer of the largest results are
   condensed, by a share not measured (T000 did not split its 203 results by size). T001, T002 and
   data-model.md "Config" change the default; no spec line changes.
+
+### D14. Which tokenizer counts the replay's figures? (FR-019, US5-1, SC-006; audit 4 M4)
+
+**Decided: A** (2026-10-17). FR-019, US5-1 and the project instructions already require a real tokenizer; the estimateTokens sentence in the audit-4 brief was an error.
+
+Audit 4 M4 ends "Tokens are counted with `estimateTokens` on LF-normalised text". FR-019 says the
+measurement MUST count with a real tokenizer and MUST NOT use the firewall's own estimate, US5-1 as
+reworded for M4 says "a named real tokenizer", T000 counted with `Xenova/gpt-4o`, and the project's
+instructions (`.specify/projects/llm-fw/`) want quoted token counts from a real tokenizer.
+`estimateTokens` (`src/modules/tokens.ts`) is the firewall's own estimate. Everything else in M4 is
+applied (Design 9); only the tokenizer waits on this.
+
+- **A (recommended): `Xenova/gpt-4o` (o200k) through `AutoTokenizer`, as FR-019, US5-1 and T000.**
+  No change to spec or tasks. Follows: the replay's figures compare directly with T000's ceiling;
+  they differ from the card's `originalTokens`/`condensedTokens` (data-model.md "Counters",
+  `estimateTokens`) by the estimator's error, 7.9% mean on tool output against o200k and cl100k
+  (header of `src/modules/tokens.ts`), and the guide says which counter used which (T029, T030).
+- **B: `estimateTokens` on LF-normalised text, as M4 states.** Follows: `main()` loads no
+  tokenizer; the figures match the card's and the FR-005 cap's counting (contracts section 1) but
+  not T000's, and carry the estimator's error (7.9% mean on tool output, 28% on base64/hex). T022
+  drops `AutoTokenizer` and reports `tokenizer: 'estimateTokens'`; Technical Context, Design 9
+  and quickstart.md section 1 ("names the tokenizer (`Xenova/gpt-4o`)") change.
+  Spec: FR-019: replace "MUST count tokens with a real tokenizer on line-ending-normalised text, MUST NOT use characters divided by four or the firewall's own estimate," with "MUST count tokens with the firewall's token estimate on line-ending-normalised text, MUST NOT use characters divided by four,".
+  Spec: US5-1: replace "counted by a named real tokenizer on line-ending-normalised text, not by characters divided by four" with "counted by the firewall's token estimate on line-ending-normalised text, not by characters divided by four".
