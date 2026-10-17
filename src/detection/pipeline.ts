@@ -243,8 +243,15 @@ export class Pipeline {
       enforcement?: 'enforce' | 'observe';
       // Tenant attribution, carried onto every event this run emits.
       tenant?: string;
+      // Called with the text of every scan item, just before it is scanned
+      // (T010 stub: not called yet).
+      onItemScanned?: (text: string) => void;
+      // Called with the text of every scan item whose own outcome is a warn
+      // (T010 stub: not called yet).
+      onItemFlag?: (text: string) => void;
     }
   ): Promise<PipelineResult> {
+    if (meta.onItemScanned || meta.onItemFlag) throw new Error('meta.onItemScanned and meta.onItemFlag are not implemented')
     const result = await this.scan(requestPath, body, meta)
     // THE choke point for observe mode. Every caller — proxy, gateway, the
     // library API — takes its verdict from here, so downgrading once makes
@@ -269,6 +276,12 @@ export class Pipeline {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
       onEvent?: (event: BlockEvent) => void | undefined;
+      // Called with the text of every scan item, just before it is scanned
+      // (T010 stub: not called yet).
+      onItemScanned?: (text: string) => void;
+      // Called with the text of every scan item whose own outcome is a warn
+      // (T010 stub: not called yet).
+      onItemFlag?: (text: string) => void;
     }
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)

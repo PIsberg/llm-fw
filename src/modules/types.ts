@@ -1,5 +1,6 @@
 import type { PayloadParser, ModuleEvent } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
+import type { Screening } from './screening.js'
 
 export interface GatewayModuleContext {
   target: string;
@@ -16,6 +17,10 @@ export interface GatewayModuleContext {
   headers?: Record<string, string | string[] | undefined> | undefined;
   /** The URL as the client sent it, query included: a credential can ride in `?key=`. */
   url?: string | undefined;
+  /** What detection and DLP made of this request, for a module that runs after them. */
+  screening?: Screening | undefined;
+  /** The caller's socket address, for a module that must know the caller is local. */
+  remoteAddress?: string | undefined;
 }
 
 /** A response a module serves in place of the provider's. */
@@ -50,6 +55,12 @@ export interface GatewayModule {
   readonly name: string;
   readonly description: string;
   enabled: boolean;
+
+  /**
+   * Runs in `ModuleManager.transformScreened`, after detection and DLP, and
+   * not in `transformRequest`.
+   */
+  readonly afterScreening?: boolean;
 
   /** Transform request body prior to upstream dispatch. */
   transformRequest(

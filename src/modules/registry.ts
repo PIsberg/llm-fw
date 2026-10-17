@@ -200,6 +200,18 @@ export class ModuleManager {
     }
   }
 
+  /**
+   * The modules marked `afterScreening`, run after detection and DLP with
+   * `ctx.screening` and `ctx.remoteAddress` set. Fails open like
+   * `transformRequest`. Stub: not written yet.
+   */
+  transformScreened(
+    _body: string,
+    _ctx: GatewayModuleContext
+  ): Promise<{ body: string; modified: boolean; events: ModuleEvent[] }> {
+    return Promise.reject(new Error('transformScreened is not implemented'))
+  }
+
   getSummaryStats(): ModulesSummaryStats {
     let totalTokensOriginal = 0
     let totalTokensPruned = 0
