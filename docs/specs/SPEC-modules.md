@@ -24,11 +24,12 @@ This specification introduces:
   - Minifies embedded multiline JSON objects and arrays.
   - Leaves fenced code blocks alone apart from trailing whitespace.
 - **Zero-Refresh Real-Time Visualization**: Broadcast per-request savings over the existing Server-Sent Events (SSE) stream and immediately update the live counter and savings percentage in the dashboard header.
-- **Both surfaces**: Forward proxy (`src/proxy/`) and reverse gateway (`src/gateway/`). The pruner reads `messages[].content` (string, or parts with `type: "text"`), `system`, Gemini `contents[].parts[].text` and a legacy `prompt`. Other shapes, such as Bedrock Converse parts without a `type`, pass through untouched.
+- **Both surfaces**: Forward proxy (`src/proxy/`) and reverse gateway (`src/gateway/`). The pruner reads the `prompt` and `system` text slots `collectTextSlots` finds (OpenAI chat, the Responses API, Anthropic, Gemini, a legacy `prompt`); tool output is left to its own modules. Other shapes, such as Bedrock Converse parts without a `type`, pass through untouched.
+- **Later modules**: Each further token-saving technique is its own module with its own switch, listed with its trade-offs in [Token savings](../guides/token-savings.md).
 - **Zero External Dependencies**: Maintain the project's zero-dependency ethos by implementing lightweight whitespace normalization and token estimation without adding heavy tokenizer packages.
 
 ### 2.2 Non-Goals
-- **Destructive Semantic Truncation**: Dropping user turns, chopping middle sentences, or aggressive lossy summarization that risks altering user intent or model accuracy.
+- **Destructive Semantic Truncation** in the token pruner: dropping user turns, chopping middle sentences, or aggressive lossy summarization that risks altering user intent or model accuracy. Two later modules do cut deliberately, each opt-in and documented as lossy: the tool result truncator and the history window.
 - **Arbitrary Sandboxed Plugin Runtimes**: Modules are compiled TypeScript classes within the firewall codebase rather than untrusted external runtime scripts.
 - **Bypassing Security Screening**: Modules run cooperatively with the security pipeline; transformed payloads remain fully protected by DLP and prompt injection scanning.
 

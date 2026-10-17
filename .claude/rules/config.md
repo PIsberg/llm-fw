@@ -30,6 +30,14 @@ A new key is not one edit. It is five, and reviewers will look for all of them:
    that `test/config/config-reference.test.ts` fails until you do. Prose about
    what the key is for still goes in by hand, next to its siblings.
 
+A new built-in gateway module under `modules.<key>` is the same five edits
+plus an entry in `BUILTINS` (`src/modules/registry.ts`, in pipeline order) and
+a section in [docs/guides/token-savings.md](../../docs/guides/token-savings.md).
+`test/modules/builtins.test.ts` walks `BUILTINS` and fails when a module is on
+by default without being read-only, lacks its `LLM_FW_<KEY>_ENABLED`
+override, or has an option that is not warm. `config.ts` is in the ruleset
+digest, so a new default also needs `RULESET_DIGEST` re-pinned.
+
 ## Traps that have bitten before
 
 - **Booleans are strictly `'true'`.** `ENV_OVERRIDES` tests `v === 'true'`, so
