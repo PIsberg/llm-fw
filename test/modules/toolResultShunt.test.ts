@@ -1330,6 +1330,316 @@ describe('ToolResultShuntModule: condensing a tool result', { timeout: 60_000 },
   })
 
   // -------------------------------------------------------------------------
+  // T027 (slice S14): FR-024. A request that carries a remembered result keeps
+  // its files alive (the mtime is the last carry, data-model.md "Stored
+  // original") and puts back any that are gone, at the same path, before it is
+  // forwarded; the condensed text a conversation already holds never changes.
+  // A write-back that fails forwards the remembered text anyway. The outcome
+  // files are kept the same way, and a missing one is not a missing original
+  // (D9 C). `scannedScreening` is T015's: every text reached, none flagged.
+  // -------------------------------------------------------------------------
+  describe('carrying a remembered result keeps its files alive and writes back what is gone (FR-024, US7-4, US7-6, US7-8, US7-9, D9 C)', () => {
+    const outcomeFile = (toolName: string, text: string): string => join(folder(), `${keyOf(toolName, text)}.outcome`)
+    const mtime = (path: string): number => fs.statSync(path).mtimeMs
+    /** A file's text; a file that is not there fails the assertion, instead of throwing from the read. */
+    const contentOf = (path: string): string => {
+      expect(fs.existsSync(path), `${relative(root, path)} should exist`).toBe(true)
+      return fs.readFileSync(path, 'utf8')
+    }
+    /** Make the file look unused for `hours`, and return the time it was set to. */
+    const age = (path: string, hours: number): number => {
+      const then = new Date(Date.now() - hours * HOUR)
+      fs.utimesSync(path, then, then)
+      return then.getTime()
+    }
+    /** The card's count of stored originals that could not be written back. */
+    const missing = (): number | string | undefined => m.mod.getStats().kpis?.find(k => k.key === 'missing')?.value
+    /** A record in which the detection flagged `text`. */
+    const flaggedScreening = (payload: unknown, text: string): Screening => {
+      const screening = scannedScreening(JSON.stringify(payload))
+      screening.noteItemFlag(text)
+      return screening
+    }
+    const isCondensed = (text: string | undefined): boolean => text !== undefined && text.startsWith('[llm-fw: tool output condensed')
+
+    it('sets the mtime of the stored original and of its outcome file to now on every carry, so a sweep spares a result still in use (US7-4, FR-024)', async () => {
+      const text = output('carried')
+      const body = request(turn([bash('toolu_1', 'npm test', text)]))
+      const first = await send(body)
+      expect(isCondensed(first.results[0])).toBe(true)
+      const original = m.mod.store.pathFor(text)
+      const outcome = outcomeFile('Bash', text)
+
+      // Both look unused for 30 hours: past the retention period, and nothing has swept them yet.
+      const old = age(original, 30)
+      age(outcome, 30)
+      expect(mtime(original)).toBeLessThan(Date.now() - 29 * HOUR)
+
+      const before = Date.now()
+      const again = await send(body)
+      expect(again.body).toBe(first.body)
+      expect(mtime(original), 'the stored original of a carried result').toBeGreaterThanOrEqual(before - 1_000)
+      expect(mtime(outcome), 'its outcome file').toBeGreaterThanOrEqual(before - 1_000)
+      expect(mtime(original)).toBeGreaterThan(old + 29 * HOUR)
+
+      // What the touch is for: the sweep that would have deleted both finds them in use.
+      expect(await m.mod.store.sweep(m.shunt.retentionHours * HOUR)).toBe(0)
+      expect(files('.txt')).toEqual([`${sha256(text)}.txt`])
+      expect(files('.outcome')).toEqual([`${keyOf('Bash', text)}.outcome`])
+      expect(worker.received).toHaveLength(1)
+    })
+
+    it('sets both mtimes to now for a result an outcome file brought back after a restart, on the first request that carries it (US7-4, D9 C)', async () => {
+      const text = output('carried after restart')
+      const body = request(turn([bash('toolu_1', 'npm test', text)]))
+      const first = await send(body)
+      const original = m.mod.store.pathFor(text)
+      const outcome = outcomeFile('Bash', text)
+      age(original, 30)
+      age(outcome, 30)
+
+      const restarted = boot()
+      const before = Date.now()
+      const after = await send(body, {}, restarted.mgr)
+      expect(after.body).toBe(first.body)
+      expect(worker.received).toHaveLength(1)
+      expect(mtime(original)).toBeGreaterThanOrEqual(before - 1_000)
+      expect(mtime(outcome)).toBeGreaterThanOrEqual(before - 1_000)
+    })
+
+    it.each([['worker-failed', false], ['flagged', true]] as const)(
+      'sets the mtime of the outcome file of a result forwarded whole (%s) to now on every carry, and writes it back, with the same content and not counted missing, when it is gone (D9 C)',
+      async (reason, flag) => {
+        if (!flag) reply = () => ({ status: 500 })
+        const text = output(`whole ${reason}`)
+        const body = request(turn([bash('toolu_1', 'npm test', text)]))
+        const first = await send(body, flag ? { screening: flaggedScreening(body, text) } : {})
+        expect(first.results).toEqual([text])
+        const outcome = outcomeFile('Bash', text)
+        expect(await m.mod.store.readOutcome(keyOf('Bash', text))).toEqual({ whole: reason })
+        const content = contentOf(outcome)
+
+        age(outcome, 30)
+        const before = Date.now()
+        const again = await send(body)
+        expect(again.results).toEqual([text])
+        expect(mtime(outcome)).toBeGreaterThanOrEqual(before - 1_000)
+
+        fs.rmSync(outcome)
+        const back = await send(body)
+        expect(back.results).toEqual([text])
+        expect(contentOf(outcome)).toBe(content)
+        // Whole means no stored original, and an outcome file is not an original.
+        expect(files('.txt')).toEqual([])
+        expect(missing()).toBe(0)
+        expect(worker.received).toHaveLength(flag ? 0 : 1)
+      },
+    )
+
+    it('writes back the outcome file of a condensed result, holding the text as forwarded, and keeps it across a restart; it is not counted missing (D9 C)', async () => {
+      const text = output('outcome gone')
+      const body = request(turn([bash('toolu_1', 'npm test', text)]))
+      const first = await send(body)
+      const outcome = outcomeFile('Bash', text)
+      const content = contentOf(outcome)
+      fs.rmSync(outcome)
+
+      const again = await send(body)
+      expect(again.body).toBe(first.body)
+      expect(contentOf(outcome)).toBe(content)
+      expect(await m.mod.store.readOutcome(keyOf('Bash', text))).toEqual({ condensed: first.results[0] })
+      expect(missing()).toBe(0)
+
+      const restarted = boot()
+      const after = await send(body, {}, restarted.mgr)
+      expect(after.body).toBe(first.body)
+      expect(worker.received).toHaveLength(1)
+    })
+
+    it('writes the stored original back at the same path, identical, before the request is forwarded, after the operator purged the store (US7-6, FR-024)', async () => {
+      const a = output('purged a')
+      const b = output('purged b')
+      const body = request(turn([bash('toolu_a', 'npm test', a), bash('toolu_b', 'npm run lint', b)]))
+      const first = await send(body)
+      expect(files('.txt')).toHaveLength(2)
+
+      expect(await m.mod.store.purge()).toBeGreaterThanOrEqual(4)
+      expect(fs.readdirSync(folder())).toEqual([])
+
+      const again = await send(body)
+      // The files are there when the call returns, the text is what the conversation holds, and the worker was not asked again.
+      expect(again.body).toBe(first.body)
+      expect(again.results).toEqual([a, b].map(text => renderCondensed(text, DEFAULT_FACTS, m.mod.store.pathFor(text))))
+      for (const text of [a, b]) {
+        expect(contentOf(m.mod.store.pathFor(text))).toBe(text)
+        expect(await m.mod.store.readOutcome(keyOf('Bash', text))).toEqual({ condensed: renderCondensed(text, DEFAULT_FACTS, m.mod.store.pathFor(text)) })
+      }
+      expect(worker.received).toHaveLength(2)
+      expect(missing()).toBe(0)
+      expect(shuntWarnings()).toEqual([])
+    })
+
+    it('writes the stored original back, identical and unchanged in the history, when it was deleted by hand while a conversation resends it (US7-8, FR-024)', async () => {
+      const a = output('by hand a')
+      const b = output('by hand b')
+      const c = output('by hand c')
+      const t1 = turn([bash('toolu_1', 'npm test', a)])
+      const t2 = turn([bash('toolu_2', 'npm run lint', b)])
+      await send(request(t1))
+      const second = await send(request(t1, t2))
+
+      fs.rmSync(m.mod.store.pathFor(a))
+      const third = await send(request(t1, t2))
+      expect(third.body).toBe(second.body)
+      expect(contentOf(m.mod.store.pathFor(a))).toBe(a)
+      expect(files('.txt').sort()).toEqual([`${sha256(a)}.txt`, `${sha256(b)}.txt`].sort())
+
+      // The conversation goes on: the earlier turns keep the wording they had, and the new result is condensed after them.
+      const fourth = await send(request(t1, t2, turn([bash('toolu_3', 'npm run build', c)])))
+      expect(fourth.results.slice(0, 2)).toEqual(second.results)
+      expect(isCondensed(fourth.results[2])).toBe(true)
+      expect(worker.received).toHaveLength(3)
+      expect(missing()).toBe(0)
+    })
+
+    describe('a write-back that fails (US7-9)', () => {
+      it.each(['full', 'failed'] as const)('forwards the remembered condensed text, warns once however many requests follow, and counts each on the card when the store answers %s', async answer => {
+        const text = output(`no write-back ${answer}`)
+        const body = request(turn([bash('toolu_1', 'npm test', text)]))
+        const first = await send(body)
+        expect(isCondensed(first.results[0])).toBe(true)
+        expect(shuntWarnings()).toEqual([])
+        expect(missing()).toBe(0)
+
+        fs.rmSync(m.mod.store.pathFor(text))
+        const write = vi.spyOn(m.mod.store, 'write').mockResolvedValue(answer)
+        for (const requests of [1, 2, 3]) {
+          const res = await send(body)
+          expect(res.body).toBe(first.body)
+          expect(missing(), `after ${requests} requests`).toBe(requests)
+          expect(shuntWarnings(), `after ${requests} requests`).toHaveLength(1)
+        }
+        expect(write).toHaveBeenCalled()
+        expect(files('.txt')).toEqual([])
+        expect(worker.received).toHaveLength(1)
+        // A warning names the problem, never the output (FR-014).
+        expect(JSON.stringify(shuntWarnings())).not.toContain('step 1 finished')
+
+        // The store works again: the next carry puts the original back, the text is the one remembered, and nothing more is counted.
+        write.mockRestore()
+        const healed = await send(body)
+        expect(healed.body).toBe(first.body)
+        expect(contentOf(m.mod.store.pathFor(text))).toBe(text)
+        expect(missing()).toBe(3)
+        expect(shuntWarnings()).toHaveLength(1)
+      })
+
+      it('does the same when the folder itself cannot be written to, and puts both files back once it can (US7-9, FR-024)', async () => {
+        const text = output('folder unwritable')
+        const body = request(turn([bash('toolu_1', 'npm test', text)]))
+        const first = await send(body)
+        expect(isCondensed(first.results[0])).toBe(true)
+
+        // A file where the folder belongs: nothing can be written, and nothing is there to touch.
+        fs.rmSync(folder(), { recursive: true, force: true })
+        fs.writeFileSync(folder(), 'not a folder')
+        const res = await send(body)
+        expect(res.body).toBe(first.body)
+        expect(missing()).toBe(1)
+        // The original and the outcome file both fail: the problem is said once or twice in all, not once per request.
+        const said = shuntWarnings().length
+        expect(said).toBeGreaterThanOrEqual(1)
+        expect(said).toBeLessThanOrEqual(2)
+        for (const requests of [2, 3]) {
+          expect((await send(body)).body).toBe(first.body)
+          expect(missing()).toBe(requests)
+        }
+        expect(shuntWarnings()).toHaveLength(said)
+        expect(fs.statSync(folder()).isFile()).toBe(true)
+
+        fs.rmSync(folder())
+        const healed = await send(body)
+        expect(healed.body).toBe(first.body)
+        expect(contentOf(m.mod.store.pathFor(text))).toBe(text)
+        expect(await m.mod.store.readOutcome(keyOf('Bash', text))).toEqual({ condensed: first.results[0] })
+        expect(missing()).toBe(3)
+        expect(worker.received).toHaveLength(1)
+      })
+    })
+
+    it('touches nothing and writes nothing in a dry run, files gone or present, and does both on the next live request (FR-015, US4-3, FR-024)', async () => {
+      const text = output('dry carry')
+      const body = request(turn([bash('toolu_1', 'npm test', text)]))
+      const first = await send(body)
+      const original = m.mod.store.pathFor(text)
+      const outcome = outcomeFile('Bash', text)
+
+      // Present and old: a dry run leaves their mtimes alone.
+      const oldOriginal = age(original, 5)
+      const oldOutcome = age(outcome, 5)
+      await send(body, { dryRun: true })
+      expect(Math.abs(mtime(original) - oldOriginal)).toBeLessThan(1_000)
+      expect(Math.abs(mtime(outcome) - oldOutcome)).toBeLessThan(1_000)
+
+      // Gone: a dry run writes neither back, warns of nothing and counts nothing missing.
+      fs.rmSync(original)
+      fs.rmSync(outcome)
+      await send(body, { dryRun: true })
+      expect(files('.txt')).toEqual([])
+      expect(files('.outcome')).toEqual([])
+      expect(missing()).toBe(0)
+      expect(shuntWarnings()).toEqual([])
+
+      // Not a module that did nothing: the next live request puts both back.
+      const live = await send(body)
+      expect(live.body).toBe(first.body)
+      expect(files('.txt')).toEqual([`${sha256(text)}.txt`])
+      expect(files('.outcome')).toEqual([`${keyOf('Bash', text)}.outcome`])
+    })
+
+    it('ends flagged, with no stored original and a flagged outcome file, when the write-back of the original is held while another request flags the result (data-model.md "Disk order", audit 4 M2)', async () => {
+      const MARK = 'WRITEBACK-MARK-5d2a'
+      const text = `${output('held write-back')}\n${MARK}`
+      const body = request(turn([bash('toolu_1', 'npm test', text)]))
+      const first = await send(body)
+      expect(isCondensed(first.results[0])).toBe(true)
+
+      // The original is gone, so the next carry has to write it back; hold that write.
+      const store = m.mod.store
+      fs.rmSync(store.pathFor(text))
+      const realWrite = store.write.bind(store)
+      let release: () => void = () => {}
+      const gate = new Promise<void>(resolve => { release = resolve })
+      const write = vi.spyOn(store, 'write').mockImplementation(async original => {
+        await gate
+        return realWrite(original)
+      })
+
+      const writingBack = send(body)
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+      const flagging = send(body, { screening: flaggedScreening(body, text) })
+      // Let the flag land while the write-back is still held, then let it go.
+      await new Promise(resolve => setTimeout(resolve, 100))
+      release()
+      const [, flagged] = await Promise.all([writingBack, flagging])
+      write.mockRestore()
+
+      expect(flagged.results).toEqual([text])
+      expect(files('.txt')).toEqual([])
+      expect(fs.readdirSync(folder()).filter(name => fs.readFileSync(join(folder(), name), 'utf8').includes(MARK))).toEqual([])
+      expect(await store.readOutcome(keyOf('Bash', text))).toEqual({ whole: 'flagged' })
+
+      // And a restart finds it whole, with no worker call and nothing written back.
+      const asked = worker.received.length
+      const restarted = boot()
+      const after = await send(body, {}, restarted.mgr)
+      expect(after.results).toEqual([text])
+      expect(worker.received).toHaveLength(asked)
+      expect(files('.txt')).toEqual([])
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // T023 (slice S12): the module's card. `getStats().kpis` is what the
   // dashboard draws; data-model.md "Counters" fixes the keys, the labels (the
   // unit is part of the label) and what each value counts. Values are counted
