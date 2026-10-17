@@ -77,4 +77,15 @@ describe('parseUsage — transport', () => {
     expect(parseUsage(json({ error: { message: 'overloaded' } }), {})).toBeNull()
     expect(parseUsage(zlib.gzipSync('x').subarray(0, 5), { 'content-encoding': 'gzip' })).toBeNull()
   })
+
+  it('stops decoding a compressed body that expands past the cap', () => {
+    // The capture is capped on the wire, but 64 MB of one byte gzips to about
+    // 64 KB: without an output cap the meter inflated all of it.
+    const bomb = zlib.gzipSync(Buffer.concat([Buffer.from('{"usage":{"input_tokens":1,"output_tokens":1},"pad":"'), Buffer.alloc(64 * 1024 * 1024, 48), Buffer.from('"}')]))
+    for (const [encoding, body] of [['gzip', bomb], ['br', zlib.brotliCompressSync(zlib.gunzipSync(bomb))], ['deflate', zlib.deflateSync(zlib.gunzipSync(bomb))]] as const) {
+      const t0 = performance.now()
+      expect(parseUsage(body, { 'content-encoding': encoding }, 1024 * 1024)).toBeNull()
+      expect(performance.now() - t0).toBeLessThan(2000)
+    }
+  }, 60_000)
 })

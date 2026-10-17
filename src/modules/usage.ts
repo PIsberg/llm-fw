@@ -13,12 +13,20 @@ type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
-function decode(body: Buffer, encoding: string): string | null {
+// A usage block sits in a response of at most a few megabytes. The capture is
+// capped on the wire, but a compressed body is not capped in what it expands
+// to: 200 MB of one byte gzips to about 200 KB.
+const MAX_DECODED = 16 * 1024 * 1024
+
+// Null when the body cannot be decoded or expands past `maxDecoded`
+// (zlib throws a RangeError there).
+function decode(body: Buffer, encoding: string, maxDecoded: number): string | null {
   try {
+    const opts = { maxOutputLength: maxDecoded }
     const enc = encoding.toLowerCase().trim()
-    if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(body).toString('utf8')
-    if (enc === 'br') return zlib.brotliDecompressSync(body).toString('utf8')
-    if (enc === 'deflate') return zlib.inflateSync(body).toString('utf8')
+    if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(body, opts).toString('utf8')
+    if (enc === 'br') return zlib.brotliDecompressSync(body, opts).toString('utf8')
+    if (enc === 'deflate') return zlib.inflateSync(body, opts).toString('utf8')
     return body.toString('utf8')
   } catch {
     return null
@@ -81,8 +89,12 @@ function fold(acc: Usage | null, data: unknown): Usage | null {
  * The usage a provider reported in a response body, JSON or server-sent
  * events, decoded per `content-encoding`. Null when the body carries none.
  */
-export function parseUsage(body: Buffer, headers: Record<string, string | string[] | number | undefined>): Usage | null {
-  const text = decode(body, String(headers['content-encoding'] ?? ''))
+export function parseUsage(
+  body: Buffer,
+  headers: Record<string, string | string[] | number | undefined>,
+  maxDecoded = MAX_DECODED,
+): Usage | null {
+  const text = decode(body, String(headers['content-encoding'] ?? ''), maxDecoded)
   if (text === null) return null
   const trimmed = text.trimStart()
   if (trimmed.startsWith('{')) {
