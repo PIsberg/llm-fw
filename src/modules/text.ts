@@ -16,8 +16,13 @@ export function trimLineEnd(line: string): string {
   return end === line.length ? line : line.slice(0, end)
 }
 
+// One space or tab right before a line end: a constant-width match, so the
+// test is a single pass. Lets text with nothing to trim skip the split.
+const SPACE_AT_LINE_END = /[ \t](?:\r?\n|\r?$)/
+
 /** Every line of `text` without the spaces and tabs at its end; a CR before the LF stays. */
 export function trimSpacesAtLineEnds(text: string): string {
+  if (!SPACE_AT_LINE_END.test(text)) return text
   return text.split('\n').map(line => {
     const cr = line.endsWith('\r')
     let end = cr ? line.length - 1 : line.length

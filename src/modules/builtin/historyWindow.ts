@@ -1,7 +1,7 @@
 import type { HistoryWindowConfig } from '../../types.js'
-import { PayloadModule, type PayloadOutcome } from '../base.js'
+import type { GatewayModuleContext } from '../types.js'
+import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
 import { collectTextSlots } from '../payload.js'
-import { estimateTokens } from '../tokens.js'
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -22,8 +22,8 @@ function cutIndex(n: number, maxMessages: number, step: number, isPlainUser: (i:
   return cut < n ? cut : null
 }
 
-const textTokens = (payload: unknown): number =>
-  collectTextSlots(payload).reduce((sum, slot) => sum + estimateTokens(slot.text), 0)
+const textTokens = (payload: unknown, estimates: Map<string, number>): number =>
+  collectTextSlots(payload).reduce((sum, slot) => sum + estimate(slot.text, estimates), 0)
 
 /**
  * Keeps the last `maxMessages` turns of a long conversation, plus its system
@@ -45,13 +45,13 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     super(config ?? { enabled: false, maxMessages: 60, step: 20 })
   }
 
-  protected apply(payload: Obj): PayloadOutcome | null {
+  protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
     if (!Array.isArray(payload.messages) && !Array.isArray(payload.contents)) return null
-    const before = textTokens(payload)
+    const before = textTokens(payload, estimates)
     const changed = Array.isArray(payload.messages)
       ? this.windowMessages(payload, payload.messages)
       : this.windowContents(payload, payload.contents as unknown[])
-    return { changed, tokensOriginal: before, tokensPruned: changed ? textTokens(payload) : before }
+    return { changed, tokensOriginal: before, tokensPruned: changed ? textTokens(payload, estimates) : before }
   }
 
   // OpenAI chat and Anthropic: leading system and developer messages stay.

@@ -170,6 +170,43 @@ describe('ModuleManager', () => {
   })
 })
 
+describe('ModuleManager — one parse per request', () => {
+  const dummyCtx: GatewayModuleContext = {
+    target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null,
+    headers: { 'x-api-key': 'k' },
+  }
+
+  it('gives the same body as running every module on its own', async () => {
+    const live = structuredClone(DEFAULT_CONFIG) as Config
+    const mods = live.modules as unknown as Record<string, { enabled: boolean }>
+    for (const key of Object.keys(mods)) if (key !== 'enabled') mods[key]!.enabled = true
+    const file = '     1\texport const x  =  1   \n'.repeat(300)
+    const body = JSON.stringify({
+      system: 'Be   brief.',
+      tools: [{ name: 't', description: 'Runs   things.\n\n\n\nCarefully.', input_schema: { type: 'object' } }],
+      messages: [
+        { role: 'user', content: 'Read   it \u001b[1mnow\u001b[0m' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: file }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'b', name: 'Read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'b', content: file }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'c', name: 'Bash', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c', content: '{\n  "ok": true\n}\n' + 'retry\n'.repeat(5) + '10%\r50%\r100%\n' }] },
+      ],
+    })
+    const chained = await new ModuleManager(live).transformRequest(body, dummyCtx)
+
+    let sequential = body
+    for (const mod of new ModuleManager(structuredClone(live)).listModules()) {
+      if (!mod.enabled) continue
+      const res = await mod.transformRequest(sequential, dummyCtx)
+      if (res.modified) sequential = res.body
+    }
+    expect(chained.modified).toBe(true)
+    expect(chained.body).toBe(sequential)
+  })
+})
+
 describe('token-pruner default', () => {
   it('is opt-in: the built-in config does not rewrite prompts', () => {
     expect(DEFAULT_CONFIG.modules?.enabled).toBe(true)

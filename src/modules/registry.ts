@@ -15,6 +15,7 @@ import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
+import { PayloadModule, parsePayload } from './base.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('modules')
@@ -136,6 +137,11 @@ export class ModuleManager {
   // skipped, and the request continues with the body as the previous module
   // left it. A transformation is an optimisation, never a reason to drop a
   // request.
+  //
+  // Consecutive built-in payload modules share one parsed payload and one
+  // serialisation (see PayloadModule.transformParsed). One of them that
+  // throws may leave the slots it already rewrote rewritten: each rewrite is
+  // a whole, valid replacement of one text field, so the body stays valid.
   async transformRequest(
     body: string,
     ctx: GatewayModuleContext
@@ -143,25 +149,44 @@ export class ModuleManager {
     let currentBody = body
     let anyModified = false
     const allEvents: ModuleEvent[] = []
+    // undefined: not parsed since the body last changed as a string; null:
+    // not a JSON object, which payload modules pass through unchanged.
+    let parsed: Record<string, unknown> | null | undefined
+    let dirty = false
+    const estimates = new Map<string, number>()
+    const flush = (): void => {
+      if (dirty && parsed) currentBody = JSON.stringify(parsed)
+      dirty = false
+    }
 
     for (const mod of this.modules.values()) {
       if (!mod.enabled) continue
 
-      let result
+      let result: { modified: boolean; body?: string; events?: ModuleEvent[] | undefined }
       try {
-        result = await mod.transformRequest(currentBody, ctx)
+        if (mod instanceof PayloadModule) {
+          if (parsed === undefined) parsed = parsePayload(currentBody)
+          if (parsed === null) continue
+          result = mod.transformParsed(parsed, ctx, estimates)
+          if (result.modified) dirty = true
+        } else {
+          flush()
+          result = await mod.transformRequest(currentBody, ctx)
+          if (result.modified && result.body !== undefined) {
+            currentBody = result.body
+            parsed = undefined
+          }
+        }
       } catch (err) {
         log.error('module failed; request continues without it', { module: mod.id, err })
         continue
       }
-      if (result.modified) {
-        currentBody = result.body
-        anyModified = true
-      }
+      if (result.modified) anyModified = true
       if (result.events && result.events.length > 0) {
         allEvents.push(...result.events)
       }
     }
+    flush()
 
     return {
       body: currentBody,
