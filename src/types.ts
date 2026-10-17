@@ -462,6 +462,15 @@ export interface HistoryWindowConfig extends ModuleSwitchConfig {
   step: number;
 }
 
+export interface ResponseCacheConfig extends ModuleSwitchConfig {
+  /** Seconds a stored response may be replayed. */
+  ttlSeconds: number;
+  /** Stored responses kept; the least recently used goes first. */
+  maxEntries: number;
+  /** Largest response body stored, in bytes. */
+  maxEntryBytes: number;
+}
+
 export interface CacheControlConfig extends ModuleSwitchConfig {
   /** Cache entry lifetime: 5 minutes, or 1 hour at twice the write price. */
   ttl: '5m' | '1h';
@@ -493,6 +502,7 @@ export interface ModulesConfig {
   toolResultTruncate?: ToolResultTruncateConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   cacheControl?: CacheControlConfig;
+  responseCache?: ResponseCacheConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;
 }

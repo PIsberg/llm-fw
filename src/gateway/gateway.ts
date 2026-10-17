@@ -16,7 +16,7 @@ import { isObserving } from '../config/config.js';
 import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
-import { tapResponse } from '../modules/responseTap.js';
+import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
 import type { GatewayModuleContext } from '../modules/types.js';
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
@@ -241,15 +241,24 @@ export class GatewayServer {
         return;
       }
 
-      // Modules that read responses (the usage meter) see what the client
-      // received, captured as it streams through.
+      // A module may answer the request itself (the response cache), after
+      // every gate above has passed it. Otherwise modules that read responses
+      // (the usage meter, the cache) see what the client received, captured
+      // as it streams through.
       const moduleCtx = this.moduleContext(req, route, tenant);
+      const sent = decision.body.toString('utf-8');
+      const answer = moduleCtx ? this.modules.respond(sent, moduleCtx) : undefined;
+      if (answer) {
+        writeCapturedResponse(res, answer.response);
+        for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev);
+        return;
+      }
       const captured = moduleCtx && this.modules.wantsResponses()
         ? tapResponse(res, this.config.proxy.maxBodyBytes)
         : null;
       await this.forward(req, res, route, decision.body, authIsInternal);
       const response = captured?.();
-      if (moduleCtx && response) this.modules.observeResponse(decision.body.toString('utf-8'), moduleCtx, response);
+      if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
       log.error(`${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
@@ -465,7 +474,7 @@ export class GatewayServer {
 
     const moduleCtx = this.moduleContext(req, route, tenant);
     if (moduleCtx) {
-      const modRes = await this.modules.transformRequest(text, { ...moduleCtx, dryRun: observing });
+      const modRes = await this.modules.transformRequest(text, moduleCtx);
       if (modRes.modified && !observing) {
         text = modRes.body;
         bodyBuf = Buffer.from(text, 'utf-8');
@@ -583,6 +592,8 @@ export class GatewayServer {
       parser,
       sessionKey: (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, ''),
       tenant: tenant?.id,
+      headers: req.headers,
+      dryRun: isObserving(this.config.enforcement, tenant?.enforcement),
     };
   }
 

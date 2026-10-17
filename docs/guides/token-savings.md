@@ -81,6 +81,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output (lossy) |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
+| `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 
 ### Tool result pruner
@@ -167,6 +168,36 @@ prefix shorter than the model's minimum (512 to 4,096 tokens) is not cached
 at all. Check the Usage Meter's cache reads to see whether it pays. The card
 counts a request it would mark under observe mode as marked, although the
 original body went upstream.
+
+### Response cache
+
+`modules.responseCache.enabled` (`LLM_FW_RESPONSE_CACHE_ENABLED`). A request
+that is byte-identical to an earlier one, from the same credential, within the
+TTL, is answered with the stored response and never reaches the provider. The
+reply carries `x-llm-fw-cache: hit`. Useful for retries, evaluation reruns and
+scripted agents that ask the same thing twice. A person who asks again
+expecting a fresh answer gets the old one, which is why it is opt-in and the
+TTL is short.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `ttlSeconds` | `300` | How long a stored response may be replayed. |
+| `maxEntries` | `100` | Responses kept; the least recently used goes first. |
+| `maxEntryBytes` | `524288` | Largest response body stored. With the defaults the cache holds at most about 50 MB. |
+
+The key is the target, method, path (query included), tenant, request body
+after the other modules, and the headers that decide whose request it is or
+shape the answer: `authorization`, `x-api-key`, `x-goog-api-key`, `api-key`,
+`x-llm-fw-key`, `anthropic-version`, `anthropic-beta`, `openai-beta`,
+`openai-organization`, `openai-project`, `accept` and `accept-encoding`. One
+caller is never served a response fetched with another's key. Only complete
+`200` responses are stored, streamed or not, and only after detection has
+passed the request; a replay runs every request-side gate first, but not the
+proxy's response-side scans, which already ran on the stored response. It
+never answers under observe mode, which promises that the provider sees every
+request. The agent loop detector still refuses a request repeated too many
+times, before the cache is asked. The card counts hits, misses, stored
+responses and the billed tokens hits avoided (from the stored usage).
 
 ### Usage meter
 

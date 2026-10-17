@@ -28,7 +28,7 @@ import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfi
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
-import { tapResponse } from '../modules/responseTap.js'
+import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
@@ -712,11 +712,14 @@ export class ProxyServer {
       // traffic: the modules still run, as a dry run, so the dashboard can
       // show what they would have saved.
       const moduleCtx: GatewayModuleContext | null = this.config.modules?.enabled && isLlmRequest
-        ? { target: hostname, method, path: dlpPath, isLlmRequest: true, parser, sessionKey }
+        ? {
+          target: hostname, method, path: dlpPath, isLlmRequest: true, parser, sessionKey,
+          headers: innerReq.headers, dryRun: this.config.enforcement === 'observe',
+        }
         : null
       if (moduleCtx) {
-        const dryRun = this.config.enforcement === 'observe'
-        const modRes = await this.modules.transformRequest(body, { ...moduleCtx, dryRun })
+        const dryRun = moduleCtx.dryRun
+        const modRes = await this.modules.transformRequest(body, moduleCtx)
         if (modRes.modified && !dryRun) {
           body = modRes.body
           bodyBuf = Buffer.from(body, 'utf-8')
@@ -1021,20 +1024,29 @@ export class ProxyServer {
         }
       }
 
-      // Modules that read responses (the usage meter) see what the client
-      // received, captured as forwardRequest writes it.
-      const captured = moduleCtx && this.modules.wantsResponses()
-        ? tapResponse(innerRes, this.config.proxy.maxBodyBytes)
-        : null
+      // A module may answer the request itself (the response cache), after
+      // every gate above has passed it. Otherwise modules that read responses
+      // (the usage meter, the cache) see what the client received, captured
+      // as forwardRequest writes it.
+      const answer = moduleCtx ? this.modules.respond(body, moduleCtx) : undefined
       let bytesReceived: number
-      try {
-        bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
-      } catch (err) {
-        if (loopTracked) this.loop.forget(body)
-        throw err
+      if (answer) {
+        writeCapturedResponse(innerRes, answer.response)
+        for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev)
+        bytesReceived = answer.response.body.length
+      } else {
+        const captured = moduleCtx && this.modules.wantsResponses()
+          ? tapResponse(innerRes, this.config.proxy.maxBodyBytes)
+          : null
+        try {
+          bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
+        } catch (err) {
+          if (loopTracked) this.loop.forget(body)
+          throw err
+        }
+        const response = captured?.()
+        if (moduleCtx && response) this.modules.observeResponse(body, moduleCtx, response)
       }
-      const response = captured?.()
-      if (moduleCtx && response) this.modules.observeResponse(body, moduleCtx, response)
       if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when
       // a finding triggered redact mode, so no raw secret is exposed to the UI.

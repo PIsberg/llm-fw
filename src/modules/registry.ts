@@ -1,5 +1,5 @@
-import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig } from '../types.js'
+import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -12,6 +12,7 @@ import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
 import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
+import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 import { createLogger } from '../logger.js'
@@ -37,6 +38,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolResultTruncate', create: cfg => new ToolResultTruncateModule(cfg as ToolResultTruncateConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
+  { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
 ]
 
@@ -69,6 +71,24 @@ export class ModuleManager {
         this.register(create(cfg))
       }
     }
+  }
+
+  /**
+   * A response an enabled module serves in place of the provider's, or
+   * undefined to forward. The first module that answers wins; one that
+   * throws is logged and skipped, so the request is forwarded as usual.
+   */
+  respond(requestBody: string, ctx: GatewayModuleContext): ModuleResponse | undefined {
+    for (const mod of this.modules.values()) {
+      if (!mod.enabled || !mod.respond) continue
+      try {
+        const answer = mod.respond(requestBody, ctx)
+        if (answer) return answer
+      } catch (err) {
+        log.error('module failed to answer a request; forwarding it', { module: mod.id, err })
+      }
+    }
+    return undefined
   }
 
   /** True when an enabled module wants to see responses, so callers capture them. */

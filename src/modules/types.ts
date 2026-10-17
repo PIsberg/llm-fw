@@ -12,6 +12,14 @@ export interface GatewayModuleContext {
   /** Observe mode: the caller forwards the original body whatever the module
    *  returns, so any event it emits should say the change was not applied. */
   dryRun?: boolean | undefined;
+  /** The client's request headers, for modules that key on credentials. */
+  headers?: Record<string, string | string[] | undefined> | undefined;
+}
+
+/** A response a module serves in place of the provider's. */
+export interface ModuleResponse {
+  response: CapturedResponse;
+  events?: ModuleEvent[];
 }
 
 export interface ModuleTransformResult {
@@ -53,6 +61,13 @@ export interface GatewayModule {
    * called when the response was larger than the capture cap.
    */
   observeResponse?(requestBody: string, ctx: GatewayModuleContext, response: CapturedResponse): void;
+
+  /**
+   * Answer the request without contacting the provider. Asked after
+   * detection has passed the request, with the body that would go upstream;
+   * undefined means forward it.
+   */
+  respond?(requestBody: string, ctx: GatewayModuleContext): ModuleResponse | undefined;
 
   /** Return live statistics for dashboard telemetry. */
   getStats(): ModuleStats;

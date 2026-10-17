@@ -80,6 +80,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with no `cache_control` of its own gets the top-level automatic breakpoint and, optionally, one
   on its system prompt, so repeated prefixes are billed as cache reads. Requests that place their
   own markers (Claude Code) are left alone.
+- **A Response Cache module, opt-in (`modules.responseCache.enabled`,
+  `LLM_FW_RESPONSE_CACHE_ENABLED`, `ttlSeconds` 300, `maxEntries` 100, `maxEntryBytes` 512 KB).** A
+  byte-identical request from the same credential within the TTL is answered with the stored
+  response (`x-llm-fw-cache: hit`) after every request-side gate, without contacting the
+  provider. Keyed on credential, tenant, version and encoding headers; never answers under observe
+  mode.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

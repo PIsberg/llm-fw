@@ -181,6 +181,24 @@ def calculate(x):
     expect(pruner?.enabled).toBe(true)
   })
 
+  it('replays a repeated request from the response cache without calling upstream', async () => {
+    config.modules!.responseCache!.enabled = true
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'cache me please' }] })
+      const first = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      const second = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(200)
+      expect(calls).toHaveLength(1)
+      expect(second.body).toBe(first.body)
+      expect(second.headers['x-llm-fw-cache']).toBe('hit')
+      expect(first.headers['x-llm-fw-cache']).toBeUndefined()
+    } finally {
+      config.modules!.responseCache!.enabled = false
+    }
+  })
+
   it('meters the usage the provider reported in its response', async () => {
     const before = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
     const kpi = (stats: any, key: string) =>

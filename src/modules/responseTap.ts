@@ -19,6 +19,13 @@ function normaliseHeaders(input: unknown, into: Record<string, string>): void {
   }
 }
 
+/** Writes a captured response to `res` as the provider's would have arrived. */
+export function writeCapturedResponse(res: http.ServerResponse, captured: CapturedResponse): void {
+  if (res.headersSent) return
+  res.writeHead(captured.status, { ...captured.headers, 'content-length': String(captured.body.length) })
+  res.end(captured.body)
+}
+
 /**
  * Records what is written to `res` without changing it, and returns a
  * function that yields the capture once the response has ended. Bytes still

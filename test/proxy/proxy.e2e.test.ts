@@ -585,6 +585,26 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     expect(kpi(after, 'input') - kpi(before, 'input')).toBe(50)
     expect(kpi(after, 'output') - kpi(before, 'output')).toBe(14)
   })
+
+  it('E2E Case 8: the response cache replays a repeated request without calling upstream', async () => {
+    testConfig.modules!.responseCache!.enabled = true
+    try {
+      receivedRequests = []
+      const send = () => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', 'x-api-key': 'sk-case-8' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'cache me through the proxy' }] }),
+      )
+      const first = await send()
+      const second = await send()
+      expect(first.statusCode).toBe(200)
+      expect(second.statusCode).toBe(200)
+      expect(receivedRequests).toHaveLength(1)
+      expect(JSON.parse(second.body)).toEqual(JSON.parse(first.body))
+    } finally {
+      testConfig.modules!.responseCache!.enabled = false
+    }
+  })
 })
 
 /**
