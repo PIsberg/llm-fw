@@ -239,6 +239,15 @@ describe('pruneText — bounded cost on adversarial input', () => {
     pruneText(input)
     expect(performance.now() - t0).toBeLessThan(300)
   })
+
+  it('trims fenced code lines without rescanning an interior run of spaces', () => {
+    // /[^\S\r\n]+$/ restarted at every space of a run that does not reach
+    // the end of the line: 1,109 ms for one 40,000-space run.
+    const input = '```\nx' + ' '.repeat(40_000) + 'y  \n```'
+    const t0 = performance.now()
+    expect(pruneText(input)).toBe('```\nx' + ' '.repeat(40_000) + 'y\n```')
+    expect(performance.now() - t0).toBeLessThan(100)
+  })
 })
 
 describe('TokenPrunerModule — savings are measured on prompt text', () => {

@@ -2,6 +2,7 @@ import type { TokenPrunerConfig } from '../../types.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind } from '../payload.js'
 import { minifyJsonText } from '../json.js'
+import { trimLineEnd } from '../text.js'
 
 export { estimateTokens } from '../tokens.js'
 
@@ -107,7 +108,7 @@ export function pruneText(text: string): string {
       // Preserve indentation inside code blocks, only trim line-trailing whitespace
       const trimmedLines = code
         .split(/\r?\n/)
-        .map(line => line.replace(/[^\S\r\n]+$/, ''))
+        .map(trimLineEnd)
         .join('\n')
       return `${header}\n${trimmedLines}\`\`\``
     }

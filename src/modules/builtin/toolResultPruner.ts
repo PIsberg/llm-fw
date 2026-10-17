@@ -2,6 +2,7 @@ import type { ToolResultPrunerConfig } from '../../types.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind } from '../payload.js'
 import { minifyJsonText } from '../json.js'
+import { trimSpacesAtLineEnds } from '../text.js'
 
 const TOOL_OUTPUT: ReadonlySet<SlotKind> = new Set(['tool_result'])
 
@@ -26,7 +27,7 @@ export class ToolResultPrunerModule extends SlotModule<ToolResultPrunerConfig> {
       if (minified !== null) return minified
     }
     let out = text
-    if (this.cfg.trimTrailing) out = out.replace(/[ \t]+(?=\r?\n|$)/g, '')
+    if (this.cfg.trimTrailing) out = trimSpacesAtLineEnds(out)
     // Runs of two or more only, after the indentation: a single tab after a
     // line number stays, and so does the indentation that carries structure.
     if (this.cfg.collapseSpaceRuns) out = out.replace(/(^|\n)([ \t]*)([^\n]*)/g, (_m, nl: string, indent: string, rest: string) => nl + indent + rest.replace(/[ \t]{2,}/g, ' '))

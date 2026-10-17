@@ -50,6 +50,15 @@ describe('ToolResultPrunerModule', () => {
       .toBe('NAME STATUS AGE\nweb-1 Running 3d\n  indented line')
   })
 
+  it('trims in one pass, however long an interior run of spaces is', () => {
+    // [ \t]+(?=\r?\n|$) restarted at every space of a run that does not end
+    // the line: 3,052 ms for one 40,000-space run.
+    const line = 'x' + ' '.repeat(40_000) + 'y'
+    const t0 = performance.now()
+    expect(run(new ToolResultPrunerModule(on({ minifyJson: false })), line + ' \r\n' + line).result).toBe(line + '\r\n' + line)
+    expect(performance.now() - t0).toBeLessThan(100)
+  })
+
   it('applies each technique only when its option is on', () => {
     const pretty = '{\n  "a": 1\n}  '
     expect(run(new ToolResultPrunerModule(on({ minifyJson: false, trimTrailing: false })), pretty).result).toBe(pretty)
