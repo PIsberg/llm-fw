@@ -14,6 +14,11 @@ export interface TextSlot {
    * continuing a server-side thread carries results without their calls.
    */
   toolName?: string | undefined
+  /**
+   * That call's arguments as the request carries them: an object for
+   * Anthropic tool_use, a JSON string for OpenAI chat and the Responses API.
+   */
+  toolInput?: unknown
   /** Writes `text` back into the payload in place. */
   set(text: string): void
 }
@@ -27,13 +32,16 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 // document) is left alone; a thinking block's signature binds its bytes.
 const TEXT_PARTS = new Set(['text', 'input_text', 'output_text'])
 
-type ToolRef = Pick<TextSlot, 'toolCallId' | 'toolName'>
+type ToolRef = Pick<TextSlot, 'toolCallId' | 'toolName' | 'toolInput'>
 
-// Tool call id to tool name, for the calls seen so far in one request.
-type Calls = Map<string, string>
+// Tool call id to tool name and arguments, for the calls seen so far in one request.
+type Calls = Map<string, { name: string; input: unknown }>
 
-const ref = (id: unknown, calls: Calls): ToolRef =>
-  typeof id === 'string' ? { toolCallId: id, toolName: calls.get(id) } : {}
+const ref = (id: unknown, calls: Calls): ToolRef => {
+  if (typeof id !== 'string') return {}
+  const call = calls.get(id)
+  return { toolCallId: id, toolName: call?.name, toolInput: call?.input }
+}
 
 function fieldSlot(kind: SlotKind, holder: Obj, key: string, tool: ToolRef = {}): TextSlot {
   return {
@@ -68,7 +76,7 @@ function roleKind(role: unknown): SlotKind {
 function chatCalls(toolCalls: unknown[], calls: Calls): void {
   for (const call of toolCalls) {
     if (isObj(call) && typeof call.id === 'string' && isObj(call.function) && typeof call.function.name === 'string') {
-      calls.set(call.id, call.function.name)
+      calls.set(call.id, { name: call.function.name, input: call.function.arguments })
     }
   }
 }
@@ -77,7 +85,7 @@ function message(m: unknown, out: TextSlot[], calls: Calls): void {
   if (!isObj(m)) return
   // Responses API tool call and tool output items.
   if (m.type === 'function_call') {
-    if (typeof m.call_id === 'string' && typeof m.name === 'string') calls.set(m.call_id, m.name)
+    if (typeof m.call_id === 'string' && typeof m.name === 'string') calls.set(m.call_id, { name: m.name, input: m.arguments })
     return
   }
   if (m.type === 'function_call_output') {
@@ -95,7 +103,7 @@ function message(m: unknown, out: TextSlot[], calls: Calls): void {
   for (const part of m.content) {
     if (!isObj(part)) continue
     if (part.type === 'tool_use') {
-      if (typeof part.id === 'string' && typeof part.name === 'string') calls.set(part.id, part.name)
+      if (typeof part.id === 'string' && typeof part.name === 'string') calls.set(part.id, { name: part.name, input: part.input })
     } else if (part.type === 'tool_result') {
       content('tool_result', part, out, ref(part.tool_use_id, calls))
     } else if (part.type === 'tool_addition') {

@@ -461,6 +461,22 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
   skipTools: string[];
 }
 
+export interface LeanCtxConfig extends ModuleSwitchConfig {
+  /**
+   * Shell tools whose results go to lean-ctx, matched like the truncator's
+   * skipTools. The call's `command` argument must be a string.
+   */
+  tools: string[];
+  /**
+   * Commands that print files. A result whose command has any of these as a
+   * word stays whole: cutting a file read makes the agent read it back. An
+   * entry with a hyphen (Get-Content) matches in any case.
+   */
+  skipCommands: string[];
+  /** How long one request waits for lean-ctx, in milliseconds; a result not answered by then is forwarded whole. */
+  timeoutMs: number;
+}
+
 export interface HistoryWindowConfig extends ModuleSwitchConfig {
   /** Turns kept, system messages aside; at least 2. */
   maxMessages: number;
@@ -503,6 +519,7 @@ export interface ModulesConfig {
   progressCollapse?: ModuleSwitchConfig;
   repeatCollapse?: RepeatCollapseConfig;
   blobElide?: BlobElideConfig;
+  leanCtx?: LeanCtxConfig;
   toolResultPruner?: ToolResultPrunerConfig;
   toolResultDedup?: ToolResultDedupConfig;
   toolResultTruncate?: ToolResultTruncateConfig;

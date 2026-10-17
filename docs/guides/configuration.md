@@ -229,9 +229,11 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 `LLM_FW_GATEWAY_KEY_<SLUG>` is deliberately absent. Provider keys are read straight from the environment and never enter the config object, so the dashboard settings view cannot read them back out.
 
+`LLM_FW_LEAN_CTX_BIN` is absent for a similar reason: it names the lean-ctx executable the [lean-ctx module](token-savings.md#lean-ctx-shell-output-compressor) starts, and is read from the process environment only, so a project config file in a cloned repository cannot choose a program for llm-fw to run.
+
 <!-- CONFIG-REFERENCE-START -->
 
-_100 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_101 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -290,6 +292,7 @@ _100 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_JUDGE_ENABLED` | `detection.judgeEnabled` | `false` |
 | `LLM_FW_JUDGE_MODEL` | `detection.judgeModel` | `qwen2.5:3b` |
 | `LLM_FW_JUDGE_UNLESS_BENIGN` | `detection.judgeUnlessBenign` | `false` |
+| `LLM_FW_LEAN_CTX_ENABLED` | `modules.leanCtx.enabled` | `false` |
 | `LLM_FW_MANYSHOT_ENABLED` | `manyShot.enabled` | `true` |
 | `LLM_FW_MANYSHOT_MODE` | `manyShot.mode` | `block` |
 | `LLM_FW_MAX_BODY_BYTES` | `proxy.maxBodyBytes` | `10485760` |

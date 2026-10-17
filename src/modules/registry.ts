@@ -1,11 +1,12 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
 import { ProgressCollapseModule } from './builtin/progressCollapse.js'
 import { RepeatCollapseModule } from './builtin/repeatCollapse.js'
 import { BlobElideModule } from './builtin/blobElide.js'
+import { LeanCtxModule } from './builtin/leanCtx.js'
 import { TokenPrunerModule } from './builtin/tokenPruner.js'
 import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
@@ -33,6 +34,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'progressCollapse', create: cfg => new ProgressCollapseModule(cfg) },
   { key: 'repeatCollapse', create: cfg => new RepeatCollapseModule(cfg as RepeatCollapseConfig) },
   { key: 'blobElide', create: cfg => new BlobElideModule(cfg as BlobElideConfig) },
+  { key: 'leanCtx', create: cfg => new LeanCtxModule(cfg as LeanCtxConfig) },
   { key: 'tokenPruner', create: cfg => new TokenPrunerModule(cfg) },
   { key: 'toolResultPruner', create: cfg => new ToolResultPrunerModule(cfg as ToolResultPrunerConfig) },
   { key: 'toolResultDedup', create: cfg => new ToolResultDedupModule(cfg as ToolResultDedupConfig) },
@@ -167,6 +169,7 @@ export class ModuleManager {
         if (mod instanceof PayloadModule) {
           if (parsed === undefined) parsed = parsePayload(currentBody)
           if (parsed === null) continue
+          if (mod.prepare) await mod.prepare(parsed, ctx)
           result = mod.transformParsed(parsed, ctx, estimates)
           if (result.modified) dirty = true
         } else {
