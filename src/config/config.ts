@@ -344,6 +344,12 @@ export const DEFAULT_CONFIG: Config = {
     tokenPruner: {
       enabled: false,
     },
+    toolResultPruner: {
+      enabled: false,
+      minifyJson: true,
+      trimTrailing: true,
+      collapseSpaceRuns: false,
+    },
     usageMeter: {
       enabled: true,
     },
@@ -686,6 +692,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_BLOCK_STATUS: (c, v) => { if (v === '403' || v === '422') c.blockStatus = v === '403' ? 403 : 422; },
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
   LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },

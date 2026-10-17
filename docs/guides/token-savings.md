@@ -69,7 +69,27 @@ an approximation of any provider's bill.
 | Module id | Config key | Rewrites |
 | --- | --- | --- |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
+| `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
+
+### Tool result pruner
+
+`modules.toolResultPruner.enabled` (`LLM_FW_TOOL_RESULT_PRUNER_ENABLED`).
+Tool output (Anthropic `tool_result` blocks, OpenAI `tool` messages, Responses
+API `function_call_output`) is usually most of an agent's input. Three
+techniques, each with its own switch:
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `minifyJson` | `true` | A tool result that is a JSON object or array loses the whitespace outside its strings. Lexical, not parse-and-print: every number and string stays byte for byte, so `12345678901234567890` is not rounded. |
+| `trimTrailing` | `true` | Spaces and tabs at the end of each line go. |
+| `collapseSpaceRuns` | `false` | Runs of two or more spaces after a line's indentation become one. Saves the most on column-aligned command output (`ls -l`, `kubectl get`, `docker ps`). |
+
+What to watch for: an agent quotes a file read verbatim in its next edit. With
+`trimTrailing`, an edit whose quoted text spans a line that ends in spaces in
+the file no longer matches. With `collapseSpaceRuns`, any edit of a line with
+aligned spaces misses, which is why it is off. A single tab, such as the one
+after a line number in Claude Code's file reads, is never collapsed.
 
 ### Usage meter
 

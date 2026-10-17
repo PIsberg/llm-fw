@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not, gzip or plain. On by default because it only reads responses
   (`modules.usageMeter.enabled`, `LLM_FW_USAGE_METER_ENABLED`); a response larger than
   `proxy.maxBodyBytes` is not metered. See [Token savings](docs/guides/token-savings.md).
+- **A Tool Result Pruner module, opt-in (`modules.toolResultPruner.enabled`,
+  `LLM_FW_TOOL_RESULT_PRUNER_ENABLED`).** Tool output is most of an agent's input and the token
+  pruner leaves it alone. This module minifies tool output that is JSON (lexically, so
+  `12345678901234567890` and `1.50` survive byte for byte), trims trailing whitespace, and, only
+  with `collapseSpaceRuns`, collapses aligned columns. Each technique has its own live switch.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

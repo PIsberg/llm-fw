@@ -1,7 +1,8 @@
 import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, ToolResultPrunerConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { TokenPrunerModule } from './builtin/tokenPruner.js'
+import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 import { createLogger } from '../logger.js'
@@ -12,8 +13,9 @@ type BuiltinKey = Exclude<keyof ModulesConfig, 'enabled'>
 
 // Built-in modules in pipeline order, each keyed by the `modules.<key>`
 // object that holds its switch and options.
-const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
+export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
   { key: 'tokenPruner', create: cfg => new TokenPrunerModule(cfg) },
+  { key: 'toolResultPruner', create: cfg => new ToolResultPrunerModule(cfg as ToolResultPrunerConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
 ]
 

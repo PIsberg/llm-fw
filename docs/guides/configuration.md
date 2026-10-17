@@ -231,7 +231,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_89 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_90 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -320,6 +320,7 @@ _89 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_TAINT_MODE` | `taint.mode` | `audit` |
 | `LLM_FW_TOKEN_PRUNER_ENABLED` | `modules.tokenPruner.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
+| `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
 | `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |

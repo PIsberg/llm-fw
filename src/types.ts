@@ -431,11 +431,21 @@ export interface ModuleSwitchConfig {
 
 export type TokenPrunerConfig = ModuleSwitchConfig;
 
+export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
+  /** Minify tool output that is a JSON object or array, keeping every literal. */
+  minifyJson: boolean;
+  /** Drop spaces and tabs at the end of each line. */
+  trimTrailing: boolean;
+  /** Collapse interior runs of two or more spaces; can make an agent's edit miss. */
+  collapseSpaceRuns: boolean;
+}
+
 // Keys after tokenPruner are optional so a config object written before they
 // existed still type-checks; ModuleManager fills in the defaults.
 export interface ModulesConfig {
   enabled: boolean;
   tokenPruner: TokenPrunerConfig;
+  toolResultPruner?: ToolResultPrunerConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;
 }
