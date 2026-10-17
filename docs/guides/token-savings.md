@@ -204,7 +204,9 @@ policy tightened after a response was stored still applies to it. It never
 answers under observe mode, which promises that the provider sees every
 request. The agent loop detector still refuses a request repeated too many
 times, before the cache is asked. The card counts hits, misses, stored
-responses and the billed tokens hits avoided (from the stored usage).
+responses and the billed tokens hits avoided (from the stored usage). The
+cache lives in the process, like quotas: replicas do not share it, and a
+restart empties it.
 
 ### Usage meter
 
