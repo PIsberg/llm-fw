@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
 import type { ToolResultShuntConfig } from '../../types.js'
-import type { GatewayModuleContext } from '../types.js'
+import type { GatewayModuleContext, ModuleStats } from '../types.js'
 import type { CapturedResponse } from '../responseTap.js'
 import { DEFAULT_CONFIG } from '../../config/config.js'
 import { isLoopbackAddr } from '../../auth.js'
 import { createLogger } from '../../logger.js'
-import { SlotModule, type PayloadOutcome } from '../base.js'
+import { SlotModule, estimate, type PayloadOutcome } from '../base.js'
 import { collectTextSlots, type SlotKind, type TextSlot } from '../payload.js'
 import { condense, renderCondensed, textSize, type WorkerProblem } from '../shuntWorker.js'
 import { StoredOriginals, type StoredOutcome } from '../shuntStore.js'
@@ -29,6 +29,20 @@ export type WholeReason =
   | 'rejected'
   | 'store-failed'
   | 'store-full'
+
+/** A count for every reason, in the order the card lists them. */
+const noReasons = (): Record<WholeReason, number> => ({
+  'below-threshold': 0,
+  'excluded-tool': 0,
+  'tool-unknown': 0,
+  'too-large': 0,
+  'remote-client': 0,
+  'flagged': 0,
+  'worker-failed': 0,
+  'rejected': 0,
+  'store-failed': 0,
+  'store-full': 0,
+})
 
 // A call with one of these arguments reads part of something, and a part is
 // what the agent asked for: condensing it makes the agent read the rest back.
@@ -148,6 +162,20 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   private nextPrune = 0
   // The request `rewrite` is running for: SlotModule hands it only the slot.
   private current: GatewayModuleContext | undefined
+  private estimates: Map<string, number> | undefined
+
+  // The card (data-model.md "Counters"). Results are counted once per request
+  // that carries them, worker tokens once per worker call; none of it holds
+  // text. Not reset: the folder's totals come from `store.stats()`.
+  private condensedCount = 0
+  private wholeCount = noReasons()
+  private originalTokens = 0
+  private condensedTokens = 0
+  private workerIn = 0
+  private workerOut = 0
+  private waitSamples = 0
+  private waitTotalMs = 0
+  private waitMaxMs = 0
 
   constructor(config?: ToolResultShuntConfig) {
     super(config ?? structuredClone(DEFAULT_CONFIG.modules!.toolResultShunt!))
@@ -157,14 +185,21 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
     this.calls.learn(response)
   }
 
-  // The result is a job only when its call is known and `eligibility` passes.
-  private job(slot: TextSlot, remoteAddress: string | undefined): Job | undefined {
+  // The result is a job only when its call is known and `eligibility` passes;
+  // otherwise `eligibility` names the reason it stays whole.
+  private classify(slot: TextSlot, remoteAddress: string | undefined): { job: Job } | { whole: WholeReason } | undefined {
     if (slot.kind !== 'tool_result') return undefined
     const learned = slot.toolName === undefined ? this.calls.get(slot.toolCallId) : undefined
     const name = slot.toolName ?? learned?.name
-    if (eligibility(name, learned ? learned.input : slot.toolInput, slot.text, this.cfg, remoteAddress) !== null) return undefined
+    const whole = eligibility(name, learned ? learned.input : slot.toolInput, slot.text, this.cfg, remoteAddress)
+    if (whole !== null) return { whole }
     const key = createHash('sha256').update(name!).update('\0').update(slot.text).digest('hex')
-    return { key, name: name!, text: slot.text }
+    return { job: { key, name: name!, text: slot.text } }
+  }
+
+  private job(slot: TextSlot, remoteAddress: string | undefined): Job | undefined {
+    const found = this.classify(slot, remoteAddress)
+    return found && 'job' in found ? found.job : undefined
   }
 
   async prepare(payload: Record<string, unknown>, ctx: GatewayModuleContext): Promise<void> {
@@ -187,8 +222,11 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
         })
       }
       // One wait limit for the whole request, however many results it carries.
+      const started = performance.now()
       const deadline = Date.now() + this.cfg.waitMs
-      await Promise.all([...jobs.values()].map(job => this.settle(job, ctx.dryRun === true, deadline)))
+      const waited = await Promise.all([...jobs.values()].map(job => this.settle(job, ctx.dryRun === true, deadline)))
+      // A request that only read decisions already made waited for nothing and is no sample.
+      if (waited.some(Boolean)) this.sampleWait(Math.round(performance.now() - started))
     }
     this.prune(Date.now())
   }
@@ -197,9 +235,11 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
    * Make sure the result has a decision, deciding it if no request has, and
    * note that this request carries it. A result flagged on this request goes
    * whole whatever state it is in: an earlier condensation, or a decision
-   * another request is still making.
+   * another request is still making. Resolves to whether this request had to
+   * wait for the worker or the disk.
    */
-  private async settle(job: Pending, dryRun: boolean, deadline: number): Promise<void> {
+  private async settle(job: Pending, dryRun: boolean, deadline: number): Promise<boolean> {
+    let waited = false
     let entry = this.decided.get(job.key)
     if (job.flagged && !isFlagged(entry) && (!entry || 'condensed' in entry.decision)) {
       // Flagged in memory at once, so nothing decided or written from here on
@@ -218,10 +258,15 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
         this.inflight.set(job.key, pending)
       }
       entry = await pending
+      waited = true
     }
     entry.carriedAt = Date.now()
     // Decided or flagged in a dry run, so what it points at is not on disk yet.
-    if (!entry.stored && !dryRun) await this.persist(job, entry, true)
+    if (!entry.stored && !dryRun) {
+      await this.persist(job, entry, true)
+      waited = true
+    }
+    return waited
   }
 
   private async decide(job: Pending, dryRun: boolean, deadline: number): Promise<Remembered> {
@@ -255,9 +300,15 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   /** The worker's answer for one result, as a decision. */
   private async ask(job: Job, deadline: number): Promise<Decision> {
     const outcome = await condense(job.text, this.store.pathFor(job.text), { url: this.cfg.workerUrl, model: this.cfg.workerModel }, deadline)
+    // Every answered call costs the worker tokens, an answer that was rejected included.
+    if ('tokensIn' in outcome) {
+      this.workerIn += outcome.tokensIn
+      this.workerOut += outcome.tokensOut
+    }
     if ('text' in outcome) return { condensed: outcome.text }
     if (outcome.reason === 'rejected') return { whole: 'rejected' }
     if (outcome.problem === 'partial-input') {
+      this.workerIn += outcome.read ?? 0
       this.warnOnce('partial-input', `the worker read ${outcome.read ?? 0} of the ${outcome.sent ?? 0} tokens it was sent, so it answered from part of the output and the tool result is forwarded whole. Raise the worker's context window above ${outcome.sent ?? 0} tokens (for Ollama, num_ctx)`, { read: outcome.read, sent: outcome.sent })
     } else {
       this.warnOnce(outcome.problem, WORKER_PROBLEMS[outcome.problem])
@@ -337,16 +388,73 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
 
   protected override apply(payload: Record<string, unknown>, ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome {
     this.current = ctx
+    this.estimates = estimates
     try {
       return super.apply(payload, ctx, estimates)
     } finally {
       this.current = undefined
+      this.estimates = undefined
     }
   }
 
   protected rewrite(text: string, slot: TextSlot): string {
-    const job = this.job(slot, this.current?.remoteAddress)
-    const decision = job && this.decided.get(job.key)?.decision
-    return decision && 'condensed' in decision ? decision.condensed : text
+    const found = this.classify(slot, this.current?.remoteAddress)
+    if (found && 'whole' in found) {
+      this.wholeCount[found.whole]++
+      return text
+    }
+    const decision = found && this.decided.get(found.job.key)?.decision
+    if (!decision) return text
+    if ('whole' in decision) {
+      this.wholeCount[decision.whole]++
+      return text
+    }
+    const estimates = this.estimates ?? new Map<string, number>()
+    this.condensedCount++
+    this.originalTokens += estimate(text, estimates)
+    this.condensedTokens += estimate(decision.condensed, estimates)
+    return decision.condensed
+  }
+
+  private sampleWait(ms: number): void {
+    this.waitSamples++
+    this.waitTotalMs += ms
+    this.waitMaxMs = Math.max(this.waitMaxMs, ms)
+  }
+
+  override getStats(): ModuleStats {
+    const { files, bytes } = this.store.stats()
+    const whole = Object.entries(this.wholeCount).filter(([, count]) => count > 0).map(([reason, count]) => `${reason} ${count}`).join(' · ')
+    return {
+      ...super.getStats(),
+      kpis: [
+        { key: 'condensed', label: 'Results condensed', value: this.condensedCount },
+        { key: 'whole', label: 'Forwarded whole', value: whole || 'none' },
+        { key: 'originalTokens', label: 'Original tokens', value: this.originalTokens },
+        { key: 'condensedTokens', label: 'Condensed tokens', value: this.condensedTokens },
+        { key: 'workerIn', label: 'Worker tokens read', value: this.workerIn },
+        { key: 'workerOut', label: 'Worker tokens written', value: this.workerOut },
+        { key: 'waitAvgMs', label: 'Average wait added (ms)', value: this.waitSamples > 0 ? Math.round(this.waitTotalMs / this.waitSamples) : 0 },
+        { key: 'waitMaxMs', label: 'Longest wait added (ms)', value: this.waitMaxMs },
+        { key: 'storedFiles', label: 'Stored originals', value: files },
+        { key: 'storedBytes', label: 'Stored size (bytes)', value: bytes },
+        // Counted from T028, when a stored original is found gone.
+        { key: 'missing', label: 'Stored originals missing', value: 0 },
+      ],
+    }
+  }
+
+  /** Clears the counters and events; the folder is untouched, so its totals stay. */
+  override resetStats(): void {
+    super.resetStats()
+    this.condensedCount = 0
+    this.wholeCount = noReasons()
+    this.originalTokens = 0
+    this.condensedTokens = 0
+    this.workerIn = 0
+    this.workerOut = 0
+    this.waitSamples = 0
+    this.waitTotalMs = 0
+    this.waitMaxMs = 0
   }
 }
