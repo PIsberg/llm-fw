@@ -2,7 +2,7 @@
 import http from 'node:http'
 import net from 'node:net'
 import tls from 'node:tls'
-import { Config, PipelineResult } from '../types.js'
+import { Config, PipelineResult, type PayloadParser } from '../types.js'
 import { CertFactory, crlUrlFor } from './certs.js'
 import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -28,7 +28,7 @@ import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfi
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
-import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js'
+import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../modules/responseTap.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
@@ -1031,9 +1031,8 @@ export class ProxyServer {
       const answer = moduleCtx ? this.modules.respond(body, moduleCtx) : undefined
       let bytesReceived: number
       if (answer) {
-        writeCapturedResponse(innerRes, answer.response)
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev)
-        bytesReceived = answer.response.body.length
+        bytesReceived = await this.replayStoredResponse(answer.response, innerReq, innerRes, hostname, mcpInspectResponse)
       } else {
         const captured = moduleCtx && this.modules.wantsResponses()
           ? tapResponse(innerRes, this.config.proxy.maxBodyBytes)
@@ -1499,45 +1498,7 @@ export class ProxyServer {
             return
           }
 
-          let finalBody = text
-          if (mcpActive && parser) {
-            const { decisions, blockedNames } = inspectJsonResponse(text, parser, this.mcp)
-            for (const d of decisions) {
-              if (d.action === 'block') {
-                this.emitMcp('blocked', d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`, text, req, hostname, d.toolName, d.reason)
-              } else if (d.audit) {
-                this.emitMcp('warned', d.reason ? `Audit: would block ${d.toolName} (${d.reason})` : `Audit: would block ${d.toolName}`, text, req, hostname, d.toolName, d.reason)
-              } else {
-                this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, text, req, hostname, d.toolName)
-              }
-            }
-            if (blockedNames.size > 0) finalBody = rewriteBlockedJsonResponse(finalBody, blockedNames)
-          }
-
-          // Response-exfil scan on the buffered body → can neutralize when mode=block.
-          const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
-          if (neutralized !== null) finalBody = neutralized
-          // Tool-call argument exfil scan (Task C1): DLP + URL-classifier over
-          // the serialized arguments of every tool call the model emitted.
-          // Buffered body → bytes not yet sent, so block mode can withhold it.
-          const toolCalls = parser ? extractToolCallsFromJson(finalBody, parser) : []
-          const toolUseBlock = this.runToolUseScan(toolCalls, req, hostname, true)
-          // Response-harm scan: audit-only regex compliance layer + opt-in
-          // output classifier. Buffered body → the classifier layer may block.
-          const harmBlock = await this.runResponseHarmScan(finalBody, req, hostname, true)
-          if (toolUseBlock || harmBlock) {
-            const errBody = JSON.stringify({
-              error: harmBlock ? 'response blocked by output moderation' : 'response blocked by tool-call exfiltration guard',
-              kind: harmBlock ? 'response-harm' : 'tool-use-exfil',
-            })
-            res.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
-            res.end(errBody)
-            respBodyBytes = Buffer.byteLength(errBody)
-          } else {
-            res.writeHead(status, inspectedHeaders())
-            res.end(Buffer.from(finalBody, 'utf8'))
-            respBodyBytes = Buffer.byteLength(finalBody)
-          }
+          respBodyBytes = await this.deliverInspectedJson(text, status, inspectedHeaders(), req, res, hostname, parser, mcpActive)
         } else {
           if (mode === 'sse') {
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
@@ -1554,5 +1515,98 @@ export class ProxyServer {
         resolve(respBodyBytes)
       })
     })
+  }
+
+  /**
+   * A complete, decoded JSON response through the response-side gates: MCP
+   * tool-invocation policy (blocked calls rewritten out), the exfil scan
+   * (neutralized in block mode), the tool-call argument scan and the harm
+   * scan (either may withhold the body). Returns the bytes written.
+   */
+  private async deliverInspectedJson(text: string, status: number, headers: Record<string, string>, req: http.IncomingMessage, res: http.ServerResponse, hostname: string, parser: PayloadParser | null, mcpActive: boolean): Promise<number> {
+    let finalBody = text
+    if (mcpActive && parser) {
+      const { decisions, blockedNames } = inspectJsonResponse(text, parser, this.mcp)
+      for (const d of decisions) {
+        if (d.action === 'block') {
+          this.emitMcp('blocked', d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`, text, req, hostname, d.toolName, d.reason)
+        } else if (d.audit) {
+          this.emitMcp('warned', d.reason ? `Audit: would block ${d.toolName} (${d.reason})` : `Audit: would block ${d.toolName}`, text, req, hostname, d.toolName, d.reason)
+        } else {
+          this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, text, req, hostname, d.toolName)
+        }
+      }
+      if (blockedNames.size > 0) finalBody = rewriteBlockedJsonResponse(finalBody, blockedNames)
+    }
+
+    // Response-exfil scan on the buffered body → can neutralize when mode=block.
+    const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
+    if (neutralized !== null) finalBody = neutralized
+    // Tool-call argument exfil scan (Task C1): DLP + URL-classifier over
+    // the serialized arguments of every tool call the model emitted.
+    // Buffered body → bytes not yet sent, so block mode can withhold it.
+    const toolCalls = parser ? extractToolCallsFromJson(finalBody, parser) : []
+    const toolUseBlock = this.runToolUseScan(toolCalls, req, hostname, true)
+    // Response-harm scan: audit-only regex compliance layer + opt-in
+    // output classifier. Buffered body → the classifier layer may block.
+    const harmBlock = await this.runResponseHarmScan(finalBody, req, hostname, true)
+    if (toolUseBlock || harmBlock) {
+      const errBody = JSON.stringify({
+        error: harmBlock ? 'response blocked by output moderation' : 'response blocked by tool-call exfiltration guard',
+        kind: harmBlock ? 'response-harm' : 'tool-use-exfil',
+      })
+      res.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
+      res.end(errBody)
+      return Buffer.byteLength(errBody)
+    }
+    res.writeHead(status, headers)
+    res.end(Buffer.from(finalBody, 'utf8'))
+    return Buffer.byteLength(finalBody)
+  }
+
+  /**
+   * A stored response (the response cache) delivered as a live one would be:
+   * through the response-side gates, under the policy in force now rather
+   * than when it was stored. JSON goes through deliverInspectedJson; a stored
+   * stream through the MCP gate and then the same audit-only scans a live
+   * stream gets. Anything else, or with no response-side gate on, is written
+   * as stored. Returns the bytes written.
+   */
+  private async replayStoredResponse(stored: CapturedResponse, req: http.IncomingMessage, res: http.ServerResponse, hostname: string, mcpInspect: boolean): Promise<number> {
+    const parser = getParser(req.url ?? '/')
+    const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
+    const ctype = (stored.headers['content-type'] ?? '').toLowerCase()
+    const sse = ctype.includes('text/event-stream')
+    if (!(mcpActive || this.config.responseScan?.enabled) || (!sse && !ctype.includes('application/json'))) {
+      writeCapturedResponse(res, stored)
+      return stored.body.length
+    }
+    let text: string
+    try {
+      text = decompressBody(stored.body, (stored.headers['content-encoding'] ?? '').toLowerCase().trim()).toString('utf8')
+    } catch {
+      writeCapturedResponse(res, stored)
+      return stored.body.length
+    }
+    const headers = { ...stored.headers }
+    delete headers['content-length']; delete headers['transfer-encoding']; delete headers['content-encoding']
+    if (!sse) return this.deliverInspectedJson(text, stored.status, headers, req, res, hostname, parser, mcpActive)
+
+    res.writeHead(stored.status, headers)
+    let bytes = 0
+    if (mcpActive && parser) {
+      const gate = createSseGate(parser, this.mcp)
+      bytes += this.gateSse(gate, text, res, req, hostname)
+      const tail = gate.flush()
+      if (tail) { res.write(tail); bytes += Buffer.byteLength(tail) }
+    } else {
+      res.write(Buffer.from(text, 'utf8'))
+      bytes += Buffer.byteLength(text)
+    }
+    this.runResponseExfilScan(text, req, hostname, false)
+    this.runToolUseScan(extractToolCallsFromSse(text), req, hostname, false)
+    await this.runResponseHarmScan(text, req, hostname, false)
+    res.end()
+    return bytes
   }
 }

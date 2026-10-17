@@ -195,10 +195,13 @@ request it is or shape the answer: `authorization`, `x-api-key`,
 served a response fetched with another's key, and a request that carries no
 credential at all (no such header, tenant or query key) is neither stored nor
 answered. A stored response loses its `set-cookie` header. Only complete
-`200` responses are stored, streamed or not, and only after detection has
-passed the request; a replay runs every request-side gate first, but not the
-proxy's response-side scans, which already ran on the stored response. It
-never answers under observe mode, which promises that the provider sees every
+`200` responses are stored, streamed or not. A replay runs every request-side
+gate first, and on the proxy it then goes through the response-side gates as
+a live response would, under the policy in force at replay time: MCP tool
+policy, the exfil scan (neutralized in block mode), the tool-call and harm
+scans; a stored stream gets the audit-only scans a live stream gets. So a
+policy tightened after a response was stored still applies to it. It never
+answers under observe mode, which promises that the provider sees every
 request. The agent loop detector still refuses a request repeated too many
 times, before the cache is asked. The card counts hits, misses, stored
 responses and the billed tokens hits avoided (from the stored usage).
