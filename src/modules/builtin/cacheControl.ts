@@ -31,6 +31,7 @@ export class CacheControlModule extends PayloadModule<CacheControlConfig> {
   readonly description = 'Turns on Anthropic prompt caching for requests that carry no cache_control of their own'
 
   private marked = 0
+  private wouldMark = 0
   private clientManaged = 0
 
   constructor(config?: CacheControlConfig) {
@@ -54,7 +55,8 @@ export class CacheControlModule extends PayloadModule<CacheControlConfig> {
         if (isObj(last)) last.cache_control = { ...marker }
       }
     }
-    this.marked++
+    if (ctx.dryRun) this.wouldMark++
+    else this.marked++
     return { changed: true, tokensOriginal: 0, tokensPruned: 0 }
   }
 
@@ -63,6 +65,7 @@ export class CacheControlModule extends PayloadModule<CacheControlConfig> {
       ...super.getStats(),
       kpis: [
         { key: 'marked', label: 'Requests marked', value: this.marked },
+        { key: 'wouldMark', label: 'Would mark (observe mode)', value: this.wouldMark },
         { key: 'clientManaged', label: 'Already marked by the client', value: this.clientManaged },
       ],
     }
@@ -71,6 +74,7 @@ export class CacheControlModule extends PayloadModule<CacheControlConfig> {
   resetStats(): void {
     super.resetStats()
     this.marked = 0
+    this.wouldMark = 0
     this.clientManaged = 0
   }
 }

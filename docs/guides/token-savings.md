@@ -165,9 +165,9 @@ own, so this changes nothing for it; the card counts both cases. Writing an
 entry costs more than an uncached read (1.25 times the input price for five
 minutes), so a one-off request that is never repeated pays more, and a
 prefix shorter than the model's minimum (512 to 4,096 tokens) is not cached
-at all. Check the Usage Meter's cache reads to see whether it pays. The card
-counts a request it would mark under observe mode as marked, although the
-original body went upstream.
+at all. Check the Usage Meter's cache reads to see whether it pays. Under
+observe mode the original body goes upstream, and the card counts the request
+under **Would mark** instead.
 
 ### Response cache
 

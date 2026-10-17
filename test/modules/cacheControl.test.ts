@@ -74,4 +74,11 @@ describe('CacheControlModule', () => {
     expect(mod.getStats().tokensSaved).toBe(0)
     expect(res.events ?? []).toHaveLength(0)
   })
+
+  it('counts an observe-mode request apart, since the original body went upstream', () => {
+    const mod = new CacheControlModule(cfg())
+    send(mod, request(), { ...anthropic, dryRun: true })
+    expect(kpi(mod, 'marked')).toBe(0)
+    expect(kpi(mod, 'wouldMark')).toBe(1)
+  })
 })
