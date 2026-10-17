@@ -76,6 +76,7 @@ In pipeline order, which is also the order of the cards:
 | `blob-elide` | `modules.blobElide` | long base64 and hex runs in tool output |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
+| `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 
@@ -97,6 +98,17 @@ What to watch for: an agent quotes a file read verbatim in its next edit. With
 the file no longer matches. With `collapseSpaceRuns`, any edit of a line with
 aligned spaces misses, which is why it is off. A single tab, such as the one
 after a line number in Claude Code's file reads, is never collapsed.
+
+### Tool result deduplicator
+
+`modules.toolResultDedup.enabled` (`LLM_FW_TOOL_RESULT_DEDUP_ENABLED`), option
+`minLength` (default `200` characters). Agents reread the same file and rerun
+the same command, and every copy stays in the history they resend. A tool
+result identical to an earlier one in the same request becomes
+`[llm-fw: identical to the earlier tool result <id>]`, naming the first copy
+by its tool call id (or `#n`, its position, when the format carries no id).
+The first copy always stays, and which copy is kept depends only on what came
+before it, so a growing conversation is rewritten the same way on every turn.
 
 ### Tool definition pruner
 

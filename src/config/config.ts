@@ -364,6 +364,10 @@ export const DEFAULT_CONFIG: Config = {
       trimTrailing: true,
       collapseSpaceRuns: false,
     },
+    toolResultDedup: {
+      enabled: false,
+      minLength: 200,
+    },
     toolDefinitionPruner: {
       enabled: false,
     },
@@ -714,6 +718,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_REPEAT_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.repeatCollapse) c.modules.repeatCollapse.enabled = v === 'true'; },
   LLM_FW_BLOB_ELIDE_ENABLED: (c, v) => { if (c.modules?.blobElide) c.modules.blobElide.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).

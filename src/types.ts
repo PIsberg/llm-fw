@@ -441,6 +441,11 @@ export interface BlobElideConfig extends ModuleSwitchConfig {
   minLength: number;
 }
 
+export interface ToolResultDedupConfig extends ModuleSwitchConfig {
+  /** Shortest tool result, in characters, worth replacing with a pointer. */
+  minLength: number;
+}
+
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   /** Minify tool output that is a JSON object or array, keeping every literal. */
   minifyJson: boolean;
@@ -460,6 +465,7 @@ export interface ModulesConfig {
   repeatCollapse?: RepeatCollapseConfig;
   blobElide?: BlobElideConfig;
   toolResultPruner?: ToolResultPrunerConfig;
+  toolResultDedup?: ToolResultDedupConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;

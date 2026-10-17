@@ -62,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Blob Elider module, opt-in (`modules.blobElide.enabled`, `LLM_FW_BLOB_ELIDE_ENABLED`,
   `minLength` default 2048).** A long base64 or hex run in tool output becomes a marker with its
   length and a short SHA-256; a `data:` prefix and the surrounding JSON stay valid.
+- **A Tool Result Deduplicator module, opt-in (`modules.toolResultDedup.enabled`,
+  `LLM_FW_TOOL_RESULT_DEDUP_ENABLED`, `minLength` default 200).** A tool result identical to an
+  earlier one in the conversation (the same file read twice) becomes a pointer to the first copy.
+  Rewritten the same way on every turn, so the prompt cache keeps matching.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and
