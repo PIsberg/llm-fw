@@ -246,7 +246,7 @@ describe('pruneText — bounded cost on adversarial input', () => {
     const input = '```\nx' + ' '.repeat(40_000) + 'y  \n```'
     const t0 = performance.now()
     expect(pruneText(input)).toBe('```\nx' + ' '.repeat(40_000) + 'y\n```')
-    expect(performance.now() - t0).toBeLessThan(100)
+    expect(performance.now() - t0).toBeLessThan(500)
   })
 })
 

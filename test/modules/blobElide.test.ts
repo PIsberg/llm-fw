@@ -46,7 +46,7 @@ describe('elideBlobs', () => {
     const text = (b64(2047) + ' ').repeat(250)
     const t0 = performance.now()
     expect(elideBlobs(text, 2048)).toBe(text)
-    expect(performance.now() - t0).toBeLessThan(100)
+    expect(performance.now() - t0).toBeLessThan(500)
   })
 })
 

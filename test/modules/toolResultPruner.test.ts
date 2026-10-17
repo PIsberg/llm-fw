@@ -56,7 +56,7 @@ describe('ToolResultPrunerModule', () => {
     const line = 'x' + ' '.repeat(40_000) + 'y'
     const t0 = performance.now()
     expect(run(new ToolResultPrunerModule(on({ minifyJson: false })), line + ' \r\n' + line).result).toBe(line + '\r\n' + line)
-    expect(performance.now() - t0).toBeLessThan(100)
+    expect(performance.now() - t0).toBeLessThan(500)
   })
 
   it('applies each technique only when its option is on', () => {

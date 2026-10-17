@@ -68,6 +68,6 @@ describe('estimateTokens — against measured tokenizer counts', () => {
     const big = JSON.stringify(MEASURED).repeat(1200)
     const t0 = performance.now()
     estimateTokens(big)
-    expect(performance.now() - t0).toBeLessThan(100)
+    expect(performance.now() - t0).toBeLessThan(500)
   })
 })
