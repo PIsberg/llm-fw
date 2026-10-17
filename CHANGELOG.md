@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Repeated Line Collapser module, opt-in (`modules.repeatCollapse.enabled`,
   `LLM_FW_REPEAT_COLLAPSE_ENABLED`, `minRun` default 3).** A run of identical lines in tool output
   becomes the first line and `[llm-fw: previous line repeated N more times]`.
+- **A Blob Elider module, opt-in (`modules.blobElide.enabled`, `LLM_FW_BLOB_ELIDE_ENABLED`,
+  `minLength` default 2048).** A long base64 or hex run in tool output becomes a marker with its
+  length and a short SHA-256; a `data:` prefix and the surrounding JSON stay valid.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

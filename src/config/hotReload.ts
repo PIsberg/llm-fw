@@ -159,6 +159,8 @@ const HOT_PATHS: Path[] = [
   ['modules', 'progressCollapse', 'enabled'],
   ['modules', 'repeatCollapse', 'enabled'],
   ['modules', 'repeatCollapse', 'minRun'],
+  ['modules', 'blobElide', 'enabled'],
+  ['modules', 'blobElide', 'minLength'],
   ['modules', 'toolResultPruner', 'enabled'],
   ['modules', 'toolResultPruner', 'minifyJson'],
   ['modules', 'toolResultPruner', 'trimTrailing'],

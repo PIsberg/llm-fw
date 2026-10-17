@@ -436,6 +436,11 @@ export interface RepeatCollapseConfig extends ModuleSwitchConfig {
   minRun: number;
 }
 
+export interface BlobElideConfig extends ModuleSwitchConfig {
+  /** Shortest base64 or hex run that is elided, in characters; at least 64. */
+  minLength: number;
+}
+
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   /** Minify tool output that is a JSON object or array, keeping every literal. */
   minifyJson: boolean;
@@ -453,6 +458,7 @@ export interface ModulesConfig {
   ansiStrip?: ModuleSwitchConfig;
   progressCollapse?: ModuleSwitchConfig;
   repeatCollapse?: RepeatCollapseConfig;
+  blobElide?: BlobElideConfig;
   toolResultPruner?: ToolResultPrunerConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */

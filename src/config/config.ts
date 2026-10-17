@@ -354,6 +354,10 @@ export const DEFAULT_CONFIG: Config = {
       enabled: false,
       minRun: 3,
     },
+    blobElide: {
+      enabled: false,
+      minLength: 2048,
+    },
     toolResultPruner: {
       enabled: false,
       minifyJson: true,
@@ -708,6 +712,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_ANSI_STRIP_ENABLED: (c, v) => { if (c.modules?.ansiStrip) c.modules.ansiStrip.enabled = v === 'true'; },
   LLM_FW_PROGRESS_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.progressCollapse) c.modules.progressCollapse.enabled = v === 'true'; },
   LLM_FW_REPEAT_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.repeatCollapse) c.modules.repeatCollapse.enabled = v === 'true'; },
+  LLM_FW_BLOB_ELIDE_ENABLED: (c, v) => { if (c.modules?.blobElide) c.modules.blobElide.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },

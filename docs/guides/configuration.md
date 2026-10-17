@@ -231,7 +231,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_94 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_95 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -241,6 +241,7 @@ _94 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_AUDIT_FILE` | `audit.file` | _unset_ |
 | `LLM_FW_AUDIT_PAYLOADS` | `audit.includePayloads` | `false` |
 | `LLM_FW_AUDIT_WEBHOOK` | `audit.webhookUrl` | _unset_ |
+| `LLM_FW_BLOB_ELIDE_ENABLED` | `modules.blobElide.enabled` | `false` |
 | `LLM_FW_BLOCK_STATUS` | `blockStatus` | `422` |
 | `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |

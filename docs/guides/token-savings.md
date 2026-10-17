@@ -73,6 +73,7 @@ In pipeline order, which is also the order of the cards:
 | `ansi-strip` | `modules.ansiStrip` | terminal escape codes in tool output and prompts |
 | `progress-collapse` | `modules.progressCollapse` | progress-bar frames in tool output and prompts |
 | `repeat-collapse` | `modules.repeatCollapse` | runs of identical lines in tool output |
+| `blob-elide` | `modules.blobElide` | long base64 and hex runs in tool output |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
@@ -154,6 +155,20 @@ Lines compare exactly, whitespace included; blank lines are left to the
 whitespace pruners. Tool output only, because a user who pastes a line five
 times may mean it. An agent that reads a data file with repeated lines sees
 the marker instead of the lines, so an edit that quotes the run would miss.
+
+### Blob elider
+
+`modules.blobElide.enabled` (`LLM_FW_BLOB_ELIDE_ENABLED`), option `minLength`
+(default `2048` characters, at least `64`). A run of base64, base64url or hex
+characters in tool output that is at least `minLength` long and holds both a
+digit and a letter (an image embedded in an API response, a certificate, a
+source map) becomes `[llm-fw: N-character base64 blob elided, sha256
+1a2b3c4d]`. The hash keeps two different blobs distinguishable and the same
+blob reading the same on every turn. A `data:...;base64,` prefix stays, and so
+does the JSON around a blob, since the marker holds no quote or backslash.
+Tool output only: a user who pastes base64 into a prompt may want it decoded.
+An agent that reads a file holding a blob and then rewrites the whole file
+would write the marker, so leave it off for agents that edit such files.
 
 ### Token pruner
 
