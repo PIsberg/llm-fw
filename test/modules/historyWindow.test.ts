@@ -13,6 +13,15 @@ describe('HistoryWindowModule', () => {
     expect(mod.transformRequest(JSON.stringify({ messages: chat(60) }), ctx).modified).toBe(false)
   })
 
+  it('never cuts a server-side thread continuation, whose messages are all new', () => {
+    // Claude Code against api.anthropic.com sends thread: { type: 'continue' }
+    // and only the turn's new messages; the server holds the history. A cut
+    // there would drop content the server has never seen.
+    const mod = new HistoryWindowModule(cfg(10, 10))
+    const payload = { thread: { type: 'continue', previous_message_id: 'msg_1' }, messages: chat(30) }
+    expect(mod.transformRequest(JSON.stringify(payload), ctx).modified).toBe(false)
+  })
+
   it('drops the oldest messages in whole steps and says how many', () => {
     const out = send(new HistoryWindowModule(cfg()), { messages: chat(100) }).messages
     // 40 over the window, a multiple of the 20-message step.

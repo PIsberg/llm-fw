@@ -108,6 +108,20 @@ describe('collectTextSlots — tool definitions', () => {
     ])
   })
 
+  it('reads tools added mid-conversation in a system message', () => {
+    // Claude Code on a server-side thread sends tools once, then adds more as
+    // tool_addition blocks inside a role: system message.
+    expect(kinds({
+      messages: [{
+        role: 'system',
+        content: [
+          { type: 'text', text: 'context' },
+          { type: 'tool_addition', tool: { name: 'late', description: 'added later', input_schema: { properties: { p: { type: 'string', description: 'its param' } } } } },
+        ],
+      }],
+    })).toEqual(['system:context', 'tool_definition:added later', 'tool_definition:its param'])
+  })
+
   it('does not mistake a property named "description" for a description string', () => {
     expect(kinds({
       tools: [{ name: 't', input_schema: { type: 'object', properties: { description: { type: 'string', description: 'the text' } } } }],

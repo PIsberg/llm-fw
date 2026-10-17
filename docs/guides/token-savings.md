@@ -39,15 +39,33 @@ whole pipeline.
   5.5, Haiku 5.5), the signature on every thinking block, which records the
   conversation before it.
 
+### Clients that resend history, and clients that do not
+
+Most clients resend the whole conversation on every request: the OpenAI and
+Anthropic SDKs, and Claude Code when it is pointed at a custom base URL (the
+gateway). Claude Code talking to `api.anthropic.com` through the proxy does
+not: it opens a server-side thread (`thread: {"type": "create"}`) and then
+sends only each turn's new content (`thread: {"type": "continue",
+"previous_message_id": ...}`), and the server keeps the history. Measured in a
+live session on 2026-10-17: after the first request, the requests carried no
+tool list and two messages each, 11 to 47 KB, where the same task through a
+custom base URL resent 207 to 331 KB per request.
+
+For a thread client the modules rewrite each turn's new content once, and the
+server keeps what was sent. The history window never cuts a thread
+continuation, since its messages are all new, and the deduplicator can only
+see repeats within one turn.
+
 ### Changing a module in the middle of a conversation
 
-Turning a rewriting module on or off, or changing one of its options, changes
-how the earlier turns of a running conversation are sent. The next request
-misses the prompt cache once. On models with preserved thinking, accounts the
-provider enforces the check for (Anthropic accounts created on or after
-2026-08-31) get a 400 for that conversation: "The block is bound to a different
-conversation." Start a new conversation after changing a module, or change
-modules between sessions.
+For a client that resends history, turning a rewriting module on or off, or
+changing one of its options, changes how the earlier turns of a running
+conversation are sent. The next request misses the prompt cache once. On
+models with preserved thinking, accounts the provider enforces the check for
+(Anthropic accounts created on or after 2026-08-31) get a 400 for that
+conversation: "The block is bound to a different conversation." Start a new
+conversation after changing a module, or change modules between sessions.
+A server-side thread is not affected: its earlier turns are never sent again.
 
 ## How savings are counted
 
@@ -63,6 +81,47 @@ prompts and tool output, and 28% on base64. The 4-characters-per-token rule
 it replaced overstated what collapsing whitespace saves on column-aligned
 tool output by 75%. Claude's tokenizer is not public, so treat the numbers as
 an approximation of any provider's bill.
+
+## Measured on live Claude Code traffic
+
+On 2026-10-17, Claude Code 2.1.302 with Claude Opus 5.5 ran read-and-summarize
+tasks (read source files, grep, `git log`, list and summarize) through the
+proxy: one observe pass on this repository with every module on, and two
+enforcing A/B rounds on a clone of express with the rewriting modules off, then
+on (everything but `collapseSpaceRuns`).
+
+Share of the examined text each module removed, from its card:
+
+| Module | Removed |
+| --- | --- |
+| `tool-result-truncate` | 11% of tool output (this repository), 26 to 28% (express) |
+| `tool-result-pruner` | 5.2% of tool output with `collapseSpaceRuns` on; 0.4 to 0.6% without |
+| `ansi-strip` | 1.8% of prompt and tool text with a coloured `git log` in it; 0.4% otherwise |
+| `tool-definition-pruner` | 0.03% |
+| `token-pruner` | 0.02% |
+| `progress-collapse`, `repeat-collapse`, `blob-elide`, `tool-result-dedup` | 0: no task produced that kind of output |
+| `history-window` | 0: Claude Code sends thread continuations, which it never cuts |
+| `cache-control` | 0 requests marked: every request already carried Claude Code's own markers |
+| `response-cache` | 0 hits: no request repeated |
+
+What was billed, from the Usage Meter, which matched Claude Code's own usage
+report to the token. Four tasks that completed in both configurations, two
+rounds each:
+
+| | Modules off | Modules on |
+| --- | --- | --- |
+| Cost | $2.68 | $2.52 (−5.7%) |
+| Cache writes | 257,657 | 224,177 (−13%) |
+| Cache reads | 1,288,014 | 1,658,814 (+29%) |
+| Turns | 38 | 47 (+24%) |
+
+The truncator is the only module that moved the bill, and it trades latency
+for it: after a file read came back with `[llm-fw: N lines elided]`, the agent
+read the elided range back, so sessions took more turns. Cache writes, which
+cost far more per token than cache reads, still fell enough to lower the
+total. The sample is small and the turn count varies from run to run, so read
+the cost delta as a direction, not a guarantee. For Claude Code, the
+whitespace modules are below 1% and not worth the risk they carry for edits.
 
 ## Modules
 
@@ -139,7 +198,8 @@ whole file would write the marker into it; prefer the agent's own paging
 An agent sends its whole tool list, descriptions included, on every request.
 This applies the token pruner's rules to each tool's `description` and to
 every `description` inside its parameter schema, in the Anthropic, OpenAI chat,
-Responses API and Gemini shapes. Tool names, enum values and schema structure
+Responses API and Gemini shapes, and in tools added mid-conversation as
+`tool_addition` blocks of a system message. Tool names, enum values and schema structure
 are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
 it is switched, and nothing after.
@@ -241,8 +301,9 @@ When a conversation is longer than `maxMessages`, the oldest turns are dropped
 in whole steps, and the cut then moves forward to the first plain user turn,
 so a tool call is never separated from its result. The first kept turn starts
 with `[llm-fw: N earlier messages omitted]`. Works on OpenAI chat, Anthropic
-and Gemini conversations; the Responses API, which keeps history on the server
-with `previous_response_id`, is left alone.
+and Gemini conversations. Requests whose history lives on the server are left
+alone: a Responses API request with `previous_response_id`, and an Anthropic
+thread continuation (`thread.type` is `continue`), whose messages are all new.
 
 What it costs:
 
