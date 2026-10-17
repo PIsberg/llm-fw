@@ -380,6 +380,16 @@ function childEnv(proxyPort: number, caCertPath: string): NodeJS.ProcessEnv {
   return env
 }
 
+/** The argument list of one `claude -p` child. Stub: the tests in test/eval/shuntCompare.test.ts specify it. */
+export function claudeArgs(_scratch: string, _maxBudgetUsd: number): string[] {
+  throw new Error('not implemented')
+}
+
+/** Refuses a repository whose own project settings the child would load. Stub: the tests specify it. */
+export function checkRepoSettings(_repo: string): void {
+  throw new Error('not implemented')
+}
+
 /** One `claude -p` session. Its stream-json on stdout, whatever the exit code; a run that does not start rejects. */
 function runClaude(task: CompareTask, repo: string, scratch: string, env: NodeJS.ProcessEnv, maxBudgetUsd: number): Promise<string> {
   const args = [
@@ -417,7 +427,7 @@ function runClaude(task: CompareTask, repo: string, scratch: string, env: NodeJS
   })
 }
 
-async function runApproved(args: string[], tasks: CompareTask[]): Promise<CompareReport> {
+export async function runApproved(args: string[], tasks: CompareTask[]): Promise<CompareReport> {
   const repoArg = flag(args, '--repo')
   const workerUrl = flag(args, '--worker-url')
   const workerModel = flag(args, '--worker-model')

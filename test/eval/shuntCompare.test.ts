@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import fs from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
-import { parseRun, summarise, compare, type ArmRun, type CompareTask } from './shunt/compare.js'
+import { parseRun, summarise, compare, claudeArgs, checkRepoSettings, runApproved, type ArmRun, type CompareTask } from './shunt/compare.js'
 
 // The comparison stage of the tool result shunt (specs/001-tool-result-shunt:
 // US5-3, US5-4, FR-020, SC-007): the same tasks run through a real agent with
@@ -402,5 +404,117 @@ describe('compare: the stage that spends money (US5-3, US5-4, FR-020)', () => {
     expect(report.on.correct).toBe(3)
     expect(textOf(report)).toMatch(/loss/i)
     expect(textOf(report)).toMatch(/not recommended/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The billed harness's child (FR-020; automated security review, MEDIUM). The
+// `claude -p` child ran unrestricted `Bash` (`--allowedTools Bash,Read,Grep,Glob`)
+// with project settings loaded from whatever `--repo` it was pointed at
+// (`--setting-sources project`). Nothing below spawns the agent: `claudeArgs`
+// is the argument list `runClaude` hands to `spawn`, and `runApproved` is
+// exercised only up to the point where it would create its scratch directory.
+// ---------------------------------------------------------------------------
+
+/** The tasks the billed run gives the agent. */
+const compareTasks = (): CompareTask[] => JSON.parse(fs.readFileSync(new URL('./shunt/compare-tasks.json', import.meta.url), 'utf8')) as CompareTask[]
+/** The command a task tells the agent to run: the first word of the prompt's fenced block. */
+const commandOf = (task: CompareTask): string | undefined => /```\n(\S+)/.exec(task.prompt)?.[1]
+/** The values after a flag, up to the next flag. */
+const valuesOf = (args: string[], name: string): string[] => {
+  const at = args.indexOf(name)
+  if (at < 0) return []
+  const values: string[] = []
+  for (const arg of args.slice(at + 1)) {
+    if (arg.startsWith('-')) break
+    values.push(arg)
+  }
+  return values
+}
+/** The tools the child may use, however the flag's list is written (comma or space separated). */
+const allowedTools = (args: string[]): string[] => valuesOf(args, '--allowedTools').flatMap(v => v.split(/[,\s]+/)).filter(v => v !== '')
+
+describe('claudeArgs: what the billed child may do (FR-020, security review)', () => {
+  const args = (): string[] => claudeArgs('/scratch/llm-fw-shunt-compare-x', 2)
+
+  it('does not allow Bash unrestricted: no bare Bash, no wildcard Bash rule', () => {
+    const tools = allowedTools(args())
+    expect(tools).not.toContain('Bash')
+    expect(tools.filter(t => /^Bash(\(\*?\))?$/.test(t))).toEqual([])
+  })
+
+  it('limits Bash to one prefix rule per command the compare tasks run: Bash(awk:*)', () => {
+    // The commands come off the tasks file, so a task that needs another one fails here. Every task runs awk today; an empty
+    // set would let a child with no shell at all pass.
+    const tasks = compareTasks()
+    expect(tasks.length).toBeGreaterThan(0)
+    expect(tasks.map(commandOf).every(c => c !== undefined)).toBe(true)
+    const commands = [...new Set(tasks.map(commandOf))]
+    expect(commands).toEqual(['awk'])
+    const bash = allowedTools(args()).filter(t => t.startsWith('Bash'))
+    expect(bash).toEqual(['Bash(awk:*)'])
+    expect(bash.sort()).toEqual(commands.map(c => `Bash(${c}:*)`).sort())
+  })
+
+  it('keeps Read, Grep and Glob, and allows no tool that writes', () => {
+    expect(allowedTools(args()).filter(t => !t.startsWith('Bash')).sort()).toEqual(['Glob', 'Grep', 'Read'])
+  })
+
+  it('keeps --setting-sources project: user settings on this machine deny native Read (lean-ctx), which would leave the child agent without a way to read the stored originals', () => {
+    expect(valuesOf(args(), '--setting-sources')).toEqual(['project'])
+  })
+
+  it('keeps the rest of the child\'s configuration: strict MCP config, no saved session, the budget cap, the scratch folder', () => {
+    expect(args()).toContain('-p')
+    expect(valuesOf(args(), '--output-format')).toEqual(['stream-json'])
+    expect(args()).toContain('--strict-mcp-config')
+    expect(args()).toContain('--no-session-persistence')
+    expect(valuesOf(args(), '--max-budget-usd')).toEqual(['2'])
+    expect(valuesOf(args(), '--add-dir')).toEqual(['/scratch/llm-fw-shunt-compare-x'])
+  })
+})
+
+describe('--repo may not carry project settings of its own (FR-020, security review)', () => {
+  const made: string[] = []
+  /** A throwaway repository with the given files, outside llm-fw. */
+  const repoWith = (files: string[]): string => {
+    const repo = fs.mkdtempSync(join(tmpdir(), 'shunt-compare-repo-'))
+    made.push(repo)
+    for (const file of files) {
+      fs.mkdirSync(join(repo, file, '..'), { recursive: true })
+      fs.writeFileSync(join(repo, file), '{}')
+    }
+    return repo
+  }
+  afterEach(() => {
+    vi.restoreAllMocks()
+    for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  const SETTINGS = ['settings.json', 'settings.local.json']
+  const nameOf = (file: string): RegExp => new RegExp(file.replace(/\./g, '\.'))
+
+  it.each(SETTINGS)('checkRepoSettings throws, naming the file, for a repo with .claude/%s: --setting-sources project would load its hooks and permissions', file => {
+    expect(() => checkRepoSettings(repoWith([`.claude/${file}`]))).toThrow(nameOf(file))
+  })
+
+  it('checkRepoSettings accepts a repo without a .claude folder, and one whose .claude holds neither settings file', () => {
+    expect(() => checkRepoSettings(repoWith([]))).not.toThrow()
+    expect(() => checkRepoSettings(repoWith(['CLAUDE.md', '.claude/commands/review.md']))).not.toThrow()
+  })
+
+  it.each(SETTINGS)('runApproved refuses a repo with .claude/%s before any scratch directory is created, and goes on to create one for a repo without', async file => {
+    const flagged = repoWith([`.claude/${file}`])
+    const clean = repoWith([])
+    const argsFor = (repo: string): string[] => ['--approve-spend', '--repo', repo, '--worker-url', 'http://127.0.0.1:11434', '--worker-model', 'qwen2.5:3b']
+    // The scratch directory is the first thing runApproved writes. Stopping there keeps this test from starting a proxy or an agent.
+    const mkdtemp = vi.spyOn(fs, 'mkdtempSync').mockImplementation(() => { throw new Error('scratch directory created') })
+
+    await expect(runApproved(argsFor(flagged), [FAILING])).rejects.toThrow(nameOf(file))
+    expect(mkdtemp).not.toHaveBeenCalled()
+
+    // The control: the same call for a repo without settings gets past the check and reaches the scratch directory.
+    await expect(runApproved(argsFor(clean), [FAILING])).rejects.toThrow('scratch directory created')
+    expect(mkdtemp).toHaveBeenCalledTimes(1)
   })
 })
