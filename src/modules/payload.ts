@@ -69,6 +69,9 @@ function message(m: unknown, out: TextSlot[]): void {
     if (!isObj(part)) continue
     if (part.type === 'tool_result') {
       content('tool_result', part, out, part.tool_use_id as string | undefined)
+    } else if (part.type === 'tool_addition') {
+      // A tool added mid-conversation (Claude Code on a server-side thread).
+      toolDefinition(part.tool, out)
     } else if (typeof part.text === 'string' && TEXT_PARTS.has(part.type as string)) {
       out.push(fieldSlot(kind, part, 'text', toolCallId))
     }

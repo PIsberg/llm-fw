@@ -39,15 +39,33 @@ whole pipeline.
   5.5, Haiku 5.5), the signature on every thinking block, which records the
   conversation before it.
 
+### Clients that resend history, and clients that do not
+
+Most clients resend the whole conversation on every request: the OpenAI and
+Anthropic SDKs, and Claude Code when it is pointed at a custom base URL (the
+gateway). Claude Code talking to `api.anthropic.com` through the proxy does
+not: it opens a server-side thread (`thread: {"type": "create"}`) and then
+sends only each turn's new content (`thread: {"type": "continue",
+"previous_message_id": ...}`), and the server keeps the history. Measured in a
+live session on 2026-10-17: after the first request, the requests carried no
+tool list and two messages each, 11 to 47 KB, where the same task through a
+custom base URL resent 207 to 331 KB per request.
+
+For a thread client the modules rewrite each turn's new content once, and the
+server keeps what was sent. The history window never cuts a thread
+continuation, since its messages are all new, and the deduplicator can only
+see repeats within one turn.
+
 ### Changing a module in the middle of a conversation
 
-Turning a rewriting module on or off, or changing one of its options, changes
-how the earlier turns of a running conversation are sent. The next request
-misses the prompt cache once. On models with preserved thinking, accounts the
-provider enforces the check for (Anthropic accounts created on or after
-2026-08-31) get a 400 for that conversation: "The block is bound to a different
-conversation." Start a new conversation after changing a module, or change
-modules between sessions.
+For a client that resends history, turning a rewriting module on or off, or
+changing one of its options, changes how the earlier turns of a running
+conversation are sent. The next request misses the prompt cache once. On
+models with preserved thinking, accounts the provider enforces the check for
+(Anthropic accounts created on or after 2026-08-31) get a 400 for that
+conversation: "The block is bound to a different conversation." Start a new
+conversation after changing a module, or change modules between sessions.
+A server-side thread is not affected: its earlier turns are never sent again.
 
 ## How savings are counted
 
@@ -139,7 +157,8 @@ whole file would write the marker into it; prefer the agent's own paging
 An agent sends its whole tool list, descriptions included, on every request.
 This applies the token pruner's rules to each tool's `description` and to
 every `description` inside its parameter schema, in the Anthropic, OpenAI chat,
-Responses API and Gemini shapes. Tool names, enum values and schema structure
+Responses API and Gemini shapes, and in tools added mid-conversation as
+`tool_addition` blocks of a system message. Tool names, enum values and schema structure
 are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
 it is switched, and nothing after.
@@ -241,8 +260,9 @@ When a conversation is longer than `maxMessages`, the oldest turns are dropped
 in whole steps, and the cut then moves forward to the first plain user turn,
 so a tool call is never separated from its result. The first kept turn starts
 with `[llm-fw: N earlier messages omitted]`. Works on OpenAI chat, Anthropic
-and Gemini conversations; the Responses API, which keeps history on the server
-with `previous_response_id`, is left alone.
+and Gemini conversations. Requests whose history lives on the server are left
+alone: a Responses API request with `previous_response_id`, and an Anthropic
+thread continuation (`thread.type` is `continue`), whose messages are all new.
 
 What it costs:
 

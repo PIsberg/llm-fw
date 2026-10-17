@@ -47,6 +47,10 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
 
   protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
     if (!Array.isArray(payload.messages) && !Array.isArray(payload.contents)) return null
+    // A server-side thread continuation (Claude Code against api.anthropic.com)
+    // carries only the turn's new messages; the server holds the history.
+    // Cutting it would drop content the server has never seen.
+    if (isObj(payload.thread) && payload.thread.type === 'continue') return null
     const before = textTokens(payload, estimates)
     const changed = Array.isArray(payload.messages)
       ? this.windowMessages(payload, payload.messages)

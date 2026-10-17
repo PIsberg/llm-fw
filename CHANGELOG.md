@@ -74,7 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LLM_FW_HISTORY_WINDOW_ENABLED`, `maxMessages` 100, `step` 25).** A long conversation keeps its
   system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user
   turn, so the cached prefix moves once per step. Thinking blocks in kept turns are removed,
-  because the prefix they were signed against changed.
+  because the prefix they were signed against changed. Requests whose history lives on the
+  server (Claude Code's thread continuations through the proxy, the Responses API) are never cut.
 - **A Prompt Cache Marker module, opt-in (`modules.cacheControl.enabled`,
   `LLM_FW_CACHE_CONTROL_ENABLED`, `ttl` 5m or 1h, `cacheSystem`).** An Anthropic Messages request
   with no `cache_control` of its own gets the top-level automatic breakpoint and, optionally, one
