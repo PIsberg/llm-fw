@@ -72,6 +72,7 @@ In pipeline order, which is also the order of the cards:
 | --- | --- | --- |
 | `ansi-strip` | `modules.ansiStrip` | terminal escape codes in tool output and prompts |
 | `progress-collapse` | `modules.progressCollapse` | progress-bar frames in tool output and prompts |
+| `repeat-collapse` | `modules.repeatCollapse` | runs of identical lines in tool output |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
@@ -142,6 +143,17 @@ progress bar or spinner captured from a terminal (npm, pip, docker pull, curl)
 arrives as every frame it drew, separated by bare carriage returns. Each line
 keeps only its last frame with text, which is all the terminal ever showed. A
 carriage return that ends a CRLF line is a line ending and stays.
+
+### Repeated line collapser
+
+`modules.repeatCollapse.enabled` (`LLM_FW_REPEAT_COLLAPSE_ENABLED`), option
+`minRun` (default `3`, at least `2`). A run of `minRun` or more identical lines
+in tool output (a retry loop, a warning per file, a polling script) becomes
+its first line followed by `[llm-fw: previous line repeated N more times]`.
+Lines compare exactly, whitespace included; blank lines are left to the
+whitespace pruners. Tool output only, because a user who pastes a line five
+times may mean it. An agent that reads a data file with repeated lines sees
+the marker instead of the lines, so an edit that quotes the run would miss.
 
 ### Token pruner
 

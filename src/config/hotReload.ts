@@ -157,6 +157,8 @@ const HOT_PATHS: Path[] = [
   ['modules', 'tokenPruner', 'enabled'],
   ['modules', 'ansiStrip', 'enabled'],
   ['modules', 'progressCollapse', 'enabled'],
+  ['modules', 'repeatCollapse', 'enabled'],
+  ['modules', 'repeatCollapse', 'minRun'],
   ['modules', 'toolResultPruner', 'enabled'],
   ['modules', 'toolResultPruner', 'minifyJson'],
   ['modules', 'toolResultPruner', 'trimTrailing'],

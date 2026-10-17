@@ -431,6 +431,11 @@ export interface ModuleSwitchConfig {
 
 export type TokenPrunerConfig = ModuleSwitchConfig;
 
+export interface RepeatCollapseConfig extends ModuleSwitchConfig {
+  /** Shortest run of identical lines that is collapsed; at least 2. */
+  minRun: number;
+}
+
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   /** Minify tool output that is a JSON object or array, keeping every literal. */
   minifyJson: boolean;
@@ -447,6 +452,7 @@ export interface ModulesConfig {
   tokenPruner: TokenPrunerConfig;
   ansiStrip?: ModuleSwitchConfig;
   progressCollapse?: ModuleSwitchConfig;
+  repeatCollapse?: RepeatCollapseConfig;
   toolResultPruner?: ToolResultPrunerConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */

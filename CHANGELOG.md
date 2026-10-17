@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Progress Bar Collapser module, opt-in (`modules.progressCollapse.enabled`,
   `LLM_FW_PROGRESS_COLLAPSE_ENABLED`).** A line redrawn with bare carriage returns keeps only its
   last frame, so `npm install` output no longer carries every frame of its progress bar.
+- **A Repeated Line Collapser module, opt-in (`modules.repeatCollapse.enabled`,
+  `LLM_FW_REPEAT_COLLAPSE_ENABLED`, `minRun` default 3).** A run of identical lines in tool output
+  becomes the first line and `[llm-fw: previous line repeated N more times]`.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

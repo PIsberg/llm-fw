@@ -1,8 +1,9 @@
 import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, ToolResultPrunerConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, RepeatCollapseConfig, ToolResultPrunerConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
 import { ProgressCollapseModule } from './builtin/progressCollapse.js'
+import { RepeatCollapseModule } from './builtin/repeatCollapse.js'
 import { TokenPrunerModule } from './builtin/tokenPruner.js'
 import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
@@ -20,6 +21,7 @@ type BuiltinKey = Exclude<keyof ModulesConfig, 'enabled'>
 export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
   { key: 'ansiStrip', create: cfg => new AnsiStripModule(cfg) },
   { key: 'progressCollapse', create: cfg => new ProgressCollapseModule(cfg) },
+  { key: 'repeatCollapse', create: cfg => new RepeatCollapseModule(cfg as RepeatCollapseConfig) },
   { key: 'tokenPruner', create: cfg => new TokenPrunerModule(cfg) },
   { key: 'toolResultPruner', create: cfg => new ToolResultPrunerModule(cfg as ToolResultPrunerConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
