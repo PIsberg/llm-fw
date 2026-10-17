@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.63 (no line break crossed after a verb on a
+  // hard-wrapped line, no object window ending mid-token; measured, no row moved).
   // Held at ruleset 2026.10.62 (JSON escapes decoded and git's file-mode
   // lines guarded in the indirect rule, #314; measured, no row moved).
   // Held at ruleset 2026.10.61 (blockStatus default 422, #304; the refusal's
