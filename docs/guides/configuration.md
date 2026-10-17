@@ -231,7 +231,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_98 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_99 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -244,6 +244,7 @@ _98 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_BLOB_ELIDE_ENABLED` | `modules.blobElide.enabled` | `false` |
 | `LLM_FW_BLOCK_STATUS` | `blockStatus` | `422` |
 | `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
+| `LLM_FW_CACHE_CONTROL_ENABLED` | `modules.cacheControl.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
 | `LLM_FW_CLASSIFIER_SURFACES` | `detection.classifier.surfaces` | `4 entries` |

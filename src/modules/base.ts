@@ -112,6 +112,8 @@ export abstract class PayloadModule<C extends ModuleSwitch = ModuleSwitch> imple
     }
 
     const newBody = JSON.stringify(parsed)
+    // A change to no prompt text (a cache marker) has no saving to report.
+    if (tokensOriginal === 0 && tokensPruned === 0) return { body: newBody, modified: true }
     const percentSaved = tokensOriginal > 0 ? (tokensSaved / tokensOriginal) * 100 : 0
     const event = this.event(ctx, tokensOriginal, tokensPruned, tokensSaved, percentSaved)
 

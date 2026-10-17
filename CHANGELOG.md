@@ -75,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user
   turn, so the cached prefix moves once per step. Thinking blocks in kept turns are removed,
   because the prefix they were signed against changed.
+- **A Prompt Cache Marker module, opt-in (`modules.cacheControl.enabled`,
+  `LLM_FW_CACHE_CONTROL_ENABLED`, `ttl` 5m or 1h, `cacheSystem`).** An Anthropic Messages request
+  with no `cache_control` of its own gets the top-level automatic breakpoint and, optionally, one
+  on its system prompt, so repeated prefixes are billed as cache reads. Requests that place their
+  own markers (Claude Code) are left alone.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -11,6 +11,7 @@ import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
 import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
+import { CacheControlModule } from './builtin/cacheControl.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 import { createLogger } from '../logger.js'
@@ -35,6 +36,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolResultDedup', create: cfg => new ToolResultDedupModule(cfg as ToolResultDedupConfig) },
   { key: 'toolResultTruncate', create: cfg => new ToolResultTruncateModule(cfg as ToolResultTruncateConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
+  { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
 ]
 

@@ -462,6 +462,13 @@ export interface HistoryWindowConfig extends ModuleSwitchConfig {
   step: number;
 }
 
+export interface CacheControlConfig extends ModuleSwitchConfig {
+  /** Cache entry lifetime: 5 minutes, or 1 hour at twice the write price. */
+  ttl: '5m' | '1h';
+  /** Also mark the system prompt, so conversations sharing it share the entry. */
+  cacheSystem: boolean;
+}
+
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   /** Minify tool output that is a JSON object or array, keeping every literal. */
   minifyJson: boolean;
@@ -485,6 +492,7 @@ export interface ModulesConfig {
   toolResultDedup?: ToolResultDedupConfig;
   toolResultTruncate?: ToolResultTruncateConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
+  cacheControl?: CacheControlConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;
 }

@@ -382,6 +382,11 @@ export const DEFAULT_CONFIG: Config = {
     toolDefinitionPruner: {
       enabled: false,
     },
+    cacheControl: {
+      enabled: false,
+      ttl: '5m',
+      cacheSystem: true,
+    },
     usageMeter: {
       enabled: true,
     },
@@ -733,6 +738,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
+  LLM_FW_CACHE_CONTROL_ENABLED: (c, v) => { if (c.modules?.cacheControl) c.modules.cacheControl.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
   LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },

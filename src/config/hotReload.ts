@@ -175,6 +175,9 @@ const HOT_PATHS: Path[] = [
   ['modules', 'toolResultTruncate', 'tailLines'],
   ['modules', 'toolResultTruncate', 'maxChars'],
   ['modules', 'toolDefinitionPruner', 'enabled'],
+  ['modules', 'cacheControl', 'enabled'],
+  ['modules', 'cacheControl', 'ttl'],
+  ['modules', 'cacheControl', 'cacheSystem'],
   ['modules', 'usageMeter', 'enabled'],
 ]
 

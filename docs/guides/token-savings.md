@@ -80,6 +80,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output (lossy) |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
+| `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 
 ### Tool result pruner
@@ -141,6 +142,31 @@ Responses API and Gemini shapes. Tool names, enum values and schema structure
 are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
 it is switched, and nothing after.
+
+### Prompt cache marker
+
+`modules.cacheControl.enabled` (`LLM_FW_CACHE_CONTROL_ENABLED`). Anthropic
+caches a prompt prefix only when the request asks for it, and a cached prefix
+is billed at a fraction of the input price on every later request that
+repeats it. For an Anthropic Messages request (`api.anthropic.com`,
+`/v1/messages`) that carries no `cache_control` anywhere, this adds the
+top-level automatic breakpoint, which follows the end of the conversation
+turn by turn.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `ttl` | `5m` | `5m`, or `1h`. A one-hour entry costs twice as much to write and survives gaps between requests longer than five minutes. |
+| `cacheSystem` | `true` | Also marks the last block of the system prompt (a string prompt becomes one text block), so separate conversations that share tools and system prompt share that entry. |
+
+A request that places any marker of its own is left alone: the client has
+already decided, and a request may hold at most four. Claude Code places its
+own, so this changes nothing for it; the card counts both cases. Writing an
+entry costs more than an uncached read (1.25 times the input price for five
+minutes), so a one-off request that is never repeated pays more, and a
+prefix shorter than the model's minimum (512 to 4,096 tokens) is not cached
+at all. Check the Usage Meter's cache reads to see whether it pays. The card
+counts a request it would mark under observe mode as marked, although the
+original body went upstream.
 
 ### Usage meter
 
