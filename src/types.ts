@@ -446,6 +446,7 @@ export interface ModulesConfig {
   enabled: boolean;
   tokenPruner: TokenPrunerConfig;
   toolResultPruner?: ToolResultPrunerConfig;
+  toolDefinitionPruner?: ModuleSwitchConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;
 }

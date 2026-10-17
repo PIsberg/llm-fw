@@ -70,6 +70,7 @@ an approximation of any provider's bill.
 | --- | --- | --- |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
+| `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 
 ### Tool result pruner
@@ -90,6 +91,17 @@ What to watch for: an agent quotes a file read verbatim in its next edit. With
 the file no longer matches. With `collapseSpaceRuns`, any edit of a line with
 aligned spaces misses, which is why it is off. A single tab, such as the one
 after a line number in Claude Code's file reads, is never collapsed.
+
+### Tool definition pruner
+
+`modules.toolDefinitionPruner.enabled` (`LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED`).
+An agent sends its whole tool list, descriptions included, on every request.
+This applies the token pruner's rules to each tool's `description` and to
+every `description` inside its parameter schema, in the Anthropic, OpenAI chat,
+Responses API and Gemini shapes. Tool names, enum values and schema structure
+are never touched, because they are the contract with the tool. The tool list
+sits at the very front of the cached prefix, so this costs one cache miss when
+it is switched, and nothing after.
 
 ### Usage meter
 

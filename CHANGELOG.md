@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pruner leaves it alone. This module minifies tool output that is JSON (lexically, so
   `12345678901234567890` and `1.50` survive byte for byte), trims trailing whitespace, and, only
   with `collapseSpaceRuns`, collapses aligned columns. Each technique has its own live switch.
+- **A Tool Definition Pruner module, opt-in (`modules.toolDefinitionPruner.enabled`,
+  `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED`).** The token pruner's whitespace rules for the tool
+  and parameter descriptions an agent resends on every request. Names, enum values and schema
+  structure are never touched.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

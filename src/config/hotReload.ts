@@ -159,6 +159,7 @@ const HOT_PATHS: Path[] = [
   ['modules', 'toolResultPruner', 'minifyJson'],
   ['modules', 'toolResultPruner', 'trimTrailing'],
   ['modules', 'toolResultPruner', 'collapseSpaceRuns'],
+  ['modules', 'toolDefinitionPruner', 'enabled'],
   ['modules', 'usageMeter', 'enabled'],
 ]
 
