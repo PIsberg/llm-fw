@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default: turn it on with the Settings toggle, `POST /api/modules`,
   `modules.tokenPruner.enabled` or `LLM_FW_TOKEN_PRUNER_ENABLED=true`, live and without a
   restart. It collapses interior runs of spaces, runs of blank lines and trailing whitespace,
-  and minifies multiline JSON in prompt text, keeping leading indentation and fenced code. It
+  and minifies multiline JSON in prompt text (lexically: a parse-and-print round trip turned the
+  id `12345678901234567890` into `12345678901234567000`), keeping leading indentation and fenced
+  code. It
   covers user, assistant and system text in OpenAI chat, the OpenAI Responses API, Anthropic and
   Gemini, and never touches tool output, where a collapsed run of spaces made an agent's next
   edit miss the text it quoted from a file read. The

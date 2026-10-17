@@ -104,6 +104,13 @@ Please check authorization.`
     expect(output).toContain('Here is the user record:')
     expect(output).toContain('Please check authorization.')
   })
+
+  it('keeps every number and string byte for byte', () => {
+    // Parse-and-print rounded the id to 12345678901234567000 and turned
+    // 1.50 into 1.5, so the model saw a different record than the user sent.
+    const input = 'Order:\n{\n  "id": 12345678901234567890,\n  "total": 1.50,\n  "note": "a  b"\n}\nWhy was it refunded?'
+    expect(pruneText(input)).toContain('{"id":12345678901234567890,"total":1.50,"note":"a  b"}')
+  })
 })
 
 describe('TokenPrunerModule — payload transformation', () => {

@@ -1,6 +1,7 @@
 import type { TokenPrunerConfig } from '../../types.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind } from '../payload.js'
+import { minifyJsonText } from '../json.js'
 
 export { estimateTokens } from '../tokens.js'
 
@@ -37,16 +38,13 @@ function minifyEmbeddedJson(lines: string[]): { lines: string[]; json: Set<numbe
       if (j > i) {
         const candidate = lines.slice(i, j + 1).join('\n')
         budget -= candidate.length
-        try {
-          const parsed: unknown = JSON.parse(candidate)
-          if (typeof parsed === 'object' && parsed !== null) {
-            json.add(out.length)
-            out.push(JSON.stringify(parsed))
-            i = j
-            continue
-          }
-        } catch {
-          // not valid JSON; fall through and keep the line as prose
+        // Null when it is not valid JSON: the lines stay prose.
+        const minified = minifyJsonText(candidate)
+        if (minified !== null) {
+          json.add(out.length)
+          out.push(minified)
+          i = j
+          continue
         }
       }
     }

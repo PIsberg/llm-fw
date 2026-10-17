@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { ToolResultPrunerModule, minifyJsonText } from '../../src/modules/builtin/toolResultPruner.js'
+import { ToolResultPrunerModule } from '../../src/modules/builtin/toolResultPruner.js'
+import { minifyJsonText } from '../../src/modules/json.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
