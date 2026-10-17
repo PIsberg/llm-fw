@@ -75,6 +75,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Anthropic's text editor tool; a name also matches an MCP tool ending in `__` and that name. On Claude
   Code's server-side threads through the proxy, where a tool result arrives without the call
   that named its tool, the module learns the name from the response that made the call.
+- **A Tool Result Shunt module, opt-in (`modules.toolResultShunt.enabled`,
+  `LLM_FW_TOOL_RESULT_SHUNT_ENABLED`, `workerUrl`, `workerModel`, `tools`, `minLines` 350,
+  `minChars` 20000, `maxInputChars` 200000, `waitMs` 15000, `retentionHours` 24, `maxStoreMB` 200).**
+  A very large result from a shell, search or listing tool is sent once to a model on this
+  machine (an OpenAI-compatible server on a loopback address, such as Ollama), which lists the
+  facts in it. The agent gets that list and the path of a file holding the complete original, so a
+  result that would be resent on every turn costs a fraction of its size. It does nothing until a
+  worker is named, and a worker whose context window cut the input is detected and the result
+  forwarded whole (the guide says how to size the window). It is the first module to run after
+  DLP and detection (a new `afterScreening` flag on gateway modules): a result they flagged or
+  did not reach is never sent to the worker, the condensed text is never scanned, and a result
+  condensed earlier goes whole from the first request on which it is flagged. Every decision is
+  remembered in memory and in an outcome file beside the stored originals, so a history is
+  forwarded byte for byte on every turn and after a restart; a result no request carried for
+  `retentionHours` is decided again and can be worded differently. Requests that carry a result
+  keep its files from the sweep and write back any that went missing; the folder is limited to the
+  running user, and the module card has a **Delete stored originals** button
+  (`POST /api/modules/tool-result-shunt/purge`). `npm run eval:shunt:replay` measures the saving
+  over recorded sessions, and `npm run eval:shunt:compare` runs the billed comparison only with
+  `--approve-spend`; the measured saving is not in this entry yet. The guide and the dashboard's
+  Modules blurb no longer say that every module runs before DLP and detection. See
+  [Token savings](docs/guides/token-savings.md#tool-result-shunt).
 - **A lean-ctx Shell Output Compressor module, opt-in and lossy (`modules.leanCtx.enabled`,
   `LLM_FW_LEAN_CTX_ENABLED`, `tools`, `skipCommands`, `timeoutMs` 500).** The output of a
   `Bash` or `PowerShell` command goes to a private [lean-ctx](https://github.com/yvgude/lean-ctx)

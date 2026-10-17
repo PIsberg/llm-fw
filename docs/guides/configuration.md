@@ -231,6 +231,8 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 `LLM_FW_LEAN_CTX_BIN` is absent for a similar reason: it names the lean-ctx executable the [lean-ctx module](token-savings.md#lean-ctx-shell-output-compressor) starts, and is read from the process environment only, so a project config file in a cloned repository cannot choose a program for llm-fw to run.
 
+The [tool result shunt](token-savings.md#tool-result-shunt) has one variable in the table below, `LLM_FW_TOOL_RESULT_SHUNT_ENABLED`. Its other keys, `modules.toolResultShunt.workerUrl`, `workerModel`, `tools`, `minLines`, `minChars`, `maxInputChars`, `waitMs`, `retentionHours` and `maxStoreMB`, are set in the config file only, and all are hot-reloaded. The module does nothing until both `workerUrl` and `workerModel` are set, and `workerUrl` must name this machine (`http` or `https` with `localhost`, a `127.x.x.x` address or `::1`): for any other host nothing is sent to it. The defaults and what each key does are in the guide.
+
 <!-- CONFIG-REFERENCE-START -->
 
 _102 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._

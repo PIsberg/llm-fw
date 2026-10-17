@@ -98,6 +98,10 @@ export interface GatewayModuleContext {
   tenant?: string;
   /** Observe mode: the original body is forwarded whatever the module returns. */
   dryRun?: boolean;
+  /** What detection and DLP made of this request, for a module that runs after them. */
+  screening?: Screening;
+  /** The caller's socket address, for a module that must know the caller is local. */
+  remoteAddress?: string;
 }
 
 export interface ModuleTransformResult {
@@ -125,6 +129,12 @@ export interface GatewayModule {
   readonly description: string;
   enabled: boolean;
 
+  /**
+   * Runs in `ModuleManager.transformScreened`, after detection and DLP, and
+   * not in `transformRequest`.
+   */
+  readonly afterScreening?: boolean;
+
   /** Transform request body prior to upstream dispatch. */
   transformRequest(
     body: string,
@@ -145,6 +155,7 @@ The module pipeline integrates into both `ProxyServer.handleRequest` (`src/proxy
 1. **Body buffered**: the complete request body is read (and the body-size limit applied) before any module runs.
 2. **Module Transformation**: If `config.modules.enabled` and the path has a payload parser, pass `body` through registered and enabled modules in registration order:
    - A module that throws or rejects is logged and skipped; the request continues with the body as the previous module left it. Modules fail open, like the judge.
+   - A module marked `afterScreening` is not run here; step 4 runs it.
    - A module may also implement `observeResponse`. When an enabled module does, the proxy and the gateway wrap the client response with `tapResponse` (`src/modules/responseTap.ts`), which copies what is written, up to `proxy.maxBodyBytes`, and hand the capture over once the response has ended. The usage meter reads provider-reported usage this way, and the tool result truncator learns which tool each call id names, for thread continuations that carry results without their calls.
    - A module may implement `respond`, asked once every request-side gate (DLP, detection, MCP checks) has passed the request, with the body that would go upstream. The first enabled module that returns a response answers the client with it (`writeCapturedResponse`) and the provider is never contacted; one that throws is logged and the request is forwarded. The response cache answers this way, and never under observe mode. On the proxy the answer goes through `replayStoredResponse`, which runs the response-side gates (MCP policy, exfil, tool-use and harm scans) on the stored body under the current policy, exactly as a live response gets them.
    - `collectTextSlots` (`src/modules/payload.ts`) lists every text field of the request, labelled `prompt`, `system`, `tool_result` or `tool_definition`, across OpenAI chat, the Responses API, Anthropic and Gemini. A `tool_result` slot carries its call id and, when the call is earlier in the same request, the tool's name. `TokenPrunerModule` prunes the `prompt` and `system` slots and leaves tool output alone.
@@ -157,6 +168,7 @@ The module pipeline integrates into both `ProxyServer.handleRequest` (`src/proxy
 4. **Security Screening**:
    - DLP scans the pruned payload (redacts or blocks).
    - Detection pipeline scans the pruned payload (heuristics, embeddings, classifier, judge).
+   - Both statements hold only for the modules of step 2. A module marked `afterScreening` runs only once the request has passed both, in `ModuleManager.transformScreened`, on the screened body, just before `respond` is asked. It gets `ctx.screening` (what detection and DLP made of each text of the request, `src/modules/screening.ts`) and `ctx.remoteAddress`, fails open like the others, and what it returns is what goes upstream (not under observe mode). Its output is never scanned. The tool result shunt is the one such module.
 5. **Upstream Dispatch**:
    - Upstream LLM receives the optimized payload, incurring fewer input tokens.
 

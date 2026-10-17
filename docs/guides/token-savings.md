@@ -26,14 +26,21 @@ whole pipeline.
 
 - **It runs before DLP and detection**, on the proxy and on the gateway, so
   both scan the body that is actually forwarded. Text a module removes never
-  reaches the model, so it cannot carry an injection either.
+  reaches the model, so it cannot carry an injection either. The tool result
+  shunt is the exception: it runs after them, because it needs to know what
+  they flagged, and the text it writes is never scanned (see
+  [After DLP and detection](#after-dlp-and-detection)).
 - **It fails open.** A module that throws is logged and skipped, and the
   request continues with the body as the previous module left it.
 - **Observe mode is a dry run.** The module runs and its card counts what it
   would have saved, but the original body is forwarded.
 - **The same history comes out byte-identical on every turn.** A rewrite
   depends only on the text it rewrites and on what comes before it in the
-  request, never on time or on how long the conversation is. Two things depend
+  request, never on how long the conversation is, and, with one exception,
+  never on time. The tool result shunt has a worker model write its text, so it
+  remembers what was written for `retentionHours`, and a result that no request
+  carried for that long can come back worded differently (see
+  [Remembered outcomes](#remembered-outcomes)). Two things depend
   on that: the provider's prompt cache, which matches on the exact prefix,
   and, on models with preserved thinking (Claude Fable 5.1, Opus 5.5, Sonnet
   5.5, Haiku 5.5), the signature on every thinking block, which records the
@@ -150,6 +157,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
+| `tool-result-shunt` | `modules.toolResultShunt` | very large shell, search and listing output, as a list of facts a local model read from it, with the original kept in a file; runs after DLP and detection (lossy) |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 
@@ -312,6 +320,209 @@ How llm-fw runs lean-ctx:
   not stop it before then.
 - The Docker image does not include lean-ctx, so there the module forwards
   every result whole.
+
+### Tool result shunt
+
+`modules.toolResultShunt.enabled` (`LLM_FW_TOOL_RESULT_SHUNT_ENABLED`). **Lossy
+in what the model sees; the original stays on disk.** A full test run, a build
+log or a recursive `grep` can be tens of thousands of tokens, and the agent
+sends it again on every later turn. This module sends such a result once to a
+model running on this machine, the worker, which lists the facts in it, and
+forwards that list in its place. The complete original is written to a file and
+the list names the file, so the agent can read any line range of it with its
+own file-reading tool.
+
+It does nothing until a worker is named. The worker is any server on this
+machine that speaks the OpenAI chat API (`POST /v1/chat/completions`), such as
+Ollama, and its replies must report `usage.prompt_tokens` (see
+[Worker context window](#worker-context-window)). Only `enabled` has an
+environment variable; the worker is set in the config file:
+
+```json
+{ "modules": { "toolResultShunt": { "enabled": true, "workerUrl": "http://127.0.0.1:11434", "workerModel": "qwen2.5:3b" } } }
+```
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `workerUrl` | empty | Base URL of the worker. Only `http` or `https` with `localhost`, a `127.x.x.x` address or `::1` is accepted: for any other host nothing is sent and one warning is logged. Empty means no worker. |
+| `workerModel` | empty | Model name passed to the worker. Empty means no worker. |
+| `tools` | shell, search and listing tools, below | Tools whose results may be condensed, matched like `skipTools` above. The list replaces the default. |
+| `minLines` | `350` | A result with at least this many lines is eligible. |
+| `minChars` | `20000` | A result with at least this many characters is eligible too. |
+| `maxInputChars` | `200000` | Largest result sent to the worker; a larger one stays whole. Set it to what the worker's window holds (below). |
+| `waitMs` | `15000` | The most one request waits for the worker, however many results it carries. A result it has not answered by then is forwarded whole. |
+| `retentionHours` | `24` | Hours a stored original and a remembered outcome are kept after the last request that carried the result. |
+| `maxStoreMB` | `200` | Cap on the folder of stored originals. A write that would pass it is refused; nothing is deleted to make room. |
+
+All of them are applied live. The default `tools` are `Bash`, `PowerShell`,
+`BashOutput`, `Grep`, `Glob`, `LS`, `shell`, `exec_command`,
+`run_shell_command`, `search_file_content`, `glob` and `list_directory`. No file
+reader is in it, on purpose: a condensed file read makes the agent read the file
+back, which is what the truncator's file reads taught (above).
+
+A result is condensed only when all of these hold. Any other result is
+forwarded whole, and the card counts it under the reason:
+
+- Its tool is in `tools`.
+- Its call did not ask for part of something (`offset`, `limit`, `view_range`,
+  `head`, `tail`, `start_line` or `end_line` among the arguments) and does not
+  name a stored original, which is the agent reading one back.
+- It has at least `minLines` lines or `minChars` characters, and at most
+  `maxInputChars` characters.
+- Its tool is known: from the call in the same request or, for a thread
+  continuation, from the response that made the call, as the truncator learns
+  tool names.
+- The caller is on this machine. A request from another address gets every
+  result whole and nothing is stored, because the file would be on the wrong
+  machine.
+- Detection and DLP scanned it and flagged nothing in it
+  ([below](#after-dlp-and-detection)).
+
+What the agent receives in place of the result:
+
+```
+[llm-fw: tool output condensed from 1203 lines and 51842 characters.
+The complete, exact original is in this file; read it, or any line range of it, with your file-reading tool:
+<llm-fw directory>/tool-results/<sha256 of the original>.txt
+Line numbers below are line numbers of that file.]
+<the worker's list of facts>
+```
+
+The worker is told to list failures and errors verbatim, warnings, the final
+status, summary counts and the paths involved, each with the line numbers where
+the detail is. Its answer is checked before it is used: every path and
+`file:line` position it cites must occur in the original, a line number it cites
+must be one of the original's lines unless the original itself names it, and
+the whole condensed result must come to at most half of the original's tokens. An answer that fails is not used and the
+result is forwarded whole. "The original" is the result as the modules before
+this one left it, so with the truncator on, the file holds the truncated text.
+
+#### Stored originals
+
+Originals go in `tool-results`, under the llm-fw directory (`~/.llm-fw`, or
+`LLM_FW_DIR`), one file per distinct original, named by its SHA-256 so that the
+name says nothing of the content. The folder is limited to the running user; if
+that cannot be done, nothing is stored and results are forwarded whole. Nothing
+logs a path, a hash or any output. The agent opens a file with its own tool, so
+it needs read access to that folder.
+
+Files that no request carried for `retentionHours` are swept every 30 minutes,
+whether or not the module is on. The **Delete stored originals** button on the
+module card (`POST /api/modules/tool-result-shunt/purge`) empties the folder at
+once, outcome files included.
+
+#### Remembered outcomes
+
+Each result is decided the first time a request carries it, keyed by its tool
+name and exact text, and the decision is kept: in memory, and in an outcome file
+(`<key>.outcome`, in the same folder) that holds the condensed text or only the
+reason the result stays whole. So the same history is forwarded byte for byte
+on every turn, and again after llm-fw restarts, with no new worker call. A
+result the worker failed on, or whose answer failed a check, stays whole in the
+same way: repairing the worker does not change a history already sent. The
+outcome file can quote the output, since the worker's facts do.
+
+Every request that carries a result touches its files, so the sweep spares what
+is in use. The retention counts from the last request that carried a result, not
+from the first. A result that no request carried for `retentionHours` (24 hours
+by default) lapses: its files are swept and its decision is forgotten, and when
+it turns up again it is decided again, so a condensation can come back worded
+differently. After a restart, a result whose outcome file is gone is decided
+again in the same way. This is the one place the module's output depends on
+time (see [What every module guarantees](#what-every-module-guarantees)). The
+number of remembered results has no limit, because forgetting one early would
+reword it.
+
+A file gone while a request carries the result (the sweep, an operator purge, a
+hand deletion) is written back at the same path, identical, before the request
+is forwarded, and the text the conversation already holds does not change. When
+an original cannot be written back (the folder is full or cannot be written),
+the remembered text is still forwarded, one warning is logged however many
+requests follow, and the card's **Stored originals missing** counts each
+request; the agent is then pointed at a file that is not there. An outcome file
+that cannot be written back only logs its warning, and after a restart that
+result is decided again.
+
+#### After DLP and detection
+
+Every other module runs before DLP and detection, so both scan what is
+forwarded. This one runs after them, on the body that would be forwarded,
+because it needs to know what they made of each result. Two things follow.
+
+- The condensed text is never scanned. It is the worker's list of facts about a
+  result the scanners had already passed.
+- A result is condensed only if both scanned it and flagged nothing in it. One
+  they flagged, or did not reach (a scan cut short, or no record of a scan), is
+  forwarded whole, is never sent to the worker, has no original stored, and
+  stays whole for as long as requests carry it, even when a later request no
+  longer flags it.
+
+A result condensed earlier goes whole from the first request on which detection
+or DLP flags it. Its stored original is deleted, its outcome file says only that
+it was flagged, and the conversation's history changes once, at that request,
+with the consequences under
+[Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
+Forwarding a worker's summary of a flagged result would pass it on unscanned.
+
+#### Settings changed mid-conversation
+
+For a client that resends its history, switching the module on or off, or
+changing `tools`, `minLines`, `minChars` or `maxInputChars`, changes which
+results of a running conversation are condensed. The next request condenses what
+the new settings make eligible and forwards whole again what they no longer do,
+and with the module off every result is whole. That changes how the earlier
+turns are sent, with the consequences described under
+[Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
+Changing `workerUrl` or `workerModel` does not reword a result already decided,
+only results not seen yet. Turned back on within `retentionHours`, the module
+returns the wording it had. Start a new conversation after changing these
+settings.
+
+#### Worker context window
+
+The worker has to read the whole result, so its context window must hold the
+largest result sent to it, and Ollama cuts a longer input without saying so. The
+module compares the prompt tokens the worker reports with what it sent. When
+the worker read less than 80% of it, its answer came from part of the output, so
+the result is forwarded whole, one warning gives both counts and says to raise
+the window, and the tokens the worker did read are counted. A reply that reports
+no `usage.prompt_tokens` is treated the same way.
+
+Ollama's window defaults to 4k, 32k or 256k tokens by VRAM (`ollama serve
+--help`). Set it when starting the server and check it after a first request
+(both verified on 2026-10-17 with Ollama 0.31.1):
+
+```bash
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+curl -s http://127.0.0.1:11434/api/ps    # context_length
+```
+
+Then set `maxInputChars` to what the window holds. `qwen2.5` read about 0.45
+tokens per character of numbered test output (13,566 tokens for 30,349
+characters), so a 32,768-token window holds results up to roughly 55,000
+characters with room for the answer, and `maxInputChars` should be about that.
+The default of `200000` assumes a window to match: with a smaller one, every
+result between the two sizes costs a worker call and is forwarded whole. A
+result above `maxInputChars` is forwarded whole without a call.
+
+#### Failing open, observe mode and the card
+
+No worker, a worker that is not local, one that errors or does not answer
+within `waitMs`, an answer that fails a check, a folder that is full or cannot
+be written: in each case the result is forwarded whole and one warning names the
+problem, never the output. Under observe mode the module asks the worker (which
+costs it tokens), writes no files and forwards the original body, and the card
+counts what it would have saved.
+
+The card shows the results condensed, the results forwarded whole by reason,
+original and condensed tokens (the estimate above), the tokens the worker read
+and wrote, the average and longest wait the module added to a request (a request
+that only carried results already decided, with no file to write back, adds no
+sample), the stored originals and their size, and the stored originals missing.
+
+How much it saves is measured over recorded Claude Code sessions by
+`npm run eval:shunt:replay`, which needs a worker and writes nothing under
+`~/.llm-fw`. The measured results are not in this guide yet.
 
 ### Tool definition pruner
 
