@@ -24,6 +24,7 @@ The [README](../README.md) is the pitch and the quick start; this is the rest.
 | [Detection stages](guides/detection-stages.md) | The attack classes recognised, the three stages in order, and a worked block |
 | [Data Loss Prevention](guides/dlp.md) | Secrets, keys and PII leaving in a prompt |
 | [Cost control and DoS](guides/cost-control.md) | Rate limits, budgets, agent loop detection |
+| [Token savings](guides/token-savings.md) | Opt-in modules that shrink requests before they leave, each with its own live switch |
 | [RAG context poisoning](guides/rag.md) | Instructions smuggled in through retrieved documents |
 | [ASCII smuggling](guides/ascii-smuggling.md) | Invisible Unicode tag characters carrying a payload |
 | [Response-side exfiltration](guides/exfiltration.md) | Data leaving through URLs and images in the model's answer |

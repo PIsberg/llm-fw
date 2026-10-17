@@ -144,7 +144,7 @@ The module pipeline integrates into both `ProxyServer.handleRequest` (`src/proxy
 1. **Body buffered**: the complete request body is read (and the body-size limit applied) before any module runs.
 2. **Module Transformation**: If `config.modules.enabled` and the path has a payload parser, pass `body` through registered and enabled modules in registration order:
    - A module that throws or rejects is logged and skipped; the request continues with the body as the previous module left it. Modules fail open, like the judge.
-   - `TokenPrunerModule` walks the known text fields and prunes each one.
+   - `collectTextSlots` (`src/modules/payload.ts`) lists every text field of the request, labelled `prompt`, `system`, `tool_result` or `tool_definition`, across OpenAI chat, the Responses API, Anthropic and Gemini. `TokenPrunerModule` prunes the `prompt` and `system` slots and leaves tool output alone.
    - It sums `estimateTokens` over the text fields before and after pruning.
    - If any text changed, it updates its rolling stats and returns the re-serialised body.
    - In observe mode the caller passes `dryRun: true`, forwards the original body, and the event carries `applied: false`.

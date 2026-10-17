@@ -302,3 +302,36 @@ describe('TokenPrunerModule — enabled state is the live config', () => {
     expect(cfg.enabled).toBe(false)
   })
 })
+
+describe('TokenPrunerModule — scope', () => {
+  const ctx: GatewayModuleContext = {
+    target: 'api.openai.com', method: 'POST', path: '/v1/chat/completions', isLlmRequest: true, parser: null,
+  }
+
+  it('leaves tool output alone: an agent copies exact whitespace from a file read into its next edit', () => {
+    // Collapsing the run after a line-number tab turned "  12\t    x  = 1"
+    // into "12 x = 1", so an Edit whose old_string quoted it never matched.
+    const module = new TokenPrunerModule({ enabled: true })
+    const fileRead = '    12\t    x  = 1\n    13\t        return  x'
+    const body = JSON.stringify({
+      messages: [
+        { role: 'tool', tool_call_id: 'c1', content: fileRead },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: fileRead }] },
+      ],
+    })
+    const res = module.transformRequest(body, ctx)
+    expect(res.modified).toBe(false)
+    expect(module.getStats().totalInvocations).toBe(0)
+  })
+
+  it('prunes OpenAI Responses API input and instructions', () => {
+    const module = new TokenPrunerModule({ enabled: true })
+    const body = JSON.stringify({
+      instructions: 'Be    brief.',
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'Hello     there' }] }],
+    })
+    const parsed = JSON.parse(module.transformRequest(body, { ...ctx, path: '/v1/responses' }).body)
+    expect(parsed.instructions).toBe('Be brief.')
+    expect(parsed.input[0].content[0].text).toBe('Hello there')
+  })
+})
