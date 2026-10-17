@@ -120,8 +120,8 @@ item the scan stopped on, because T010 notes each item first in its pass of the 
 count differs from `slots.length`, or when a DLP finding's `match` appears in no pre-DLP slot text
 of any kind, raw or in its `JSON.stringify` form; it applies only to results not yet decided
 (Remembered outcome). `unreached`, empty unless `cutShort()` was called and `all` is false, holds
-the `tool_result` slots no noted scanned text contains; like `all` it applies only to results not
-yet decided. `flagged`, filled whatever `all` is, holds the indices of `tool_result` slots
+the `tool_result` slots that do not count as scanned (defined below); like `all` it applies only
+to results not yet decided. `flagged`, filled whatever `all` is, holds the indices of `tool_result` slots
 where:
 
 - a noted item-flag text contains the slot's text (a parser may join a result's text parts), or
@@ -129,11 +129,16 @@ where:
 - the slot counts match and the pre-DLP slot at the same index contains a DLP `match`, raw or
   `JSON.stringify`-escaped. When they differ this rule is skipped: a slot DLP redacted no longer
   has its remembered key, so the module decides it as new and `all` keeps it whole, or
-- `all` is false, `cutShort()` was not called, and no noted scanned text contains the slot's
-  text: detection did not scan it (FR-012). Today that is every OpenAI Responses `function_call_output`, which
+- `all` is false, `cutShort()` was not called, and the slot does not count as scanned: detection
+  did not scan it (FR-012). Today that is every OpenAI Responses `function_call_output`, which
   `src/detection/parsers.ts` never extracts; extending the parser changes verdicts and is a
-  follow-up. Exact match against a set of the scanned texts first, containment only for the rest
-  (SC-005). Skipped when `all` is true or the scan was cut short: such a scan leaves items
+  follow-up. A slot counts as scanned only when a noted scanned text equals exactly its own text,
+  or its result's text parts (the slots sharing its `toolCallId`, in order) joined by a newline as
+  the item loop joins them; both are lookups in a set of the scanned texts (SC-005). Containment
+  stays for the item-flag rule above, where it fails safe, and is not used here: a prompt
+  repeating an unscanned output's text would make that output count as scanned. One case remains:
+  a prompt whose text is exactly a tool output's text still counts that output as scanned,
+  because the record receives text only. Skipped when `all` is true or the scan was cut short: such a scan leaves items
   unscanned by design, and `all` or `unreached` already keeps new results whole (plan Design 8).
 
 DLP `match` values stay in memory for the request and are never logged.
