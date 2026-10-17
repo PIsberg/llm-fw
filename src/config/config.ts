@@ -347,6 +347,9 @@ export const DEFAULT_CONFIG: Config = {
     ansiStrip: {
       enabled: false,
     },
+    progressCollapse: {
+      enabled: false,
+    },
     toolResultPruner: {
       enabled: false,
       minifyJson: true,
@@ -699,6 +702,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
   LLM_FW_ANSI_STRIP_ENABLED: (c, v) => { if (c.modules?.ansiStrip) c.modules.ansiStrip.enabled = v === 'true'; },
+  LLM_FW_PROGRESS_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.progressCollapse) c.modules.progressCollapse.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },

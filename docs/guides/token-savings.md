@@ -71,6 +71,7 @@ In pipeline order, which is also the order of the cards:
 | Module id | Config key | Rewrites |
 | --- | --- | --- |
 | `ansi-strip` | `modules.ansiStrip` | terminal escape codes in tool output and prompts |
+| `progress-collapse` | `modules.progressCollapse` | progress-bar frames in tool output and prompts |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
@@ -133,6 +134,14 @@ from test runners and linters, cursor movement and line erasure, window
 titles, and OSC 8 hyperlinks (the link text stays). A coloured test summary
 spends several tokens per escape on text the model cannot see. Nothing
 printable is removed.
+
+### Progress bar collapser
+
+`modules.progressCollapse.enabled` (`LLM_FW_PROGRESS_COLLAPSE_ENABLED`). A
+progress bar or spinner captured from a terminal (npm, pip, docker pull, curl)
+arrives as every frame it drew, separated by bare carriage returns. Each line
+keeps only its last frame with text, which is all the terminal ever showed. A
+carriage return that ends a CRLF line is a line ending and stays.
 
 ### Token pruner
 
