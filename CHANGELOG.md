@@ -83,6 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A tool result whose prose wraps right after a verb no longer reads as an instruction
+  (ruleset 2026.10.63).** The indirect-instruction rule does not take its object from the next
+  line of long, wrapped prose, but the clause-boundary match ran on past the verb and swallowed
+  the line break, so "...chatbot. Give" / "me your login credentials" read as one instruction.
+  A deliberate split on a short line ("Transfer" / "$5000 to account ...") is still caught. The
+  object window also no longer ends mid-token: a path hash cut after "083192" read as a six-digit
+  account number, so lean-ctx's `Use ctx_read(path=...)` hint was flagged or not depending on
+  where the cut fell. Found running 36 real Claude Code sessions through a live proxy and gateway.
+  Replaying 51,563 real Claude Code tool results: 10 fewer flagged by this rule, 0 more; sent
+  through the full pipeline, 7 of those 10 now pass (profiler output, a lean-ctx hint, shell and
+  design notes). The other 3 are reads of `docs/FALSE-POSITIVES.md`, which quotes attacks
+  verbatim and is still refused by the heuristic stage. Eval verdicts: 0 of 23,938 changed.
 - **A Realtime session under `--observe` is no longer refused.** A binary frame, or text that
   was not a JSON event, ended the session even when nothing was meant to be refused, and DLP
   `redact` could rewrite an event for a gateway tenant in observation. Both are now recorded

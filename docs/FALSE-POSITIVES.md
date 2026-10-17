@@ -60,6 +60,19 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.63
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** This ruleset stops the indirect-instruction rule crossing a line break
+directly after the verb on a long, hard-wrapped line, which the clause-boundary
+match had hidden from the short-line rule of ruleset 2026.10.43, and stops the
+object window ending mid-token. Found with real Claude Code sessions through a
+live proxy, on a wrapped quote in this file. No eval row has either shape, so
+`npm run verdicts:diff` reports 0 of 23,938 changed. Replaying 51,563 real
+Claude Code tool results: 10 fewer flagged by the rule, 0 more. Through the
+full pipeline 7 of the 10 now pass; the other 3 are reads of this file, which
+the heuristic stage still refuses because it quotes attacks verbatim.
+
 ## Result, ruleset 2026.10.62
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

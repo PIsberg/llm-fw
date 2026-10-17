@@ -183,6 +183,11 @@ const OBJECT_WINDOW = 120
 // a short line, while hard-wrapped prose breaks near full width, mid-clause,
 // everywhere ("set `http.proxy`" / "to `http://127.0.0.1:8080`" in a wrapped
 // Markdown guide was the one new block replaying 73,695 real tool results).
+// A break directly after the verb needs no preposition: the verb has nothing
+// on its own line, so on a short line the clause can only go on past it
+// ("Transfer" / "$5000 to account ..."). The length rule still applies, so
+// prose wrapped right after a verb ("...chatbot. Give" / "me your login
+// credentials" in llm-fw's own docs/FALSE-POSITIVES.md) is not crossed.
 const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]/
 const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
 const SPLIT_LINE_MAX = 48
@@ -198,14 +203,19 @@ function lineStartBefore(text: string, i: number): number {
 }
 function objectWindow(text: string, verbEnd: number): string {
   const base = verbEnd - 1
-  const w = text.slice(base, verbEnd + OBJECT_WINDOW)
+  const stop = verbEnd + OBJECT_WINDOW
+  // Never end mid-token: a path's hash cut after "083192" (of "083192e98768")
+  // reads as a bare six-digit identifier. Replaying real tool results, lean-ctx's
+  // "Use ctx_read(path=...)" hint blocked or passed depending on where the cut fell.
+  const w = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/\w+$/, '') : text.slice(base, stop)
   let lineStart = lineStartBefore(text, base)
   for (let from = 1; ;) {
     const m = FIELD_BREAK_RE.exec(w.slice(from))
     if (!m) return w
     const cut = from + m.index
     const after = w.slice(cut).replace(/^(?:\s|\\[nrt])+/, '')
-    if (base + cut - lineStart > SPLIT_LINE_MAX || /[:.!?;]\s*$/.test(w.slice(0, cut)) || !CONTINUES_CLAUSE_RE.test(after)) return w.slice(0, cut)
+    const bareVerb = from === 1 && /^\S\s*$/.test(w.slice(0, cut))
+    if (base + cut - lineStart > SPLIT_LINE_MAX || /[:.!?;]\s*$/.test(w.slice(0, cut)) || !(bareVerb || CONTINUES_CLAUSE_RE.test(after))) return w.slice(0, cut)
     from = cut + m[0].length
     lineStart = base + from
   }
@@ -899,10 +909,14 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // is still caught.
   SENTENCE_IMPERATIVE_RE.lastIndex = 0
   while ((m = SENTENCE_IMPERATIVE_RE.exec(text)) !== null) {
-    const end = m.index + m[0].length
-    if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    // The window opens at the verb, not at the end of the match: the match
+    // runs on through `\s+\S`, which would swallow a line break after the verb
+    // and hide it from objectWindow's split rules.
     /* v8 ignore next */ // m[1] is always captured by the verb group
-    return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
+    const verb = m[1] ?? ''
+    const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
   // "you should/must … <verb>" directive form.
