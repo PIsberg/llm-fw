@@ -446,6 +446,15 @@ export interface ToolResultDedupConfig extends ModuleSwitchConfig {
   minLength: number;
 }
 
+export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
+  /** Lines kept from the start of an oversized tool result; 0 with tailLines 0 turns line cuts off. */
+  headLines: number;
+  /** Lines kept from the end. */
+  tailLines: number;
+  /** Characters kept after the line cut, two thirds head, one third tail; 0 is off. */
+  maxChars: number;
+}
+
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   /** Minify tool output that is a JSON object or array, keeping every literal. */
   minifyJson: boolean;
@@ -466,6 +475,7 @@ export interface ModulesConfig {
   blobElide?: BlobElideConfig;
   toolResultPruner?: ToolResultPrunerConfig;
   toolResultDedup?: ToolResultDedupConfig;
+  toolResultTruncate?: ToolResultTruncateConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;

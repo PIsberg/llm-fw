@@ -77,6 +77,7 @@ In pipeline order, which is also the order of the cards:
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
+| `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output (lossy) |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 
@@ -109,6 +110,25 @@ result identical to an earlier one in the same request becomes
 by its tool call id (or `#n`, its position, when the format carries no id).
 The first copy always stays, and which copy is kept depends only on what came
 before it, so a growing conversation is rewritten the same way on every turn.
+
+### Tool result truncator
+
+`modules.toolResultTruncate.enabled` (`LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).
+**Lossy**: the model never sees what is cut. A build log, a full test run or a
+large file read can be tens of thousands of tokens, re-sent on every later
+turn, while the head and tail usually carry the command, the error and the
+summary.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `headLines` | `200` | Lines kept from the start of a tool result longer than `headLines + tailLines`. |
+| `tailLines` | `100` | Lines kept from the end. The middle becomes `[llm-fw: N lines elided]`. Both `0` turns the line cut off. |
+| `maxChars` | `40000` | After the line cut, a result still longer than this keeps two thirds of it from the head and one third from the tail, with `[llm-fw: N characters elided]` between; this catches one huge line, such as minified code. `0` is off. |
+
+The cut depends only on the result itself, so the same history is sent the
+same way every turn. An agent that reads a long file and then rewrites the
+whole file would write the marker into it; prefer the agent's own paging
+(read with an offset) where it has one, or keep this off for editing agents.
 
 ### Tool definition pruner
 

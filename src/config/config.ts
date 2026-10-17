@@ -368,6 +368,12 @@ export const DEFAULT_CONFIG: Config = {
       enabled: false,
       minLength: 200,
     },
+    toolResultTruncate: {
+      enabled: false,
+      headLines: 200,
+      tailLines: 100,
+      maxChars: 40000,
+    },
     toolDefinitionPruner: {
       enabled: false,
     },
@@ -719,6 +725,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_BLOB_ELIDE_ENABLED: (c, v) => { if (c.modules?.blobElide) c.modules.blobElide.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).

@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LLM_FW_TOOL_RESULT_DEDUP_ENABLED`, `minLength` default 200).** A tool result identical to an
   earlier one in the conversation (the same file read twice) becomes a pointer to the first copy.
   Rewritten the same way on every turn, so the prompt cache keeps matching.
+- **A Tool Result Truncator module, opt-in and lossy (`modules.toolResultTruncate.enabled`,
+  `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).** Oversized tool output keeps its first `headLines`
+  (200) and last `tailLines` (100) lines, then at most `maxChars` (40,000) characters, with a
+  marker saying how much was cut.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and
