@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-max","cwd":"/work/repo","model":"claude-sonnet-5-5","tools":["Bash","Read","Grep"]}
+{"type":"assistant","message":{"id":"msg_max_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[{"type":"text","text":"auth.spec.ts fails so far, I am still looking."}],"stop_reason":"tool_use","usage":{"input_tokens":120,"cache_creation_input_tokens":4000,"cache_read_input_tokens":0,"output_tokens":30}},"session_id":"sess-max"}
+{"type":"result","subtype":"error_max_turns","is_error":false,"duration_ms":90000,"duration_api_ms":88000,"num_turns":1,"session_id":"sess-max","total_cost_usd":0.3,"usage":{"input_tokens":120,"cache_creation_input_tokens":4000,"cache_read_input_tokens":0,"output_tokens":30}}

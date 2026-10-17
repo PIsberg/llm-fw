@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest'
 import fs from 'node:fs'
-import { join, isAbsolute } from 'node:path'
+import { join, isAbsolute, relative, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { ModuleManager } from '../../src/modules/registry.js'
@@ -1325,6 +1325,325 @@ describe('ToolResultShuntModule: condensing a tool result', { timeout: 60_000 },
         expect(flagged.results).toEqual([text])
         write.mockRestore()
         await expectFlaggedEverywhere(text, body)
+      })
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // T023 (slice S12): the module's card. `getStats().kpis` is what the
+  // dashboard draws; data-model.md "Counters" fixes the keys, the labels (the
+  // unit is part of the label) and what each value counts. Values are counted
+  // per tool-result occurrence in a request, so a result carried by three
+  // requests counts three times; worker tokens are counted per worker call.
+  // -------------------------------------------------------------------------
+  describe('the module card (US4-4, FR-017, FR-014, US4-6)', () => {
+    type Kpi = { key: string; label: string; value: number | string }
+    const kpis = (): Kpi[] => m.mod.getStats().kpis ?? []
+    const kpi = (key: string): number | string | undefined => kpis().find(k => k.key === key)?.value
+
+    // Keys and labels of data-model.md "Counters", in the order the spec lists
+    // them (US4-4): condensed, whole by reason, tokens, worker tokens, wait,
+    // the store, the missing originals.
+    const CARD: Array<[string, string]> = [
+      ['condensed', 'Results condensed'],
+      ['whole', 'Forwarded whole'],
+      ['originalTokens', 'Original tokens'],
+      ['condensedTokens', 'Condensed tokens'],
+      ['workerIn', 'Worker tokens read'],
+      ['workerOut', 'Worker tokens written'],
+      ['waitAvgMs', 'Average wait added (ms)'],
+      ['waitMaxMs', 'Longest wait added (ms)'],
+      ['storedFiles', 'Stored originals'],
+      ['storedBytes', 'Stored size (bytes)'],
+      ['missing', 'Stored originals missing'],
+    ]
+    const NUMERIC = CARD.map(([key]) => key).filter(key => key !== 'whole')
+
+    // The worker answers every result with the default facts and 7 tokens
+    // written, except one whose text carries `worker-fails` (an error) or
+    // `too-long` (an answer over the FR-005 cap, 1,500 tokens written).
+    beforeEach(() => {
+      reply = body => {
+        const text = JSON.stringify(body)
+        if (text.includes('worker-fails')) return { status: 500 }
+        if (text.includes('too-long')) return { json: chatAnswer('failure '.repeat(1500), { prompt_tokens: promptTokensOf(body), completion_tokens: 1500 }) }
+        return { json: chatAnswer(DEFAULT_FACTS, { prompt_tokens: promptTokensOf(body), completion_tokens: 7 }) }
+      }
+    })
+
+    /** The tokens the worker reported over every call it answered. */
+    const workerTokens = (): { in: number; out: number } => worker.received.reduce((total, received) => {
+      const text = JSON.stringify(received.body)
+      if (text.includes('worker-fails')) return total
+      return { in: total.in + promptTokensOf(received.body), out: total.out + (text.includes('too-long') ? 1500 : 7) }
+    }, { in: 0, out: 0 })
+
+    const folderBytes = (names: string[]): number => names.reduce((total, name) => total + fs.statSync(join(folder(), name)).size, 0)
+
+    it('lists the keys and labels of data-model.md "Counters" in order, with every figure at zero on a module that has handled nothing (FR-017, US4-4)', () => {
+      expect(kpis().map(k => [k.key, k.label])).toEqual(CARD)
+      for (const key of NUMERIC) expect(kpi(key), key).toBe(0)
+      expect(typeof kpi('whole')).toBe('string')
+      expect(String(kpi('whole'))).not.toMatch(/\d/)
+      // The base fields of a payload module stay.
+      expect(m.mod.getStats()).toMatchObject({ id: 'tool-result-shunt', name: 'Tool Result Shunt', enabled: true })
+    })
+
+    it('counts condensed results, the tokens of their originals and of what replaced them, and the worker tokens; a result carried by three requests counts three times, its worker call once (US4-4)', async () => {
+      const a = output('card-a')
+      const b = output('card-b')
+      const body = request(turn([bash('toolu_1', 'npm test', a), bash('toolu_2', 'npm run lint', b)]))
+
+      const first = await send(body)
+      expect(first.results).toEqual([renderCondensed(a, DEFAULT_FACTS, m.mod.store.pathFor(a)), renderCondensed(b, DEFAULT_FACTS, m.mod.store.pathFor(b))])
+      expect(kpi('condensed')).toBe(2)
+      const original = estimateTokens(a) + estimateTokens(b)
+      const condensed = estimateTokens(first.results[0]!) + estimateTokens(first.results[1]!)
+      expect(kpi('originalTokens')).toBe(original)
+      expect(kpi('condensedTokens')).toBe(condensed)
+      expect(kpi('workerIn')).toBe(promptTokensOf(worker.received[0]!.body) + promptTokensOf(worker.received[1]!.body))
+      expect(kpi('workerOut')).toBe(14)
+      expect(String(kpi('whole'))).not.toMatch(/\d/)
+
+      await send(body)
+      await send(body)
+      expect(worker.received).toHaveLength(2)
+      expect(kpi('condensed')).toBe(6)
+      expect(kpi('originalTokens')).toBe(3 * original)
+      expect(kpi('condensedTokens')).toBe(3 * condensed)
+      expect(kpi('workerIn')).toBe(workerTokens().in)
+      expect(kpi('workerOut')).toBe(14)
+    })
+
+    // Each case makes exactly one result be forwarded whole for its reason,
+    // using a unique tag so no case shares a decision with another. The
+    // `workerAsked` flag says whether the worker answered with usage, so its
+    // tokens are counted: not for a rule decided before the worker, nor for an
+    // error that carries no usage.
+    const WHOLE: Array<{ reason: string; workerAsked: boolean; arrange: () => Promise<unknown> }> = [
+      { reason: 'below-threshold', workerAsked: false, arrange: () => send(request(turn([bash('toolu_bt', 'ls', rows(10))]))) },
+      { reason: 'excluded-tool', workerAsked: false, arrange: () => send(request(turn([call('toolu_ex', 'Read', { file_path: '/a/b.ts' }, output('card-read'))]))) },
+      {
+        reason: 'tool-unknown',
+        workerAsked: false,
+        // A thread continuation carries the result without its call, and nothing has taught the module that call.
+        arrange: () => send({
+          model: 'claude-sonnet-5-5', stream: true,
+          thread: { type: 'continue', previous_message_id: 'msg_card' },
+          messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_card_unknown', content: output('card-unknown') }] }],
+        }),
+      },
+      {
+        reason: 'too-large',
+        workerAsked: false,
+        arrange: async () => {
+          m.shunt.maxInputChars = 1_000
+          try { await send(request(turn([bash('toolu_tl', 'npm test', output('card-large'))]))) } finally { m.shunt.maxInputChars = DEFAULT_CONFIG.modules!.toolResultShunt!.maxInputChars }
+        },
+      },
+      { reason: 'remote-client', workerAsked: false, arrange: () => send(request(turn([bash('toolu_rc', 'npm test', output('card-remote'))])), { remoteAddress: '10.0.0.5' }) },
+      {
+        reason: 'flagged',
+        workerAsked: false,
+        arrange: () => {
+          const text = output('card-flagged')
+          const body = request(turn([bash('toolu_fl', 'npm test', text)]))
+          const screening = scannedScreening(JSON.stringify(body))
+          screening.noteItemFlag(text)
+          return send(body, { screening })
+        },
+      },
+      { reason: 'worker-failed', workerAsked: false, arrange: () => send(request(turn([bash('toolu_wf', 'npm test', output('worker-fails'))]))) },
+      { reason: 'rejected', workerAsked: true, arrange: () => send(request(turn([bash('toolu_rj', 'npm test', output('too-long'))]))) },
+      {
+        reason: 'store-failed',
+        workerAsked: true,
+        arrange: async () => {
+          const write = vi.spyOn(m.mod.store, 'write').mockResolvedValue('failed')
+          try { await send(request(turn([bash('toolu_sf', 'npm test', output('card-store-failed'))]))) } finally { write.mockRestore() }
+        },
+      },
+      {
+        reason: 'store-full',
+        workerAsked: true,
+        arrange: async () => {
+          const write = vi.spyOn(m.mod.store, 'write').mockResolvedValue('full')
+          try { await send(request(turn([bash('toolu_sl', 'npm test', output('card-store-full'))]))) } finally { write.mockRestore() }
+        },
+      },
+    ]
+
+    it.each(WHOLE)('counts a result forwarded whole as "$reason 1", and none as condensed (US4-4)', async ({ reason, workerAsked, arrange }) => {
+      await arrange()
+      expect(kpi('whole')).toBe(`${reason} 1`)
+      expect(kpi('condensed')).toBe(0)
+      expect(kpi('originalTokens')).toBe(0)
+      expect(kpi('condensedTokens')).toBe(0)
+      // Not a card that counts nothing: the worker tokens are the ones the worker reported, when it answered.
+      expect(workerAsked ? (kpi('workerIn') as number) > 0 && (kpi('workerOut') as number) > 0 : kpi('workerIn') === 0 && kpi('workerOut') === 0).toBe(true)
+      expect(kpi('workerIn')).toBe(workerTokens().in)
+      expect(kpi('workerOut')).toBe(workerTokens().out)
+    })
+
+    it('counts a result forwarded whole once per request that carries it, as it counts a condensed one (US4-4)', async () => {
+      const body = request(turn([bash('toolu_1', 'npm test', output('worker-fails'))]))
+      for (let i = 0; i < 3; i++) await send(body)
+      expect(worker.received).toHaveLength(1)
+      expect(kpi('whole')).toBe('worker-failed 3')
+    })
+
+    it('after a mix of condensed, whole-for-every-reason and dry-run requests, lists only the non-zero reasons, in the order of data-model.md, joined by " · " (US4-4, FR-015)', async () => {
+      const a = output('card-mix-a')
+      const b = output('card-mix-b')
+      await send(request(turn([bash('toolu_a', 'npm test', a), bash('toolu_b', 'npm run lint', b)])))
+      // In the reverse of the order the card lists them, so the order cannot be that of arrival.
+      for (const { arrange } of [...WHOLE].reverse()) await arrange()
+      const dry = output('card-mix-dry')
+      const dryRun = await send(request(turn([bash('toolu_d', 'npm run build', dry)])), { dryRun: true })
+
+      expect(kpi('whole')).toBe('below-threshold 1 · excluded-tool 1 · tool-unknown 1 · too-large 1 · remote-client 1 · flagged 1 · worker-failed 1 · rejected 1 · store-failed 1 · store-full 1')
+      // Two live condensations and the one a dry run would have made; no whole result adds a token.
+      expect(kpi('condensed')).toBe(3)
+      expect(kpi('originalTokens')).toBe(estimateTokens(a) + estimateTokens(b) + estimateTokens(dry))
+      expect(kpi('condensedTokens')).toBe(estimateTokens(renderCondensed(a, DEFAULT_FACTS, m.mod.store.pathFor(a))) + estimateTokens(renderCondensed(b, DEFAULT_FACTS, m.mod.store.pathFor(b))) + estimateTokens(dryRun.results[0]!))
+      expect(kpi('workerIn')).toBe(workerTokens().in)
+      expect(kpi('workerOut')).toBe(workerTokens().out)
+      // `missing` counts failed write-backs (T028); nothing was written back here.
+      expect(kpi('missing')).toBe(0)
+      // The dry-run result was condensed in the count only: nothing of it is stored.
+      expect(files('.txt').sort()).toEqual([`${sha256(a)}.txt`, `${sha256(b)}.txt`].sort())
+      expect(kpi('storedFiles')).toBe(2)
+    })
+
+    it('counts what a dry run would have saved, stores nothing for it, and reports its events as not applied (FR-015, US4-3, US4-4)', async () => {
+      const text = output('card-dry-run')
+      const res = await send(request(turn([bash('toolu_1', 'npm test', text)])), { dryRun: true })
+      expect(res.results[0]).toBe(renderCondensed(text, DEFAULT_FACTS, m.mod.store.pathFor(text)))
+      expect(kpi('condensed')).toBe(1)
+      expect(kpi('originalTokens')).toBe(estimateTokens(text))
+      expect(kpi('condensedTokens')).toBe(estimateTokens(res.results[0]!))
+      expect(kpi('workerIn')).toBe(workerTokens().in)
+      expect(kpi('workerIn') as number).toBeGreaterThan(0)
+      expect(kpi('storedFiles')).toBe(0)
+      expect(kpi('storedBytes')).toBe(0)
+      expect(fs.existsSync(folder())).toBe(false)
+      expect(res.events.length).toBeGreaterThan(0)
+      expect(res.events.every(e => e.applied === false)).toBe(true)
+    })
+
+    it('counts the stored originals only as storedFiles, and every file of the folder, outcome files included, as storedBytes (D9)', async () => {
+      const a = output('card-stored-a')
+      const failing = output('worker-fails')
+      await send(request(turn([bash('toolu_a', 'npm test', a), bash('toolu_f', 'npm run lint', failing)])))
+      // One original and two outcome files: the whole result has an outcome file and no original.
+      expect(files('.txt')).toHaveLength(1)
+      expect(files('.outcome')).toHaveLength(2)
+      expect(kpi('storedFiles')).toBe(1)
+      const all = fs.readdirSync(folder())
+      expect(kpi('storedBytes')).toBe(folderBytes(all))
+      expect(folderBytes(all)).toBeGreaterThan(folderBytes(files('.txt')))
+
+      const b = output('card-stored-b')
+      await send(request(turn([bash('toolu_b', 'npm test', b)])))
+      expect(kpi('storedFiles')).toBe(2)
+      expect(kpi('storedBytes')).toBe(folderBytes(fs.readdirSync(folder())))
+    })
+
+    it('measures the wait over requests that awaited the worker or the disk: one with no eligible result adds no sample, a fast one lowers the average and not the longest (US4-4)', async () => {
+      reply = body => ({ delayMs: 250, json: chatAnswer(DEFAULT_FACTS, { prompt_tokens: promptTokensOf(body), completion_tokens: 7 }) })
+      await send(request(turn([bash('toolu_slow', 'npm test', output('card-slow'))])))
+      const longest = kpi('waitMaxMs') as number
+      const average = kpi('waitAvgMs') as number
+      // A timer set for 250 ms may fire a little early; the wait is not far over it either.
+      expect(longest).toBeGreaterThanOrEqual(200)
+      expect(longest).toBeLessThan(5_000)
+      expect(Math.abs(average - longest)).toBeLessThanOrEqual(1)
+
+      // Twelve requests with nothing to condense wait for nothing, and are not samples.
+      for (let i = 0; i < 12; i++) await send(request(turn([bash(`toolu_small_${i}`, 'ls', rows(10 + i))])))
+      expect(kpi('waitMaxMs')).toBe(longest)
+      expect(kpi('waitAvgMs')).toBe(average)
+
+      // A worker that answers at once: a second sample, far under the first.
+      reply = body => ({ json: chatAnswer(DEFAULT_FACTS, { prompt_tokens: promptTokensOf(body), completion_tokens: 7 }) })
+      await send(request(turn([bash('toolu_fast', 'npm test', output('card-fast'))])))
+      expect(kpi('waitMaxMs')).toBe(longest)
+      expect(kpi('waitAvgMs') as number).toBeLessThan(longest - 50)
+    })
+
+    it('resets every counter, the events included, and counts again from zero; the stored files stay as they are on disk (resetStats)', async () => {
+      const a = output('card-reset')
+      const body = request(turn([bash('toolu_1', 'npm test', a), bash('toolu_2', 'npm run lint', output('worker-fails'))]))
+      await send(body)
+      expect(kpi('condensed')).toBe(1)
+      expect(m.mod.getStats().recentEvents.length).toBeGreaterThan(0)
+      const stored = { files: kpi('storedFiles'), bytes: kpi('storedBytes') }
+      expect(stored.files).toBe(1)
+
+      m.mod.resetStats()
+      for (const key of NUMERIC.filter(key => key !== 'storedFiles' && key !== 'storedBytes')) expect(kpi(key), key).toBe(0)
+      expect(String(kpi('whole'))).not.toMatch(/\d/)
+      expect(m.mod.getStats().recentEvents).toEqual([])
+      // The folder was not touched, so its totals still describe it.
+      expect({ files: kpi('storedFiles'), bytes: kpi('storedBytes') }).toEqual(stored)
+      expect(kpi('storedBytes')).toBe(folderBytes(fs.readdirSync(folder())))
+
+      // The same request again: both results are remembered, so no worker call, and the counts start at zero.
+      const asked = worker.received.length
+      await send(body)
+      expect(worker.received).toHaveLength(asked)
+      expect(kpi('condensed')).toBe(1)
+      expect(kpi('whole')).toBe('worker-failed 1')
+      expect(kpi('workerIn')).toBe(0)
+      expect(kpi('workerOut')).toBe(0)
+    })
+
+    describe('what the module shows and writes of a result (FR-014, US4-6; D2 and D9 decide what is allowed on disk)', () => {
+      /** In the tool output, and nowhere else unless the worker quotes it. */
+      const MARK = 'CARD-MARK-77e1'
+      /** In the worker's answer, so in the condensed text and nowhere else. */
+      const FACT_MARK = 'FACT-ZEBRA-4417'
+
+      /** Files under the data directory whose content holds `marker`, relative to it, sorted. */
+      const holders = (marker: string, dir: string = root): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) return holders(marker, full)
+        return fs.readFileSync(full, 'utf8').includes(marker) ? [relative(root, full).split(sep).join('/')] : []
+      }).sort()
+
+      it.each([false, true])('keeps the marker out of every log line, event and the card, and puts it on disk only in the stored original and, when the worker quotes it, the outcome file (worker quotes it: %s)', async quoted => {
+        process.env.LLM_FW_LOG_LEVEL = 'debug'
+        const sinks = (['log', 'info', 'debug', 'error'] as const).map(method => vi.spyOn(console, method).mockImplementation(() => {}))
+        reply = body => {
+          if (JSON.stringify(body).includes('worker-fails')) return { status: 500 }
+          const facts = quoted ? `${FACT_MARK}: ${MARK} is in the output. 3 tests failed.` : `${FACT_MARK}: 3 tests failed.`
+          return { json: chatAnswer(facts, { prompt_tokens: promptTokensOf(body), completion_tokens: 12 }) }
+        }
+        const marked = `${output('card-marked')}\n${MARK}`
+        const failing = `${output('worker-fails')}\n${MARK}`
+        const dry = `${output('card-marked-dry')}\n${MARK}`
+
+        const live = await send(request(turn([bash('toolu_1', 'npm test', marked), bash('toolu_2', 'npm run lint', failing)])))
+        const dryRun = await send(request(turn([bash('toolu_3', 'npm run build', dry)])), { dryRun: true })
+        const events = [...live.events, ...dryRun.events]
+
+        // Not a module that did nothing: the first result is condensed with the worker's facts, the second was left whole with a warning, the dry run counted.
+        expect(live.results[0]!.startsWith('[llm-fw: tool output condensed')).toBe(true)
+        expect(live.results[0]).toContain(FACT_MARK)
+        expect(live.results[1]).toBe(failing)
+        expect(shuntWarnings().length).toBeGreaterThanOrEqual(1)
+        expect(events.length).toBeGreaterThan(0)
+        expect(kpi('condensed')).toBe(2)
+
+        const shown = JSON.stringify({ stats: m.mod.getStats(), events, console: [...sinks, warn].map(spy => spy.mock.calls) })
+        for (const text of [MARK, FACT_MARK, 'tool output condensed', '3 tests failed']) expect(shown.includes(text), text).toBe(false)
+
+        const original = `tool-results/${sha256(marked)}.txt`
+        const outcome = `tool-results/${keyOf('Bash', marked)}.outcome`
+        expect(holders(MARK)).toEqual((quoted ? [original, outcome] : [original]).sort())
+        // The worker's words are in the outcome file, and the stored original holds the output and nothing added.
+        expect(holders(FACT_MARK)).toEqual([outcome])
+        expect(fs.readFileSync(join(root, original), 'utf8')).toBe(marked)
       })
     })
   })
