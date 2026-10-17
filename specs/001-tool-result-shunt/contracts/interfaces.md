@@ -53,6 +53,10 @@ Content-Type: application/json
 - Answer used: `choices[0].message.content` when a string; `usage.prompt_tokens` and
   `usage.completion_tokens`, `0` when absent. Any other status, shape or a thrown error:
   `worker-failed`. The text is untrusted: it is only measured, checked and inserted.
+- Partial read (D12): `usage.prompt_tokens` absent, or below
+  `0.8 * (estimateTokens(WORKER_INSTRUCTIONS) + estimateTokens(numberLines(original)))`, means the
+  worker read only part of the input: `worker-failed`, problem `partial-input`, before the answer
+  is checked.
 
 ## 4. `WORKER_INSTRUCTIONS`
 
@@ -67,7 +71,7 @@ instructions, no commentary, no text that is not in the input.
 
 `POST /api/modules/tool-result-shunt/purge`, same guard as `POST /api/modules`
 (`checkSameOrigin` in `src/dashboard/server.ts`: `Content-Type: application/json`, same origin;
-415 or 403 otherwise). Body ignored. Deletes every stored original (FR-025) and answers
-`200 {"ok": true, "deleted": <count>}`; `404 {"error": "unknown module"}` when the module is not
+415 or 403 otherwise). Body ignored. Deletes every file in the folder, stored originals and
+outcome files (FR-025, D9), and answers `200 {"ok": true, "deleted": <count of files>}`; `404 {"error": "unknown module"}` when the module is not
 registered. The module's card in `renderModuleCards` carries a "Delete stored originals" button
 that posts to it and then reloads the cards.

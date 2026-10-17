@@ -70,14 +70,20 @@ result sets its `carriedAt` to `Date.now()`, dry run included.
   outcome other than `flagged` whose `carriedAt` is older than `retentionHours` is dropped (the
   clock a stored original expires by). A dropped result is decided again as new. A `flagged`
   outcome is kept until restart.
+- **Kept on disk (D9 C).** Every decided outcome is also written as an outcome file ("Stored
+  original" below) once decided, outside dry run. A key in neither the map nor `inflight` is first
+  looked up there, inside its `inflight` decision so concurrent requests read it once: a valid file becomes the remembered outcome (`carriedAt` now) with no worker
+  call; a missing or invalid one means decide as new. A file that cannot be written leaves the
+  outcome in memory only (warned once, Design 7).
 - **Decided once, concurrent requests included (FR-006).** `inflight: Map<key, Promise<outcome>>`
   holds a decision under way (worker call, store write, remember), deleted when it settles. A
   request carrying a key in it awaits that promise instead of calling the worker and uses the
   settled outcome as a remembered one (write-back included, FR-024). The owner registered first,
   so its deadline `start + waitMs` falls within the joiner's (FR-008).
 - **Flags.** A condensed outcome is replayed byte-identical on every request that carries the
-  result, until a request puts its own slot in `flagged`: it then becomes `flagged` (plan Design
-  8). `all` and a missing record never change a remembered outcome: a result first condensed was
+  result, until a request puts its own slot in `flagged`: it then becomes `flagged`, its outcome
+  file is rewritten as `flagged` and its stored original deleted, outside dry run (plan Design 8,
+  D11). `all` and a missing record never change a remembered outcome: a result first condensed was
   judged clean, by the same key, in a scan that judged every item. Nothing replaces a `flagged`
   outcome, a settling in-flight decision included (FR-012).
 
@@ -115,29 +121,41 @@ where:
 
 DLP `match` values stay in memory for the request and are never logged.
 
-## Stored original (FR-021 to FR-025)
+## Stored original (FR-021 to FR-025; outcome files: FR-006, D9)
 
 - **Folder**: `join(getLlmFwDir(), 'tool-results')`, resolved per call (`src/config/paths.ts`).
-  Nothing else is written there.
+  Nothing but stored originals, outcome files and their temp files is written there.
 - **Path**: `<folder>/<sha256 hex of the UTF-8 text>.txt`, absolute; depends only on the content.
 - **Content**: the result's text as the module received it (D3), UTF-8, nothing added.
+- **Outcome file**: `<folder>/<key>.outcome`, `key` the remembered outcome's hex key. Content: JSON,
+  `{"condensed": "<the condensed result exactly as forwarded>"}` or `{"whole": "<WholeReason>"}`,
+  nothing else (FR-014). Written whenever an outcome is decided and replaced when it changes (D11),
+  never in dry run. Read back only once access is confirmed; valid when it parses to exactly one of
+  the two shapes, `whole` is one of the ten `WholeReason`s and `condensed` contains this result's
+  stored original path; anything else counts as missing.
 - **Write**: into `<name>.<random>.tmp` in the same folder (`wx`, mode `0o600`), then rename; on any
-  error the temp file is removed and the result is `failed`. An existing file counts as stored.
+  error the temp file is removed and the result is `failed`. An existing stored original counts as
+  stored; an outcome file is replaced by the rename.
 - **Access (FR-023)**: POSIX folder `0o700`, files `0o600`, confirmed by `stat` (no group or other
   bits, owner is `process.getuid()`); Windows `restrictDirPermissions` (`src/proxy/certs.ts`) on
   the folder, confirmed by icacls exiting 0, files inherit (D5). Confirmed when the folder is
-  created or first used in this process; unconfirmed means `unrestricted`, nothing written.
+  created or first used in this process; unconfirmed means `unrestricted`: nothing written, no
+  outcome file read.
 - **Retention**: a file's mtime is the last request that carried it; `touch` sets it to now on
-  every carry outside observe mode. Expired: mtime older than `retentionHours`.
-- **Cap**: running totals of files and bytes, built by a folder scan on first use and rebuilt by
-  every sweep. A write reserves its bytes before writing and is `full` when the total would pass
-  `maxStoreMB`; nothing unexpired is deleted to make room. Write-backs obey the cap.
+  every carry outside observe mode, the outcome file of every remembered outcome and the stored
+  original of every condensed one. Expired: mtime older than `retentionHours`.
+- **Cap**: running totals of files and bytes over both kinds, built by a folder scan on first use
+  and rebuilt by every sweep. A write reserves its bytes (a replaced outcome file its growth) before
+  writing and is `full` when the total would pass `maxStoreMB`; nothing unexpired is deleted to make
+  room. Write-backs obey the cap.
 - **Sweep**: deletes every file in the folder (temp files included) whose mtime is expired; runs at
   start and every hour from `src/cli/start.ts`, module on or off.
 - **Purge**: deletes every file in the folder, from the dashboard (contracts section 5).
-- **Write-back (FR-024)**: a remembered condensed result whose file is missing is written again at
-  the same path before forwarding; if that fails the remembered text is forwarded anyway, one
-  warning is logged and `missing` counts it.
+- **Flip (D11)**: the stored original of a condensed outcome that becomes `flagged` is deleted.
+- **Write-back (FR-024)**: a carried remembered outcome whose outcome file is missing, or a
+  condensed one whose stored original is missing, has the missing file written again at the same
+  path before forwarding; if that fails the remembered outcome is forwarded anyway and one warning
+  is logged, and a missing stored original is counted in `missing`.
 
 ## Counters (FR-017, US4-4)
 
@@ -155,8 +173,8 @@ except where noted. Live events are the base `PayloadModule` events: token count
 | `workerOut` | Worker tokens written | sum of `usage.completion_tokens`, per worker call |
 | `waitAvgMs` | Average wait added (ms) | over requests where the module awaited the worker or the disk |
 | `waitMaxMs` | Longest wait added (ms) | same requests |
-| `storedFiles` | Stored originals | from the store's totals |
-| `storedBytes` | Stored size (bytes) | from the store's totals |
+| `storedFiles` | Stored originals | from the store's totals, `.txt` files only |
+| `storedBytes` | Stored size (bytes) | from the store's totals, outcome files included (what the cap counts) |
 | `missing` | Stored originals missing | failed write-backs |
 
 In observe mode the counts are what would have happened (FR-015); the events carry
