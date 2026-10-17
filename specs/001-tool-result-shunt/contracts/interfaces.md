@@ -42,8 +42,10 @@ Content-Type: application/json
               {"role": "user", "content": numberLines(original)}]}
 ```
 
-- `workerUrl` must parse as `http:` or `https:` with hostname `localhost`, a `127.0.0.0/8` address or
-  `::1`; checked before every send. Otherwise nothing is sent and the result is `worker-failed`.
+- `workerUrl` must parse as `http:` or `https:` with hostname `localhost`, an IPv4 literal in
+  `127.0.0.0/8` or the IPv6 literal `::1`; any other DNS name is not local, even one that starts
+  with `127.` or `localhost.` (`127.0.0.1.nip.io`, `localhost.attacker.example`). Checked before
+  every send. Otherwise nothing is sent and the result is `worker-failed`.
 - No other header: no `Authorization`, no client or provider header.
 - `redirect: 'error'`, aborted at the request's deadline.
 - `numberLines` prefixes each line with its 1-based number and a tab, so cited line numbers are
