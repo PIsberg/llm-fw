@@ -50,6 +50,7 @@ describe.each(BUILTINS.map((b, i) => [b.key, i] as const))('built-in module %s',
     for (const [name, value] of options(key)) {
       slot[name] = typeof value === 'boolean' ? !value
         : typeof value === 'number' ? value + 1
+        : Array.isArray(value) ? [...value, 'changed']
         : OTHER_STRING[name] ?? `${String(value)}-changed`
     }
     applyHotReload(live, incoming, () => {})

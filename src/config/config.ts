@@ -363,6 +363,17 @@ export const DEFAULT_CONFIG: Config = {
       enabled: false,
       minLength: 2048,
     },
+    leanCtx: {
+      enabled: false,
+      // Claude Code's shell tools.
+      tools: ['Bash', 'PowerShell'],
+      // Programs whose output is a file or part of one, Unix and PowerShell.
+      skipCommands: [
+        'cat', 'head', 'tail', 'sed', 'awk', 'nl', 'less', 'more', 'bat', 'tac', 'xxd', 'od', 'hexdump', 'strings',
+        'grep', 'rg', 'diff', 'show', 'blame', 'type', 'gc', 'Get-Content', 'Select-String', 'sls', 'findstr',
+      ],
+      timeoutMs: 500,
+    },
     toolResultPruner: {
       enabled: false,
       minifyJson: true,
@@ -378,6 +389,9 @@ export const DEFAULT_CONFIG: Config = {
       headLines: 200,
       tailLines: 100,
       maxChars: 40000,
+      // File reads: Claude Code, Gemini CLI, the MCP filesystem server, and
+      // Anthropic's text editor tool (its view command).
+      skipTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
     },
     toolDefinitionPruner: {
       enabled: false,
@@ -740,6 +754,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROGRESS_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.progressCollapse) c.modules.progressCollapse.enabled = v === 'true'; },
   LLM_FW_REPEAT_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.repeatCollapse) c.modules.repeatCollapse.enabled = v === 'true'; },
   LLM_FW_BLOB_ELIDE_ENABLED: (c, v) => { if (c.modules?.blobElide) c.modules.blobElide.enabled = v === 'true'; },
+  LLM_FW_LEAN_CTX_ENABLED: (c, v) => { if (c.modules?.leanCtx) c.modules.leanCtx.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },

@@ -9,6 +9,16 @@ export interface TextSlot {
   text: string
   /** The tool call a tool_result answers, when the format carries an id. */
   toolCallId?: string | undefined
+  /**
+   * The tool that call named, when the call is in the same request. A request
+   * continuing a server-side thread carries results without their calls.
+   */
+  toolName?: string | undefined
+  /**
+   * That call's arguments as the request carries them: an object for
+   * Anthropic tool_use, a JSON string for OpenAI chat and the Responses API.
+   */
+  toolInput?: unknown
   /** Writes `text` back into the payload in place. */
   set(text: string): void
 }
@@ -22,27 +32,38 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 // document) is left alone; a thinking block's signature binds its bytes.
 const TEXT_PARTS = new Set(['text', 'input_text', 'output_text'])
 
-function fieldSlot(kind: SlotKind, holder: Obj, key: string, toolCallId?: string): TextSlot {
+type ToolRef = Pick<TextSlot, 'toolCallId' | 'toolName' | 'toolInput'>
+
+// Tool call id to tool name and arguments, for the calls seen so far in one request.
+type Calls = Map<string, { name: string; input: unknown }>
+
+const ref = (id: unknown, calls: Calls): ToolRef => {
+  if (typeof id !== 'string') return {}
+  const call = calls.get(id)
+  return { toolCallId: id, toolName: call?.name, toolInput: call?.input }
+}
+
+function fieldSlot(kind: SlotKind, holder: Obj, key: string, tool: ToolRef = {}): TextSlot {
   return {
     kind,
     text: holder[key] as string,
-    toolCallId,
+    ...tool,
     set(text) { holder[key] = text; this.text = text },
   }
 }
 
-function textParts(kind: SlotKind, parts: unknown[], out: TextSlot[], toolCallId?: string): void {
+function textParts(kind: SlotKind, parts: unknown[], out: TextSlot[], tool?: ToolRef): void {
   for (const part of parts) {
     if (isObj(part) && typeof part.text === 'string' && (part.type === undefined || TEXT_PARTS.has(part.type as string))) {
-      out.push(fieldSlot(kind, part, 'text', toolCallId))
+      out.push(fieldSlot(kind, part, 'text', tool))
     }
   }
 }
 
 // `content` of a message or of a tool_result block: a string or text parts.
-function content(kind: SlotKind, holder: Obj, out: TextSlot[], toolCallId?: string): void {
-  if (typeof holder.content === 'string') out.push(fieldSlot(kind, holder, 'content', toolCallId))
-  else if (Array.isArray(holder.content)) textParts(kind, holder.content, out, toolCallId)
+function content(kind: SlotKind, holder: Obj, out: TextSlot[], tool?: ToolRef): void {
+  if (typeof holder.content === 'string') out.push(fieldSlot(kind, holder, 'content', tool))
+  else if (Array.isArray(holder.content)) textParts(kind, holder.content, out, tool)
 }
 
 function roleKind(role: unknown): SlotKind {
@@ -51,29 +72,45 @@ function roleKind(role: unknown): SlotKind {
   return 'prompt'
 }
 
-function message(m: unknown, out: TextSlot[]): void {
+// OpenAI chat: the calls an assistant message makes.
+function chatCalls(toolCalls: unknown[], calls: Calls): void {
+  for (const call of toolCalls) {
+    if (isObj(call) && typeof call.id === 'string' && isObj(call.function) && typeof call.function.name === 'string') {
+      calls.set(call.id, { name: call.function.name, input: call.function.arguments })
+    }
+  }
+}
+
+function message(m: unknown, out: TextSlot[], calls: Calls): void {
   if (!isObj(m)) return
-  // Responses API tool output item.
-  if (m.type === 'function_call_output') {
-    if (typeof m.output === 'string') out.push(fieldSlot('tool_result', m, 'output', m.call_id as string | undefined))
+  // Responses API tool call and tool output items.
+  if (m.type === 'function_call') {
+    if (typeof m.call_id === 'string' && typeof m.name === 'string') calls.set(m.call_id, { name: m.name, input: m.arguments })
     return
   }
+  if (m.type === 'function_call_output') {
+    if (typeof m.output === 'string') out.push(fieldSlot('tool_result', m, 'output', ref(m.call_id, calls)))
+    return
+  }
+  if (Array.isArray(m.tool_calls)) chatCalls(m.tool_calls, calls)
   const kind = roleKind(m.role)
-  const toolCallId = kind === 'tool_result' ? m.tool_call_id as string | undefined : undefined
+  const tool = kind === 'tool_result' ? ref(m.tool_call_id, calls) : {}
   if (typeof m.content === 'string') {
-    out.push(fieldSlot(kind, m, 'content', toolCallId))
+    out.push(fieldSlot(kind, m, 'content', tool))
     return
   }
   if (!Array.isArray(m.content)) return
   for (const part of m.content) {
     if (!isObj(part)) continue
-    if (part.type === 'tool_result') {
-      content('tool_result', part, out, part.tool_use_id as string | undefined)
+    if (part.type === 'tool_use') {
+      if (typeof part.id === 'string' && typeof part.name === 'string') calls.set(part.id, { name: part.name, input: part.input })
+    } else if (part.type === 'tool_result') {
+      content('tool_result', part, out, ref(part.tool_use_id, calls))
     } else if (part.type === 'tool_addition') {
       // A tool added mid-conversation (Claude Code on a server-side thread).
       toolDefinition(part.tool, out)
     } else if (typeof part.text === 'string' && TEXT_PARTS.has(part.type as string)) {
-      out.push(fieldSlot(kind, part, 'text', toolCallId))
+      out.push(fieldSlot(kind, part, 'text', tool))
     }
   }
 }
@@ -122,9 +159,10 @@ export function collectTextSlots(payload: unknown): TextSlot[] {
   if (typeof si === 'string') out.push(fieldSlot('system', payload, 'systemInstruction'))
   else if (isObj(si) && Array.isArray(si.parts)) textParts('system', si.parts, out)
 
-  if (Array.isArray(payload.messages)) for (const m of payload.messages) message(m, out)
+  const calls: Calls = new Map()
+  if (Array.isArray(payload.messages)) for (const m of payload.messages) message(m, out, calls)
   if (typeof payload.input === 'string') out.push(fieldSlot('prompt', payload, 'input'))
-  else if (Array.isArray(payload.input)) for (const m of payload.input) message(m, out)
+  else if (Array.isArray(payload.input)) for (const m of payload.input) message(m, out, calls)
   if (Array.isArray(payload.contents)) {
     for (const item of payload.contents) {
       if (isObj(item) && Array.isArray(item.parts)) textParts('prompt', item.parts, out)

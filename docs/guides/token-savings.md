@@ -123,6 +123,15 @@ total. The sample is small and the turn count varies from run to run, so read
 the cost delta as a direction, not a guarantee. For Claude Code, the
 whitespace modules are below 1% and not worth the risk they carry for edits.
 
+Since this round the truncator leaves file reads whole (`skipTools`, under
+[Tool result truncator](#tool-result-truncator)), and that gives up most of
+what it cut. Over 30 days of one developer's Claude Code transcripts
+(1,716 transcript files, 61,634 tool results, counted with the estimate above),
+`Read` results were 62% of the tokens the truncator would remove, lean-ctx's
+`ctx_read` 9% and `Bash` 22%. Skipping `Read` keeps 38% of the saving;
+skipping `ctx_read` as well keeps 29%. What that does to the bill, net of the
+turns it no longer adds, has not been measured.
+
 ## Modules
 
 In pipeline order, which is also the order of the cards:
@@ -134,10 +143,11 @@ In pipeline order, which is also the order of the cards:
 | `progress-collapse` | `modules.progressCollapse` | progress-bar frames in tool output and prompts |
 | `repeat-collapse` | `modules.repeatCollapse` | runs of identical lines in tool output |
 | `blob-elide` | `modules.blobElide` | long base64 and hex runs in tool output |
+| `lean-ctx` | `modules.leanCtx` | shell command output, file reads aside, through lean-ctx (lossy) |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
-| `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output (lossy) |
+| `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -176,21 +186,132 @@ before it, so a growing conversation is rewritten the same way on every turn.
 ### Tool result truncator
 
 `modules.toolResultTruncate.enabled` (`LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).
-**Lossy**: the model never sees what is cut. A build log, a full test run or a
-large file read can be tens of thousands of tokens, re-sent on every later
-turn, while the head and tail usually carry the command, the error and the
-summary.
+**Lossy**: the model never sees what is cut. A build log or a full test run
+can be tens of thousands of tokens, re-sent on every later turn, while the
+head and tail usually carry the command, the error and the summary.
 
 | Option | Default | Does |
 | --- | --- | --- |
 | `headLines` | `200` | Lines kept from the start of a tool result longer than `headLines + tailLines`. |
 | `tailLines` | `100` | Lines kept from the end. The middle becomes `[llm-fw: N lines elided]`. Both `0` turns the line cut off. |
 | `maxChars` | `40000` | After the line cut, a result still longer than this keeps two thirds of it from the head and one third from the tail, with `[llm-fw: N characters elided]` between; this catches one huge line, such as minified code. `0` is off. |
+| `skipTools` | the file readers below | Tools whose results are never cut. |
 
-The cut depends only on the result itself, so the same history is sent the
-same way every turn. An agent that reads a long file and then rewrites the
-whole file would write the marker into it; prefer the agent's own paging
-(read with an offset) where it has one, or keep this off for editing agents.
+File reads stay whole. In the live round above, Claude Code read files
+through lean-ctx's `ctx_read` MCP tool, and after a read came back cut it read
+the elided range back, so sessions took 24% more turns. The default
+`skipTools` holds `Read` (Claude Code), `read_file` (Gemini CLI),
+`read_text_file` and `read_multiple_files` (the MCP filesystem server), and
+`str_replace_based_edit_tool` and `str_replace_editor` (Anthropic's text
+editor tool, whose `view` command reads a file). A name matches the tool of
+that name, or one whose name ends in `__` and that name, which is how Claude
+Code names MCP tools (`mcp__filesystem__read_text_file`). Add the tool your
+agent reads files with when it is not listed, such as `ctx_read`, which is
+not in the default. The list replaces the default, so repeat the names you
+keep:
+
+```json
+{ "modules": { "toolResultTruncate": { "skipTools": ["Read", "read_file", "ctx_read"] } } }
+```
+
+A tool result names its call, not its tool. A client that resends its
+history (the SDKs, Claude Code through the gateway) carries the call in the
+same request. Claude Code through the proxy continues a server-side thread
+and sends results without their calls, as does the Responses API with
+`previous_response_id`; there the module learns each call's tool from the
+response that made it. A result whose tool it cannot tell is cut:
+after a restart, while the module was off, or when that response was larger
+than `proxy.maxBodyBytes`. A file read through a shell tool (`cat` in
+`Bash`) is command output by name, so it is cut too.
+
+For a client that resends its history, the cut depends only on the result
+and the call before it in the request, so the same history is sent the same
+way every turn; a thread continuation sends each result once. An agent that
+reads a long file through a tool not in `skipTools` and then rewrites the
+whole file would write the marker into it: add that tool, or keep this
+module off for that agent.
+
+### lean-ctx shell output compressor
+
+`modules.leanCtx.enabled` (`LLM_FW_LEAN_CTX_ENABLED`). **Lossy**: sends the
+output of shell commands to [lean-ctx](https://github.com/yvgude/lean-ctx),
+which keeps the lines it ranks highest and replaces the rest with a line such
+as `[46 lines omitted, 3 safety-relevant lines preserved]`. llm-fw starts a
+private lean-ctx and talks to it over a loopback port. None of lean-ctx's code
+is part of llm-fw.
+
+Install lean-ctx yourself (`cargo install lean-ctx`, or a release binary from
+its GitHub page) and put it on `PATH`, or set `LLM_FW_LEAN_CTX_BIN` to the
+executable. That variable is read from the process environment only, like
+`LLM_FW_DIR`: a project config file comes with whatever repository llm-fw is
+started in, and must not choose a program for llm-fw to run. Do not install
+lean-ctx through the `lean-ctx-bin` npm package for this: its install script
+downloads the newest release whatever version you asked for, and runs
+`lean-ctx onboard`, which reconfigures your AI tools. When lean-ctx is
+missing or stops, results are forwarded whole and one warning is logged.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `tools` | `["Bash", "PowerShell"]` | Shell tools whose results are sent, matched like `skipTools` above. The call's `command` argument must be a string. |
+| `skipCommands` | file printers, below | A result whose command has any of these as a word stays whole. |
+| `timeoutMs` | `500` | How long a request waits for lean-ctx. A result it has not answered by then is forwarded whole, on that turn and every later one. |
+
+Only a result whose command is known is sent: from the call in the same
+request, or, for a thread continuation, from the response that made the call,
+as the truncator learns tool names. File reads stay whole. The default
+`skipCommands` holds the programs that print a file or part of one (`cat`,
+`head`, `tail`, `sed`, `awk`, `nl`, `less`, `more`, `bat`, `tac`, `xxd`, `od`,
+`hexdump`, `strings`), searches and diffs (`grep`, `rg`, `diff`, `show`,
+`blame`, `findstr`) and their PowerShell forms (`type`, `gc`, `Get-Content`,
+`Select-String`, `sls`). Any word of the command counts, so
+`npm test 2>&1 | tail -30` stays whole too: the agent already chose the 30
+lines it wants.
+
+Measured over 30 days of one developer's Claude Code transcripts (52,907
+unique tool results, 29.0M tokens by the estimate above) with lean-ctx 3.11.0:
+
+- Sending every tool result to lean-ctx would remove 18.6% of their tokens
+  beyond what the other tool-output modules remove. 18.2 points of that are lossy cuts,
+  most of them file reads: a 361-line source file read came back as its first
+  5 and last 10 lines. That is the cut the truncator stopped making.
+- With this module's filter, shell output was 57% of the tool-result tokens,
+  and 95.6% of it came from commands in `skipCommands` (`sed` 33.5%, `grep`
+  28.9%, `cat` 16.7%). The module sent 3,362 results, 4.4% of the shell
+  output, and removed 185,630 tokens: 0.64% of all tool-result tokens, 25% of
+  what it sent.
+
+What that does to the bill, and whether agents rerun commands whose output
+came back shortened, has not been measured yet.
+
+How llm-fw runs lean-ctx:
+
+- `lean-ctx proxy start` on a free loopback port, used only for its
+  `POST /v1/compress` endpoint, one result per call. Given a whole
+  conversation, lean-ctx rewrites only the last three messages, so a result
+  would change form as the conversation grows.
+- Its own data, config, state and cache folders under `<LLM_FW_DIR>/lean-ctx/`,
+  a random token, and telemetry off (`DO_NOT_TRACK=1`,
+  `LEAN_CTX_TELEMETRY=off`; lean-ctx sends telemetry by default). Of
+  llm-fw's environment it gets only `PATH`, `HOME`, the temp folders and the
+  like, so provider keys never reach it.
+- lean-ctx stores the original of every lossy result on disk and appends an
+  instruction telling the model to retrieve it. llm-fw blocks the store (a
+  file where lean-ctx's `tee` folder would be) and strips any such
+  instruction: there is no retrieve tool behind llm-fw, and the instruction
+  would land in a tool result that llm-fw's detectors scan.
+- Each result's output is decided the first time it is seen and remembered
+  for the last 4,096 results, so a history comes out the same on every turn.
+  lean-ctx's output for a given result was byte-identical in 834 of 834
+  samples, across a restart of lean-ctx too. The exception is a result
+  forwarded whole because lean-ctx did not answer in time: after llm-fw
+  restarts, or once it is no longer among the 4,096, it can come back
+  shortened, with the consequences described under
+  [Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
+- lean-ctx starts on the first request that needs it (45 to 78 ms on the
+  machine above) and stops when llm-fw exits. Switching the module off does
+  not stop it before then.
+- The Docker image does not include lean-ctx, so there the module forwards
+  every result whole.
 
 ### Tool definition pruner
 
