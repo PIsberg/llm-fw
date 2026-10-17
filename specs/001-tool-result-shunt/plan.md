@@ -74,9 +74,12 @@ either settled below or listed under Decisions. No `research.md`: the two techno
    not local, worker error, store not restricted, store write failed, store full, write-back
    failed), repeated only after the problem changes, never with text. "Checked when it is set"
    (FR-011) means at first use after the value changes: the module reads the live config object.
-8. **FR-012 over FR-006**: a remembered condensed result that detection flags on a later request is
-   forwarded whole from then on. Only a detection setting or suppression change mid-conversation
-   can cause it.
+8. **FR-012 over FR-006**: a remembered condensed result whose own slot detection flags on a later
+   request (Screening `flagged`, for example after a detection setting or suppression change) is
+   forwarded whole from then on. A flag the record cannot place on a slot (`all`: an incomplete
+   scan, a DLP match outside any text slot such as a tool call's input) and a missing record keep
+   only results not yet decided whole; a remembered outcome stays as it is (FR-006), so earlier
+   turns never change because of one.
 9. **Measurement (US5)**: `test/eval/shunt/replay.ts` (free) and `test/eval/shunt/compare.ts`
    (billed, refuses to run without `--approve-spend`), both on a scratch `LLM_FW_DIR` (FR-020); how
    to run them is in quickstart.md.

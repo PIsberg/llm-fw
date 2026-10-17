@@ -47,7 +47,8 @@ reason the result is forwarded whole:
 4. Below the size threshold: `below-threshold`.
 5. `chars > maxInputChars`: `too-large`.
 6. `isLoopbackAddr(ctx.remoteAddress)` (`src/auth.ts`) false: `remote-client`.
-7. Flagged by the Screening record, or no record on the context: `flagged`.
+7. Its slot in the Screening record's `flagged`, or, for a result not yet decided, `all` true or
+   no record on the context: `flagged`.
 
 An eligible result is then decided once (Remembered outcome): condensed, or whole with
 `worker-failed` (no worker, worker not local, error, timeout, empty or malformed answer),
@@ -63,8 +64,10 @@ folder could not be restricted) or `store-full`.
 `Map<key, { text: string; path: string } | { whole: WholeReason }>`, key
 `sha256(toolName + '\0' + text)`, least recently used evicted past 4,096 entries. Only decided
 outcomes are stored (steps 7 and after); steps 1 to 6 are recomputed on every request. A
-condensed outcome is replayed byte-identical on every request that carries the result. A
-`flagged` outcome stays whole for good (FR-012).
+condensed outcome is replayed byte-identical on every request that carries the result, until a
+request puts its own slot in `flagged`: it then becomes `flagged` (plan Design 8). `all` and a
+missing record never change a remembered outcome: a result first condensed was judged clean, by
+the same key, in a scan that judged every item. A `flagged` outcome stays whole for good (FR-012).
 
 ## Screening record (FR-012, D1)
 
@@ -79,13 +82,17 @@ while they screen, read by the module through `ctx.screening`.
 | scan did not judge every item (fail-open pipeline error; `result.enforced === false`) | `incomplete()` |
 
 `flaggedSlots(slots)` takes the request's slots as the module sees them (after DLP) and returns
-`'all'` when `incomplete()` was called, when the pre-DLP body's slot count differs from
-`slots.length`, or when a DLP finding's `match` appears in no pre-DLP slot text of any kind, raw or
-in its `JSON.stringify` form. Otherwise it returns the indices of `tool_result` slots where:
+`{ flagged, all }`. `all` is true when `incomplete()` was called, when the pre-DLP body's slot
+count differs from `slots.length`, or when a DLP finding's `match` appears in no pre-DLP slot text
+of any kind, raw or in its `JSON.stringify` form; it applies only to results not yet decided
+(Remembered outcome). `flagged`, filled whatever `all` is, holds the indices of `tool_result` slots
+where:
 
 - a noted item-flag text contains the slot's text (a parser may join a result's text parts), or
 - the slot's `toolCallId` was MCP-audited, or
-- the pre-DLP slot at the same index contains a DLP `match`, raw or `JSON.stringify`-escaped.
+- the slot counts match and the pre-DLP slot at the same index contains a DLP `match`, raw or
+  `JSON.stringify`-escaped. When they differ this rule is skipped: a slot DLP redacted no longer
+  has its remembered key, so the module decides it as new and `all` keeps it whole.
 
 DLP `match` values stay in memory for the request and are never logged.
 
