@@ -155,6 +155,7 @@ const HOT_PATHS: Path[] = [
   ['blockStatus'],
   ['modules', 'enabled'],
   ['modules', 'tokenPruner', 'enabled'],
+  ['modules', 'ansiStrip', 'enabled'],
   ['modules', 'toolResultPruner', 'enabled'],
   ['modules', 'toolResultPruner', 'minifyJson'],
   ['modules', 'toolResultPruner', 'trimTrailing'],

@@ -66,8 +66,11 @@ an approximation of any provider's bill.
 
 ## Modules
 
+In pipeline order, which is also the order of the cards:
+
 | Module id | Config key | Rewrites |
 | --- | --- | --- |
+| `ansi-strip` | `modules.ansiStrip` | terminal escape codes in tool output and prompts |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
@@ -121,6 +124,15 @@ stream events), OpenAI chat `usage` (a stream carries it only when the client
 sends `stream_options.include_usage`), the Responses API `response.completed`
 event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
 is not metered, so a large download is never held in memory twice.
+
+### ANSI escape stripper
+
+`modules.ansiStrip.enabled` (`LLM_FW_ANSI_STRIP_ENABLED`). Removes terminal
+escape sequences from tool output and user prompts: colour and style codes
+from test runners and linters, cursor movement and line erasure, window
+titles, and OSC 8 hyperlinks (the link text stays). A coloured test summary
+spends several tokens per escape on text the model cannot see. Nothing
+printable is removed.
 
 ### Token pruner
 

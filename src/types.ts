@@ -445,6 +445,7 @@ export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
 export interface ModulesConfig {
   enabled: boolean;
   tokenPruner: TokenPrunerConfig;
+  ansiStrip?: ModuleSwitchConfig;
   toolResultPruner?: ToolResultPrunerConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */

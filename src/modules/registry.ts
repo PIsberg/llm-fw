@@ -1,6 +1,7 @@
 import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
 import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, ToolResultPrunerConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
+import { AnsiStripModule } from './builtin/ansiStrip.js'
 import { TokenPrunerModule } from './builtin/tokenPruner.js'
 import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
@@ -13,8 +14,10 @@ const log = createLogger('modules')
 type BuiltinKey = Exclude<keyof ModulesConfig, 'enabled'>
 
 // Built-in modules in pipeline order, each keyed by the `modules.<key>`
-// object that holds its switch and options.
+// object that holds its switch and options. Content cleaners run first, so
+// the whitespace pruners see text without escape codes.
 export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
+  { key: 'ansiStrip', create: cfg => new AnsiStripModule(cfg) },
   { key: 'tokenPruner', create: cfg => new TokenPrunerModule(cfg) },
   { key: 'toolResultPruner', create: cfg => new ToolResultPrunerModule(cfg as ToolResultPrunerConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },

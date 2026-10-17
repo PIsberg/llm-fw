@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED`).** The token pruner's whitespace rules for the tool
   and parameter descriptions an agent resends on every request. Names, enum values and schema
   structure are never touched.
+- **An ANSI Escape Stripper module, opt-in (`modules.ansiStrip.enabled`,
+  `LLM_FW_ANSI_STRIP_ENABLED`).** Removes terminal colour, cursor, title and hyperlink escape
+  sequences from tool output and prompts; the printable text stays.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

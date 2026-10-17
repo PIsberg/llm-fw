@@ -231,10 +231,11 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_91 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_92 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
+| `LLM_FW_ANSI_STRIP_ENABLED` | `modules.ansiStrip.enabled` | `false` |
 | `LLM_FW_ASCII_SMUGGLING_ENABLED` | `asciiSmuggling.enabled` | `true` |
 | `LLM_FW_AUDIT_ENABLED` | `audit.enabled` | `false` |
 | `LLM_FW_AUDIT_FILE` | `audit.file` | _unset_ |
