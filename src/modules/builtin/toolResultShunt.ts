@@ -117,6 +117,19 @@ const STORE_PROBLEMS = {
   full: 'the folder of stored originals would pass modules.toolResultShunt.maxStoreMB; nothing is deleted to make room and large tool results are forwarded whole',
 } as const
 
+// Why a file that a request found gone could not be put back. The result is
+// forwarded as the conversation already holds it either way (FR-024).
+const WRITE_BACK_PROBLEMS = {
+  failed: 'a file could not be written back to the folder of stored originals',
+  unrestricted: 'access to the folder of stored originals cannot be limited to the running user, so nothing is written back',
+  full: 'the folder of stored originals would pass modules.toolResultShunt.maxStoreMB; nothing is written back and nothing is deleted to make room',
+} as const
+
+const WRITE_BACK_EFFECTS = {
+  original: 'the condensed tool result is forwarded as it was, but the agent cannot open its original',
+  outcome: 'the tool result is forwarded as it was, but after a restart it may be decided again and read differently',
+} as const
+
 /**
  * Replaces a very large tool result with a short list of facts a local worker
  * model read from it, and keeps the original in a file the agent can open.
@@ -176,6 +189,7 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   private waitSamples = 0
   private waitTotalMs = 0
   private waitMaxMs = 0
+  private missingCount = 0
 
   constructor(config?: ToolResultShuntConfig) {
     super(config ?? structuredClone(DEFAULT_CONFIG.modules!.toolResultShunt!))
@@ -261,12 +275,28 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
       waited = true
     }
     entry.carriedAt = Date.now()
-    // Decided or flagged in a dry run, so what it points at is not on disk yet.
-    if (!entry.stored && !dryRun) {
-      await this.persist(job, entry, true)
-      waited = true
+    if (!dryRun) {
+      if (!entry.stored) {
+        // Decided or flagged in a dry run, so what it points at is not on disk yet.
+        await this.persist(job, entry)
+        waited = true
+      } else if (await this.within(this.carry(job, entry), deadline, false)) {
+        // Only a write-back is a wait worth sampling; touching a file is not.
+        waited = true
+      }
     }
     return waited
+  }
+
+  /** Wait for `work`, but not past `deadline` (FR-008): what is left runs on in its place in the key's queue, and `late` stands in for its answer. */
+  private async within<T>(work: Promise<T>, deadline: number, late: T): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const expired = new Promise<T>(resolve => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), late) })
+    try {
+      return await Promise.race([work, expired])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   private async decide(job: Pending, dryRun: boolean, deadline: number): Promise<Remembered> {
@@ -275,10 +305,13 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
     // A result nothing vouches for never goes to the worker. One a restart
     // finds an outcome file for keeps what that file says.
     const decision: Decision = loaded ? saved : job.untrusted ? { whole: 'flagged' } : await this.ask(job, deadline)
-    const entry: Remembered = { decision, carriedAt: Date.now(), stored: false }
+    // An outcome read from disk was left there with its files by a real request,
+    // so it is carried like any remembered result: touched, and put back where
+    // gone, without ever changing what the conversation already holds.
+    const entry: Remembered = { decision, carriedAt: Date.now(), stored: loaded }
     // Remembered only once its files are written, so no request forwards a
     // condensed result whose original is not there.
-    if (!dryRun) await this.persist(job, entry, !loaded)
+    if (!dryRun && !loaded) await this.persist(job, entry)
     return this.remember(job.key, entry)
   }
 
@@ -333,36 +366,61 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   }
 
   /**
-   * Write the original of a condensed result, then its outcome file when
-   * `writeOutcome` (or when the original could not be stored and the outcome
-   * is now "whole"). A condensed result whose original is not on disk becomes
-   * whole: the agent would be told to read a file that is not there. A flagged
-   * result keeps only its outcome, and its original, if there is one, is deleted.
+   * Write the original of a new condensed result, then its outcome file. A
+   * condensed result whose original cannot be stored becomes whole: the agent
+   * would be told to read a file that is not there. A flagged result keeps only
+   * its outcome, and its original, if there is one, is deleted.
    */
-  private persist(job: Job, entry: Remembered, writeOutcome: boolean): Promise<void> {
+  private persist(job: Job, entry: Remembered): Promise<void> {
     return this.onDisk(job.key, async () => {
       // Its turn has come, and the result may have been flagged while it waited.
       if (isFlagged(this.decided.get(job.key)) && !isFlagged(entry)) return
       if (isFlagged(entry)) {
-        if (writeOutcome) await this.keepFlagged(job)
+        await this.keepFlagged(job)
         entry.stored = true
         return
       }
-      let write = writeOutcome
       if ('condensed' in entry.decision) {
         const stored = await this.store.write(job.text)
         if (stored !== 'stored') {
           this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'original' })
           entry.decision = { whole: stored === 'full' ? 'store-full' : 'store-failed' }
-          write = true
         }
       }
-      if (write) {
-        const stored = await this.store.writeOutcome(job.key, entry.decision)
-        if (stored !== 'stored') this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'outcome' })
-      }
+      const stored = await this.store.writeOutcome(job.key, entry.decision)
+      if (stored !== 'stored') this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'outcome' })
       entry.stored = true
     })
+  }
+
+  /**
+   * A request carries a result whose files an earlier request wrote (FR-024):
+   * start a new retention period for them, so the sweep spares what is in use,
+   * and write back any that is gone, the stored original of a condensed result
+   * and the outcome file of any result. The decision itself never changes: a
+   * write-back that fails leaves the conversation's text as it is, said once and
+   * counted as missing. It reads the decision when its turn comes, so a flag that
+   * lands while it waits leaves no original behind. Resolves to whether it wrote.
+   */
+  private async carry(job: Job, entry: Remembered): Promise<boolean> {
+    let wrote = false
+    await this.onDisk(job.key, async () => {
+      if ('condensed' in entry.decision && !(await this.store.touch(job.text))) {
+        const stored = await this.store.write(job.text)
+        if (stored === 'stored') {
+          wrote = true
+        } else {
+          this.missingCount++
+          this.warnOnce(`write-back-original-${stored}`, `${WRITE_BACK_PROBLEMS[stored]}; ${WRITE_BACK_EFFECTS.original}`, { file: 'original' })
+        }
+      }
+      if (!(await this.store.touchOutcome(job.key))) {
+        const stored = await this.store.writeOutcome(job.key, entry.decision)
+        if (stored === 'stored') wrote = true
+        else this.warnOnce(`write-back-outcome-${stored}`, `${WRITE_BACK_PROBLEMS[stored]}; ${WRITE_BACK_EFFECTS.outcome}`, { file: 'outcome' })
+      }
+    })
+    return wrote
   }
 
   /** The outcome file of a flagged result says only that, and no file holds its text. */
@@ -438,8 +496,8 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
         { key: 'waitMaxMs', label: 'Longest wait added (ms)', value: this.waitMaxMs },
         { key: 'storedFiles', label: 'Stored originals', value: files },
         { key: 'storedBytes', label: 'Stored size (bytes)', value: bytes },
-        // Counted from T028, when a stored original is found gone.
-        { key: 'missing', label: 'Stored originals missing', value: 0 },
+        // Originals found gone that a request could not write back; one that is put back is not counted.
+        { key: 'missing', label: 'Stored originals missing', value: this.missingCount },
       ],
     }
   }
@@ -456,5 +514,6 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
     this.waitSamples = 0
     this.waitTotalMs = 0
     this.waitMaxMs = 0
+    this.missingCount = 0
   }
 }
