@@ -18,6 +18,7 @@ import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
+import { ToolResultShuntModule } from '../modules/builtin/toolResultShunt.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
 
@@ -386,7 +387,7 @@ const HTML = `<!DOCTYPE html>
   </div>
 
   <div id="tab-modules" class="tab-panel">
-    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike; the Tool Result Shunt is the exception and runs after them, on the body they passed. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
+    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike; the Tool Result Shunt is the exception and runs after them, on the body they passed, so the condensed text it puts in a request is never scanned. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
     <div class="module-cards" id="module-cards"></div>
     <div class="tlog-wrap">
       <div class="tlog-title">Recent Activity</div>
@@ -918,8 +919,33 @@ function renderModuleCards(mods) {
       '<div class="module-kpis">' + kpis + '</div>';
     const toggle = card.querySelector('input');
     toggle.onchange = () => setModuleEnabled(m.id, toggle);
+    if (m.id === 'tool-result-shunt') {
+      const purge = document.createElement('button');
+      purge.className = 'btn';
+      purge.type = 'button';
+      purge.style.marginTop = '10px';
+      purge.textContent = 'Delete stored originals';
+      purge.title = 'Deletes every file in the folder of stored originals, and the outcomes remembered beside them';
+      purge.onclick = () => purgeStoredOriginals(purge);
+      card.appendChild(purge);
+    }
     return card;
   }));
+}
+
+async function purgeStoredOriginals(button) {
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/modules/tool-result-shunt/purge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch (_) {
+    button.textContent = 'Delete failed';
+    button.disabled = false;
+    return;
+  }
+  loadModuleStats();
 }
 
 async function setModuleEnabled(id, toggle) {
@@ -2350,6 +2376,39 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))
       })
+      return
+    }
+
+    // Empties the folder of stored originals and remembered outcomes (FR-025).
+    // The body is ignored; the guard is the one POST /api/modules uses.
+    if (req.method === 'POST' && path === '/api/modules/tool-result-shunt/purge') {
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
+      const shunt = modManager.getModule('tool-result-shunt')
+      if (!(shunt instanceof ToolResultShuntModule)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'unknown module' }))
+        return
+      }
+      req.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'request read error' }))
+      })
+      req.on('end', () => {
+        shunt.store.purge().then(deleted => {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, deleted }))
+        }, (err: unknown) => {
+          log.error('/api/modules/tool-result-shunt/purge handler error', { err })
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'internal error' }))
+        })
+      })
+      req.resume()
       return
     }
 

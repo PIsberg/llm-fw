@@ -66,7 +66,7 @@ export function eligibility(
 type Decision = { condensed: string } | { whole: WholeReason }
 
 /** The reasons an outcome file may name: the ones that are a decision, not a rule recomputed on every request. */
-const DECIDED_WHOLE: ReadonlySet<string> = new Set<WholeReason>(['worker-failed', 'rejected', 'store-failed', 'store-full'])
+const DECIDED_WHOLE: ReadonlySet<string> = new Set<WholeReason>(['flagged', 'worker-failed', 'rejected', 'store-failed', 'store-full'])
 
 /** A decided result, as remembered (data-model.md "Remembered outcome"). */
 interface Remembered {
@@ -79,6 +79,17 @@ interface Remembered {
 
 /** One result to decide: the key it is remembered and stored under, the tool that made it and its exact text. */
 interface Job { key: string; name: string; text: string }
+
+/**
+ * A result of the request being prepared, with what the screening record says
+ * of it. `flagged`: a scan, the MCP audit or DLP flagged it. `untrusted`: the
+ * record cannot vouch for it (no record, an incomplete scan, one cut short
+ * before it); that is not a flag, so a decision already made stands.
+ */
+interface Pending extends Job { flagged: boolean; untrusted: boolean }
+
+const isFlagged = (entry: Remembered | undefined): boolean =>
+  entry !== undefined && 'whole' in entry.decision && entry.decision.whole === 'flagged'
 
 const WORKER_PROBLEMS: Record<Exclude<WorkerProblem, 'partial-input'>, string> = {
   'no-worker': 'no worker is set up (modules.toolResultShunt.workerUrl and workerModel); large tool results are forwarded whole',
@@ -101,7 +112,10 @@ const STORE_PROBLEMS = {
  * byte-identical on every turn and after a restart. A result the worker did
  * not condense stays whole for good, and so does one whose original could not
  * be stored. It runs after detection and DLP (`afterScreening`), on the body
- * that would be forwarded.
+ * that would be forwarded, and reads `ctx.screening` to leave whole what they
+ * flagged or did not scan: a new result nothing vouches for is never sent to
+ * the worker, and one condensed earlier goes whole, for good, from the first
+ * request on which its own slot is flagged (its stored original is deleted).
  */
 export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   readonly id = 'tool-result-shunt'
@@ -120,11 +134,15 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   private readonly calls = new RememberedCalls()
   // Result key to what was decided. No entry cap: dropping one would let the
   // result be decided again and come out differently. An entry nothing has
-  // carried for `retentionHours` is dropped, as its files are swept.
+  // carried for `retentionHours` is dropped, as its files are swept; a
+  // flagged one is not, so a result detection flagged is not asked about
+  // once its entry lapses.
   private readonly decided = new Map<string, Remembered>()
   // Results being decided now, so a request carrying one of them joins the
   // decision instead of asking the worker again.
   private readonly inflight = new Map<string, Promise<Remembered>>()
+  // Each key's disk writes, one after another (see onDisk).
+  private readonly diskChain = new Map<string, Promise<void>>()
   // Problems already warned about; a problem is said once, never with text.
   private readonly warned = new Set<string>()
   private nextPrune = 0
@@ -150,12 +168,24 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   }
 
   async prepare(payload: Record<string, unknown>, ctx: GatewayModuleContext): Promise<void> {
-    const jobs = new Map<string, Job>()
-    for (const slot of collectTextSlots(payload)) {
+    const slots = collectTextSlots(payload)
+    const found: Array<{ index: number; job: Job }> = []
+    slots.forEach((slot, index) => {
       const job = this.job(slot, ctx.remoteAddress)
-      if (job) jobs.set(job.key, job)
-    }
-    if (jobs.size > 0) {
+      if (job) found.push({ index, job })
+    })
+    if (found.length > 0) {
+      // What detection and DLP made of each result, read once per request.
+      const screened = ctx.screening?.flaggedSlots(slots)
+      const jobs = new Map<string, Pending>()
+      for (const { index, job } of found) {
+        const seen = jobs.get(job.key)
+        jobs.set(job.key, {
+          ...job,
+          flagged: seen?.flagged === true || screened?.flagged.has(index) === true,
+          untrusted: seen?.untrusted === true || screened === undefined || screened.all || screened.unreached.has(index),
+        })
+      }
       // One wait limit for the whole request, however many results it carries.
       const deadline = Date.now() + this.cfg.waitMs
       await Promise.all([...jobs.values()].map(job => this.settle(job, ctx.dryRun === true, deadline)))
@@ -163,10 +193,25 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
     this.prune(Date.now())
   }
 
-  /** Make sure the result has a decision, deciding it if no request has, and note that this request carries it. */
-  private async settle(job: Job, dryRun: boolean, deadline: number): Promise<void> {
+  /**
+   * Make sure the result has a decision, deciding it if no request has, and
+   * note that this request carries it. A result flagged on this request goes
+   * whole whatever state it is in: an earlier condensation, or a decision
+   * another request is still making.
+   */
+  private async settle(job: Pending, dryRun: boolean, deadline: number): Promise<void> {
     let entry = this.decided.get(job.key)
-    if (!entry) {
+    if (job.flagged && !isFlagged(entry) && (!entry || 'condensed' in entry.decision)) {
+      // Flagged in memory at once, so nothing decided or written from here on
+      // treats it as condensed. Its files follow below, behind the key's pending writes.
+      if (entry) {
+        entry.decision = { whole: 'flagged' }
+        entry.stored = false
+      } else {
+        entry = { decision: { whole: 'flagged' }, carriedAt: Date.now(), stored: false }
+        this.decided.set(job.key, entry)
+      }
+    } else if (!entry) {
       let pending = this.inflight.get(job.key)
       if (!pending) {
         pending = this.decide(job, dryRun, deadline).finally(() => this.inflight.delete(job.key))
@@ -175,18 +220,28 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
       entry = await pending
     }
     entry.carriedAt = Date.now()
-    // Decided in a dry run, so nothing it points at is on disk yet.
+    // Decided or flagged in a dry run, so what it points at is not on disk yet.
     if (!entry.stored && !dryRun) await this.persist(job, entry, true)
   }
 
-  private async decide(job: Job, dryRun: boolean, deadline: number): Promise<Remembered> {
+  private async decide(job: Pending, dryRun: boolean, deadline: number): Promise<Remembered> {
     const saved = await this.store.readOutcome(job.key)
     const loaded = saved !== null && this.valid(saved, job.text)
-    const entry: Remembered = { decision: loaded ? saved : await this.ask(job, deadline), carriedAt: Date.now(), stored: false }
+    // A result nothing vouches for never goes to the worker. One a restart
+    // finds an outcome file for keeps what that file says.
+    const decision: Decision = loaded ? saved : job.untrusted ? { whole: 'flagged' } : await this.ask(job, deadline)
+    const entry: Remembered = { decision, carriedAt: Date.now(), stored: false }
     // Remembered only once its files are written, so no request forwards a
     // condensed result whose original is not there.
     if (!dryRun) await this.persist(job, entry, !loaded)
-    this.decided.set(job.key, entry)
+    return this.remember(job.key, entry)
+  }
+
+  /** Remember a decision just made, unless a flag got there first: a flagged outcome is never replaced. */
+  private remember(key: string, entry: Remembered): Remembered {
+    const current = this.decided.get(key)
+    if (current && isFlagged(current)) return current
+    this.decided.set(key, entry)
     return entry
   }
 
@@ -211,26 +266,59 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
   }
 
   /**
+   * Run `write` after every write already queued for `key`. All the disk
+   * writes of one result go through here, so a flag that arrives while a
+   * condensation is being written is applied after it, never before: the
+   * original cannot be written back over the flip that deleted it.
+   */
+  private onDisk(key: string, write: () => Promise<void>): Promise<void> {
+    const run = (this.diskChain.get(key) ?? Promise.resolve()).then(write)
+    const tail = run.then(() => undefined, () => undefined)
+    this.diskChain.set(key, tail)
+    void tail.then(() => {
+      if (this.diskChain.get(key) === tail) this.diskChain.delete(key)
+    })
+    return run
+  }
+
+  /**
    * Write the original of a condensed result, then its outcome file when
    * `writeOutcome` (or when the original could not be stored and the outcome
    * is now "whole"). A condensed result whose original is not on disk becomes
-   * whole: the agent would be told to read a file that is not there.
+   * whole: the agent would be told to read a file that is not there. A flagged
+   * result keeps only its outcome, and its original, if there is one, is deleted.
    */
-  private async persist(job: Job, entry: Remembered, writeOutcome: boolean): Promise<void> {
-    let write = writeOutcome
-    if ('condensed' in entry.decision) {
-      const stored = await this.store.write(job.text)
-      if (stored !== 'stored') {
-        this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'original' })
-        entry.decision = { whole: stored === 'full' ? 'store-full' : 'store-failed' }
-        write = true
+  private persist(job: Job, entry: Remembered, writeOutcome: boolean): Promise<void> {
+    return this.onDisk(job.key, async () => {
+      // Its turn has come, and the result may have been flagged while it waited.
+      if (isFlagged(this.decided.get(job.key)) && !isFlagged(entry)) return
+      if (isFlagged(entry)) {
+        if (writeOutcome) await this.keepFlagged(job)
+        entry.stored = true
+        return
       }
-    }
-    if (write) {
-      const stored = await this.store.writeOutcome(job.key, entry.decision)
-      if (stored !== 'stored') this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'outcome' })
-    }
-    entry.stored = true
+      let write = writeOutcome
+      if ('condensed' in entry.decision) {
+        const stored = await this.store.write(job.text)
+        if (stored !== 'stored') {
+          this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'original' })
+          entry.decision = { whole: stored === 'full' ? 'store-full' : 'store-failed' }
+          write = true
+        }
+      }
+      if (write) {
+        const stored = await this.store.writeOutcome(job.key, entry.decision)
+        if (stored !== 'stored') this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'outcome' })
+      }
+      entry.stored = true
+    })
+  }
+
+  /** The outcome file of a flagged result says only that, and no file holds its text. */
+  private async keepFlagged(job: Job): Promise<void> {
+    const stored = await this.store.writeOutcome(job.key, { whole: 'flagged' })
+    if (stored !== 'stored') this.warnOnce(`store-${stored}`, STORE_PROBLEMS[stored], { file: 'outcome' })
+    await this.store.remove(job.text)
   }
 
   private warnOnce(problem: string, message: string, fields: Record<string, unknown> = {}): void {
@@ -244,7 +332,7 @@ export class ToolResultShuntModule extends SlotModule<ToolResultShuntConfig> {
     if (now < this.nextPrune) return
     this.nextPrune = now + HOUR
     const retention = this.cfg.retentionHours * HOUR
-    for (const [key, entry] of this.decided) if (now - entry.carriedAt > retention) this.decided.delete(key)
+    for (const [key, entry] of this.decided) if (now - entry.carriedAt > retention && !isFlagged(entry)) this.decided.delete(key)
   }
 
   protected override apply(payload: Record<string, unknown>, ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome {
