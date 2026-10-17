@@ -82,6 +82,47 @@ it replaced overstated what collapsing whitespace saves on column-aligned
 tool output by 75%. Claude's tokenizer is not public, so treat the numbers as
 an approximation of any provider's bill.
 
+## Measured on live Claude Code traffic
+
+On 2026-10-17, Claude Code 2.1.302 with Claude Opus 5.5 ran read-and-summarize
+tasks (read source files, grep, `git log`, list and summarize) through the
+proxy: one observe pass on this repository with every module on, and two
+enforcing A/B rounds on a clone of express with the rewriting modules off, then
+on (everything but `collapseSpaceRuns`).
+
+Share of the examined text each module removed, from its card:
+
+| Module | Removed |
+| --- | --- |
+| `tool-result-truncate` | 11% of tool output (this repository), 26 to 28% (express) |
+| `tool-result-pruner` | 5.2% of tool output with `collapseSpaceRuns` on; 0.4 to 0.6% without |
+| `ansi-strip` | 1.8% of prompt and tool text with a coloured `git log` in it; 0.4% otherwise |
+| `tool-definition-pruner` | 0.03% |
+| `token-pruner` | 0.02% |
+| `progress-collapse`, `repeat-collapse`, `blob-elide`, `tool-result-dedup` | 0: no task produced that kind of output |
+| `history-window` | 0: Claude Code sends thread continuations, which it never cuts |
+| `cache-control` | 0 requests marked: every request already carried Claude Code's own markers |
+| `response-cache` | 0 hits: no request repeated |
+
+What was billed, from the Usage Meter, which matched Claude Code's own usage
+report to the token. Four tasks that completed in both configurations, two
+rounds each:
+
+| | Modules off | Modules on |
+| --- | --- | --- |
+| Cost | $2.68 | $2.52 (−5.7%) |
+| Cache writes | 257,657 | 224,177 (−13%) |
+| Cache reads | 1,288,014 | 1,658,814 (+29%) |
+| Turns | 38 | 47 (+24%) |
+
+The truncator is the only module that moved the bill, and it trades latency
+for it: after a file read came back with `[llm-fw: N lines elided]`, the agent
+read the elided range back, so sessions took more turns. Cache writes, which
+cost far more per token than cache reads, still fell enough to lower the
+total. The sample is small and the turn count varies from run to run, so read
+the cost delta as a direction, not a guarantee. For Claude Code, the
+whitespace modules are below 1% and not worth the risk they carry for edits.
+
 ## Modules
 
 In pipeline order, which is also the order of the cards:
