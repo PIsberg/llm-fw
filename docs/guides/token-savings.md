@@ -242,9 +242,11 @@ is part of llm-fw.
 
 Install lean-ctx yourself (`cargo install lean-ctx`, or a release binary from
 its GitHub page) and put it on `PATH`, or set `LLM_FW_LEAN_CTX_BIN` to the
-executable. That variable is read from the process environment only, like
-`LLM_FW_DIR`: a project config file comes with whatever repository llm-fw is
-started in, and must not choose a program for llm-fw to run. Do not install
+executable's absolute path. That variable is read from the process
+environment only, like `LLM_FW_DIR`: a project config file comes with
+whatever repository llm-fw is started in, and must not choose a program for
+llm-fw to run. For the same reason only absolute `PATH` entries are searched,
+never the working directory, where Windows would look first for a bare name. Do not install
 lean-ctx through the `lean-ctx-bin` npm package for this: its install script
 downloads the newest release whatever version you asked for, and runs
 `lean-ctx onboard`, which reconfigures your AI tools. When lean-ctx is
@@ -289,6 +291,12 @@ How llm-fw runs lean-ctx:
   `POST /v1/compress` endpoint, one result per call. Given a whole
   conversation, lean-ctx rewrites only the last three messages, so a result
   would change form as the conversation grows.
+- The port is picked before lean-ctx binds it, and lean-ctx prints its
+  banner before binding, so another local process could take the port in
+  between and answer in its place. Nothing is sent until the OS reports the
+  started process as the only listener on that port (`/proc` on Linux,
+  `netstat` on Windows, `lsof` on macOS); where it cannot tell, lean-ctx is
+  not used.
 - Its own data, config, state and cache folders under `<LLM_FW_DIR>/lean-ctx/`,
   a random token, and telemetry off (`DO_NOT_TRACK=1`,
   `LEAN_CTX_TELEMETRY=off`; lean-ctx sends telemetry by default). Of

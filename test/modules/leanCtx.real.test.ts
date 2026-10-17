@@ -45,8 +45,10 @@ describe.runIf(installed || required)('LeanCtxModule with the real lean-ctx', ()
     if (savedDir === undefined) delete process.env.LLM_FW_DIR
     else process.env.LLM_FW_DIR = savedDir
   })
+  // What lean-ctx does, not how fast: on CI it answers in under 2 s, but in
+  // a full local run alongside 140 other test files it missed 15 s once.
   const compressed = async () => {
-    const mod = new LeanCtxModule({ ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: 15_000 })
+    const mod = new LeanCtxModule({ ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: 45_000 })
     modules.push(mod)
     const res = await mod.transformRequest(request, ctx)
     return JSON.parse(res.body).messages[1].content[0].content as string
@@ -65,7 +67,7 @@ describe.runIf(installed || required)('LeanCtxModule with the real lean-ctx', ()
     for (const file of filesUnder(join(dir, 'lean-ctx'))) {
       expect(fs.readFileSync(file, 'utf8').includes('lib-137-1.0.jar'), file).toBe(false)
     }
-  }, 60_000)
+  }, 120_000)
 
   it('gives the same bytes from a freshly started lean-ctx', async () => {
     process.env.LLM_FW_DIR = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-real-'))
@@ -73,5 +75,5 @@ describe.runIf(installed || required)('LeanCtxModule with the real lean-ctx', ()
     for (const mod of modules.splice(0)) mod.close()
     process.env.LLM_FW_DIR = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-real-'))
     expect(await compressed()).toBe(first)
-  }, 60_000)
+  }, 120_000)
 })

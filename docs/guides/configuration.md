@@ -229,7 +229,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 `LLM_FW_GATEWAY_KEY_<SLUG>` is deliberately absent. Provider keys are read straight from the environment and never enter the config object, so the dashboard settings view cannot read them back out.
 
-`LLM_FW_LEAN_CTX_BIN` is absent for a similar reason: it names the lean-ctx executable the [lean-ctx module](token-savings.md#lean-ctx-shell-output-compressor) starts, and is read from the process environment only, so a project config file in a cloned repository cannot choose a program for llm-fw to run.
+`LLM_FW_LEAN_CTX_BIN` is absent for a similar reason: it is the absolute path of the lean-ctx executable the [lean-ctx module](token-savings.md#lean-ctx-shell-output-compressor) starts, and is read from the process environment only, so a project config file in a cloned repository cannot choose a program for llm-fw to run.
 
 <!-- CONFIG-REFERENCE-START -->
 

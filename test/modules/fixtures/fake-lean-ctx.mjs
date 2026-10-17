@@ -6,13 +6,14 @@
 // Compression: a message of more than four lines keeps its first two and
 // gets lean-ctx's omission line plus the retrieve instruction lean-ctx
 // appends to a lossy result. Text containing SLOW is answered after 1.5 s
-// the first time it is seen.
+// the first time it is seen; text containing CRASH is written to stderr and
+// the process exits. A taken port makes it exit, as lean-ctx does.
 import { createServer } from 'node:http'
 import { appendFileSync } from 'node:fs'
 
 const port = Number(process.argv.find(a => a.startsWith('--port='))?.slice(7))
 const log = (entry) => appendFileSync(process.env.FAKE_LEAN_CTX_LOG, JSON.stringify(entry) + '\n')
-log({ started: process.argv.slice(2), env: process.env })
+log({ started: process.argv.slice(2), env: process.env, cwd: process.cwd() })
 
 const seen = new Set()
 const compress = async (text) => {
@@ -36,6 +37,10 @@ createServer((req, res) => {
     const { messages } = JSON.parse(body)
     for (const m of messages) {
       log({ compress: m.content, name: m.name })
+      if (m.content.includes('CRASH')) {
+        process.stderr.write(`panicked while compressing: ${m.content}\n`)
+        process.exit(3)
+      }
       m.content = await compress(m.content)
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })

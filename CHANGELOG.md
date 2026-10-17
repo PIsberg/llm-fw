@@ -78,8 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A lean-ctx Shell Output Compressor module, opt-in and lossy (`modules.leanCtx.enabled`,
   `LLM_FW_LEAN_CTX_ENABLED`, `tools`, `skipCommands`, `timeoutMs` 500).** The output of a
   `Bash` or `PowerShell` command goes to a private [lean-ctx](https://github.com/yvgude/lean-ctx)
-  that llm-fw starts on a loopback port, using the lean-ctx you installed (on `PATH`, or
-  `LLM_FW_LEAN_CTX_BIN`, read from the process environment only). Results of commands that print
+  that llm-fw starts on a loopback port, using the lean-ctx you installed (an absolute `PATH`
+  entry, or an absolute `LLM_FW_LEAN_CTX_BIN`, read from the process environment only). Nothing
+  is sent until the OS reports that process as the one listening on the port. Results of commands that print
   files or search them (`cat`, `sed`, `grep`, `| tail`, `Get-Content` and others) stay whole, as
   do results whose command is unknown: sent everything, lean-ctx cut a 361-line file read to 15
   lines. lean-ctx runs with telemetry off, its own folders under `LLM_FW_DIR`, none of llm-fw's

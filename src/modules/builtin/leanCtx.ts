@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import { createServer, type AddressInfo } from 'node:net'
-import { join } from 'node:path'
+import { delimiter, isAbsolute, join } from 'node:path'
+import { promisify } from 'node:util'
 import type { LeanCtxConfig } from '../../types.js'
 import type { GatewayModuleContext } from '../types.js'
 import type { CapturedResponse } from '../responseTap.js'
@@ -53,9 +54,87 @@ const PASSED_ENV = new Set(['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', '
 
 // Measured on 30 days of Claude Code traffic: p50 5.6 ms, p99 55 ms a call.
 const CONCURRENCY = 8
-const STARTUP_MS = 10_000
+// lean-ctx answered in 45 to 78 ms; a request waits only timeoutMs for it,
+// so this only decides when a lean-ctx that never answers is given up on.
+const STARTUP_MS = 30_000
 const RETRY_MS = 60_000
 const MAX_REMEMBERED = 4096
+
+/**
+ * The lean-ctx executable as an absolute path. Searched for in the absolute
+ * entries of PATH only: given a bare name, Windows looks in the working
+ * directory first, and llm-fw is started inside repositories it did not
+ * write. LLM_FW_LEAN_CTX_BIN, when set, must be absolute for the same reason.
+ */
+function leanCtxBinary(): string {
+  const configured = process.env.LLM_FW_LEAN_CTX_BIN
+  if (configured) {
+    if (!isAbsolute(configured)) throw new Error('LLM_FW_LEAN_CTX_BIN must be an absolute path')
+    return configured
+  }
+  const names = process.platform === 'win32' ? ['lean-ctx.exe', 'lean-ctx.com'] : ['lean-ctx']
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir || !isAbsolute(dir)) continue
+    for (const name of names) {
+      const candidate = join(dir, name)
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK)
+        if (fs.statSync(candidate).isFile()) return candidate
+      } catch {
+        // not here
+      }
+    }
+  }
+  throw new Error('lean-ctx not found on PATH')
+}
+
+const execFileAsync = promisify(execFile)
+const run = async (file: string, args: string[]): Promise<string> =>
+  (await execFileAsync(file, args, { timeout: 5000, windowsHide: true })).stdout
+
+/**
+ * True when `pid` is the only process listening on TCP `port`, as the OS
+ * reports it; false when anything else listens there or the OS cannot tell.
+ * lean-ctx prints its banner before it binds, and when the port is taken it
+ * exits 45 ms later while whoever holds the port answers /health, so a
+ * healthy port alone does not say lean-ctx is behind it.
+ */
+async function ownsPort(pid: number | undefined, port: number): Promise<boolean> {
+  if (pid === undefined) return false
+  try {
+    let owners: string[]
+    if (process.platform === 'linux') {
+      // /proc/net/tcp{,6}: local address, state 0A (LISTEN), inode in column 10.
+      const hex = `:${port.toString(16).toUpperCase().padStart(4, '0')}`
+      const inodes = new Set<string>()
+      for (const file of ['/proc/net/tcp', '/proc/net/tcp6']) {
+        if (!fs.existsSync(file)) continue
+        for (const line of fs.readFileSync(file, 'utf8').split('\n').slice(1)) {
+          const cols = line.trim().split(/\s+/)
+          if (cols[1]?.endsWith(hex) && cols[3] === '0A' && cols[9]) inodes.add(cols[9])
+        }
+      }
+      const fdDir = `/proc/${pid}/fd`
+      const mine = new Set(fs.readdirSync(fdDir).map(fd => { try { return fs.readlinkSync(join(fdDir, fd)) } catch { return '' } }))
+      return inodes.size > 0 && [...inodes].every(inode => mine.has(`socket:[${inode}]`))
+    } else if (process.platform === 'win32') {
+      // Listening rows have a zero foreign address; the state column is
+      // localised, so it is not read.
+      const netstat = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'netstat.exe')
+      owners = (await run(netstat, ['-ano'])).split('\n').map(l => l.trim().split(/\s+/))
+        .filter(c => c[0] === 'TCP' && c[1]?.endsWith(`:${port}`) && (c[2] === '0.0.0.0:0' || c[2] === '[::]:0'))
+        .map(c => c[c.length - 1]!)
+    } else if (process.platform === 'darwin') {
+      owners = (await run('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'])).split('\n')
+        .filter(l => l.startsWith('p')).map(l => l.slice(1))
+    } else {
+      return false
+    }
+    return owners.length > 0 && owners.every(owner => owner === String(pid))
+  } catch {
+    return false
+  }
+}
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -84,11 +163,16 @@ class Sidecar {
   alive = true
   readonly ready: Promise<boolean>
   private readonly child: ChildProcess
+  private readonly port: number
   private readonly url: string
   private readonly token: string
+  // Set once lean-ctx answered: from then on it has seen tool output, and its
+  // stderr is no longer logged.
+  private served = false
   private readonly onExit = (): void => { this.child.kill() }
 
   private constructor(launch: LeanCtxSpawn, binary: string, port: number, onStop: (reason: string, detail: Record<string, string>) => void) {
+    this.port = port
     this.url = `http://127.0.0.1:${port}`
     this.token = randomBytes(24).toString('hex')
 
@@ -113,12 +197,15 @@ class Sidecar {
     Object.assign(env, dirs, { DO_NOT_TRACK: '1', LEAN_CTX_TELEMETRY: 'off', LEAN_CTX_PROXY_TOKEN: this.token })
 
     let stderr = ''
-    this.child = launch(binary, ['proxy', 'start', `--port=${port}`], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    this.child = launch(binary, ['proxy', 'start', `--port=${port}`], { cwd: home, env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
     this.child.stderr?.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-2048) })
     process.once('exit', this.onExit)
     const exited = new Promise<boolean>(resolve => {
       const done = (reason: string): void => {
-        if (this.alive) onStop(reason, { binary, stderr: stderr.trim() })
+        // Why it failed to start is worth logging; after it served, its
+        // stderr may quote tool output, so only the reason is.
+        const detail = this.served ? { binary } : { binary, stderr: stderr.trim().split('\n').slice(-5).join('\n').slice(-500) }
+        if (this.alive) onStop(reason, detail)
         this.alive = false
         process.removeListener('exit', this.onExit)
         resolve(false)
@@ -127,21 +214,33 @@ class Sidecar {
       this.child.once('exit', code => done(`exit ${String(code)}`))
     })
     this.ready = Promise.race([exited, this.healthy(Date.now() + STARTUP_MS)])
+    void this.ready.then(ok => {
+      if (ok) {
+        this.served = true
+      } else if (this.alive) {
+        // Running but never healthy (or never on a port it holds): stop it,
+        // so the next request after RETRY_MS starts another.
+        onStop(`not answering on its own port after ${STARTUP_MS / 1000} s`, { binary })
+        this.close()
+      }
+    })
   }
 
   static async start(launch: LeanCtxSpawn, onStop: (reason: string, detail: Record<string, string>) => void): Promise<Sidecar> {
     // From the process environment only, like LLM_FW_DIR: a project config
     // file comes with whatever repository llm-fw is started in, and must not
     // choose a program for it to run.
-    const binary = process.env.LLM_FW_LEAN_CTX_BIN || 'lean-ctx'
-    return new Sidecar(launch, binary, await freePort(), onStop)
+    return new Sidecar(launch, leanCtxBinary(), await freePort(), onStop)
   }
 
+  // Healthy means answering /health on a port the OS says this child holds:
+  // the port is chosen before lean-ctx binds it, so another local process
+  // can take it in between and would otherwise receive the tool output.
   private async healthy(deadline: number): Promise<boolean> {
     while (this.alive && Date.now() < deadline) {
       try {
         const res = await fetch(`${this.url}/health`, { signal: AbortSignal.timeout(1000) })
-        if (res.ok) return true
+        if (res.ok && this.alive && await ownsPort(this.child.pid, this.port)) return true
       } catch {
         // not listening yet
       }

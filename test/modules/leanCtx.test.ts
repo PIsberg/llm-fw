@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { LeanCtxModule, isFileRead, type LeanCtxSpawn } from '../../src/modules/builtin/leanCtx.js'
 import { AnsiStripModule } from '../../src/modules/builtin/ansiStrip.js'
@@ -71,6 +72,8 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
   function setup(overrides: Partial<LeanCtxConfig> = {}) {
     const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-'))
     process.env.LLM_FW_DIR = dir
+    // Absolute, so the lookup accepts it; the stand-in runs whatever it names.
+    process.env.LLM_FW_LEAN_CTX_BIN ??= join(dir, 'lean-ctx')
     const logFile = join(dir, 'fake.log')
     const binaries: string[] = []
     const launch: LeanCtxSpawn = (command, args, options) => {
@@ -82,7 +85,7 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     const mod = new LeanCtxModule(cfg, launch)
     modules.push(mod)
     const entries = () => fs.existsSync(logFile)
-      ? fs.readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { started?: string[]; env?: Record<string, string>; compress?: string })
+      ? fs.readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { started?: string[]; env?: Record<string, string>; cwd?: string; compress?: string })
       : []
     const send = async (messages: unknown[]) => JSON.parse((await mod.transformRequest(JSON.stringify({ messages }), ctx)).body) as { messages: Array<{ content: Array<{ content: string }> }> }
     return { dir, cfg, mod, binaries, entries, sent: () => entries().filter(e => e.compress !== undefined).map(e => e.compress), send }
@@ -222,6 +225,128 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     }
   })
 
+  it('stops a lean-ctx that never answers, and starts another later', async () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-'))
+    process.env.LLM_FW_DIR = dir
+    process.env.LLM_FW_LEAN_CTX_BIN = join(dir, 'lean-ctx')
+    const children: ReturnType<typeof spawn>[] = []
+    // Runs, listens on nothing, answers nothing.
+    const launch: LeanCtxSpawn = (_command, _args, options) => {
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], options)
+      children.push(child)
+      return child
+    }
+    const mod = new LeanCtxModule({ ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: 300 }, launch)
+    modules.push(mod)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const send = (id: string) => mod.transformRequest(JSON.stringify({ messages: turn([bash(id, 'npm test', log(40, id))]) }), ctx)
+      expect((await send('a')).modified).toBe(false)
+      const exited = new Promise(resolve => children[0]!.once('exit', resolve))
+      clock.mockReturnValue(now + 31_000)
+      await exited
+      clock.mockReturnValue(now + 61_000)
+      expect((await send('b')).modified).toBe(false)
+      expect(children).toHaveLength(2)
+    } finally {
+      clock.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
+  // llm-fw is started inside repositories it did not write, and Windows
+  // looks for a bare program name in the working directory first.
+  it('runs lean-ctx only from an absolute PATH entry or an absolute LLM_FW_LEAN_CTX_BIN', async () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-'))
+    process.env.LLM_FW_DIR = dir
+    delete process.env.LLM_FW_LEAN_CTX_BIN
+    const name = process.platform === 'win32' ? 'lean-ctx.exe' : 'lean-ctx'
+    const plant = (folder: string) => {
+      fs.mkdirSync(folder, { recursive: true })
+      fs.writeFileSync(join(folder, name), '')
+      fs.chmodSync(join(folder, name), 0o755)
+    }
+    const binaries: string[] = []
+    const launch: LeanCtxSpawn = (command, args, options) => {
+      binaries.push(command)
+      return spawn(process.execPath, [FAKE, ...args], { ...options, env: { ...options.env, FAKE_LEAN_CTX_LOG: join(dir, 'fake.log') } })
+    }
+    const attempt = async (id: string) => {
+      const mod = new LeanCtxModule({ ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: START_BUDGET_MS }, launch)
+      modules.push(mod)
+      return JSON.parse((await mod.transformRequest(JSON.stringify({ messages: turn([bash(id, 'npm test', log(40, id))]) }), ctx)).body).messages[1].content[0].content as string
+    }
+    // A relative PATH entry, as `.` or a repository's bin/ would be, is not searched.
+    plant(join(dir, 'relative-bin'))
+    process.env.PATH = `relative-bin${delimiter}${join(dir, 'empty')}`
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      expect(await attempt('a')).toBe(log(40, 'a'))
+    } finally {
+      process.chdir(cwd)
+    }
+    process.env.LLM_FW_LEAN_CTX_BIN = join('bin', name)
+    expect(await attempt('b')).toBe(log(40, 'b'))
+    expect(binaries).toEqual([])
+
+    delete process.env.LLM_FW_LEAN_CTX_BIN
+    plant(join(dir, 'absolute-bin'))
+    process.env.PATH = `relative-bin${delimiter}${join(dir, 'absolute-bin')}`
+    expect(await attempt('c')).toBe('[INFO] c 1\n[INFO] c 2\n[38 lines omitted]')
+    expect(binaries).toEqual([join(dir, 'absolute-bin', name)])
+  })
+
+  // The port is picked before lean-ctx binds it. A process that takes it in
+  // between answers /health while lean-ctx, unable to bind, exits.
+  it('sends nothing to a process that took the port lean-ctx was given', async () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-'))
+    process.env.LLM_FW_DIR = dir
+    process.env.LLM_FW_LEAN_CTX_BIN = join(dir, 'lean-ctx')
+    const received: string[] = []
+    let impostor: Server | undefined
+    const launch: LeanCtxSpawn = (_command, args, options) => {
+      const port = Number(args.find(a => a.startsWith('--port='))!.slice(7))
+      impostor = createServer((req, res) => {
+        let body = ''
+        req.on('data', chunk => { body += chunk })
+        req.on('end', () => {
+          if (req.url === '/v1/compress') received.push(body)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(req.url === '/health' ? 'ok' : JSON.stringify({ messages: [{ role: 'tool', content: 'impostor' }] }))
+        })
+      }).listen(port, '127.0.0.1')
+      return spawn(process.execPath, [FAKE, ...args], { ...options, env: { ...options.env, FAKE_LEAN_CTX_LOG: join(dir, 'fake.log') } })
+    }
+    const mod = new LeanCtxModule({ ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: START_BUDGET_MS }, launch)
+    modules.push(mod)
+    try {
+      const out = JSON.parse((await mod.transformRequest(JSON.stringify({ messages: turn([bash('t1', 'mvn -q verify')]) }), ctx)).body)
+      expect(out.messages[1].content[0].content).toBe(LOG)
+      expect(received).toEqual([])
+    } finally {
+      impostor?.close()
+    }
+  })
+
+  it('logs why lean-ctx stopped, but not its stderr once it has seen tool output', async () => {
+    const { send } = setup()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await send(turn([bash('t1', 'mvn -q verify')]))
+      await send(turn([bash('t2', 'npm test', log(40, 'CRASH token=sk-live-0123'))]))
+      await new Promise(resolve => setTimeout(resolve, 300))
+      const lines = warn.mock.calls.map(([line]) => String(line)).filter(line => line.includes('lean-ctx stopped'))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toContain('exit 3')
+      expect(lines[0]).not.toContain('sk-live-0123')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('starts lean-ctx with telemetry off, its own folders under LLM_FW_DIR, its own token, and nothing else from the environment', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-not-for-lean-ctx'
     process.env.LLM_FW_LEAN_CTX_BIN = '/opt/lean-ctx/bin/lean-ctx'
@@ -239,6 +364,7 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     expect(env.LEAN_CTX_PROXY_TOKEN!.length).toBeGreaterThanOrEqual(32)
     expect(env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(env.LLM_FW_DIR).toBeUndefined()
+    expect(start.cwd).toBe(join(dir, 'lean-ctx'))
     // lean-ctx stores the original of every lossy result under
     // <state>/tee/ and gives up quietly when it cannot create that folder
     // (ccr.rs, storage.rs). A file in its place keeps tool output off disk;
