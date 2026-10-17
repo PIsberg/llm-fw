@@ -10,6 +10,7 @@ import { MetricsRegistry } from '../dashboard/metrics.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { ModuleManager } from '../modules/registry.js';
+import { ToolResultShuntModule } from '../modules/builtin/toolResultShunt.js';
 import { startConfigHotReload } from '../config/hotReload.js';
 import { removeRuntimeState, writeRuntimeState } from './runtimeState.js';
 import forge from 'node-forge';
@@ -71,12 +72,16 @@ export function applyGatewayOverrides(config: Config): void {
 }
 
 /**
- * Start the hourly sweep of the tool result shunt's stored originals, whether
- * or not the module is on, so a switched-off module still clears its folder.
- * Returns the function that stops it. Stub: not written yet, and not called.
+ * Start the periodic sweep of the tool result shunt's folder (stored originals
+ * and remembered outcomes), whether or not the module is on, so a switched-off
+ * module still clears what it left. The retention is read at each sweep, so a
+ * changed `retentionHours` applies without a restart. Returns the function that
+ * stops it; a no-op for a manager without the module.
  */
-export function startShuntSweep(_modules: ModuleManager, _config: Config): () => void {
-  throw new Error('startShuntSweep is not implemented');
+export function startShuntSweep(modules: ModuleManager, config: Config): () => void {
+  const shunt = modules.getModule('tool-result-shunt');
+  if (!(shunt instanceof ToolResultShuntModule)) return () => undefined;
+  return shunt.store.startSweeping(() => (config.modules?.toolResultShunt?.retentionHours ?? 24) * 3_600_000);
 }
 
 /**
@@ -277,6 +282,7 @@ export async function run(args: string[] = []): Promise<void> {
   let gateway: GatewayServer | null = null;
   let auditLog: AuditLog | null = null;
   let auditWebhook: AuditWebhook | null = null;
+  let stopShuntSweep: () => void = () => undefined;
   // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
   // the record of the last seconds before a rollout — exactly the window
   // someone goes looking for afterwards.
@@ -287,6 +293,7 @@ export async function run(args: string[] = []): Promise<void> {
   // says is worth keeping. Each failure is reported rather than swallowed,
   // because a teardown that half-worked is worth knowing about.
   const shutdown = async (): Promise<void> => {
+    stopShuntSweep();
     const tasks: readonly { readonly what: string; readonly done: Promise<unknown> }[] = [
       { what: 'detection pipeline', done: pipeline.close() },
       { what: 'gateway', done: gateway ? gateway.stop() : Promise.resolve() },
@@ -411,6 +418,8 @@ export async function run(args: string[] = []): Promise<void> {
   console.log('Model ready.');
 
   const modules = new ModuleManager(config);
+  // The shunt's folder is swept whether or not the module is on (FR-025).
+  stopShuntSweep = startShuntSweep(modules, config);
   const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening

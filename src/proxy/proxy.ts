@@ -28,6 +28,7 @@ import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfi
 import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
+import { Screening } from '../modules/screening.js'
 import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../modules/responseTap.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
@@ -707,10 +708,12 @@ export class ProxyServer {
       // consumers key on the exact same identity.
       const sessionKey = normalizeIp(innerReq.socket.remoteAddress)
 
-      // Gateway modules (src/modules/), before DLP and detection, so both scan
-      // the body that is actually forwarded. Observe mode never alters
-      // traffic: the modules still run, as a dry run, so the dashboard can
-      // show what they would have saved.
+      // Gateway modules (src/modules/). The ones not marked `afterScreening`
+      // run here, before DLP and detection, so both scan the body that is
+      // actually forwarded; the ones that are run once the request has passed
+      // both (`transformScreened`, below), on the body they left. Observe mode
+      // never alters traffic: the modules still run, as a dry run, so the
+      // dashboard can show what they would have saved.
       const moduleCtx: GatewayModuleContext | null = this.config.modules?.enabled && isLlmRequest
         ? {
           target: hostname, method, path: dlpPath, isLlmRequest: true, parser, sessionKey,
@@ -730,6 +733,9 @@ export class ProxyServer {
           }
         }
       }
+      // What detection and DLP make of this request, for the modules that run
+      // after them.
+      const screening = moduleCtx ? new Screening() : undefined
 
       // Stage T — Cross-turn taint tracking (information flow, not content
       // classification). Flags when a distinctive token (host / secret) that
@@ -773,6 +779,7 @@ export class ProxyServer {
       if (this.config.dlp.enabled && getParser(dlpPath) !== null) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
+          screening?.noteDlp(body, findings)
           // NEVER log the raw secret value — only its type(s).
           const types = Array.from(new Set(findings.map(f => f.type)))
           const typeSummary = types.join(', ')
@@ -902,6 +909,8 @@ export class ProxyServer {
             // Quote the exact event this scan stored, so a blocked client can be
             // traced to one dashboard record instead of "whatever was last".
             onEvent: (e) => { scanEventId = e.id },
+            onItemScanned: (t) => screening?.noteItemScanned(t),
+            onItemFlag: (t) => screening?.noteItemFlag(t),
           }
         )
         this.metrics?.recordScan('proxy', Date.now() - scanStart)
@@ -925,6 +934,7 @@ export class ProxyServer {
           // Treat as a clean pass and fall through to the same forwarding path
           // a normal 'pass' verdict takes below.
           result = { action: 'pass', stage: 'none', score: 0, similarity: 0 }
+          screening?.incomplete()
         } else {
           innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
           innerRes.end(JSON.stringify({ error: 'detection pipeline error — failing closed', stage: 'error' }))
@@ -943,6 +953,10 @@ export class ProxyServer {
           return
         }
       }
+
+      // Observe mode turned a block into a warn and forwards the request, but the
+      // scan ended at the item that blocked.
+      if (result.enforced === false) screening?.cutShort()
 
       if (result.action === 'block') {
         innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
@@ -1007,6 +1021,7 @@ export class ProxyServer {
             })
             return
           } else if (resResult.audit) {
+            screening?.noteMcpAudit(tr.toolUseId)
             emitEvent({
               stage: 'mcp-filter', score: 50, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
@@ -1024,11 +1039,25 @@ export class ProxyServer {
         }
       }
 
+      // The modules that run after detection and DLP. What they return is what
+      // goes upstream (unless this is a dry run); `body` stays the screened
+      // body, which the traffic record, the loop breaker and the quota count, so
+      // no 429 depends on whether a module is on.
+      let forwarded = body
+      if (moduleCtx) {
+        const modRes = await this.modules.transformScreened(body, { ...moduleCtx, screening, remoteAddress: innerReq.socket.remoteAddress })
+        if (modRes.modified && !moduleCtx.dryRun) {
+          forwarded = modRes.body
+          bodyBuf = Buffer.from(forwarded, 'utf-8')
+        }
+        for (const ev of modRes.events) this.eventBus.emitModuleEvent(ev)
+      }
+
       // A module may answer the request itself (the response cache), after
       // every gate above has passed it. Otherwise modules that read responses
       // (the usage meter, the cache) see what the client received, captured
       // as forwardRequest writes it.
-      const answer = moduleCtx ? this.modules.respond(body, moduleCtx) : undefined
+      const answer = moduleCtx ? this.modules.respond(forwarded, moduleCtx) : undefined
       let bytesReceived: number
       if (answer) {
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev)
@@ -1044,7 +1073,7 @@ export class ProxyServer {
           throw err
         }
         const response = captured?.()
-        if (moduleCtx && response) this.modules.observeResponse(body, moduleCtx, response)
+        if (moduleCtx && response) this.modules.observeResponse(forwarded, moduleCtx, response)
       }
       if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when

@@ -386,7 +386,7 @@ const HTML = `<!DOCTYPE html>
   </div>
 
   <div id="tab-modules" class="tab-panel">
-    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
+    <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike; the Tool Result Shunt is the exception and runs after them, on the body they passed. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
     <div class="module-cards" id="module-cards"></div>
     <div class="tlog-wrap">
       <div class="tlog-title">Recent Activity</div>

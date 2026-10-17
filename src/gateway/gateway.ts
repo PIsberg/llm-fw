@@ -16,6 +16,7 @@ import { isObserving } from '../config/config.js';
 import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
+import { Screening } from '../modules/screening.js';
 import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
 import type { GatewayModuleContext } from '../modules/types.js';
 import { randomUUID } from 'node:crypto';
@@ -241,12 +242,24 @@ export class GatewayServer {
         return;
       }
 
+      // The modules that run after detection and DLP. What they return is what
+      // goes upstream, unless this request is only being observed.
+      const moduleCtx = this.moduleContext(req, route, tenant);
+      let outgoing = decision.body;
+      let sent = outgoing.toString('utf-8');
+      if (moduleCtx) {
+        const modRes = await this.modules.transformScreened(sent, { ...moduleCtx, screening: decision.screening, remoteAddress: req.socket.remoteAddress });
+        if (modRes.modified && !moduleCtx.dryRun) {
+          sent = modRes.body;
+          outgoing = Buffer.from(sent, 'utf-8');
+        }
+        for (const ev of modRes.events) this.eventBus.emitModuleEvent(ev);
+      }
+
       // A module may answer the request itself (the response cache), after
       // every gate above has passed it. Otherwise modules that read responses
       // (the usage meter, the cache) see what the client received, captured
       // as it streams through.
-      const moduleCtx = this.moduleContext(req, route, tenant);
-      const sent = decision.body.toString('utf-8');
       const answer = moduleCtx ? this.modules.respond(sent, moduleCtx) : undefined;
       if (answer) {
         writeCapturedResponse(res, answer.response);
@@ -256,7 +269,7 @@ export class GatewayServer {
       const captured = moduleCtx && this.modules.wantsResponses()
         ? tapResponse(res, this.config.proxy.maxBodyBytes)
         : null;
-      await this.forward(req, res, route, decision.body, authIsInternal);
+      await this.forward(req, res, route, outgoing, authIsInternal);
       const response = captured?.();
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
@@ -448,14 +461,15 @@ export class GatewayServer {
 
   /**
    * Run the request-side detection stages. Returns either a block response or
-   * the (possibly DLP-redacted) body to forward.
+   * the (possibly DLP-redacted) body to forward, with what detection and DLP
+   * made of it for the modules that run after them.
    */
   private async screen(
     req: http.IncomingMessage,
     route: GatewayRoute,
     original: Buffer,
     tenant: Tenant | null,
-  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer }> {
+  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; screening: Screening | undefined }> {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
     const target = route.provider.host;
@@ -486,10 +500,15 @@ export class GatewayServer {
       }
     }
 
+    // What detection and DLP make of this request, for the modules that run
+    // after them.
+    const screening = moduleCtx ? new Screening() : undefined;
+
     // DLP — same scoping as the proxy: only requests a parser recognises, so
     // binary uploads are not scanned as if they were prompts.
     if (this.config.dlp.enabled && getParser(path) !== null) {
       const findings = this.dlp.scan(text);
+      screening?.noteDlp(text, findings);
       const firstFinding = findings[0];
       if (firstFinding) {
         const types = Array.from(new Set(findings.map(f => f.type)));
@@ -532,6 +551,8 @@ export class GatewayServer {
       result = await this.pipeline.run(path, text, {
         target, method, path, sessionKey,
         onEvent: e => { eventId = e.id; },
+        onItemScanned: t => screening?.noteItemScanned(t),
+        onItemFlag: t => screening?.noteItemFlag(t),
         // Per-tenant enforcement: one team can run in observation while the rest
         // of the deployment enforces — how a team gets onboarded without either
         // eating day-one false positives or the firewall being turned down for
@@ -558,7 +579,10 @@ export class GatewayServer {
         ...tenantTag,
       });
       log.error(`pipeline error on ${method} ${path}: ${message}`);
-      if (failOpen) return { blocked: false, body: bodyBuf };
+      if (failOpen) {
+        screening?.incomplete();
+        return { blocked: false, body: bodyBuf, screening };
+      }
       return {
         blocked: true, status: this.config.blockStatus ?? 422,
         body: explainGate({
@@ -570,6 +594,10 @@ export class GatewayServer {
     }
     this.metrics?.recordScan('gateway', Date.now() - started);
 
+    // Observe mode turned a block into a warn and forwards the request, but the
+    // scan ended at the item that blocked.
+    if (result.enforced === false) screening?.cutShort();
+
     if (result.action === 'block') {
       return {
         blocked: true, status: this.config.blockStatus ?? 422,
@@ -577,7 +605,7 @@ export class GatewayServer {
       };
     }
 
-    return { blocked: false, body: bodyBuf };
+    return { blocked: false, body: bodyBuf, screening };
   }
 
   /** What the module pipeline sees of a request; null when modules do not run on it. */
