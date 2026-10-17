@@ -24,11 +24,12 @@ This specification introduces:
   - Minifies embedded multiline JSON objects and arrays.
   - Leaves fenced code blocks alone apart from trailing whitespace.
 - **Zero-Refresh Real-Time Visualization**: Broadcast per-request savings over the existing Server-Sent Events (SSE) stream and immediately update the live counter and savings percentage in the dashboard header.
-- **Both surfaces**: Forward proxy (`src/proxy/`) and reverse gateway (`src/gateway/`). The pruner reads `messages[].content` (string, or parts with `type: "text"`), `system`, Gemini `contents[].parts[].text` and a legacy `prompt`. Other shapes, such as Bedrock Converse parts without a `type`, pass through untouched.
+- **Both surfaces**: Forward proxy (`src/proxy/`) and reverse gateway (`src/gateway/`). The pruner reads the `prompt` and `system` text slots `collectTextSlots` finds (OpenAI chat, the Responses API, Anthropic, Gemini, a legacy `prompt`); tool output is left to its own modules. Other shapes, such as Bedrock Converse parts without a `type`, pass through untouched.
+- **Later modules**: Each further token-saving technique is its own module with its own switch, listed with its trade-offs in [Token savings](../guides/token-savings.md).
 - **Zero External Dependencies**: Maintain the project's zero-dependency ethos by implementing lightweight whitespace normalization and token estimation without adding heavy tokenizer packages.
 
 ### 2.2 Non-Goals
-- **Destructive Semantic Truncation**: Dropping user turns, chopping middle sentences, or aggressive lossy summarization that risks altering user intent or model accuracy.
+- **Destructive Semantic Truncation** in the token pruner: dropping user turns, chopping middle sentences, or aggressive lossy summarization that risks altering user intent or model accuracy. Two later modules do cut deliberately, each opt-in and documented as lossy: the tool result truncator and the history window.
 - **Arbitrary Sandboxed Plugin Runtimes**: Modules are compiled TypeScript classes within the firewall codebase rather than untrusted external runtime scripts.
 - **Bypassing Security Screening**: Modules run cooperatively with the security pipeline; transformed payloads remain fully protected by DLP and prompt injection scanning.
 
@@ -144,7 +145,9 @@ The module pipeline integrates into both `ProxyServer.handleRequest` (`src/proxy
 1. **Body buffered**: the complete request body is read (and the body-size limit applied) before any module runs.
 2. **Module Transformation**: If `config.modules.enabled` and the path has a payload parser, pass `body` through registered and enabled modules in registration order:
    - A module that throws or rejects is logged and skipped; the request continues with the body as the previous module left it. Modules fail open, like the judge.
-   - `TokenPrunerModule` walks the known text fields and prunes each one.
+   - A module may also implement `observeResponse`. When an enabled module does, the proxy and the gateway wrap the client response with `tapResponse` (`src/modules/responseTap.ts`), which copies what is written, up to `proxy.maxBodyBytes`, and hand the capture over once the response has ended. The usage meter reads provider-reported usage this way.
+   - A module may implement `respond`, asked once every request-side gate (DLP, detection, MCP checks) has passed the request, with the body that would go upstream. The first enabled module that returns a response answers the client with it (`writeCapturedResponse`) and the provider is never contacted; one that throws is logged and the request is forwarded. The response cache answers this way, and never under observe mode. On the proxy the answer goes through `replayStoredResponse`, which runs the response-side gates (MCP policy, exfil, tool-use and harm scans) on the stored body under the current policy, exactly as a live response gets them.
+   - `collectTextSlots` (`src/modules/payload.ts`) lists every text field of the request, labelled `prompt`, `system`, `tool_result` or `tool_definition`, across OpenAI chat, the Responses API, Anthropic and Gemini. `TokenPrunerModule` prunes the `prompt` and `system` slots and leaves tool output alone.
    - It sums `estimateTokens` over the text fields before and after pruning.
    - If any text changed, it updates its rolling stats and returns the re-serialised body.
    - In observe mode the caller passes `dryRun: true`, forwards the original body, and the event carries `applied: false`.
@@ -163,7 +166,7 @@ The module pipeline integrates into both `ProxyServer.handleRequest` (`src/proxy
 
 ### 5.1 Token Estimation Algorithm
 To remain fast and dependency-free while maintaining fidelity across OpenAI (cl100k/o200k), Anthropic, and Gemini tokenizers:
-- Matches the heuristic used in `QuotaManager.estimateTokens`: approximately ~4 characters per token for English text and code.
+- `estimateTokens` in `src/modules/tokens.ts` walks the text once in the pieces a BPE pre-tokenizer would cut (letter, digit and punctuation runs, whitespace runs, line breaks) and charges each piece. A run of spaces is one token however long, which chars/4 got wrong: it overstated the pruner's saving on column-aligned tool output by 75% against cl100k and o200k. Measured errors and the fitting corpus are in the file's header comment; `test/modules/tokens.test.ts` pins five measured counts. `QuotaManager.estimateTokens` keeps ~4 characters per token for budgets.
 - Counted on the prompt text the pruner examined, never on the request body. Re-serialising a pretty-printed JSON envelope shrinks the body by bytes the model never sees as tokens; the first cut counted those and reported 62 tokens saved where the prompt text shrank by 11.
 - `tokensSaved = Math.max(0, tokensBefore - tokensAfter)`.
 - `percentSaved = tokensOriginal > 0 ? ((tokensSaved / tokensOriginal) * 100) : 0`. The denominator is the examined text, so tool results, images and tool definitions, which are billed but not pruned, are not in it.

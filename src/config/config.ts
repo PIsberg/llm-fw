@@ -336,12 +336,65 @@ export const DEFAULT_CONFIG: Config = {
   },
   // Status of a content refusal; see Config.blockStatus (#304).
   blockStatus: 422,
-  // The module pipeline is on; the token pruner is opt-in because it rewrites
-  // the prompt text the provider receives.
+  // The module pipeline is on. Every module that rewrites a request is
+  // opt-in, because it changes what the provider receives; the usage meter
+  // only reads responses. See docs/guides/token-savings.md.
   modules: {
     enabled: true,
     tokenPruner: {
       enabled: false,
+    },
+    historyWindow: {
+      enabled: false,
+      maxMessages: 100,
+      step: 25,
+    },
+    ansiStrip: {
+      enabled: false,
+    },
+    progressCollapse: {
+      enabled: false,
+    },
+    repeatCollapse: {
+      enabled: false,
+      minRun: 3,
+    },
+    blobElide: {
+      enabled: false,
+      minLength: 2048,
+    },
+    toolResultPruner: {
+      enabled: false,
+      minifyJson: true,
+      trimTrailing: true,
+      collapseSpaceRuns: false,
+    },
+    toolResultDedup: {
+      enabled: false,
+      minLength: 200,
+    },
+    toolResultTruncate: {
+      enabled: false,
+      headLines: 200,
+      tailLines: 100,
+      maxChars: 40000,
+    },
+    toolDefinitionPruner: {
+      enabled: false,
+    },
+    cacheControl: {
+      enabled: false,
+      ttl: '5m',
+      cacheSystem: true,
+    },
+    responseCache: {
+      enabled: false,
+      ttlSeconds: 300,
+      maxEntries: 100,
+      maxEntryBytes: 524288,
+    },
+    usageMeter: {
+      enabled: true,
     },
   },
   // Every major AI provider's API host — the proxy TLS-inspects these and the
@@ -682,6 +735,18 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_BLOCK_STATUS: (c, v) => { if (v === '403' || v === '422') c.blockStatus = v === '403' ? 403 : 422; },
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
+  LLM_FW_HISTORY_WINDOW_ENABLED: (c, v) => { if (c.modules?.historyWindow) c.modules.historyWindow.enabled = v === 'true'; },
+  LLM_FW_ANSI_STRIP_ENABLED: (c, v) => { if (c.modules?.ansiStrip) c.modules.ansiStrip.enabled = v === 'true'; },
+  LLM_FW_PROGRESS_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.progressCollapse) c.modules.progressCollapse.enabled = v === 'true'; },
+  LLM_FW_REPEAT_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.repeatCollapse) c.modules.repeatCollapse.enabled = v === 'true'; },
+  LLM_FW_BLOB_ELIDE_ENABLED: (c, v) => { if (c.modules?.blobElide) c.modules.blobElide.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },
+  LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
+  LLM_FW_CACHE_CONTROL_ENABLED: (c, v) => { if (c.modules?.cacheControl) c.modules.cacheControl.enabled = v === 'true'; },
+  LLM_FW_RESPONSE_CACHE_ENABLED: (c, v) => { if (c.modules?.responseCache) c.modules.responseCache.enabled = v === 'true'; },
+  LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
   LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },
 };

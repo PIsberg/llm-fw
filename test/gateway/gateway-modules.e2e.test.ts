@@ -71,7 +71,7 @@ describe('Gateway & Dashboard Modules Live Session', { timeout: 30000 }, () => {
       req.on('end', () => {
         calls.push({ path: req.url ?? '', headers: req.headers, body })
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ ok: true, received: body }))
+        res.end(JSON.stringify({ ok: true, received: body, usage: { prompt_tokens: 120, completion_tokens: 8, prompt_tokens_details: { cached_tokens: 100 } } }))
       })
     })
     await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()))
@@ -177,9 +177,58 @@ def calculate(x):
     const stats = JSON.parse(statsRes.body)
     expect(stats.totalTokensSaved).toBeGreaterThan(0)
     expect(stats.overallPercentSaved).toBeGreaterThan(0)
-    expect(stats.modules).toHaveLength(1)
-    expect(stats.modules[0].id).toBe('token-pruner')
-    expect(stats.modules[0].enabled).toBe(true)
+    const pruner = stats.modules.find((m: { id: string }) => m.id === 'token-pruner')
+    expect(pruner?.enabled).toBe(true)
+  })
+
+  it('replays a repeated request from the response cache without calling upstream', async () => {
+    config.modules!.responseCache!.enabled = true
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'cache me please' }] })
+      const first = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      const second = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(200)
+      expect(calls).toHaveLength(1)
+      expect(second.body).toBe(first.body)
+      expect(second.headers['x-llm-fw-cache']).toBe('hit')
+      expect(first.headers['x-llm-fw-cache']).toBeUndefined()
+    } finally {
+      config.modules!.responseCache!.enabled = false
+    }
+  })
+
+  it('keeps cached responses apart by the credential in the query', async () => {
+    config.modules!.responseCache!.enabled = true
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'cache per key' }] })
+      const send = (key: string) => reqHttp(GATEWAY_PORT, 'POST', `/v1/chat/completions?key=${key}`, payload, { 'x-llm-fw-key': TOKEN })
+      await send('one')
+      await send('two')
+      await send('one')
+      expect(calls).toHaveLength(2)
+    } finally {
+      config.modules!.responseCache!.enabled = false
+    }
+  })
+
+  it('meters the usage the provider reported in its response', async () => {
+    const before = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
+    const kpi = (stats: any, key: string) =>
+      stats.modules.find((m: { id: string }) => m.id === 'usage-meter').kpis.find((k: { key: string }) => k.key === key).value
+    const res = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', JSON.stringify({
+      model: 'test',
+      messages: [{ role: 'user', content: 'hello' }],
+    }), { 'x-llm-fw-key': TOKEN })
+    expect(res.status).toBe(200)
+
+    const after = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
+    expect(kpi(after, 'responses') - kpi(before, 'responses')).toBe(1)
+    expect(kpi(after, 'cacheRead') - kpi(before, 'cacheRead')).toBe(100)
+    expect(kpi(after, 'input') - kpi(before, 'input')).toBe(20)
+    expect(kpi(after, 'output') - kpi(before, 'output')).toBe(8)
   })
 
   it('SSE endpoint /events receives replayed module events', async () => {

@@ -104,13 +104,12 @@ Please check authorization.`
     expect(output).toContain('Here is the user record:')
     expect(output).toContain('Please check authorization.')
   })
-})
 
-describe('estimateTokens', () => {
-  it('estimates ~4 characters per token', () => {
-    expect(estimateTokens('abcd')).toBe(1)
-    expect(estimateTokens('12345678')).toBe(2)
-    expect(estimateTokens('')).toBe(0)
+  it('keeps every number and string byte for byte', () => {
+    // Parse-and-print rounded the id to 12345678901234567000 and turned
+    // 1.50 into 1.5, so the model saw a different record than the user sent.
+    const input = 'Order:\n{\n  "id": 12345678901234567890,\n  "total": 1.50,\n  "note": "a  b"\n}\nWhy was it refunded?'
+    expect(pruneText(input)).toContain('{"id":12345678901234567890,"total":1.50,"note":"a  b"}')
   })
 })
 
@@ -240,6 +239,15 @@ describe('pruneText — bounded cost on adversarial input', () => {
     pruneText(input)
     expect(performance.now() - t0).toBeLessThan(300)
   })
+
+  it('trims fenced code lines without rescanning an interior run of spaces', () => {
+    // /[^\S\r\n]+$/ restarted at every space of a run that does not reach
+    // the end of the line: 1,109 ms for one 40,000-space run.
+    const input = '```\nx' + ' '.repeat(40_000) + 'y  \n```'
+    const t0 = performance.now()
+    expect(pruneText(input)).toBe('```\nx' + ' '.repeat(40_000) + 'y\n```')
+    expect(performance.now() - t0).toBeLessThan(500)
+  })
 })
 
 describe('TokenPrunerModule — savings are measured on prompt text', () => {
@@ -271,13 +279,15 @@ describe('TokenPrunerModule — running totals cover every examined request', ()
     // percentage described only the requests that happened to shrink.
     const module = new TokenPrunerModule({ enabled: true })
     const clean = 'x'.repeat(400)
+    const spaced = 'a' + ' '.repeat(41) + 'b. Some more text after the run.'
     module.transformRequest(JSON.stringify({ messages: [{ role: 'user', content: clean }] }), ctx)
-    module.transformRequest(JSON.stringify({ messages: [{ role: 'user', content: 'a' + ' '.repeat(41) + 'b' }] }), ctx)
+    module.transformRequest(JSON.stringify({ messages: [{ role: 'user', content: spaced }] }), ctx)
 
     const stats = module.getStats()
     expect(stats.totalInvocations).toBe(2)
-    expect(stats.tokensOriginal).toBe(estimateTokens(clean) + 11)
-    expect(stats.tokensSaved).toBe(10)
+    expect(stats.tokensOriginal).toBe(estimateTokens(clean) + estimateTokens(spaced))
+    expect(stats.tokensSaved).toBe(estimateTokens(spaced) - estimateTokens(pruneText(spaced)))
+    expect(stats.tokensSaved).toBeGreaterThan(0)
   })
 })
 
@@ -300,5 +310,38 @@ describe('TokenPrunerModule — enabled state is the live config', () => {
     const module = new TokenPrunerModule(cfg)
     module.enabled = false
     expect(cfg.enabled).toBe(false)
+  })
+})
+
+describe('TokenPrunerModule — scope', () => {
+  const ctx: GatewayModuleContext = {
+    target: 'api.openai.com', method: 'POST', path: '/v1/chat/completions', isLlmRequest: true, parser: null,
+  }
+
+  it('leaves tool output alone: an agent copies exact whitespace from a file read into its next edit', () => {
+    // Collapsing the run after a line-number tab turned "  12\t    x  = 1"
+    // into "12 x = 1", so an Edit whose old_string quoted it never matched.
+    const module = new TokenPrunerModule({ enabled: true })
+    const fileRead = '    12\t    x  = 1\n    13\t        return  x'
+    const body = JSON.stringify({
+      messages: [
+        { role: 'tool', tool_call_id: 'c1', content: fileRead },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: fileRead }] },
+      ],
+    })
+    const res = module.transformRequest(body, ctx)
+    expect(res.modified).toBe(false)
+    expect(module.getStats().totalInvocations).toBe(0)
+  })
+
+  it('prunes OpenAI Responses API input and instructions', () => {
+    const module = new TokenPrunerModule({ enabled: true })
+    const body = JSON.stringify({
+      instructions: 'Be    brief.',
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'Hello     there' }] }],
+    })
+    const parsed = JSON.parse(module.transformRequest(body, { ...ctx, path: '/v1/responses' }).body)
+    expect(parsed.instructions).toBe('Be brief.')
+    expect(parsed.input[0].content[0].text).toBe('Hello there')
   })
 })

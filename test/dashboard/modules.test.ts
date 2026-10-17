@@ -132,12 +132,13 @@ describe('/api/modules', () => {
     fs.rmSync(tempDir, { recursive: true, force: true })
   })
 
-  it('lists the built-in module with its description and enabled state', async () => {
+  it('lists the built-in modules with their description and enabled state', async () => {
     const res = await call('GET', '/api/modules')
     expect(res.status).toBe(200)
-    expect(res.json.modules).toEqual([
+    expect(res.json.modules).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'token-pruner', enabled: false, description: expect.any(String) }),
-    ])
+      expect.objectContaining({ id: 'usage-meter', enabled: true, kpis: expect.any(Array) }),
+    ]))
   })
 
   it('answers 404 for a module id that is not registered, and changes nothing', async () => {

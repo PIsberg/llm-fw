@@ -181,13 +181,15 @@ group) rewrites the prompt text of every LLM request before it is scanned and
 forwarded, on the proxy and the gateway: interior runs of spaces and tabs
 become one space, runs of blank lines become one, trailing whitespace goes, and
 multiline JSON embedded in the text is minified. Leading indentation and fenced
-code are kept. It is off by default because it changes what the provider
+code are kept, and tool output is never touched. It is off by default because it changes what the provider
 receives: an unfenced string literal with aligned spaces, for example, is
-altered. Savings are estimated at 4 characters per token over the text it
-examined and shown live in the dashboard header and at `GET /api/modules`.
+altered. Savings are estimated over the text it examined, with a run of
+spaces counted as one token (see [Token savings](token-savings.md#how-savings-are-counted)), and shown live in the dashboard header and at `GET /api/modules`.
 Under observe mode it runs as a dry run and forwards the original body.
 `modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
-whole module pipeline. Both keys are hot-reloaded. The design is in
+whole module pipeline. Both keys are hot-reloaded. Every token-saving module,
+with what it rewrites and what to watch for, is in
+[Token savings](token-savings.md). The design is in
 [SPEC-modules.md](../specs/SPEC-modules.md).
 
 ## Logging
@@ -229,17 +231,20 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_100 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
+| `LLM_FW_ANSI_STRIP_ENABLED` | `modules.ansiStrip.enabled` | `false` |
 | `LLM_FW_ASCII_SMUGGLING_ENABLED` | `asciiSmuggling.enabled` | `true` |
 | `LLM_FW_AUDIT_ENABLED` | `audit.enabled` | `false` |
 | `LLM_FW_AUDIT_FILE` | `audit.file` | _unset_ |
 | `LLM_FW_AUDIT_PAYLOADS` | `audit.includePayloads` | `false` |
 | `LLM_FW_AUDIT_WEBHOOK` | `audit.webhookUrl` | _unset_ |
+| `LLM_FW_BLOB_ELIDE_ENABLED` | `modules.blobElide.enabled` | `false` |
 | `LLM_FW_BLOCK_STATUS` | `blockStatus` | `422` |
 | `LLM_FW_BYPASS` | `proxy.bypass` | `false` |
+| `LLM_FW_CACHE_CONTROL_ENABLED` | `modules.cacheControl.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
 | `LLM_FW_CLASSIFIER_SURFACES` | `detection.classifier.surfaces` | `4 entries` |
@@ -273,6 +278,7 @@ _88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_GATEWAY_TOKEN` | `gateway.authToken` | _unset_ |
 | `LLM_FW_HARMFUL_REQUEST_ENABLED` | `harmfulRequest.enabled` | `true` |
 | `LLM_FW_HARMFUL_REQUEST_MODE` | `harmfulRequest.mode` | `block` |
+| `LLM_FW_HISTORY_WINDOW_ENABLED` | `modules.historyWindow.enabled` | `false` |
 | `LLM_FW_HOT_RELOAD` | `hotReload` | `true` |
 | `LLM_FW_HTTPS_PORT` | `proxy.httpsPort` | `8443` |
 | `LLM_FW_INDIRECT_INSTRUCTION_ENABLED` | `indirectInstruction.enabled` | `true` |
@@ -299,6 +305,7 @@ _88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_NONTEXT_OCR` | `nonText.ocr` | `false` |
 | `LLM_FW_NONTEXT_TRANSCRIBE` | `nonText.transcribe` | `false` |
 | `LLM_FW_OLLAMA_URL` | `detection.ollamaUrl` | `http://localhost:11434` |
+| `LLM_FW_PROGRESS_COLLAPSE_ENABLED` | `modules.progressCollapse.enabled` | `false` |
 | `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` |  |
 | `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |
 | `LLM_FW_PROXY_MODE` | `proxy.mode` | `proxy` |
@@ -306,6 +313,8 @@ _88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_PROXY_REQUIRE_AUTH` | `proxy.requireAuth` | _unset_ |
 | `LLM_FW_PROXY_TOKEN` | `proxy.authToken` | _unset_ |
 | `LLM_FW_RAG_ENABLED` | `rag.enabled` | `true` |
+| `LLM_FW_REPEAT_COLLAPSE_ENABLED` | `modules.repeatCollapse.enabled` | `false` |
+| `LLM_FW_RESPONSE_CACHE_ENABLED` | `modules.responseCache.enabled` | `false` |
 | `LLM_FW_RESPONSE_CLASSIFIER_ENABLED` | `responseScan.classifier.enabled` | `false` |
 | `LLM_FW_RESPONSE_CLASSIFIER_MODEL` | `responseScan.classifier.model` | _unset_ |
 | `LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD` | `responseScan.classifier.blockThreshold` | `0.9` |
@@ -317,9 +326,14 @@ _88 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_TAINT_ENABLED` | `taint.enabled` | `true` |
 | `LLM_FW_TAINT_MODE` | `taint.mode` | `audit` |
 | `LLM_FW_TOKEN_PRUNER_ENABLED` | `modules.tokenPruner.enabled` | `false` |
+| `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED` | `modules.toolDefinitionPruner.enabled` | `false` |
+| `LLM_FW_TOOL_RESULT_DEDUP_ENABLED` | `modules.toolResultDedup.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
+| `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |
+| `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED` | `modules.toolResultTruncate.enabled` | `false` |
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
+| `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |
 | `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `false` |
 
 <!-- CONFIG-REFERENCE-END -->

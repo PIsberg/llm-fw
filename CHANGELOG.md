@@ -20,7 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default: turn it on with the Settings toggle, `POST /api/modules`,
   `modules.tokenPruner.enabled` or `LLM_FW_TOKEN_PRUNER_ENABLED=true`, live and without a
   restart. It collapses interior runs of spaces, runs of blank lines and trailing whitespace,
-  and minifies multiline JSON in prompt text, keeping leading indentation and fenced code. The
+  and minifies multiline JSON in prompt text (lexically: a parse-and-print round trip turned the
+  id `12345678901234567890` into `12345678901234567000`), keeping leading indentation and fenced
+  code. It
+  covers user, assistant and system text in OpenAI chat, the OpenAI Responses API, Anthropic and
+  Gemini, and never touches tool output, where a collapsed run of spaces made an agent's next
+  edit miss the text it quoted from a file read. The
   dashboard header shows tokens saved and the percentage, updated over SSE (`event: module`)
   without a page refresh. Under observe mode it is a dry run and reports what it would have
   saved. `LLM_FW_MODULES_ENABLED=false` turns the pipeline off.
@@ -29,6 +34,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests a module rewrote, newest first, with "would save" on observe-mode dry runs.
   `test/dashboard/modules.spec.ts` drives it, and pins that the Tokens Saved tile changes from
   the event stream while the page stays loaded (#342).
+- **A Usage Meter module: the provider's own token counts.** The savings on the other module
+  cards are estimates made before a request leaves; the meter adds up what the provider reports
+  in each response (uncached input, cache reads, cache writes, output, and the share of input
+  served from cache), from Anthropic, OpenAI chat, the Responses API and Gemini, streaming or
+  not, gzip or plain. On by default because it only reads responses
+  (`modules.usageMeter.enabled`, `LLM_FW_USAGE_METER_ENABLED`); a response larger than
+  `proxy.maxBodyBytes` is not metered. See [Token savings](docs/guides/token-savings.md).
+- **A Tool Result Pruner module, opt-in (`modules.toolResultPruner.enabled`,
+  `LLM_FW_TOOL_RESULT_PRUNER_ENABLED`).** Tool output is most of an agent's input and the token
+  pruner leaves it alone. This module minifies tool output that is JSON (lexically, so
+  `12345678901234567890` and `1.50` survive byte for byte), trims trailing whitespace, and, only
+  with `collapseSpaceRuns`, collapses aligned columns. Each technique has its own live switch.
+- **A Tool Definition Pruner module, opt-in (`modules.toolDefinitionPruner.enabled`,
+  `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED`).** The token pruner's whitespace rules for the tool
+  and parameter descriptions an agent resends on every request. Names, enum values and schema
+  structure are never touched.
+- **An ANSI Escape Stripper module, opt-in (`modules.ansiStrip.enabled`,
+  `LLM_FW_ANSI_STRIP_ENABLED`).** Removes terminal colour, cursor, title and hyperlink escape
+  sequences from tool output and prompts; the printable text stays.
+- **A Progress Bar Collapser module, opt-in (`modules.progressCollapse.enabled`,
+  `LLM_FW_PROGRESS_COLLAPSE_ENABLED`).** A line redrawn with bare carriage returns keeps only its
+  last frame, so `npm install` output no longer carries every frame of its progress bar.
+- **A Repeated Line Collapser module, opt-in (`modules.repeatCollapse.enabled`,
+  `LLM_FW_REPEAT_COLLAPSE_ENABLED`, `minRun` default 3).** A run of identical lines in tool output
+  becomes the first line and `[llm-fw: previous line repeated N more times]`.
+- **A Blob Elider module, opt-in (`modules.blobElide.enabled`, `LLM_FW_BLOB_ELIDE_ENABLED`,
+  `minLength` default 2048).** A long base64 or hex run in tool output becomes a marker with its
+  length and a short SHA-256; a `data:` prefix and the surrounding JSON stay valid.
+- **A Tool Result Deduplicator module, opt-in (`modules.toolResultDedup.enabled`,
+  `LLM_FW_TOOL_RESULT_DEDUP_ENABLED`, `minLength` default 200).** A tool result identical to an
+  earlier one in the conversation (the same file read twice) becomes a pointer to the first copy.
+  Rewritten the same way on every turn, so the prompt cache keeps matching.
+- **A Tool Result Truncator module, opt-in and lossy (`modules.toolResultTruncate.enabled`,
+  `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).** Oversized tool output keeps its first `headLines`
+  (200) and last `tailLines` (100) lines, then at most `maxChars` (40,000) characters, with a
+  marker saying how much was cut.
+- **A History Window module, opt-in and lossy (`modules.historyWindow.enabled`,
+  `LLM_FW_HISTORY_WINDOW_ENABLED`, `maxMessages` 100, `step` 25).** A long conversation keeps its
+  system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user
+  turn, so the cached prefix moves once per step. Thinking blocks in kept turns are removed,
+  because the prefix they were signed against changed.
+- **A Prompt Cache Marker module, opt-in (`modules.cacheControl.enabled`,
+  `LLM_FW_CACHE_CONTROL_ENABLED`, `ttl` 5m or 1h, `cacheSystem`).** An Anthropic Messages request
+  with no `cache_control` of its own gets the top-level automatic breakpoint and, optionally, one
+  on its system prompt, so repeated prefixes are billed as cache reads. Requests that place their
+  own markers (Claude Code) are left alone.
+- **A Response Cache module, opt-in (`modules.responseCache.enabled`,
+  `LLM_FW_RESPONSE_CACHE_ENABLED`, `ttlSeconds` 300, `maxEntries` 100, `maxEntryBytes` 512 KB).** A
+  byte-identical request from the same credential within the TTL is answered with the stored
+  response (`x-llm-fw-cache: hit`) after every request-side gate, without contacting the
+  provider. Keyed on credential, tenant, version and encoding headers; never answers under observe
+  mode.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and
@@ -50,6 +107,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Module savings no longer count whitespace as text.** The Modules tab and the Tokens Saved
+  tile estimated 4 characters per token, so collapsing a run of spaces reported a token saved
+  per four spaces where a BPE tokenizer spends one token on the whole run. Measured against
+  cl100k and o200k, that overstated the pruner's saving on column-aligned tool output by 75%
+  (1,395 tokens estimated, 797 real) and missed total counts by 33% on JSON. The new estimate
+  cuts text the way a BPE pre-tokenizer does; its mean error is 4 to 8% on prose, code, JSON,
+  prompts and tool output. Budgets (`dos.maxTokensPerSession`) still use 4 characters per token.
 - **A content refusal answers `422`, not `403` (#304).** Claude Code reports every 403 as
   "Failed to authenticate. API Error: 403", so a blocked prompt read as a credentials problem.
   Measured against Claude Code 2.1.301 with a loopback mock: 422 shows "API Error: 422" and the

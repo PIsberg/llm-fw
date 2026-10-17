@@ -330,6 +330,7 @@ defenses. Each has its own guide.
 | [Detection stages](docs/guides/detection-stages.md) | Prompt injection and jailbreaks — the attack classes covered, and the three stages that run in order |
 | [Data Loss Prevention](docs/guides/dlp.md) | Secrets, keys and PII leaving in a prompt |
 | [Cost control & DoS](docs/guides/cost-control.md) | Runaway agent loops and budget exhaustion |
+| [Token savings](docs/guides/token-savings.md) | Paying for tokens a request did not need: opt-in modules that shrink it before it leaves, each with a live switch |
 | [RAG context poisoning](docs/guides/rag.md) | Instructions smuggled in through retrieved documents |
 | [ASCII smuggling](docs/guides/ascii-smuggling.md) | Invisible Unicode tag characters carrying a payload |
 | [Response-side exfiltration](docs/guides/exfiltration.md) | Data leaving through URLs and markdown images in the model's answer |

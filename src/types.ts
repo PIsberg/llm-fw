@@ -424,13 +424,87 @@ export interface McpConfig {
   };
 }
 
-export interface TokenPrunerConfig {
+/** The on/off switch every built-in gateway module reads, live. */
+export interface ModuleSwitchConfig {
   enabled: boolean;
 }
 
+export type TokenPrunerConfig = ModuleSwitchConfig;
+
+export interface RepeatCollapseConfig extends ModuleSwitchConfig {
+  /** Shortest run of identical lines that is collapsed; at least 2. */
+  minRun: number;
+}
+
+export interface BlobElideConfig extends ModuleSwitchConfig {
+  /** Shortest base64 or hex run that is elided, in characters; at least 64. */
+  minLength: number;
+}
+
+export interface ToolResultDedupConfig extends ModuleSwitchConfig {
+  /** Shortest tool result, in characters, worth replacing with a pointer. */
+  minLength: number;
+}
+
+export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
+  /** Lines kept from the start of an oversized tool result; 0 with tailLines 0 turns line cuts off. */
+  headLines: number;
+  /** Lines kept from the end. */
+  tailLines: number;
+  /** Characters kept after the line cut, two thirds head, one third tail; 0 is off. */
+  maxChars: number;
+}
+
+export interface HistoryWindowConfig extends ModuleSwitchConfig {
+  /** Turns kept, system messages aside; at least 2. */
+  maxMessages: number;
+  /** Turns dropped at a time, so the cached prefix only moves once per step. */
+  step: number;
+}
+
+export interface ResponseCacheConfig extends ModuleSwitchConfig {
+  /** Seconds a stored response may be replayed. */
+  ttlSeconds: number;
+  /** Stored responses kept; the least recently used goes first. */
+  maxEntries: number;
+  /** Largest response body stored, in bytes. */
+  maxEntryBytes: number;
+}
+
+export interface CacheControlConfig extends ModuleSwitchConfig {
+  /** Cache entry lifetime: 5 minutes, or 1 hour at twice the write price. */
+  ttl: '5m' | '1h';
+  /** Also mark the system prompt, so conversations sharing it share the entry. */
+  cacheSystem: boolean;
+}
+
+export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
+  /** Minify tool output that is a JSON object or array, keeping every literal. */
+  minifyJson: boolean;
+  /** Drop spaces and tabs at the end of each line. */
+  trimTrailing: boolean;
+  /** Collapse interior runs of two or more spaces; can make an agent's edit miss. */
+  collapseSpaceRuns: boolean;
+}
+
+// Keys after tokenPruner are optional so a config object written before they
+// existed still type-checks; ModuleManager fills in the defaults.
 export interface ModulesConfig {
   enabled: boolean;
   tokenPruner: TokenPrunerConfig;
+  historyWindow?: HistoryWindowConfig;
+  ansiStrip?: ModuleSwitchConfig;
+  progressCollapse?: ModuleSwitchConfig;
+  repeatCollapse?: RepeatCollapseConfig;
+  blobElide?: BlobElideConfig;
+  toolResultPruner?: ToolResultPrunerConfig;
+  toolResultDedup?: ToolResultDedupConfig;
+  toolResultTruncate?: ToolResultTruncateConfig;
+  toolDefinitionPruner?: ModuleSwitchConfig;
+  cacheControl?: CacheControlConfig;
+  responseCache?: ResponseCacheConfig;
+  /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
+  usageMeter?: ModuleSwitchConfig;
 }
 
 export interface ModuleEvent {
