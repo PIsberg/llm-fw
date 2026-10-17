@@ -19,6 +19,14 @@ without the slices after it. Setup and foundational tasks carry no story label.
 
 ---
 
+## Phase 0: Is it worth building? (round 0: S0)
+
+### S0. Savings ceiling
+
+- [ ] T000 Measure the savings ceiling before any build work (plan D10). In a scratch directory outside the repo, write an uncommitted `.mts` script run with `node --import tsx/esm` (`node -e` is blocked) that streams every `~/.claude/projects/**/*.jsonl` modified in the last 30 days line by line, pairs each assistant `tool_use` {id, name, input} with the user `tool_result` {tool_use_id, content} answering it (as T021 pairs them), and applies steps 1 to 5 of data-model.md "Eligibility" with the defaults of data-model.md "Config" (`tools`, `minLines`, `minChars`, `maxInputChars`, names matched as `toolResultTruncate.skipTools`), once as configured and once with Claude Code `Read` added (file reads included, spec Assumptions). Count tokens with `AutoTokenizer.from_pretrained('Xenova/gpt-4o')` (`@huggingface/transformers`) on LF-normalised text. Report the date, sessions read, tokenizer and, for both runs: (a) eligible tool-result tokens as a share of all tool-result tokens; (b) the ceiling, the sum over eligible results of their tokens times the assistant entries after them in the same file, as a share of those files' prompt tokens (`message.usage` `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`, each `message.id` counted once). (b) assumes every condensation is empty and detection flags nothing, so the real saving is lower. The script prints counts only, never tool output, and writes nothing under `~/.llm-fw`. Hand the figures to the owner, who decides whether Phase 1 starts. No test task: a measurement.
+
+---
+
 ## Phase 1: Setup and foundations (round 1: S1 to S4)
 
 ### S1. Config and registration
@@ -129,7 +137,8 @@ without the slices after it. Setup and foundational tasks carry no story label.
 
 | Phase | Slices | Needs |
 | --- | --- | --- |
-| 1 | S1, S2, S3, S4 | nothing |
+| 0 | S0 | nothing |
+| 1 | S1, S2, S3, S4 | the owner's go-ahead on T000's figures |
 | 2 | S5, S6 | S1 (both: digest, stub); S2, S4 (S6) |
 | 3 | S7, S8 | S5, S6 (S7); S3, S4, S6 (S8) |
 | 4 | S9, S10, S11 | S7, S8 (S9); S6 (S10); S3, S4, S8 (S11) |
@@ -159,6 +168,8 @@ together; then the four implementations together.
 
 ## Implementation Strategy
 
+- **Gate**: T000 first. If its ceiling is too small to pay for the build, the owner stops there and
+  nothing else is built.
 - **MVP**: Phases 1 to 3 give User Story 1 end to end in unit tests, but condense results detection
   flagged or did not scan until S9 lands. Nothing ships before Phase 4: US6 is a P1 safety property.
 - **Incremental**: Phase 4 adds US6, the dashboard delete and the replay harness; Phases 5 and 6 the

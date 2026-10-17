@@ -83,7 +83,8 @@ either settled below or listed under Decisions. No `research.md`: the two techno
    as a tool call's input) and a missing record keep only results not yet decided whole; a
    remembered outcome stays as it is (FR-006), so earlier turns never change because of one. Under
    `all` an unscanned slot is expected and is not counted.
-9. **Measurement (US5)**: `test/eval/shunt/replay.ts` (free) and `test/eval/shunt/compare.ts`
+9. **Measurement (US5)**: T000 measures the ceiling from local transcripts before Phase 1 (D10);
+   then `test/eval/shunt/replay.ts` (free) and `test/eval/shunt/compare.ts`
    (billed, refuses to run without `--approve-spend`), both on a scratch `LLM_FW_DIR` (FR-020); how
    to run them is in quickstart.md.
 
@@ -296,3 +297,12 @@ A.
   restart.
   Spec: Assumptions: "Remembered outcomes are kept beside the stored originals for the retention period and outlive a restart. Stored originals outlive a restart and are reused at the same path."
   Spec: Edge Cases (restart): "The firewall restarts in the middle of a conversation: remembered condensations within the retention period are read back, and the result keeps its wording."
+
+### D10. Measure the savings ceiling before building?
+
+**Decided: yes, as the first task, T000** (user, 2026-10-17). No FR requires it. Earlier modules
+moved billed cost by under 1%, the truncator aside (-5.7%, with 24% more turns), and real command
+output was about 10% of the tokens an earlier module cut
+(`.specify/projects/llm-fw/token-savings-findings.md`). Follows: Phase 1 waits for the owner's
+go-ahead on T000's figures. The T000 script is not committed, so its figures cannot be rerun from
+the repo; T022's replay harness is the committed measurement (Design 9).
