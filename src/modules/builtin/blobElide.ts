@@ -3,18 +3,11 @@ import type { BlobElideConfig } from '../../types.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind } from '../payload.js'
 
-const patterns = new Map<number, RegExp>()
-
-// Base64, base64url and hex share this alphabet. Built per minimum length,
-// and cached, because the length is part of the pattern.
-function blobPattern(minLength: number): RegExp {
-  let re = patterns.get(minLength)
-  if (!re) {
-    re = new RegExp(`[A-Za-z0-9+/_-]{${minLength},}={0,2}`, 'g')
-    patterns.set(minLength, re)
-  }
-  return re
-}
+// Base64, base64url and hex share this alphabet. Maximal runs, with the
+// length checked afterwards: a minimum inside the pattern ({2048,}) made the
+// engine rescan a run just shorter than it from every start position, 1.7 s
+// on 512 KB of 2,047-character runs.
+const RUN = /[A-Za-z0-9+/_-]+={0,2}/g
 
 /**
  * Every run of at least `minLength` base64 or hex characters replaced with a
@@ -27,8 +20,8 @@ function blobPattern(minLength: number): RegExp {
 export function elideBlobs(text: string, minLength: number): string {
   const min = Math.max(64, Math.floor(minLength))
   if (text.length < min) return text
-  return text.replace(blobPattern(min), blob => {
-    if (!/[0-9]/.test(blob) || !/[A-Za-z]/.test(blob)) return blob
+  return text.replace(RUN, blob => {
+    if (blob.length < min || !/[0-9]/.test(blob) || !/[A-Za-z]/.test(blob)) return blob
     const hash = crypto.createHash('sha256').update(blob).digest('hex').slice(0, 8)
     return `[llm-fw: ${blob.length}-character base64 blob elided, sha256 ${hash}]`
   })

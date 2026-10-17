@@ -39,6 +39,15 @@ describe('elideBlobs', () => {
     const word = 'a'.repeat(5000)
     expect(elideBlobs(word, 2048)).toBe(word)
   })
+
+  it('stays linear on runs just shorter than the minimum', () => {
+    // With the length inside the pattern, a 2,047-character run was rescanned
+    // from every start position: quadratic per run.
+    const text = (b64(2047) + ' ').repeat(250)
+    const t0 = performance.now()
+    expect(elideBlobs(text, 2048)).toBe(text)
+    expect(performance.now() - t0).toBeLessThan(100)
+  })
 })
 
 describe('BlobElideModule', () => {
