@@ -1,0 +1,244 @@
+# Feature Specification: Tool Result Shunt (token-saving module)
+
+**Feature Branch**: not yet cut (feature key `001-tool-result-shunt`)
+
+**Created**: 2026-10-17
+
+**Status**: Draft
+
+**Input**: User description: "build this as new token saving module https://github.com/PIsberg/llm-fw/issues/361 also test it eventually to prove how much tokens it saves". Issue 361 ("the spotify portal way") proposes condensing oversized tool output through a cheaper worker model before the main model sees it, with a way back to the exact content.
+
+## Clarifications
+
+### Session 2026-10-17
+
+- Q: Which workers may receive tool output (FR-011)? → A: A model on the same machine as the firewall only. A worker on another machine the operator runs, a configurable endpoint, or a hosted model is out of scope and a follow-up.
+- Q: Must the firewall's verdict on a request be the same with the module on and off (FR-012)? → A: Yes. The original result is checked first. A result the detection flags is never condensed, so it is never sent to the worker and never stored. No second detection pass runs over the condensed text.
+- Q: How does the agent get the exact text back (FR-013)? → A: The firewall writes the original to a file on disk and gives its path in the condensed result; the agent reads it with its own tools. The operator accepted that this works only for agents on the same machine and that it stores tool output, possibly containing secrets, on disk. FR-021 to FR-025 therefore set that file's location, access, lifetime and cleanup.
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - Large command output reaches the main model condensed (Priority: P1)
+
+An operator turns the module on. A coding agent runs a command that prints thousands of lines: a test run, a build log, a directory tree, a version-control history, search results. Today every line of it is sent to the main model, and again on every later turn because the conversation history is resent. With the module on, the main model receives a short factual condensation written by a cheaper worker model instead: the original's size, the facts that matter (what failed, where, the final status), and the path of a file that holds the exact original.
+
+**Why this priority**: This is the whole saving. A 25,000-token result costs 25,000 tokens on every turn that carries it; a condensation of a few hundred tokens removes almost all of that.
+
+**Independent Test**: Send one request carrying a single 2,000-line test-run output through the firewall with the module on and a worker available. The forwarded request holds a condensed result of at most 20% of the original's tokens (the average target in SC-001) that still names every failing test, and a second request carrying a 50-line result is forwarded unchanged.
+
+**Acceptance Scenarios**:
+
+1. **Given** the module is on, a worker is available, and a request carries a command-output tool result at or above the size threshold, **When** the request is forwarded, **Then** that result is replaced by a condensed result that states the original's size in lines and characters, gives the path of a file holding the exact original, and is at most 50% of the original's tokens.
+2. **Given** a tool result whose output contains failures (failing test names, error messages, an exit status, summary counts), **When** it is condensed, **Then** the failing test names, the error messages, the exit status and the summary counts appear in the condensed result.
+3. **Given** a tool result below the size threshold, **When** the request is forwarded, **Then** that result is byte-identical to what the agent sent.
+4. **Given** a client that resends its whole history, **When** the same large result appears in requests for turns 2, 3 and 4, **Then** each of those requests carries the exact same condensed text for it, and the worker was asked about that result once, not once per turn.
+5. **Given** a client that continues a server-side conversation thread and sends each result once, with the call that produced it known only from an earlier response, **When** a large result arrives, **Then** it is condensed the same way as in scenario 1.
+6. **Given** the same large result sent in each request format the other tool-result modules support, **When** each request is forwarded, **Then** each one carries a condensed result.
+7. **Given** the default settings and a file-reading tool's result at or above the size threshold, **When** the request is forwarded, **Then** that result is forwarded whole; and **Given** the operator has included that tool, **When** the same request is forwarded, **Then** the result is condensed unless the read named an explicit line range, in which case it is still forwarded whole.
+
+---
+
+### User Story 2 - The agent is never stranded by a condensation (Priority: P1)
+
+A condensed result is lossy. An agent that planned to edit a file, quote an error verbatim or inspect one specific line must be able to get exactly that text, and must be told how. A summary that makes the agent's next precise action fail, or that points the agent at something that does not exist, is worse than no module.
+
+**Why this priority**: Condensing without a way back is how earlier lossy modules cost extra turns and wrong answers (a billed comparison of the tool-result truncator added 24% more turns; one of the shortening modules turned 8 of 8 correct answers into 6 of 8). The way back decides whether the saving is real.
+
+**Independent Test**: Run a scripted agent that receives a condensed result and then needs the exact lines of one failing test. It obtains them with at most one further tool call by following only what the condensed result says.
+
+**Acceptance Scenarios**:
+
+1. **Given** a condensed result, **When** the agent needs the exact text of one part of the original, **Then** the condensed result has given the path of a file holding the original, and reading that file (all of it, or the line range the condensed result cites) returns that part's exact text within at most one further tool call.
+2. **Given** any condensed result, **When** its text is inspected, **Then** it never tells the agent to use a tool, handle or reference that does not exist in that session, and the only file it points at is the stored original.
+3. **Given** a condensed result that cites file paths or line numbers, **When** each citation is checked against the original, **Then** every cited path appears in the original, except the stored original's own path, and every cited line number or range lies within the original's length. A condensation that fails this check is discarded and the original is forwarded whole.
+4. **Given** a condensed result is forwarded, **When** the file at its path is read at that moment, **Then** the file exists, is complete, and is byte-identical to the original, except where a remembered condensed result must be forwarded after its file could not be written back (User Story 7 scenario 9).
+5. **Given** the original cannot be written completely to disk (disk full, folder not writable), **When** a request with an eligible result is forwarded, **Then** the original result is forwarded whole, the request is answered normally, and no partial file remains.
+6. **Given** the same original appears in later requests, **When** each is forwarded, **Then** the condensed result carries the same path every time and exactly one stored file exists for that original.
+7. **Given** a request that comes from a client on a different machine than the firewall, **When** it carries an eligible result, **Then** the result is forwarded whole, the worker is not asked, and nothing is stored.
+
+---
+
+### User Story 3 - A broken or slow worker never costs the operator a request (Priority: P2)
+
+The worker is a second model that can be missing, stopped, overloaded or wrong. The operator must be able to leave the module on without the worker becoming a reason for a request to fail, hang or change meaning.
+
+**Why this priority**: Every gateway module fails open; a token optimisation is never a reason to drop or delay a request beyond a stated bound.
+
+**Independent Test**: Stop the worker, send a request with an eligible result, and compare the forwarded body with the same request sent with the module off.
+
+**Acceptance Scenarios**:
+
+1. **Given** the worker is not running, not configured, errors, or does not answer within the wait limit, **When** a request with an eligible result is forwarded, **Then** the request is forwarded with the original result, answered normally, and no more than the wait limit has been added to it.
+2. **Given** the worker returns nothing, text longer than half the original, or text that fails the citation check, **When** the request is forwarded, **Then** the original result is forwarded.
+3. **Given** a result forwarded whole because the worker failed, **When** the same result appears in later requests of the same conversation, **Then** it is forwarded whole again, so the history does not change shape between turns.
+4. **Given** a request carrying five eligible results, **When** it is forwarded, **Then** the added wait is at most the single wait limit, not five times it.
+5. **Given** a request with no eligible result, **When** it is forwarded, **Then** the worker is not asked anything.
+6. **Given** a worker that records everything it receives, **When** an eligible result is sent to it, **Then** it receives only that result and the fixed instructions: no provider credential, and no other part of the request such as the user's prompt, the system prompt or other results.
+7. **Given** the operator sets a worker address that is not on the same machine as the firewall, **When** a request with an eligible result is forwarded, **Then** the module treats it as no worker set up: the original is forwarded, nothing is sent to that address, and the module says so once.
+
+---
+
+### User Story 4 - The operator controls the module and sees what it does (Priority: P2)
+
+The operator decides whether tool output may be condensed, can change that live, sees on the dashboard what it saved and what it cost, and can try it in observe mode first.
+
+**Why this priority**: The module changes what the provider receives and sends tool output to a second model. It has to be explicit, reversible and measurable, like the other token-saving modules.
+
+**Independent Test**: Start with defaults and confirm nothing is condensed. Turn the module on from the dashboard, send an eligible result, and read the module's card.
+
+**Acceptance Scenarios**:
+
+1. **Given** a fresh installation, **When** an eligible result is sent, **Then** it is forwarded unchanged, the worker is never contacted, and nothing is stored.
+2. **Given** the module is off, **When** the operator turns it on through the dashboard, the settings file or the environment, **Then** the next request is condensed without a restart; turning it off restores forwarding unchanged the same way.
+3. **Given** observe mode is on, **When** an eligible result is sent, **Then** the provider receives the original, nothing is written to disk, and the module's card counts what would have been saved.
+4. **Given** the module has handled traffic, **When** the operator opens its card and live events, **Then** they show: results condensed; results forwarded whole, by reason (below threshold, excluded tool, tool not known, client not on this machine, flagged by detection, worker failed, condensation rejected, could not store, store full); original tokens; condensed tokens; worker tokens read and written; the average and longest wait added; the number and total size of stored originals; and the number of times a stored original was missing and could not be written back. No tool output or condensed text appears there.
+5. **Given** the operator names additional file-reading tools to include, or raises or lowers the size threshold, the retention period or the store size cap, **When** the setting is saved, **Then** it applies to the next request without a restart.
+6. **Given** tool output containing a recognisable marker string has been condensed, **When** the logs, live events and dashboard data are searched, **Then** the marker appears in none of them, and it appears on disk only in the stored original.
+7. **Given** the user guide and the change log, **When** each is checked against the list in FR-018, **Then** every listed item is present and the change log carries an entry.
+
+---
+
+### User Story 5 - The maintainer can prove how many tokens it saves (Priority: P2)
+
+The maintainer wants a number, not an adjective. The feature ships with a repeatable measurement, in two stages: a free replay over real recorded agent sessions, and a billed side-by-side comparison of real agent runs with the module off and on. Both count the cost side as well as the saving, because the worker reads the original too.
+
+**Why this priority**: The request names this explicitly, and earlier modules show the claimed saving and the billed saving can differ widely (one module removed 0.64% of tool-result tokens; the truncator moved the bill 5.7% while adding turns).
+
+**Independent Test**: Run the replay stage over a sample of recorded sessions and read the report; run it again and compare the eligible-result counts and original token totals.
+
+**Acceptance Scenarios**:
+
+1. **Given** a sample of recorded agent sessions, **When** the replay stage runs with a real worker, **Then** it reports: tool results seen; results eligible; original tokens of the eligible results; condensed tokens; reduction; the share of all tool-result tokens that the module saved; worker tokens read and written; main-model tokens avoided minus worker tokens spent; and key-fact retention on a labelled subset. Main-model and worker tokens are reported separately and counted by a named real tokenizer on line-ending-normalised text, not by characters divided by four.
+2. **Given** the same sample and settings, **When** the replay stage runs twice, **Then** the two reports agree exactly on results seen, results eligible and original tokens.
+3. **Given** the maintainer has approved the spend, **When** the comparison stage runs the same tasks with the module off and on, **Then** it reports for each arm: prompt tokens, cache writes and cache reads (the provider's separate charges for storing and reusing a repeated prompt prefix), turns, tasks answered correctly, and in the module-on arm how many times the agent read a stored original, counted only over tasks that completed in both arms, and states the net result even when it is a loss.
+4. **Given** approval for spend has not been given, **When** the evaluation is requested, **Then** the comparison stage is reported as not run, never omitted, and no figure from the replay stage is presented as a billed result.
+5. **Given** either stage runs, **When** it finishes, **Then** the operator's real settings, stored data (including the folder of stored originals) and other running agent sessions are unchanged.
+
+---
+
+### User Story 6 - Condensing never changes what the firewall decides (Priority: P1)
+
+The operator relies on the firewall to refuse or flag injections and secrets in tool output. Turning the token-saving module on must not weaken or alter that: the firewall decides on the original result exactly as it does with the module off.
+
+**Why this priority**: A token optimisation that lets a result slip past detection, or changes which requests are refused, defeats the product. Sending tool output to a second model and storing it on disk both raise the stakes for content the detection recognises as dangerous.
+
+**Independent Test**: Send the same set of requests, each carrying a large tool result, with the module off and then on. Compare the decision and findings for every request.
+
+**Acceptance Scenarios**:
+
+1. **Given** requests whose large tool results contain an injection or a secret the detection recognises, **When** each is sent with the module off and with it on, **Then** the decision (allowed, refused) and the findings reported are identical for every request.
+2. **Given** a large tool result the detection flags, **When** the request is handled with the module on, **Then** the result is not condensed, is not sent to the worker, is not stored, and is handled by the existing refusal or observe path exactly as with the module off.
+3. **Given** observe mode or enforce mode, **When** a request carries one flagged eligible result and one eligible result the detection does not flag, **Then** the flagged result is forwarded whole and the other is handled on its own, as in User Story 1.
+4. **Given** a result the detection does not flag, **When** it is condensed, **Then** the detection ran on the original only, and the module caused no further detection run over the condensed text.
+
+---
+
+### User Story 7 - Stored originals stay private and do not pile up (Priority: P1)
+
+To give the agent an exact way back, the firewall writes each condensed result's original to a file on disk. That file can contain secrets the detection did not recognise. The operator must be able to rely on where it lives, who can read it, how long it stays and how it is removed.
+
+**Why this priority**: Tool output, possibly sensitive, now rests on disk. Without clear limits it is a leak and a disk-filling risk. This was accepted as the price of an exact way back, on the condition that these limits are stated.
+
+**Independent Test**: Condense a result containing a marker string. Inspect where the copy is, who can read it, and that its content equals the original. Advance past the retention period and confirm the copy is gone. Delete everything on demand and confirm the store is empty.
+
+**Acceptance Scenarios**:
+
+1. **Given** the module condenses a result, **When** the disk is inspected, **Then** the original is stored in a folder of its own inside the firewall's data directory, and no tool output was written anywhere else, in particular not into the agent's working directory or a temporary location shared between accounts.
+2. **Given** a stored original, **When** an operating-system account other than the one running the firewall tries to list the folder or read the file, **Then** access is denied.
+3. **Given** the firewall cannot restrict a new file or folder to the account that runs it, **When** a request with an eligible result is forwarded, **Then** the original is forwarded whole, nothing is stored, and the module says so once.
+4. **Given** a stored original that no request has carried for longer than the retention period (default 24 hours), **When** the next sweep runs, **Then** the file is deleted; and **Given** a request carries the same result before that, **Then** its retention period starts again.
+5. **Given** expired files left from an earlier run, **When** the firewall starts, **Then** they are deleted at start. **Given** the module is off, **When** a file expires, **Then** it is still deleted by the sweep.
+6. **Given** stored originals exist, **When** the operator deletes all of them from the dashboard, **Then** the store holds no file, and a later request that carries a result whose original was deleted gets its file written back at the same path.
+7. **Given** the stored total is at the size cap (default 200 MB), **When** a request carries an eligible result whose copy would exceed the cap, **Then** the result is forwarded whole, no unexpired stored original is deleted to make room, and the card counts the reason as store full.
+8. **Given** a stored original has been deleted (expired, removed by the operator, or removed by hand) while a conversation that resends its history continues, **When** the next request carries the result, **Then** the file is written back at the same path before the request is forwarded and the condensed text is unchanged.
+9. **Given** a stored original is missing and cannot be written back (disk full, folder not writable), **When** a request carries the result that was condensed earlier, **Then** the request is forwarded with the condensed result exactly as remembered, the problem is logged once, and the card counts a missing stored original.
+
+---
+
+### Edge Cases
+
+- A result exactly at the size threshold is eligible; one line or character under it is not.
+- A file-reading tool's result is not eligible by default, because a file read is quoted verbatim in edits and earlier lossy cuts of file reads cost extra turns. A read with an explicit line range is never condensed even when the tool is included by the operator.
+- A result whose originating tool call cannot be determined (after a restart, or from a thread continuation whose call was not seen) is forwarded whole.
+- A result larger than the largest input the operator allows the worker to read is forwarded whole by this module, and the other modules treat it as they would with the module off.
+- A result that is not text (an image, a binary blob) is forwarded unchanged.
+- Another module has already shortened a result below the size threshold: this module leaves it alone. A result is condensed at most once per request.
+- The same output appears in two different tool results: each is condensed; the second may reuse the first's condensation and the first's stored file when the two originals are byte-identical.
+- The operator turns the module on, off, or changes its settings in the middle of a conversation that resends its history: the next request's earlier turns change shape. The documentation says so and says to start a new conversation, as it does for the other rewriting modules. Changing the retention period or the size cap does not change any condensed text.
+- The firewall restarts in the middle of a conversation: the remembered condensations are lost, and a result may come back worded differently. The stored file is kept and reused at the same path. The documentation says so.
+- A large tool result carries an injection or a secret the detection recognises: it is flagged on the original, never sent to the worker, never stored, and handled as with the module off.
+- A large tool result carries an injection or a secret the detection does not recognise on the original: it is treated like any other eligible result. If the worker repeats or obeys it, the condensed text is not checked again. The documentation says so.
+- The agent runs on a different machine than the firewall (for example a gateway shared over a network): its results are forwarded whole, because it cannot read the stored file.
+- The agent runs on the firewall's machine but cannot read the firewall's data directory (a different operating-system account, a container or a sandbox without that access): the firewall cannot tell, the agent's read of the path fails, and the documentation says so.
+- A conversation that continues a server-side thread, and whose stored original has since expired or been deleted: the firewall no longer holds the original, so it cannot write the file back, and the agent's read fails. The documentation says so and gives the retention period.
+- A stored original is missing and cannot be written back (disk full, folder not writable) when a later request carries a result already condensed earlier: the request is forwarded with the condensed result as remembered, because the history must not change shape between turns; the problem is logged once and counted on the card as a stored original missing.
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+- **FR-001**: The module MUST be off by default and MUST be switchable live, without a restart, through the dashboard, the settings file and the environment, like the other token-saving modules.
+- **FR-002**: A tool result MUST be eligible only when it is text, the tool call that produced it is known, its tool is not excluded, it is not a ranged file read, it is at or above the size threshold, it is no larger than the worker's allowed input, the request comes from a client on the same machine as the firewall, and the detection has not flagged it (FR-012). The default size threshold MUST be 350 lines or 20,000 characters, whichever is reached first, and the operator MUST be able to change it.
+- **FR-003**: By default the eligible tools MUST be those that print command, search, listing, history, build or test output. File-reading tools MUST be excluded by default, and the operator MUST be able to name tools to include or exclude.
+- **FR-004**: A condensed result MUST state that it is condensed, state the original's size in lines and characters, list the facts that matter (failures, errors, warnings, final status, counts, the paths involved), give the path of the stored original (FR-013), and carry no instruction to the agent other than how to get the exact content.
+- **FR-005**: A condensation larger than 50% of the original's tokens, counting everything in the condensed result including the stored original's path, MUST be discarded and the original forwarded whole.
+- **FR-006**: For a given original result, the module MUST produce the same output on every request that carries it, for as long as the firewall runs: the same condensed text, including the same stored original path, or the same decision to forward whole. The output MUST depend only on that result and its tool call, never on time, on the length of the conversation, on the retention period or on a retry. The worker MUST be asked at most once for each distinct original result while its outcome is remembered.
+- **FR-007**: The module MUST fail open. A missing, stopped, failing, slow or malformed worker, a stored original that cannot be written completely or cannot be restricted to the account that runs the firewall (FR-021, FR-023), and a condensation that fails FR-005 or FR-009, MUST result in the original being forwarded and the request answered normally. A worker or storage problem MUST be logged without tool output and MUST NOT be logged once per request.
+- **FR-008**: The time the module adds to one request MUST NOT exceed a wait limit, default 15 seconds, regardless of how many eligible results the request carries. The operator MUST be able to change the limit. A request with no eligible result MUST NOT cause a worker call.
+- **FR-009**: A condensed result MUST NOT cite a file path that is absent from the original, other than the stored original's own path which the module adds itself, or a line number or range outside the original's length.
+- **FR-010**: The worker MUST be given only the result and fixed instructions, MUST have no ability to run commands, read other files or send requests, and MUST NOT be given any provider credential. Its output MUST be treated as untrusted text.
+- **FR-011**: The worker MUST be chosen by the operator and MUST run on the same machine as the firewall; no worker or model ships with the firewall. The module MUST NOT send tool output to any other machine. A worker address that is not on the same machine MUST be treated as no worker set up, checked when it is set and again before every send. With no usable worker, the module MUST forward everything whole and say so once.
+- **FR-012**: The firewall's decision and findings for every request MUST be identical with the module on and off. The original of each eligible result MUST be checked by the existing secret and injection detection before the module acts on it. A result the detection flags, in any enforcement mode, MUST NOT be condensed, MUST NOT be sent to the worker and MUST NOT be stored; it is forwarded whole and handled by the existing refusal or observe path as with the module off. A result flagged once MUST stay forwarded whole on every later request that carries it. The module MUST NOT add a detection pass over the condensed text.
+- **FR-013**: The condensed result MUST give the absolute path of the stored original and say that the file holds the complete, exact original text, so the agent can read all of it or any line range with its own file-reading tools. Line numbers the condensed result cites MUST be line numbers of that file. It MUST name no other way back, MUST add no tool to the agent's tool list, and MUST NOT state an expiry time.
+- **FR-014**: Tool output, condensed text and worker prompts MUST NOT be written to logs, events, the dashboard or any file the module creates, with one exception: the stored original of FR-021, which holds the original result's text and nothing else.
+- **FR-015**: Observe mode MUST forward the original result, write nothing to disk, and count what would have been saved.
+- **FR-016**: The module MUST work for clients that resend their whole history and for clients that continue a server-side thread, and for every request format the other tool-result modules support.
+- **FR-017**: The module MUST record, for the dashboard card and live events, the counts and figures listed in User Story 4 scenario 4.
+- **FR-018**: The user guide MUST describe the module: what it changes, that it is lossy and off by default, what is sent to the worker and that the worker runs on the same machine, the size threshold and excluded tools, the effect of changing a setting in the middle of a conversation and of a restart, that no second detection pass runs over the condensed text and what that leaves uncaught, and the measured results from User Story 5 with the date, sample size and how it was measured. It MUST also describe the stored originals: that tool output is kept on disk unencrypted, where, who can read it, for how long (the retention period and the size cap), when it is removed, how the operator deletes it on demand, that the way back works only for an agent on the same machine that can read the firewall's data directory, and what happens when the file is gone. The change log MUST carry an entry.
+- **FR-019**: The measurement MUST count tokens with a real tokenizer on line-ending-normalised text, MUST NOT use characters divided by four or the firewall's own estimate, and MUST report main-model tokens and worker tokens separately.
+- **FR-020**: The measurement MUST run against recorded data and a scratch configuration and a scratch data directory only, and MUST NOT touch the operator's real settings, certificates, stored originals or running agent sessions. Any step that spends money MUST wait for the maintainer's explicit approval.
+- **FR-021**: For every condensed result, the module MUST write the exact original text, byte-identical, to a file before the request that carries its path is forwarded. The file's path MUST depend only on the original's content, so the same original always has the same path and one file, MUST be absolute, and MUST reveal nothing of the content. If the file cannot be written completely, the original MUST be forwarded whole and no partial file left behind.
+- **FR-022**: Stored originals MUST live in a folder of their own inside the firewall's data directory, and nowhere else: never in the agent's working directory, and never in a temporary location shared between accounts. The module MUST write nothing else to that folder.
+- **FR-023**: The stored-originals folder and every file in it MUST be readable and writable only by the operating-system account that runs the firewall. The module MUST confirm that restriction when it creates the folder or a file; if it cannot be applied, the module MUST forward the original whole and say so once.
+- **FR-024**: A stored original MUST be kept for a retention period, default 24 hours, counted from the last request that carried the result, and the operator MUST be able to change it live. When a request carries a result whose stored original is gone, the module MUST write it back at the same path before forwarding. If it cannot, the request MUST be forwarded with the condensed result as remembered (FR-006), the problem logged once and counted on the card.
+- **FR-025**: Expired stored originals MUST be removed at firewall start and at least once an hour while it runs, whether or not the module is on, so that none older than the retention period plus 1 hour remains. The total size of stored originals MUST NOT exceed a cap, default 200 MB, which the operator MUST be able to change live; a result whose copy would exceed it MUST be forwarded whole, and an unexpired stored original MUST NOT be deleted to make room. The operator MUST be able to delete all stored originals on demand from the dashboard. Turning the module off MUST NOT delete them at once.
+
+### Key Entities
+
+- **Tool result**: the output returned to the main model for one tool call. Attributes: the tool that produced it, the command or arguments when known, its text, its size in lines, characters and tokens.
+- **Condensed result**: the replacement the main model receives. Attributes: a statement that it is condensed, the original's size, the facts kept, the path of the stored original.
+- **Stored original**: the file holding the exact original text of one condensed result. Attributes: a path fixed by the content, the retention period remaining, its size, and the single account that can read it. Lives in the stored-originals folder.
+- **Worker**: the cheaper model that writes the condensation. Chosen and run by the operator, on the same machine as the firewall.
+- **Remembered outcome**: for each distinct original result, either its condensed text (with the stored original's path) or the decision to forward it whole, including because the detection flagged it. Keeps repeated sends identical.
+- **Module card**: the dashboard's figures for the module (User Story 4 scenario 4).
+- **Evaluation sample**: a set of recorded agent sessions (replay stage) or a set of tasks (comparison stage), with the labelled key facts for a subset.
+
+## Success Criteria *(mandatory)*
+
+### Measurable Outcomes
+
+- **SC-001**: On the replay sample, the results the module condenses average at most 20% of their original tokens (a reduction of at least 80%).
+- **SC-002**: On a labelled subset of at least 50 condensed results, at least 90% of the labelled key facts (failing test names, error messages, final status, summary counts) appear in the condensed result.
+- **SC-003**: Across the replay sample, 0 condensed results cite a path or line number the original does not contain, the stored original's own path excepted.
+- **SC-004**: In a replayed 10-turn conversation that resends its history, 100% of condensed results are byte-identical on every turn they appear, the worker is asked once per distinct result, and each distinct original has exactly one stored file.
+- **SC-005**: With the worker stopped, 100% of requests are forwarded with bodies identical to the module-off bodies, nothing is stored, and they are answered normally; a request with eligible results waits no more than the wait limit; a request with none adds under 5 ms at the median.
+- **SC-006**: The guide reports the measured share of all tool-result tokens saved, worker tokens spent, and the net, from the replay stage, with the sample size and the date. If the net is not a saving, the guide says so.
+- **SC-007**: When the comparison stage is approved and run, over at least 4 tasks completed in both arms, the module-on arm answers at least as many tasks correctly as the module-off arm, and the guide reports prompt tokens, cache writes, cache reads, turns and stored-original reads for both arms. If the module-on arm answers fewer correctly, the guide says the module is not recommended for that workload.
+- **SC-008**: With the module off, 100% of requests are forwarded byte-identical to a build without the module, and no stored original is created.
+- **SC-009**: Over at least 50 requests whose large results the detection flags and at least 50 whose results it does not, the decision and the findings differ in 0 requests between module off and module on, and 0 flagged results reach the worker or the stored-originals folder.
+- **SC-010**: For 100% of condensed results forwarded in the replay, apart from any the card counts as a missing stored original (FR-024), the file at the stated path exists and is byte-identical to the original at the moment the request is forwarded, and 0 stored files or folders are accessible to an account other than the one running the firewall.
+- **SC-011**: While the firewall runs, 0 stored originals older than the retention period plus 1 hour remain; after the on-demand delete the folder holds 0 files; and the folder's total size never exceeds the cap.
+
+## Assumptions
+
+- Operators run the firewall in front of coding agents (Claude Code, Cursor, Aider, custom scripts) on their own machine or network and can set up a worker model on that machine themselves.
+- The size threshold (350 lines or 20,000 characters), the 50% per-result cap, the 15-second wait limit, the 200,000-character worker input limit, the 24-hour retention period, the 200 MB store cap and the hourly sweep are starting values. The replay stage measures the first four, and the numbers in the guide come from that measurement, not from this spec. The retention period and the cap are the author's proposal and the operator can change both.
+- File reads are excluded by default on the evidence of earlier modules: file reads were 61.5% of the tokens an earlier module cut, and cutting them cost 24% more turns. The replay stage reports the saving with file reads included and excluded so the default can be revisited with data.
+- Remembered outcomes live only as long as the firewall runs, like the other modules' remembered results. A restart can word a condensation differently, and the documentation says so. Stored originals outlive a restart and are reused at the same path.
+- The main model's tokens avoided and the worker's tokens spent are different prices, so the report shows both token counts and does not convert them to money unless a price is stated alongside.
+- A billed comparison needs a real agent run against a paid model and so needs the maintainer's go-ahead. It is part of this feature's acceptance but is not run until that go-ahead is given. It runs in enforce mode against a repository other than this one: enforce mode refuses reads of the firewall's own detection documents, and observe mode forwards the originals (FR-015), so the module-on arm would condense nothing and could not show a saving or any stored-original reads.
+- Stored originals rest on disk unencrypted, readable only by the account that runs the firewall, for the retention period. Tool output can contain secrets the detection does not recognise, and those are written too. The operator accepted this in exchange for an exact way back, and the documentation says so. Results the detection does flag are never written.
+- The way back works only for an agent that can read the firewall's data directory: on the same machine and under the same operating-system account. The firewall can tell a client on another machine and forwards its results whole. It cannot tell a same-machine agent in a container or sandbox without that access, whose read of the path fails.
+- Detection runs once, on the original. The condensed text is not checked a second time, so a worker that repeats or obeys content the detection did not flag on the original is not caught. This follows from the operator's choice and the documentation says so.
+- Out of scope, each a follow-up: a worker on another machine or at a configurable endpoint, and a cheaper hosted model from the provider the agent already uses; a way back for agents on other machines (a retrieval tool added to the agent's tool list, or guidance to repeat the command); writing generated code straight to disk (the "code-writer" mechanism in issue 361); a client-side hook or plugin; condensing anything other than tool results (prompts, system text, tool definitions); shipping or installing a worker model; encrypting stored originals; sharing remembered outcomes or stored originals between replicas.
+- Dependencies: the existing module pipeline, its dashboard card and live events, the existing record of which tool made each call, the firewall's data directory, and the existing secret and injection detection, which must have judged the original result before this module may act on it.
