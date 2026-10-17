@@ -378,6 +378,9 @@ export const DEFAULT_CONFIG: Config = {
       headLines: 200,
       tailLines: 100,
       maxChars: 40000,
+      // File reads: Claude Code, Gemini CLI, the MCP filesystem server, and
+      // Anthropic's text editor tool (its view command).
+      skipTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
     },
     toolDefinitionPruner: {
       enabled: false,

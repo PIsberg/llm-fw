@@ -69,7 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Tool Result Truncator module, opt-in and lossy (`modules.toolResultTruncate.enabled`,
   `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).** Oversized tool output keeps its first `headLines`
   (200) and last `tailLines` (100) lines, then at most `maxChars` (40,000) characters, with a
-  marker saying how much was cut.
+  marker saying how much was cut. File reads stay whole (#360): in a live round, Claude Code read
+  each elided range back and sessions took 24% more turns. `skipTools` lists the tools left alone,
+  by default the file readers of Claude Code, Gemini CLI, the MCP filesystem server and
+  Anthropic's text editor tool; a name also matches an MCP tool ending in `__` and that name. On Claude
+  Code's server-side threads through the proxy, where a tool result arrives without the call
+  that named its tool, the module learns the name from the response that made the call.
 - **A History Window module, opt-in and lossy (`modules.historyWindow.enabled`,
   `LLM_FW_HISTORY_WINDOW_ENABLED`, `maxMessages` 100, `step` 25).** A long conversation keeps its
   system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user
