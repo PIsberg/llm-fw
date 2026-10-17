@@ -85,8 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   do results whose command is unknown: sent everything, lean-ctx cut a 361-line file read to 15
   lines. lean-ctx runs with telemetry off, its own folders under `LLM_FW_DIR`, none of llm-fw's
   environment, no copy of tool output on disk and no retrieve instruction added to the result.
-  Over 30 days of one developer's Claude Code transcripts it removed 0.64% of tool-result tokens;
-  its effect on the bill has not been measured. Without lean-ctx, results pass through whole.
+  Over 30 days of one developer's Claude Code transcripts it removed 0.64% of tool-result tokens.
+  In a billed A/B with Claude Code on express tasks that ran long commands unfiltered, it cut
+  prompt tokens by 8.3% with turns unchanged (24 to 23), and answered 6 of 8 tasks correctly
+  against 8 of 8 without it: lean-ctx cut a 641-line `npm ls --all` tree to 15 lines. Without
+  lean-ctx, results pass through whole.
 - **A History Window module, opt-in and lossy (`modules.historyWindow.enabled`,
   `LLM_FW_HISTORY_WINDOW_ENABLED`, `maxMessages` 100, `step` 25).** A long conversation keeps its
   system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user

@@ -282,8 +282,37 @@ unique tool results, 29.0M tokens by the estimate above) with lean-ctx 3.11.0:
   output, and removed 185,630 tokens: 0.64% of all tool-result tokens, 25% of
   what it sent.
 
-What that does to the bill, and whether agents rerun commands whose output
-came back shortened, has not been measured yet.
+Billed, on 2026-10-17: Claude Code 2.1.302 with Claude Opus 5.5 through the
+proxy on a clone of express, four tasks built around one long command each
+(`npm test`, `npm run test-cov`, `npm ls --all`, `npm run test-tap`), two
+rounds per arm, the arm order swapped between rounds. Left to itself, the
+agent wrote the output of `npm test` to a file and read it with `tail` and
+`grep`, all of which this module leaves whole, so it sent nothing. The prompts
+therefore asked for each command to be run as written, unfiltered:
+
+| | Modules off | `lean-ctx` on |
+| --- | --- | --- |
+| Tasks answered correctly | 8 of 8 | 6 of 8 |
+| Turns | 24 | 23 |
+| Prompt tokens (uncached, cache writes and cache reads) | 720,758 | 661,013 (−8.3%) |
+| Billed | $0.83 | $0.50 |
+
+Both wrong answers were the `npm ls --all` task, which asks for a count only
+the whole tree gives. lean-ctx cut the 641-line tree to its first and last few
+lines with `[626 lines omitted]`, and headed it "15 errors": packages whose
+names contain "error" (`http-errors`, `es6-error`, `aggregate-error`). The
+agent said it could not answer; with filtering allowed it would have run the
+command again. That task saved 17.1% of prompt tokens and `npm run test-tap`
+15.9%, where the agent found the line it needed by searching the copy of the
+output Claude Code saves. `npm test` and `npm run test-cov` saved about 1%:
+Claude Code already keeps long output in a file and shows the model a
+preview. Turns did not go up. The billed row mostly measures run order:
+sessions share cached prefixes, and the arm that ran first in round one
+(modules off) paid 62% of all cache writes. In round two, where the module's
+arm ran first, it cost $0.25 and modules off $0.21. Read the prompt-token row.
+
+Keep this module off where an agent's answer can depend on a line in the
+middle of command output.
 
 How llm-fw runs lean-ctx:
 
