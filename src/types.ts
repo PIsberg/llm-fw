@@ -453,6 +453,12 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
   tailLines: number;
   /** Characters kept after the line cut, two thirds head, one third tail; 0 is off. */
   maxChars: number;
+  /**
+   * Tools whose results are never cut: an agent reads the cut range of a
+   * file back. A name matches the tool of that name, or one whose name ends
+   * in `__` and that name (`mcp__filesystem__read_file`).
+   */
+  skipTools: string[];
 }
 
 export interface HistoryWindowConfig extends ModuleSwitchConfig {

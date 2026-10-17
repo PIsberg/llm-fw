@@ -123,6 +123,15 @@ total. The sample is small and the turn count varies from run to run, so read
 the cost delta as a direction, not a guarantee. For Claude Code, the
 whitespace modules are below 1% and not worth the risk they carry for edits.
 
+Since this round the truncator leaves file reads whole (`skipTools`, under
+[Tool result truncator](#tool-result-truncator)), and that gives up most of
+what it cut. Over 30 days of one developer's Claude Code transcripts
+(1,716 transcript files, 61,634 tool results, counted with the estimate above),
+`Read` results were 62% of the tokens the truncator would remove, lean-ctx's
+`ctx_read` 9% and `Bash` 22%. Skipping `Read` keeps 38% of the saving;
+skipping `ctx_read` as well keeps 29%. What that does to the bill, net of the
+turns it no longer adds, has not been measured.
+
 ## Modules
 
 In pipeline order, which is also the order of the cards:
@@ -137,7 +146,7 @@ In pipeline order, which is also the order of the cards:
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
-| `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output (lossy) |
+| `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -176,21 +185,50 @@ before it, so a growing conversation is rewritten the same way on every turn.
 ### Tool result truncator
 
 `modules.toolResultTruncate.enabled` (`LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).
-**Lossy**: the model never sees what is cut. A build log, a full test run or a
-large file read can be tens of thousands of tokens, re-sent on every later
-turn, while the head and tail usually carry the command, the error and the
-summary.
+**Lossy**: the model never sees what is cut. A build log or a full test run
+can be tens of thousands of tokens, re-sent on every later turn, while the
+head and tail usually carry the command, the error and the summary.
 
 | Option | Default | Does |
 | --- | --- | --- |
 | `headLines` | `200` | Lines kept from the start of a tool result longer than `headLines + tailLines`. |
 | `tailLines` | `100` | Lines kept from the end. The middle becomes `[llm-fw: N lines elided]`. Both `0` turns the line cut off. |
 | `maxChars` | `40000` | After the line cut, a result still longer than this keeps two thirds of it from the head and one third from the tail, with `[llm-fw: N characters elided]` between; this catches one huge line, such as minified code. `0` is off. |
+| `skipTools` | the file readers below | Tools whose results are never cut. |
 
-The cut depends only on the result itself, so the same history is sent the
-same way every turn. An agent that reads a long file and then rewrites the
-whole file would write the marker into it; prefer the agent's own paging
-(read with an offset) where it has one, or keep this off for editing agents.
+File reads stay whole. In the live round above, Claude Code read files
+through lean-ctx's `ctx_read` MCP tool, and after a read came back cut it read
+the elided range back, so sessions took 24% more turns. The default
+`skipTools` holds `Read` (Claude Code), `read_file` (Gemini CLI),
+`read_text_file` and `read_multiple_files` (the MCP filesystem server), and
+`str_replace_based_edit_tool` and `str_replace_editor` (Anthropic's text
+editor tool, whose `view` command reads a file). A name matches the tool of
+that name, or one whose name ends in `__` and that name, which is how Claude
+Code names MCP tools (`mcp__filesystem__read_text_file`). Add the tool your
+agent reads files with when it is not listed, such as `ctx_read`, which is
+not in the default. The list replaces the default, so repeat the names you
+keep:
+
+```json
+{ "modules": { "toolResultTruncate": { "skipTools": ["Read", "read_file", "ctx_read"] } } }
+```
+
+A tool result names its call, not its tool. A client that resends its
+history (the SDKs, Claude Code through the gateway) carries the call in the
+same request. Claude Code through the proxy continues a server-side thread
+and sends results without their calls, as does the Responses API with
+`previous_response_id`; there the module learns each call's tool from the
+response that made it. A result whose tool it cannot tell is cut:
+after a restart, while the module was off, or when that response was larger
+than `proxy.maxBodyBytes`. A file read through a shell tool (`cat` in
+`Bash`) is command output by name, so it is cut too.
+
+For a client that resends its history, the cut depends only on the result
+and the call before it in the request, so the same history is sent the same
+way every turn; a thread continuation sends each result once. An agent that
+reads a long file through a tool not in `skipTools` and then rewrites the
+whole file would write the marker into it: add that tool, or keep this
+module off for that agent.
 
 ### Tool definition pruner
 

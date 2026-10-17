@@ -85,35 +85,43 @@ function fold(acc: Usage | null, data: unknown): Usage | null {
   return acc
 }
 
+type ResponseHeaders = Record<string, string | string[] | number | undefined>
+
 /**
- * The usage a provider reported in a response body, JSON or server-sent
- * events, decoded per `content-encoding`. Null when the body carries none.
+ * The JSON a response body carries, decoded per `content-encoding`: the body
+ * itself, or the data of each server-sent event in order. Null when the body
+ * cannot be decoded, or is a JSON object that does not parse.
  */
-export function parseUsage(
-  body: Buffer,
-  headers: Record<string, string | string[] | number | undefined>,
-  maxDecoded = MAX_DECODED,
-): Usage | null {
+export function responseEvents(body: Buffer, headers: ResponseHeaders, maxDecoded = MAX_DECODED): unknown[] | null {
   const text = decode(body, String(headers['content-encoding'] ?? ''), maxDecoded)
   if (text === null) return null
   const trimmed = text.trimStart()
   if (trimmed.startsWith('{')) {
     try {
-      return fold(null, JSON.parse(trimmed))
+      return [JSON.parse(trimmed) as unknown]
     } catch {
       return null
     }
   }
-  let acc: Usage | null = null
+  const events: unknown[] = []
   for (const line of text.split('\n')) {
     if (!line.startsWith('data:')) continue
     const payload = line.slice(5).trim()
     if (!payload.startsWith('{')) continue
     try {
-      acc = fold(acc, JSON.parse(payload))
+      events.push(JSON.parse(payload))
     } catch {
-      // a partial or non-JSON event; the rest of the stream may still carry usage
+      // a partial or non-JSON event; the rest of the stream may still be read
     }
   }
-  return acc
+  return events
+}
+
+/**
+ * The usage a provider reported in a response body, JSON or server-sent
+ * events, decoded per `content-encoding`. Null when the body carries none.
+ */
+export function parseUsage(body: Buffer, headers: ResponseHeaders, maxDecoded = MAX_DECODED): Usage | null {
+  const events = responseEvents(body, headers, maxDecoded)
+  return events ? events.reduce<Usage | null>((acc, data) => fold(acc, data), null) : null
 }

