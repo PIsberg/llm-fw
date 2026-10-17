@@ -146,9 +146,32 @@ export class ModuleManager {
   // serialisation (see PayloadModule.transformParsed). One of them that
   // throws may leave the slots it already rewrote rewritten: each rewrite is
   // a whole, valid replacement of one text field, so the body stays valid.
+  //
+  // Skips the modules marked `afterScreening`; transformScreened runs those.
   async transformRequest(
     body: string,
     ctx: GatewayModuleContext
+  ): Promise<{ body: string; modified: boolean; events: ModuleEvent[] }> {
+    return this.runModules(body, ctx, false)
+  }
+
+  /**
+   * The modules marked `afterScreening`, run after detection and DLP with
+   * `ctx.screening` and `ctx.remoteAddress` set, and no other. Fails open and
+   * shares one parsed payload exactly as `transformRequest` does.
+   */
+  async transformScreened(
+    body: string,
+    ctx: GatewayModuleContext
+  ): Promise<{ body: string; modified: boolean; events: ModuleEvent[] }> {
+    return this.runModules(body, ctx, true)
+  }
+
+  /** The loop behind both passes: the enabled modules whose `afterScreening` flag matches `screened`, in registration order. */
+  private async runModules(
+    body: string,
+    ctx: GatewayModuleContext,
+    screened: boolean
   ): Promise<{ body: string; modified: boolean; events: ModuleEvent[] }> {
     let currentBody = body
     let anyModified = false
@@ -164,7 +187,7 @@ export class ModuleManager {
     }
 
     for (const mod of this.modules.values()) {
-      if (!mod.enabled) continue
+      if (!mod.enabled || (mod.afterScreening === true) !== screened) continue
 
       let result: { modified: boolean; body?: string; events?: ModuleEvent[] | undefined }
       try {
@@ -198,18 +221,6 @@ export class ModuleManager {
       modified: anyModified,
       events: allEvents,
     }
-  }
-
-  /**
-   * The modules marked `afterScreening`, run after detection and DLP with
-   * `ctx.screening` and `ctx.remoteAddress` set. Fails open like
-   * `transformRequest`. Stub: not written yet.
-   */
-  transformScreened(
-    _body: string,
-    _ctx: GatewayModuleContext
-  ): Promise<{ body: string; modified: boolean; events: ModuleEvent[] }> {
-    return Promise.reject(new Error('transformScreened is not implemented'))
   }
 
   getSummaryStats(): ModulesSummaryStats {

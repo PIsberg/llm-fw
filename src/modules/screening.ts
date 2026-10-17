@@ -93,6 +93,18 @@ export class Screening {
   }
 
   /**
+   * The item loop was handed this slot's own text, or its whole result as it
+   * joins the result's text parts. Exact matches only: a scanned prompt that
+   * merely contains the text, or an empty text every string contains, does not
+   * make a result that nothing scanned count as scanned.
+   */
+  private wasScanned(slot: TextSlot, joined: ReadonlyMap<string, string>): boolean {
+    if (this.scanned.has(slot.text)) return true
+    const whole = slot.toolCallId === undefined ? undefined : joined.get(slot.toolCallId)
+    return whole !== undefined && this.scanned.has(whole)
+  }
+
+  /**
    * Which `tool_result` slots to leave whole. `flagged`: a scan, the MCP
    * audit or DLP flagged it, or no scan noted it. `unreached`: a cut-short
    * scan never got to it. `all`: the record cannot place something, so no
@@ -104,6 +116,7 @@ export class Screening {
     const flagged = new Set<number>()
     const unreached = new Set<number>()
     const stoppedOn = this.isCutShort ? this.last : undefined
+    const parts = all ? undefined : joinedResults(slots)
 
     slots.forEach((slot, i) => {
       if (slot.kind !== 'tool_result') return
@@ -115,7 +128,7 @@ export class Screening {
         || (stoppedOn !== undefined && stoppedOn.includes(text))
       ) {
         flagged.add(i)
-      } else if (!all && !holds(this.scanned, text)) {
+      } else if (parts && !this.wasScanned(slot, parts)) {
         if (this.isCutShort) unreached.add(i)
         else flagged.add(i)
       }
@@ -124,9 +137,20 @@ export class Screening {
   }
 }
 
-/** Whether some text in `texts` is, or contains, `text` (a joined result holds its parts). */
+/** Whether some text in `texts` is, or contains, `text` (a flag is fail-safe: a joined result holds its parts). */
 function holds(texts: ReadonlySet<string>, text: string): boolean {
   if (texts.has(text)) return true
   for (const t of texts) if (t.includes(text)) return true
   return false
+}
+
+/** Each tool call's result as the item loop joins it: the text parts of the slots that share its id, in order, joined by a newline. */
+function joinedResults(slots: readonly TextSlot[]): Map<string, string> {
+  const joined = new Map<string, string>()
+  for (const slot of slots) {
+    if (slot.kind !== 'tool_result' || slot.toolCallId === undefined) continue
+    const soFar = joined.get(slot.toolCallId)
+    joined.set(slot.toolCallId, soFar === undefined ? slot.text : `${soFar}\n${slot.text}`)
+  }
+  return joined
 }

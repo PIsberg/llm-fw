@@ -243,15 +243,18 @@ export class Pipeline {
       enforcement?: 'enforce' | 'observe';
       // Tenant attribution, carried onto every event this run emits.
       tenant?: string;
-      // Called with the text of every scan item, just before it is scanned
-      // (T010 stub: not called yet).
+      // Called with the text of every scan item, first thing in its pass of the
+      // item loop (served from the item cache or not), so the last text it
+      // received before `run` returns is the item that blocked. A block before
+      // the loop (crescendo, non-text) passes none. Reading only: it changes
+      // no verdict.
       onItemScanned?: (text: string) => void;
-      // Called with the text of every scan item whose own outcome is a warn
-      // (T010 stub: not called yet).
+      // Called with the text of every scan item whose own outcome is a warn,
+      // whichever warn wins, once for a repeat served from the item cache, and
+      // once for an item handed to the async judge (before the verdict arrives).
       onItemFlag?: (text: string) => void;
     }
   ): Promise<PipelineResult> {
-    if (meta.onItemScanned || meta.onItemFlag) throw new Error('meta.onItemScanned and meta.onItemFlag are not implemented')
     const result = await this.scan(requestPath, body, meta)
     // THE choke point for observe mode. Every caller — proxy, gateway, the
     // library API — takes its verdict from here, so downgrading once makes
@@ -276,11 +279,7 @@ export class Pipeline {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
       onEvent?: (event: BlockEvent) => void | undefined;
-      // Called with the text of every scan item, just before it is scanned
-      // (T010 stub: not called yet).
       onItemScanned?: (text: string) => void;
-      // Called with the text of every scan item whose own outcome is a warn
-      // (T010 stub: not called yet).
       onItemFlag?: (text: string) => void;
     }
   ): Promise<PipelineResult> {
@@ -475,11 +474,13 @@ export class Pipeline {
     const itemCacheOn = !judgeEnabled
 
     for (const { text: prompt, source } of scanItems) {
+      meta.onItemScanned?.(prompt)
       const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(prompt).digest('hex') : ''
       const cached = itemKey ? this.itemCache.get(itemKey) : undefined
       if (cached) {
         this.itemCache.delete(itemKey)
         this.itemCache.set(itemKey, cached)
+        if (cached.warn) meta.onItemFlag?.(prompt)
         pendingWarn = firstWarn(pendingWarn, cached.warn)
         lastScore = Math.max(lastScore, cached.score)
         lastSim = Math.max(lastSim, cached.sim)
@@ -491,6 +492,9 @@ export class Pipeline {
       const scoreBeforeItem = lastScore
       const simBeforeItem = lastSim
       const suppressionHitsBeforeItem = this.suppressionHits
+      // The item is reported to onItemFlag at most once, whether it is judged
+      // asynchronously, warns on its own, or both.
+      let itemFlagged = false
       pendingWarn = null
       lastScore = 0
       lastSim = 0
@@ -917,6 +921,7 @@ export class Pipeline {
             }
           } else {
             // Async monitoring mode
+            if (!itemFlagged) { itemFlagged = true; meta.onItemFlag?.(prompt) }
             this.judge.classify(candidate.text).then(j => {
               if (j.verdict === 'MALICIOUS') {
                 this.emit({ action: 'warn', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }, meta, prompt, source)
@@ -958,6 +963,7 @@ export class Pipeline {
           if (oldest !== undefined) this.itemCache.delete(oldest)
         }
       }
+      if (pendingWarn && !itemFlagged) meta.onItemFlag?.(prompt)
       pendingWarn = firstWarn(warnBeforeItem, pendingWarn)
       lastScore = Math.max(scoreBeforeItem, lastScore)
       lastSim = Math.max(simBeforeItem, lastSim)
