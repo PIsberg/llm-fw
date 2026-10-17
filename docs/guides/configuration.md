@@ -233,7 +233,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_101 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_102 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -333,6 +333,7 @@ _101 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TOOL_RESULT_DEDUP_ENABLED` | `modules.toolResultDedup.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |
+| `LLM_FW_TOOL_RESULT_SHUNT_ENABLED` | `modules.toolResultShunt.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED` | `modules.toolResultTruncate.enabled` | `false` |
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |

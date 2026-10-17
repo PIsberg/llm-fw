@@ -374,6 +374,26 @@ export const DEFAULT_CONFIG: Config = {
       ],
       timeoutMs: 500,
     },
+    toolResultShunt: {
+      enabled: false,
+      // Shell, search and listing tools. No file-reading tool: none of
+      // toolResultTruncate.skipTools is here, because a condensed file read
+      // makes the agent read the file back.
+      tools: [
+        'Bash', 'PowerShell', 'BashOutput', 'Grep', 'Glob', 'LS',
+        'shell', 'exec_command',
+        'run_shell_command', 'search_file_content', 'glob', 'list_directory',
+      ],
+      minLines: 350,
+      minChars: 20000,
+      maxInputChars: 200000,
+      waitMs: 15000,
+      // No worker until the operator names a local one.
+      workerUrl: '',
+      workerModel: '',
+      retentionHours: 24,
+      maxStoreMB: 200,
+    },
     toolResultPruner: {
       enabled: false,
       minifyJson: true,
@@ -755,6 +775,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_REPEAT_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.repeatCollapse) c.modules.repeatCollapse.enabled = v === 'true'; },
   LLM_FW_BLOB_ELIDE_ENABLED: (c, v) => { if (c.modules?.blobElide) c.modules.blobElide.enabled = v === 'true'; },
   LLM_FW_LEAN_CTX_ENABLED: (c, v) => { if (c.modules?.leanCtx) c.modules.leanCtx.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_SHUNT_ENABLED: (c, v) => { if (c.modules?.toolResultShunt) c.modules.toolResultShunt.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },

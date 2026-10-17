@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultShuntConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -7,6 +7,7 @@ import { ProgressCollapseModule } from './builtin/progressCollapse.js'
 import { RepeatCollapseModule } from './builtin/repeatCollapse.js'
 import { BlobElideModule } from './builtin/blobElide.js'
 import { LeanCtxModule } from './builtin/leanCtx.js'
+import { ToolResultShuntModule } from './builtin/toolResultShunt.js'
 import { TokenPrunerModule } from './builtin/tokenPruner.js'
 import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
@@ -41,6 +42,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolResultTruncate', create: cfg => new ToolResultTruncateModule(cfg as ToolResultTruncateConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
+  { key: 'toolResultShunt', create: cfg => new ToolResultShuntModule(cfg as ToolResultShuntConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
 ]

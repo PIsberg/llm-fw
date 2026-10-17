@@ -477,6 +477,30 @@ export interface LeanCtxConfig extends ModuleSwitchConfig {
   timeoutMs: number;
 }
 
+export interface ToolResultShuntConfig extends ModuleSwitchConfig {
+  /**
+   * Tools whose results may be condensed by the worker, matched like the
+   * truncator's skipTools. No file-reading tool is in the default list.
+   */
+  tools: string[];
+  /** A result with at least this many lines is eligible. */
+  minLines: number;
+  /** A result with at least this many characters is eligible. */
+  minChars: number;
+  /** Largest result sent to the worker, in characters; a larger one stays whole. */
+  maxInputChars: number;
+  /** Most time one request waits for the worker, in milliseconds; a result not answered by then is forwarded whole. */
+  waitMs: number;
+  /** Base URL of the local worker (an OpenAI-compatible server); loopback hosts only. Empty means no worker. */
+  workerUrl: string;
+  /** Model name passed to the worker. Empty means no worker. */
+  workerModel: string;
+  /** Hours a stored original or remembered outcome is kept after a request last carried it. */
+  retentionHours: number;
+  /** Cap on the store folder, in MiB. */
+  maxStoreMB: number;
+}
+
 export interface HistoryWindowConfig extends ModuleSwitchConfig {
   /** Turns kept, system messages aside; at least 2. */
   maxMessages: number;
@@ -520,6 +544,7 @@ export interface ModulesConfig {
   repeatCollapse?: RepeatCollapseConfig;
   blobElide?: BlobElideConfig;
   leanCtx?: LeanCtxConfig;
+  toolResultShunt?: ToolResultShuntConfig;
   toolResultPruner?: ToolResultPrunerConfig;
   toolResultDedup?: ToolResultDedupConfig;
   toolResultTruncate?: ToolResultTruncateConfig;
