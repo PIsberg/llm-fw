@@ -47,6 +47,40 @@ describe('ResponseCacheModule', () => {
     expect(mod.respond(body, { ...ctx(), tenant: 'team-b' })).toBeUndefined()
   })
 
+  it('never serves a response fetched with a credential in the query or a cookie to another caller', () => {
+    // Google documents its key as ?key=; the gateway's path is the route
+    // without the query, so the query must be keyed through the full URL.
+    const mod = new ResponseCacheModule(cfg())
+    const gemini = (url: string, headers: Record<string, string> = {}): GatewayModuleContext =>
+      ({ ...ctx(headers), headers: { ...headers }, target: 'generativelanguage.googleapis.com', path: '/v1beta/models/g:generateContent', url })
+    mod.observeResponse(body, gemini('/gemini/v1beta/models/g:generateContent?key=AIza-one'), ok())
+    expect(mod.respond(body, gemini('/gemini/v1beta/models/g:generateContent?key=AIza-one'))).toBeDefined()
+    expect(mod.respond(body, gemini('/gemini/v1beta/models/g:generateContent?key=AIza-two'))).toBeUndefined()
+    mod.observeResponse(body, gemini('/x', { cookie: 'session=a' }), ok())
+    expect(mod.respond(body, gemini('/x', { cookie: 'session=b' }))).toBeUndefined()
+  })
+
+  it('neither stores nor answers a request that carries no credential', () => {
+    const mod = new ResponseCacheModule(cfg())
+    const anonymous: GatewayModuleContext = { ...ctx(), headers: { 'anthropic-version': '2023-06-01' } }
+    mod.observeResponse(body, anonymous, ok())
+    expect(kpi(mod, 'entries')).toBe(0)
+    expect(mod.respond(body, anonymous)).toBeUndefined()
+  })
+
+  it('keeps clients apart by session as well as by credential', () => {
+    const mod = new ResponseCacheModule(cfg())
+    mod.observeResponse(body, { ...ctx(), sessionKey: '10.0.0.1' }, ok())
+    expect(mod.respond(body, { ...ctx(), sessionKey: '10.0.0.1' })).toBeDefined()
+    expect(mod.respond(body, { ...ctx(), sessionKey: '10.0.0.2' })).toBeUndefined()
+  })
+
+  it('does not replay one session\'s cookies to the next request', () => {
+    const mod = new ResponseCacheModule(cfg())
+    mod.observeResponse(body, ctx(), { ...ok(), headers: { ...ok().headers, 'set-cookie': '__cf_bm=abc; HttpOnly' } })
+    expect(mod.respond(body, ctx())?.response.headers['set-cookie']).toBeUndefined()
+  })
+
   it('keys on everything that shapes the answer: body, path, version and encoding', () => {
     const mod = new ResponseCacheModule(cfg())
     mod.observeResponse(body, ctx(), ok())

@@ -6,19 +6,31 @@ import { parseUsage } from '../usage.js'
 import { collectTextSlots } from '../payload.js'
 import { estimateTokens } from '../tokens.js'
 
-// Request headers that decide whose request it is or shape the answer. The
-// credential headers keep one caller from ever being served a response
-// fetched with another's key; the version, beta and encoding headers change
-// what the provider sends back. Anything else (user agent, request ids,
-// retry counters) does not split the cache.
+// Request headers that say whose request it is. A request with none of them,
+// and no credential in its query, is neither stored nor answered: nothing
+// would keep one caller from being served another's response.
+const CREDENTIAL_HEADERS = ['authorization', 'x-api-key', 'x-goog-api-key', 'api-key', 'x-llm-fw-key', 'cookie']
+const QUERY_CREDENTIAL = /[?&](?:key|api-key|api_key|access_token)=/i
+
+// Everything that decides whose request it is or shapes the answer: the
+// credentials, and the version, beta and encoding headers that change what
+// the provider sends back. Anything else (user agent, request ids, retry
+// counters) does not split the cache.
 const KEY_HEADERS = [
-  'authorization', 'x-api-key', 'x-goog-api-key', 'api-key', 'x-llm-fw-key',
-  'anthropic-version', 'anthropic-beta', 'openai-beta', 'openai-organization', 'openai-project',
+  ...CREDENTIAL_HEADERS,
+  'anthropic-version', 'anthropic-beta', 'openai-beta', 'openai-organization', 'openai-project', 'x-goog-user-project',
   'accept', 'accept-encoding',
 ]
 
-// Framing is recomputed for the replayed body.
-const DROPPED_HEADERS = new Set(['content-length', 'transfer-encoding', 'connection', 'keep-alive'])
+// Framing is recomputed for the replayed body, and a session cookie the
+// provider set for the first caller is never handed to the next.
+const DROPPED_HEADERS = new Set(['content-length', 'transfer-encoding', 'connection', 'keep-alive', 'set-cookie'])
+
+function hasCredential(ctx: GatewayModuleContext): boolean {
+  if (ctx.tenant) return true
+  if (CREDENTIAL_HEADERS.some(name => ctx.headers?.[name] !== undefined && ctx.headers[name] !== '')) return true
+  return QUERY_CREDENTIAL.test(ctx.url ?? ctx.path)
+}
 
 interface Entry {
   response: CapturedResponse
@@ -66,7 +78,7 @@ export class ResponseCacheModule implements GatewayModule {
 
   private key(requestBody: string, ctx: GatewayModuleContext): string {
     const hash = crypto.createHash('sha256')
-    for (const part of [ctx.target, ctx.method, ctx.path, ctx.tenant ?? '']) hash.update(part).update('\0')
+    for (const part of [ctx.target, ctx.method, ctx.url ?? ctx.path, ctx.tenant ?? '', ctx.sessionKey ?? '']) hash.update(part).update('\0')
     for (const name of KEY_HEADERS) {
       const value = ctx.headers?.[name]
       hash.update(name).update('=').update(Array.isArray(value) ? value.join(', ') : value ?? '').update('\0')
@@ -75,7 +87,7 @@ export class ResponseCacheModule implements GatewayModule {
   }
 
   respond(requestBody: string, ctx: GatewayModuleContext): ModuleResponse | undefined {
-    if (ctx.dryRun) return undefined
+    if (ctx.dryRun || !hasCredential(ctx)) return undefined
     const key = this.key(requestBody, ctx)
     const entry = this.entries.get(key)
     if (!entry || this.now() - entry.storedAt > this.cfg.ttlSeconds * 1000) {
@@ -96,7 +108,7 @@ export class ResponseCacheModule implements GatewayModule {
   }
 
   observeResponse(requestBody: string, ctx: GatewayModuleContext, response: CapturedResponse): void {
-    if (ctx.dryRun || response.status !== 200 || response.body.length > this.cfg.maxEntryBytes) return
+    if (ctx.dryRun || !hasCredential(ctx) || response.status !== 200 || response.body.length > this.cfg.maxEntryBytes) return
     const headers: Record<string, string> = {}
     for (const [name, value] of Object.entries(response.headers)) {
       if (!DROPPED_HEADERS.has(name)) headers[name] = value

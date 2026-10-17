@@ -185,12 +185,16 @@ TTL is short.
 | `maxEntries` | `100` | Responses kept; the least recently used goes first. |
 | `maxEntryBytes` | `524288` | Largest response body stored. With the defaults the cache holds at most about 50 MB. |
 
-The key is the target, method, path (query included), tenant, request body
-after the other modules, and the headers that decide whose request it is or
-shape the answer: `authorization`, `x-api-key`, `x-goog-api-key`, `api-key`,
-`x-llm-fw-key`, `anthropic-version`, `anthropic-beta`, `openai-beta`,
-`openai-organization`, `openai-project`, `accept` and `accept-encoding`. One
-caller is never served a response fetched with another's key. Only complete
+The key is the target, method, the URL as the client sent it (query
+included, since Google takes its key as `?key=`), tenant, client address,
+request body after the other modules, and the headers that decide whose
+request it is or shape the answer: `authorization`, `x-api-key`,
+`x-goog-api-key`, `api-key`, `x-llm-fw-key`, `cookie`, `anthropic-version`,
+`anthropic-beta`, `openai-beta`, `openai-organization`, `openai-project`,
+`x-goog-user-project`, `accept` and `accept-encoding`. One caller is never
+served a response fetched with another's key, and a request that carries no
+credential at all (no such header, tenant or query key) is neither stored nor
+answered. A stored response loses its `set-cookie` header. Only complete
 `200` responses are stored, streamed or not, and only after detection has
 passed the request; a replay runs every request-side gate first, but not the
 proxy's response-side scans, which already ran on the stored response. It

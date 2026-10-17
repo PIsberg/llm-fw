@@ -199,6 +199,21 @@ def calculate(x):
     }
   })
 
+  it('keeps cached responses apart by the credential in the query', async () => {
+    config.modules!.responseCache!.enabled = true
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'cache per key' }] })
+      const send = (key: string) => reqHttp(GATEWAY_PORT, 'POST', `/v1/chat/completions?key=${key}`, payload, { 'x-llm-fw-key': TOKEN })
+      await send('one')
+      await send('two')
+      await send('one')
+      expect(calls).toHaveLength(2)
+    } finally {
+      config.modules!.responseCache!.enabled = false
+    }
+  })
+
   it('meters the usage the provider reported in its response', async () => {
     const before = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
     const kpi = (stats: any, key: string) =>

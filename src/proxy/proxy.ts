@@ -714,7 +714,7 @@ export class ProxyServer {
       const moduleCtx: GatewayModuleContext | null = this.config.modules?.enabled && isLlmRequest
         ? {
           target: hostname, method, path: dlpPath, isLlmRequest: true, parser, sessionKey,
-          headers: innerReq.headers, dryRun: this.config.enforcement === 'observe',
+          headers: innerReq.headers, url: dlpPath, dryRun: this.config.enforcement === 'observe',
         }
         : null
       if (moduleCtx) {

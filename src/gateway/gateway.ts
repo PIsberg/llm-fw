@@ -593,6 +593,7 @@ export class GatewayServer {
       sessionKey: (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, ''),
       tenant: tenant?.id,
       headers: req.headers,
+      url: req.url,
       dryRun: isObserving(this.config.enforcement, tenant?.enforcement),
     };
   }

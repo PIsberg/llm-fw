@@ -14,6 +14,8 @@ export interface GatewayModuleContext {
   dryRun?: boolean | undefined;
   /** The client's request headers, for modules that key on credentials. */
   headers?: Record<string, string | string[] | undefined> | undefined;
+  /** The URL as the client sent it, query included: a credential can ride in `?key=`. */
+  url?: string | undefined;
 }
 
 /** A response a module serves in place of the provider's. */
