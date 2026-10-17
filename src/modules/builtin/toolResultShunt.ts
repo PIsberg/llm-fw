@@ -6,6 +6,33 @@ import { StoredOriginals } from '../shuntStore.js'
 
 const TOOL_OUTPUT: ReadonlySet<SlotKind> = new Set(['tool_result'])
 
+/** Why a tool result was forwarded whole, in the order data-model.md "Eligibility" decides them. */
+export type WholeReason =
+  | 'below-threshold'
+  | 'excluded-tool'
+  | 'tool-unknown'
+  | 'too-large'
+  | 'remote-client'
+  | 'flagged'
+  | 'worker-failed'
+  | 'rejected'
+  | 'store-failed'
+  | 'store-full'
+
+/**
+ * Steps 1 to 6 of data-model.md "Eligibility": the reason this result stays
+ * whole, or null when it may be condensed. Stub: not written yet.
+ */
+export function eligibility(
+  _name: string | undefined,
+  _input: unknown,
+  _text: string,
+  _cfg: ToolResultShuntConfig,
+  _remoteAddress: string | undefined,
+): WholeReason | null {
+  throw new Error('eligibility is not implemented')
+}
+
 /**
  * Replaces a very large tool result with a short list of facts a local worker
  * model read from it, and keeps the original in a file the agent can open.

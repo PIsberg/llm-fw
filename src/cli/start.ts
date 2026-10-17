@@ -71,6 +71,15 @@ export function applyGatewayOverrides(config: Config): void {
 }
 
 /**
+ * Start the hourly sweep of the tool result shunt's stored originals, whether
+ * or not the module is on, so a switched-off module still clears its folder.
+ * Returns the function that stops it. Stub: not written yet, and not called.
+ */
+export function startShuntSweep(_modules: ModuleManager, _config: Config): () => void {
+  throw new Error('startShuntSweep is not implemented');
+}
+
+/**
  * Best-effort primary non-internal IPv4 address, for printing client setup hints.
  *
  * Re-exported from `config/net.ts`, where it now lives because the certificate
