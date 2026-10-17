@@ -4,6 +4,10 @@ import type { GatewayModule, GatewayModuleContext, ModuleTransformResult, Module
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { applyHotReload } from '../../src/config/hotReload.js'
 import type { Config } from '../../src/types.js'
+import { PayloadModule, type PayloadOutcome } from '../../src/modules/base.js'
+import { Screening } from '../../src/modules/screening.js'
+import { ToolResultShuntModule } from '../../src/modules/builtin/toolResultShunt.js'
+import { StoredOriginals } from '../../src/modules/shuntStore.js'
 
 class DummyUppercaseModule implements GatewayModule {
   readonly id = 'dummy-uppercase'
@@ -211,5 +215,196 @@ describe('token-pruner default', () => {
   it('is opt-in: the built-in config does not rewrite prompts', () => {
     expect(DEFAULT_CONFIG.modules?.enabled).toBe(true)
     expect(DEFAULT_CONFIG.modules?.tokenPruner.enabled).toBe(false)
+  })
+})
+
+// Slice S6 of the tool result shunt: the pass that runs after detection and DLP
+// (specs/001-tool-result-shunt, FR-007, FR-012). A module marked `afterScreening`
+// sees ctx.screening and ctx.remoteAddress; transformRequest leaves it alone and
+// transformScreened runs nothing else.
+describe('ModuleManager — the post-screening pass (FR-007, FR-012)', () => {
+  const screening = new Screening()
+  const ctx: GatewayModuleContext = {
+    target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null,
+    headers: { 'x-api-key': 'k' },
+    screening,
+    remoteAddress: '127.0.0.1',
+  }
+  const stats = () => new DummyUppercaseModule().getStats()
+
+  /** A plain module marked afterScreening: it appends `mark` to the body and remembers the context it was given. */
+  class AfterModule implements GatewayModule {
+    readonly name: string
+    readonly description = 'runs after screening'
+    readonly afterScreening = true
+    enabled = true
+    invocations = 0
+    seen: GatewayModuleContext | undefined
+    constructor(readonly id: string, private readonly mark = '!') { this.name = id }
+    transformRequest(body: string, c: GatewayModuleContext): ModuleTransformResult {
+      this.invocations++
+      this.seen = c
+      return { body: body + this.mark, modified: true }
+    }
+    getStats(): ModuleStats { return stats() }
+  }
+
+  /** A payload module marked afterScreening, with an asynchronous prepare step. */
+  class ScreenedPayloadModule extends PayloadModule<{ enabled: boolean }> {
+    readonly id = 'screened-payload'
+    readonly name = 'Screened Payload'
+    readonly description = 'a payload module that runs after screening'
+    readonly afterScreening = true
+    prepared = false
+    prepareCtx: GatewayModuleContext | undefined
+    applyCtx: GatewayModuleContext | undefined
+    constructor() { super({ enabled: true }) }
+    override async prepare(payload: Record<string, unknown>, c: GatewayModuleContext): Promise<void> {
+      this.prepareCtx = c
+      await new Promise(resolve => setTimeout(resolve, 5))
+      this.prepared = true
+      payload.prepared = true
+    }
+    protected apply(payload: Record<string, unknown>, c: GatewayModuleContext): PayloadOutcome {
+      this.applyCtx = c
+      // True only when the manager awaited prepare before it called this.
+      payload.appliedAfterPrepare = this.prepared
+      return { changed: true, tokensOriginal: 100, tokensPruned: 40 }
+    }
+  }
+
+  /** A module marked afterScreening whose pass fails: the manager must carry on without it. */
+  const failing = (kind: 'throws' | 'rejects'): GatewayModule => ({
+    id: kind, name: kind, description: kind, enabled: true, afterScreening: true,
+    transformRequest: () => { if (kind === 'throws') throw new Error('module bug'); return Promise.reject(new Error('async module bug')) },
+    getStats: stats,
+  })
+
+  it('transformRequest skips a module marked afterScreening', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const after = new AfterModule('after')
+    mgr.register(after)
+    const res = await mgr.transformRequest('hello', ctx)
+    expect(res).toMatchObject({ body: 'hello', modified: false })
+    expect(after.invocations).toBe(0)
+  })
+
+  it('transformRequest still runs the modules that are not marked', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const plain = new DummyUppercaseModule()
+    const after = new AfterModule('after')
+    mgr.register(plain)
+    mgr.register(after)
+    const res = await mgr.transformRequest('hello', ctx)
+    expect(res.body).toBe('HELLO')
+    expect(plain.invocations).toBe(1)
+    expect(after.invocations).toBe(0)
+  })
+
+  it('transformScreened runs the modules marked afterScreening and no other', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const plain = new DummyUppercaseModule()
+    const after = new AfterModule('after')
+    mgr.register(plain)
+    mgr.register(after)
+    const res = await mgr.transformScreened('hello', ctx)
+    expect(res).toMatchObject({ body: 'hello!', modified: true })
+    expect(after.invocations).toBe(1)
+    expect(plain.invocations).toBe(0)
+  })
+
+  it('transformScreened skips a disabled module', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const after = new AfterModule('after')
+    after.enabled = false
+    mgr.register(after)
+    const res = await mgr.transformScreened('hello', ctx)
+    expect(res).toMatchObject({ body: 'hello', modified: false, events: [] })
+    expect(after.invocations).toBe(0)
+  })
+
+  it('transformScreened with nothing marked returns the body unchanged', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    mgr.register(new DummyUppercaseModule())
+    expect(await mgr.transformScreened('hello', ctx)).toMatchObject({ body: 'hello', modified: false, events: [] })
+  })
+
+  it('transformScreened runs the marked modules in registration order, each on the body the one before left', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    mgr.register(new AfterModule('first', 'A'))
+    mgr.register(new AfterModule('second', 'B'))
+    expect((await mgr.transformScreened('hello', ctx)).body).toBe('helloAB')
+  })
+
+  it('transformScreened passes ctx.screening and ctx.remoteAddress through to a plain module', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const after = new AfterModule('after')
+    mgr.register(after)
+    await mgr.transformScreened('hello', ctx)
+    expect(after.seen?.screening).toBe(screening)
+    expect(after.seen?.remoteAddress).toBe('127.0.0.1')
+  })
+
+  it('transformScreened awaits prepare, hands the context to prepare and apply, and returns the rewritten body and its events', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const mod = new ScreenedPayloadModule()
+    mgr.register(mod)
+    const res = await mgr.transformScreened(JSON.stringify({ messages: [] }), ctx)
+    expect(res.modified).toBe(true)
+    expect(JSON.parse(res.body)).toEqual({ messages: [], prepared: true, appliedAfterPrepare: true })
+    expect(mod.prepareCtx?.screening).toBe(screening)
+    expect(mod.prepareCtx?.remoteAddress).toBe('127.0.0.1')
+    expect(mod.applyCtx?.screening).toBe(screening)
+    expect(mod.applyCtx?.remoteAddress).toBe('127.0.0.1')
+    expect(res.events.map(e => e.moduleId)).toEqual(['screened-payload'])
+  })
+
+  it('transformRequest does not run a payload module marked afterScreening, prepare included', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const mod = new ScreenedPayloadModule()
+    mgr.register(mod)
+    const body = JSON.stringify({ messages: [] })
+    expect(await mgr.transformRequest(body, ctx)).toMatchObject({ body, modified: false })
+    expect(mod.prepareCtx).toBeUndefined()
+    expect(mod.applyCtx).toBeUndefined()
+  })
+
+  it.each(['throws', 'rejects'] as const)('transformScreened fails open when a module %s: the others still run on the last good body (FR-007)', async kind => {
+    const mgr = new ModuleManager(undefined, false)
+    mgr.register(new AfterModule('before', 'A'))
+    mgr.register(failing(kind))
+    const last = new AfterModule('last', 'Z')
+    mgr.register(last)
+    const res = await mgr.transformScreened('hello', ctx)
+    expect(res).toMatchObject({ body: 'helloAZ', modified: true })
+    expect(last.invocations).toBe(1)
+  })
+
+  it('transformScreened fails open when a module throws and nothing else changed the body (FR-007)', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    mgr.register(failing('throws'))
+    expect(await mgr.transformScreened('hello', ctx)).toMatchObject({ body: 'hello', modified: false, events: [] })
+  })
+
+  it('transformScreened fails open when prepare rejects: the request is forwarded as it was (FR-007)', async () => {
+    const mgr = new ModuleManager(undefined, false)
+    const mod = new ScreenedPayloadModule()
+    mod.prepare = () => Promise.reject(new Error('worker down'))
+    mgr.register(mod)
+    const body = JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] })
+    expect(await mgr.transformScreened(body, ctx)).toMatchObject({ body, modified: false, events: [] })
+  })
+
+  describe('the tool result shunt module (FR-012)', () => {
+    it('runs after screening and keeps its stored originals in a StoredOriginals', () => {
+      const mod = new ToolResultShuntModule()
+      expect(mod.afterScreening).toBe(true)
+      expect(mod.store).toBeInstanceOf(StoredOriginals)
+      expect(mod.store).toBe(mod.store)
+    })
+
+    it('is registered with the flag, so the registry runs it in the pass and not in transformRequest', () => {
+      expect(new ModuleManager().getModule('tool-result-shunt')?.afterScreening).toBe(true)
+    })
   })
 })

@@ -64,6 +64,14 @@ function responsesBody(results: Result[]): string {
   })
 }
 
+/** `body` with its first user message replaced by `prompt`. */
+function withPrompt(body: string, prompt: string): string {
+  const payload = JSON.parse(body) as { messages?: Array<{ content: string }>; input?: Array<{ content: string }> }
+  const list = (payload.messages ?? payload.input)!
+  list[0]!.content = prompt
+  return JSON.stringify(payload)
+}
+
 const slotsOf = (body: string): TextSlot[] => collectTextSlots(parsePayload(body)!)
 const at = (slots: readonly TextSlot[], text: string): number => {
   const i = slots.findIndex(s => s.text === text)
@@ -314,6 +322,104 @@ describe('Screening.flaggedSlots', () => {
       s.noteItemScanned(R2)
       expect(sorted(s.flaggedSlots(slots).flagged)).toEqual([at(slots, R1)])
     })
+  })
+
+  // Audit finding against T004: `holds()` decided "scanned" by containment, over
+  // every noted item, prompts included. A user message that repeats an unscanned
+  // function_call_output made that output count as judged clean, and an empty
+  // output text, which every string contains, counted as scanned whatever was
+  // noted. Containment stays right for flags (a flag is fail-safe); a slot counts
+  // as scanned only on an exact match of its own text, or of its result's text
+  // parts joined by a newline as the item loop joins them (FR-012).
+  describe('scanned means this slot\'s own text, not a text that contains it (FR-012, audit of T004)', () => {
+    it('flags a Responses output that a scanned prompt repeats inside a longer message', () => {
+      const prompt = `Please summarise this output for me:\n${R1}\nThanks.`
+      const body = withPrompt(responsesBody([{ id: 'call_1', text: R1 }]), prompt)
+      const slots = slotsOf(body)
+      expect(slots.find(sl => sl.kind === 'prompt')!.text).toBe(prompt)
+      const s = new Screening()
+      s.noteItemScanned(prompt)
+      const { flagged, unreached, all } = s.flaggedSlots(slots)
+      expect(sorted(flagged)).toEqual([at(slots, R1)])
+      expect(unreached.size).toBe(0)
+      expect(all).toBe(false)
+    })
+
+    it('flags it in a chat body too: a clean prompt that quotes a tool message does not make that message scanned', () => {
+      const prompt = `The last run printed:\n${R2}\nWhy?`
+      const body = withPrompt(chatBody([{ id: 'call_a', text: R1 }, { id: 'call_b', text: R2 }]), prompt)
+      const slots = slotsOf(body)
+      const s = new Screening()
+      s.noteItemScanned(prompt)
+      s.noteItemScanned(R1)
+      // R1 was noted as its own item; R2 only appears inside the prompt.
+      expect(sorted(s.flaggedSlots(slots).flagged)).toEqual([at(slots, R2)])
+    })
+
+    it('puts it in unreached, not in neither list, when the scan was cut short on a later item', () => {
+      const prompt = `Please summarise this output for me:\n${R1}\nThanks.`
+      const followUp = 'And then fix the failing tests.'
+      const body = JSON.stringify({
+        model: 'gpt-5-codex',
+        input: [
+          { role: 'user', content: prompt },
+          { type: 'function_call', call_id: 'call_1', name: 'shell', arguments: '{"command":["npm","test"]}' },
+          { type: 'function_call_output', call_id: 'call_1', output: R1 },
+          { role: 'user', content: followUp },
+        ],
+      })
+      const slots = slotsOf(body)
+      const s = new Screening()
+      s.noteItemScanned(prompt)
+      s.noteItemScanned(followUp)
+      s.cutShort()
+      const { flagged, unreached, all } = s.flaggedSlots(slots)
+      expect(flagged.size).toBe(0)
+      expect(sorted(unreached)).toEqual([at(slots, R1)])
+      expect(all).toBe(false)
+    })
+
+    it('flags every part of an Anthropic result when a scanned prompt contains the parts joined by a newline', () => {
+      const parts = ['PART-A: first block of output', 'PART-B: second block of output']
+      const prompt = `Compare this with the last run:\n${parts.join('\n')}\nand tell me why they differ.`
+      const body = withPrompt(anthropicBody([{ id: 'toolu_1', text: parts }, { id: 'toolu_2', text: R2 }]), prompt)
+      const slots = slotsOf(body)
+      const s = new Screening()
+      s.noteItemScanned(prompt)
+      s.noteItemScanned(R2)
+      const { flagged, all } = s.flaggedSlots(slots)
+      expect(sorted(flagged)).toEqual([at(slots, parts[0]!), at(slots, parts[1]!)])
+      expect(all).toBe(false)
+    })
+
+    it('does not count two separate results as scanned because one noted item joins their texts', () => {
+      const body = anthropicBody([{ id: 'toolu_1', text: R1 }, { id: 'toolu_2', text: R2 }])
+      const slots = slotsOf(body)
+      const s = new Screening()
+      s.noteItemScanned(PROMPT)
+      // Not a result's parts: two results, joined by a prompt that happens to hold both.
+      s.noteItemScanned(`${R1}\n${R2}`)
+      expect(sorted(s.flaggedSlots(slots).flagged)).toEqual([at(slots, R1), at(slots, R2)])
+    })
+
+    it.each([
+      ['OpenAI Responses output', (r: Result[]) => responsesBody(r)],
+      ['Anthropic tool_result', (r: Result[]) => anthropicBody(r)],
+      ['OpenAI chat tool message', (r: Result[]) => chatBody(r)],
+    ])('flags an empty %s: "" is contained in every noted text, and containment is not scanning', (_name, make) => {
+      const body = make([{ id: 'call_1', text: '' }, { id: 'call_2', text: R2 }])
+      const slots = slotsOf(body)
+      const empty = at(slots, '')
+      expect(slots[empty]!.kind).toBe('tool_result')
+      const s = new Screening()
+      s.noteItemScanned(PROMPT)
+      s.noteItemScanned(R2)
+      const { flagged, unreached, all } = s.flaggedSlots(slots)
+      expect(sorted(flagged)).toEqual([empty])
+      expect(unreached.size).toBe(0)
+      expect(all).toBe(false)
+    })
+
   })
 
   describe('each way all becomes true', () => {
