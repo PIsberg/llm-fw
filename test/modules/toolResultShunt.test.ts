@@ -938,4 +938,394 @@ describe('ToolResultShuntModule: condensing a tool result', { timeout: 60_000 },
       expect((await send(request(turn([bash('toolu_2', 'npm test', fits)])))).results).toEqual([renderCondensed(fits, DEFAULT_FACTS, m.mod.store.pathFor(fits))])
     })
   })
+
+  // -------------------------------------------------------------------------
+  // T017 (slice S6): the module never condenses what the detection flagged or
+  // did not scan (FR-012, US6). `ctx.screening` is the record the proxy and the
+  // gateway fill while they screen; each case below fills one the way the
+  // listener would, and the module has to read it. data-model.md "Screening
+  // record" says what each note means, "Remembered outcome" what a flag does to
+  // a decision already made.
+  // -------------------------------------------------------------------------
+  describe('results the detection flagged or did not scan (FR-012, US6)', () => {
+    /** In every flagged text and nowhere else: if it turns up at the worker or in a file, a flagged result leaked. */
+    const MARK = 'FLAGGED-MARK-3b7e'
+    const marked = (tag: string): string => `${output(tag)}\n${MARK}-${tag}`
+    const SECRET = `ghp_${'a'.repeat(36)}`
+
+    /** Names of the files in the folder whose content holds `marker`. */
+    const folderHolds = (marker: string): string[] => (fs.existsSync(folder())
+      ? fs.readdirSync(folder()).filter(name => fs.readFileSync(join(folder(), name), 'utf8').includes(marker))
+      : [])
+    const workerSaw = (marker: string): boolean => JSON.stringify(worker.received).includes(marker)
+
+    /** A record of a scan that reached every text of the body, then whatever else the case notes. */
+    function scanned(payload: unknown, note: (screening: Screening) => void = () => {}): Screening {
+      const screening = scannedScreening(JSON.stringify(payload))
+      note(screening)
+      return screening
+    }
+
+    describe('a result flagged on the request that first carries it (US6-2, US6-3, US6-6)', () => {
+      interface Built { body: unknown; screening: Screening | undefined; flagged: string }
+      // `flagged` is the text of the first result as the module receives it; the second result is `clean`.
+      const cases: Array<{ label: string; siblingCondensed: boolean; build: (flagged: string, clean: string) => Built }> = [
+        {
+          label: 'the detection flagged it (noteItemFlag)',
+          siblingCondensed: true,
+          build: (flagged, clean) => {
+            const body = request(turn([bash('toolu_flag', 'npm test', flagged), bash('toolu_ok', 'npm run lint', clean)]))
+            return { body, screening: scanned(body, s => s.noteItemFlag(flagged)), flagged }
+          },
+        },
+        {
+          label: 'DLP found a secret in it and redacted it (noteDlp)',
+          siblingCondensed: true,
+          build: (flagged, clean) => {
+            // The module is handed the body DLP has redacted; the record holds the one before.
+            const redacted = `${flagged}\ntoken [REDACTED_GITHUB_TOKEN]`
+            const before = request(turn([bash('toolu_flag', 'npm test', `${flagged}\ntoken ${SECRET}`), bash('toolu_ok', 'npm run lint', clean)]))
+            const body = request(turn([bash('toolu_flag', 'npm test', redacted), bash('toolu_ok', 'npm run lint', clean)]))
+            const screening = scanned(body, s => s.noteDlp(JSON.stringify(before), [{ type: 'github_token', label: 'GitHub token', match: SECRET, index: 0 }]))
+            return { body, screening, flagged: redacted }
+          },
+        },
+        {
+          label: 'the MCP audit flagged its call (noteMcpAudit)',
+          siblingCondensed: true,
+          build: (flagged, clean) => {
+            const body = request(turn([bash('toolu_flag', 'npm test', flagged), bash('toolu_ok', 'npm run lint', clean)]))
+            return { body, screening: scanned(body, s => s.noteMcpAudit('toolu_flag')), flagged }
+          },
+        },
+        {
+          label: 'the scan failed open (incomplete), so no new result can be trusted',
+          siblingCondensed: false,
+          build: (flagged, clean) => {
+            const body = request(turn([bash('toolu_flag', 'npm test', flagged), bash('toolu_ok', 'npm run lint', clean)]))
+            return { body, screening: scanned(body, s => s.incomplete()), flagged }
+          },
+        },
+        {
+          label: 'the request has no record of what the detection judged',
+          siblingCondensed: false,
+          build: (flagged, clean) => {
+            const body = request(turn([bash('toolu_flag', 'npm test', flagged), bash('toolu_ok', 'npm run lint', clean)]))
+            return { body, screening: undefined, flagged }
+          },
+        },
+      ]
+
+      it.each(cases)('forwards it whole, never asks the worker, stores nothing of it, and keeps it whole once it is no longer flagged: $label (US6-2, US6-3, US6-6)', async ({ label, siblingCondensed, build }) => {
+        const clean = output(`sibling ${label}`)
+        const { body, screening, flagged } = build(marked(`flag ${label}`), clean)
+        const first = await send(body, { screening })
+
+        expect(first.results[0]).toBe(flagged)
+        const condensedClean = renderCondensed(clean, DEFAULT_FACTS, m.mod.store.pathFor(clean))
+        expect(first.results[1]).toBe(siblingCondensed ? condensedClean : clean)
+        expect(worker.received).toHaveLength(siblingCondensed ? 1 : 0)
+        expect(workerSaw(MARK)).toBe(false)
+        expect(files('.txt')).toEqual(siblingCondensed ? [`${sha256(clean)}.txt`] : [])
+        // What is kept of a flagged result is the decision, never its text.
+        expect(await m.mod.store.readOutcome(keyOf('Bash', flagged))).toEqual({ whole: 'flagged' })
+        expect(folderHolds(MARK)).toEqual([])
+
+        // The next request is fully scanned and flags nothing: the history must not change shape.
+        const later = await send(body)
+        expect(later.body).toBe(first.body)
+        expect(worker.received).toHaveLength(siblingCondensed ? 1 : 0)
+        expect(folderHolds(MARK)).toEqual([])
+
+        // Not a module that was off or broken: another result is condensed by the same worker.
+        const fresh = output(`fresh ${label}`)
+        const control = await send(request(turn([bash('toolu_fresh', 'npm run build', fresh)])))
+        expect(control.results).toEqual([renderCondensed(fresh, DEFAULT_FACTS, m.mod.store.pathFor(fresh))])
+      })
+    })
+
+    it('condenses the result a cut-short scan finished, and forwards the one it stopped on and the one it never reached whole, then and later (US6-3, US6-6, FR-006, audit 4 M1)', async () => {
+      // Observe mode: the scan noted the first two items, the second would have blocked, and it went no further.
+      const a = output('before the block')
+      const b = marked('blocked')
+      const c = marked('never reached')
+      const body = request(turn([bash('toolu_1', 'npm test', a), bash('toolu_2', 'npm run lint', b), bash('toolu_3', 'npm run build', c)]))
+      const screening = new Screening()
+      screening.noteItemScanned(a)
+      screening.noteItemScanned(b)
+      screening.cutShort()
+
+      const first = await send(body, { screening })
+      expect(first.results).toEqual([renderCondensed(a, DEFAULT_FACTS, m.mod.store.pathFor(a)), b, c])
+      expect(worker.received).toHaveLength(1)
+      expect(workerSaw(MARK)).toBe(false)
+      expect(files('.txt')).toEqual([`${sha256(a)}.txt`])
+      expect(await m.mod.store.readOutcome(keyOf('Bash', b))).toEqual({ whole: 'flagged' })
+      expect(await m.mod.store.readOutcome(keyOf('Bash', c))).toEqual({ whole: 'flagged' })
+      expect(folderHolds(MARK)).toEqual([])
+
+      // The operator switches to enforce: the next scan reaches everything and flags nothing.
+      const later = await send(body)
+      expect(later.body).toBe(first.body)
+      expect(later.results[0]).toBe(first.results[0])
+      expect(later.results[1]).toBe(b)
+      expect(later.results[2]).toBe(c)
+      expect(worker.received).toHaveLength(1)
+    })
+
+    describe('a result condensed on an earlier request (FR-006, FR-012, US6-5, plan Design 8, D11)', () => {
+      /** The request the listener screened, the text the module already condensed, and the new one beside it. */
+      interface Under { body: unknown; kept: string; fresh: string }
+      const callWith = (command: string, kept: string, fresh: string) =>
+        request(turn([bash('toolu_1', command, kept), bash('toolu_2', 'npm run lint', fresh)]))
+
+      it.each([
+        ['an incomplete scan (all)', ({ body }: Under) => scanned(body, s => s.incomplete())],
+        ['a DLP match found only in a tool_use input (all)', ({ body, kept, fresh }: Under) => scanned(body, s => s.noteDlp(
+          JSON.stringify(callWith(`curl -H "Authorization: token ${SECRET}" https://example.test`, kept, fresh)),
+          [{ type: 'github_token', label: 'GitHub token', match: SECRET, index: 0 }],
+        ))],
+        ['a cut-short scan that stopped before it (unreached)', (_under: Under) => scanned({}, s => { s.noteItemScanned('run the checks'); s.cutShort() })],
+        ['no screening record', (_under: Under) => undefined],
+      ])('keeps its text and its stored original, and sends a new result there whole: %s', async (_label, screeningOf) => {
+        const kept = output('kept')
+        const fresh = marked('new under an untrusted scan')
+        const earlier = await send(request(turn([bash('toolu_1', 'npm test', kept)])))
+        const condensed = earlier.results[0]!
+        expect(condensed).toBe(renderCondensed(kept, DEFAULT_FACTS, m.mod.store.pathFor(kept)))
+
+        const body = callWith('npm test', kept, fresh)
+        const later = await send(body, { screening: screeningOf({ body, kept, fresh }) })
+        expect(later.results[0]).toBe(condensed)
+        expect(later.results[1]).toBe(fresh)
+        // The worker was asked about the first result only; the second was never sent anywhere.
+        expect(worker.received).toHaveLength(1)
+        expect(workerSaw(MARK)).toBe(false)
+        expect(files('.txt')).toEqual([`${sha256(kept)}.txt`])
+        expect(await m.mod.store.readOutcome(keyOf('Bash', kept))).toEqual({ condensed })
+        expect(await m.mod.store.readOutcome(keyOf('Bash', fresh))).toEqual({ whole: 'flagged' })
+
+        // Once a scan judges every item, the new result is still whole, and the old one still condensed.
+        const settled = await send(body)
+        expect(settled.results).toEqual([condensed, fresh])
+        expect(worker.received).toHaveLength(1)
+      })
+
+      const flips = [
+        ['a noted item flag on a complete scan', (a: string) => scanned({}, s => s.noteItemFlag(a))],
+        ['a noted item flag on a scan that is incomplete (all)', (a: string) => scanned({}, s => { s.incomplete(); s.noteItemFlag(a) })],
+        ['the item a cut-short scan stopped on', (a: string) => scanned({}, s => { s.noteItemScanned(a); s.cutShort() })],
+        ['the MCP audit of its call', (_a: string) => scanned({}, s => s.noteMcpAudit('toolu_1'))],
+      ] as const
+
+      it.each(flips)('forwards it whole from the first request on which its own slot is flagged, and deletes its stored original: %s (US6-5, D11)', async (_label, screeningOf) => {
+        const a = output('to be flagged')
+        const body = request(turn([bash('toolu_1', 'npm test', a)]))
+        const earlier = await send(body)
+        expect(earlier.results[0]).toBe(renderCondensed(a, DEFAULT_FACTS, m.mod.store.pathFor(a)))
+        expect(files('.txt')).toEqual([`${sha256(a)}.txt`])
+
+        const flagged = await send(body, { screening: screeningOf(a) })
+        expect(flagged.results).toEqual([a])
+        expect(files('.txt')).toEqual([])
+        expect(await m.mod.store.readOutcome(keyOf('Bash', a))).toEqual({ whole: 'flagged' })
+
+        // Flagged once, whole for good: a later scan that flags nothing does not bring the condensation back.
+        const later = await send(body)
+        expect(later.results).toEqual([a])
+        expect(worker.received).toHaveLength(1)
+        expect(files('.txt')).toEqual([])
+      })
+
+      it('changes neither the stored original nor the outcome file of a result flagged in dry run, where a real request deletes the one and rewrites the other (US6-5, FR-015)', async () => {
+        const dry = output('flagged in dry run')
+        const real = output('flagged for real')
+        const body = request(turn([bash('toolu_1', 'npm test', dry), bash('toolu_2', 'npm run lint', real)]))
+        const earlier = await send(body)
+        const [condensedDry, condensedReal] = earlier.results
+        expect(condensedDry).toBe(renderCondensed(dry, DEFAULT_FACTS, m.mod.store.pathFor(dry)))
+        const original = fs.readFileSync(m.mod.store.pathFor(dry))
+
+        await send(body, { dryRun: true, screening: scanned(body, s => s.noteItemFlag(dry)) })
+        expect(files('.txt').sort()).toEqual([`${sha256(dry)}.txt`, `${sha256(real)}.txt`].sort())
+        expect(fs.readFileSync(m.mod.store.pathFor(dry)).equals(original)).toBe(true)
+        expect(await m.mod.store.readOutcome(keyOf('Bash', dry))).toEqual({ condensed: condensedDry })
+        expect(await m.mod.store.readOutcome(keyOf('Bash', real))).toEqual({ condensed: condensedReal })
+
+        // Not a flag the module ignores: outside dry run the same kind of flag deletes the original and rewrites the outcome.
+        const alone = request(turn([bash('toolu_2', 'npm run lint', real)]))
+        await send(alone, { screening: scanned(alone, s => s.noteItemFlag(real)) })
+        expect(files('.txt')).toEqual([`${sha256(dry)}.txt`])
+        expect(await m.mod.store.readOutcome(keyOf('Bash', real))).toEqual({ whole: 'flagged' })
+        expect(await m.mod.store.readOutcome(keyOf('Bash', dry))).toEqual({ condensed: condensedDry })
+      })
+    })
+
+    it('keeps a flagged result whole after a restart from its outcome file, though nothing flags it any more (D9 C)', async () => {
+      const flagged = marked('restart')
+      const body = request(turn([bash('toolu_1', 'npm test', flagged)]))
+      const before = await send(body, { screening: scanned(body, s => s.noteItemFlag(flagged)) })
+      expect(before.results).toEqual([flagged])
+      expect(await m.mod.store.readOutcome(keyOf('Bash', flagged))).toEqual({ whole: 'flagged' })
+
+      const restarted = boot()
+      const after = await send(body, {}, restarted.mgr)
+      expect(after.results).toEqual([flagged])
+      expect(after.body).toBe(before.body)
+      expect(worker.received).toHaveLength(0)
+      expect(folderHolds(MARK)).toEqual([])
+
+      // The restarted module works: a new result is condensed.
+      const fresh = output('after the restart')
+      const control = await send(request(turn([bash('toolu_2', 'npm run build', fresh)])), {}, restarted.mgr)
+      expect(control.results).toEqual([renderCondensed(fresh, DEFAULT_FACTS, restarted.mod.store.pathFor(fresh))])
+    })
+
+    it('keeps a flagged outcome whole after more than retentionHours uncarried, where a condensed one is decided again (D9)', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      reply = countingFacts()
+      const flagged = marked('lapsed flag')
+      const plain = output('lapsed plain')
+      const body = request(turn([bash('toolu_1', 'cargo build', flagged), bash('toolu_2', 'cargo test', plain)]))
+      const first = await send(body, { screening: scanned(body, s => s.noteItemFlag(flagged)) })
+      expect(first.results[0]).toBe(flagged)
+      expect(first.results[1]!.startsWith('[llm-fw: tool output condensed')).toBe(true)
+      expect(worker.received).toHaveLength(1)
+
+      // Only memory is under test here, not the outcome files beside it (as in the condensed case of D9 above).
+      for (const text of [flagged, plain]) fs.rmSync(join(folder(), `${keyOf('Bash', text)}.outcome`), { force: true })
+
+      // Two retention periods and more with nothing carrying either result. An unrelated large result rides each step, so the hourly prune runs.
+      for (let i = 0; i < 2; i++) {
+        vi.setSystemTime(Date.now() + 1.1 * m.shunt.retentionHours * HOUR)
+        await send(request(turn([bash(`toolu_other${i}`, 'ls', output(`unrelated ${i}`))])))
+      }
+
+      const last = await send(body)
+      expect(last.results[0]).toBe(flagged)
+      expect(workerSaw(MARK)).toBe(false)
+      // Not a vacuous pass: the prune ran, and the result it dropped was asked about again.
+      expect(last.results[1]!.startsWith('[llm-fw: tool output condensed')).toBe(true)
+      expect(last.results[1]).not.toBe(first.results[1])
+    })
+
+    describe('an OpenAI Responses function_call_output, which the detection does not read (FR-012, FR-016, US1-6)', () => {
+      const RESPONSES: Partial<GatewayModuleContext> = { target: 'api.openai.com', path: '/v1/responses' }
+      const fnCall = (id: string) => ({ type: 'function_call', call_id: id, name: 'shell', arguments: JSON.stringify({ command: ['npm', 'test'] }) })
+      const responsesRequest = (id: string, out: string) => ({
+        model: 'gpt-5',
+        input: [{ role: 'user', content: 'run the checks' }, fnCall(id), { type: 'function_call_output', call_id: id, output: out }],
+      })
+      /** What the detection makes of a Responses request: it scans the prompt, and no parser extracts the tool output. */
+      function detectionOf(payload: unknown): Screening {
+        const screening = new Screening()
+        for (const slot of collectTextSlots(payload)) if (slot.kind !== 'tool_result') screening.noteItemScanned(slot.text)
+        return screening
+      }
+      const json = (value: unknown): CapturedResponse => ({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(value)) })
+
+      it('forwards it whole, never asks the worker, stores nothing, and keeps it whole on later requests (FR-012, FR-016, US1-6)', async () => {
+        const out = marked('responses')
+        const body = responsesRequest('call_1', out)
+        const first = await send(body, { ...RESPONSES, screening: detectionOf(body) })
+        expect(first.body).toBe(first.input)
+        expect(first.modified).toBe(false)
+        expect(worker.received).toHaveLength(0)
+        expect(files('.txt')).toEqual([])
+        expect(folderHolds(MARK)).toEqual([])
+
+        const again = await send(body, { ...RESPONSES, screening: detectionOf(body) })
+        expect(again.body).toBe(again.input)
+        // Even a scan that did read it, later, does not bring the condensation in: the outcome was decided.
+        const read = await send(body, RESPONSES)
+        expect(read.body).toBe(read.input)
+        expect(worker.received).toHaveLength(0)
+        expect(files('.txt')).toEqual([])
+      })
+
+      it('forwards a thread continuation\'s output whole although the module learned its tool from the response, and condenses one the detection scanned (FR-012, US1-5, US1-6)', async () => {
+        const unread = marked('continued')
+        const read = output('continued and scanned')
+        m.mgr.observeResponse('{}', { ...BASE_CTX, ...RESPONSES }, json({
+          id: 'resp_1', object: 'response', status: 'completed',
+          output: [fnCall('call_thread'), fnCall('call_thread_scanned')],
+        }))
+        const continuation = (id: string, out: string) => ({
+          model: 'gpt-5', previous_response_id: 'resp_1',
+          input: [{ type: 'function_call_output', call_id: id, output: out }],
+        })
+
+        const body = continuation('call_thread', unread)
+        const first = await send(body, { ...RESPONSES, screening: detectionOf(body) })
+        expect(first.body).toBe(first.input)
+        expect(worker.received).toHaveLength(0)
+        expect(files('.txt')).toEqual([])
+
+        // The same continuation form is condensed once the output was scanned: the tool was known, and the scan is what held the first back.
+        const scannedBody = continuation('call_thread_scanned', read)
+        const condensed = await send(scannedBody, { ...RESPONSES, screening: scanned(scannedBody) })
+        expect(condensed.results).toEqual([renderCondensed(read, DEFAULT_FACTS, m.mod.store.pathFor(read))])
+        expect(worker.received).toHaveLength(1)
+
+        const later = await send(body, RESPONSES)
+        expect(later.body).toBe(later.input)
+        expect(workerSaw(MARK)).toBe(false)
+        expect(folderHolds(MARK)).toEqual([])
+      })
+    })
+
+    describe('a flag that reaches a result another request is deciding (SC-009, data-model.md "Disk order", audit 4 M2)', () => {
+      /** Everything a settled race has to leave: no copy of the text, `flagged` on disk, and whole after a restart. */
+      async function expectFlaggedEverywhere(text: string, body: unknown): Promise<void> {
+        expect(folderHolds(MARK)).toEqual([])
+        expect(files('.txt')).toEqual([])
+        expect(await m.mod.store.readOutcome(keyOf('Bash', text))).toEqual({ whole: 'flagged' })
+        const asked = worker.received.length
+        const restarted = boot()
+        const after = await send(body, {}, restarted.mgr)
+        expect(after.results).toEqual([text])
+        expect(worker.received).toHaveLength(asked)
+        expect(folderHolds(MARK)).toEqual([])
+      }
+
+      it('ends flagged when the flag comes before the worker has answered the other request, whichever request settles last', async () => {
+        reply = body => ({ delayMs: 400, json: chatAnswer(DEFAULT_FACTS, { prompt_tokens: promptTokensOf(body), completion_tokens: 8 }) })
+        const text = marked('flag before the answer')
+        const body = request(turn([bash('toolu_1', 'npm test', text)]))
+        const deciding = send(body)
+        await vi.waitFor(() => expect(worker.received).toHaveLength(1))
+
+        const flagging = await Promise.all([deciding, send(body, { screening: scanned(body, s => s.noteItemFlag(text)) })])
+        // The flagging request forwards the result whole, and the worker was asked once, by the request that got there first.
+        expect(flagging[1].results).toEqual([text])
+        expect(worker.received).toHaveLength(1)
+        await expectFlaggedEverywhere(text, body)
+      })
+
+      it('ends flagged when the flag comes while the other request\'s write of the original is held, whichever request settles last', async () => {
+        const text = marked('flag during the write')
+        const body = request(turn([bash('toolu_1', 'npm test', text)]))
+        const store = m.mod.store
+        const realWrite = store.write.bind(store)
+        let release: () => void = () => {}
+        const gate = new Promise<void>(resolve => { release = resolve })
+        const write = vi.spyOn(store, 'write').mockImplementation(async original => {
+          await gate
+          return realWrite(original)
+        })
+
+        const deciding = send(body)
+        await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+        const flagging = send(body, { screening: scanned(body, s => s.noteItemFlag(text)) })
+        // Let the flag land while the write is still held, then let the write go.
+        await new Promise(resolve => setTimeout(resolve, 100))
+        release()
+        const [, flagged] = await Promise.all([deciding, flagging])
+
+        expect(flagged.results).toEqual([text])
+        write.mockRestore()
+        await expectFlaggedEverywhere(text, body)
+      })
+    })
+  })
 })

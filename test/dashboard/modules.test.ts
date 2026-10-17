@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import http from 'node:http'
 import fs from 'node:fs'
 import { join } from 'node:path'
@@ -170,5 +170,120 @@ describe('/api/modules', () => {
     await mgr.transformRequest(body, ctx)
     const applied = await call('GET', '/api/modules')
     expect(applied.json.applied).toBe(true)
+  })
+})
+
+// The operator's way to empty the folder of stored originals and remembered
+// outcomes from the dashboard (specs/001-tool-result-shunt: contracts/interfaces.md
+// section 5, FR-025, SC-011, D9, US7-6). The folder is `<LLM_FW_DIR>/tool-results`.
+describe('POST /api/modules/tool-result-shunt/purge', () => {
+  const PURGE = '/api/modules/tool-result-shunt/purge'
+  const savedDir = process.env.LLM_FW_DIR
+  let tempDir: string
+  let server: http.Server
+  let port = 0
+  let mgr: ModuleManager
+
+  const folder = () => join(tempDir, 'tool-results')
+  const listing = () => (fs.existsSync(folder()) ? fs.readdirSync(folder()).sort() : [])
+
+  /** What the module leaves there: originals, outcome files and the temp file of an interrupted write. */
+  function fillFolder(): string[] {
+    const hex = (c: string) => c.repeat(64)
+    const names = [`${hex('a')}.txt`, `${hex('b')}.txt`, `${hex('c')}.outcome`, `${hex('d')}.outcome`, `${hex('e')}.0f3a9c1d.tmp`]
+    fs.mkdirSync(folder(), { recursive: true })
+    for (const name of names) fs.writeFileSync(join(folder(), name), `content of ${name}`)
+    return names.sort()
+  }
+
+  function post(path: string, headers: Record<string, string> = { 'content-type': 'application/json' }, body = '{}'): Promise<{ status: number; json: any }> {
+    return new Promise((resolve, reject) => {
+      const r = http.request({
+        host: '127.0.0.1', port, method: 'POST', path,
+        headers: { ...headers, 'content-length': String(Buffer.byteLength(body)) },
+      }, res => {
+        let data = ''
+        res.on('data', c => { data += c })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, json: data ? JSON.parse(data) : null }))
+      })
+      r.on('error', reject)
+      r.write(body)
+      r.end()
+    })
+  }
+
+  beforeAll(async () => {
+    tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-shunt-purge-'))
+    process.env.LLM_FW_DIR = tempDir
+    const config = structuredClone(DEFAULT_CONFIG) as Config
+    mgr = new ModuleManager(config)
+    server = createDashboardServer(config, new EventBus(config.dashboard), undefined as any, undefined, undefined, mgr)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
+    port = (server.address() as { port: number }).port
+  })
+
+  afterAll(async () => {
+    server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    if (savedDir === undefined) delete process.env.LLM_FW_DIR
+    else process.env.LLM_FW_DIR = savedDir
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  beforeEach(() => {
+    fs.rmSync(folder(), { recursive: true, force: true })
+  })
+
+  it('empties the folder, outcome files and a stray temp file included, and answers how many files it deleted (FR-025, SC-011, US7-6)', async () => {
+    expect(fillFolder()).toHaveLength(5)
+    const res = await post(PURGE)
+    expect(res.status).toBe(200)
+    expect(res.json).toEqual({ ok: true, deleted: 5 })
+    expect(listing()).toEqual([])
+  })
+
+  it('answers 200 with 0 deleted when there is nothing to delete, with or without the folder (FR-025)', async () => {
+    expect(await post(PURGE)).toEqual({ status: 200, json: { ok: true, deleted: 0 } })
+    fs.mkdirSync(folder(), { recursive: true })
+    expect(await post(PURGE)).toEqual({ status: 200, json: { ok: true, deleted: 0 } })
+  })
+
+  it('refuses a request that is not JSON with 415, as POST /api/modules does, and deletes nothing (contracts section 5)', async () => {
+    const names = fillFolder()
+    const res = await post(PURGE, { 'content-type': 'text/plain' }, 'x')
+    expect(res.status).toBe(415)
+    expect(res.json).toEqual({ error: 'Content-Type must be application/json' })
+    expect(listing()).toEqual(names)
+  })
+
+  it('refuses a cross-origin request with 403, as POST /api/modules does, and deletes nothing; a request from the dashboard\'s own origin is served (contracts section 5)', async () => {
+    const names = fillFolder()
+    const cross = await post(PURGE, { 'content-type': 'application/json', origin: 'http://evil.example' })
+    expect(cross.status).toBe(403)
+    expect(cross.json).toEqual({ error: 'cross-origin request blocked' })
+    const crossReferer = await post(PURGE, { 'content-type': 'application/json', referer: 'http://evil.example/page' })
+    expect(crossReferer.status).toBe(403)
+    expect(listing()).toEqual(names)
+
+    const same = await post(PURGE, { 'content-type': 'application/json', origin: `http://127.0.0.1:${port}` })
+    expect(same.status).toBe(200)
+    expect(same.json).toEqual({ ok: true, deleted: 5 })
+    expect(listing()).toEqual([])
+  })
+
+  it.each([true, false])('leaves the module\'s enabled flag as it was, switched on: %s (contracts section 5)', async enabled => {
+    expect(mgr.setModuleEnabled('tool-result-shunt', enabled)).toBe(true)
+    fillFolder()
+    const res = await post(PURGE)
+    expect(res.status).toBe(200)
+    expect(mgr.getModule('tool-result-shunt')?.enabled).toBe(enabled)
+    expect(listing()).toEqual([])
+  })
+
+  it('carries the card\'s "Delete stored originals" button in the dashboard page, posting to the purge route (contracts section 5)', async () => {
+    const { DASHBOARD_HTML } = await import('../../src/dashboard/server.js')
+    expect(DASHBOARD_HTML).toContain('Delete stored originals')
+    expect(DASHBOARD_HTML).toContain('tool-result-shunt')
+    expect(DASHBOARD_HTML).toContain('/purge')
   })
 })
