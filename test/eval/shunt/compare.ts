@@ -27,9 +27,12 @@
  *
  * `--repo` must be another repository: enforce mode refuses reads of llm-fw's own
  * detection docs and source (#349). Set LLM_FW_MODEL_DIR to the detection models'
- * cache, or the models download into the scratch directory. The child may run the
- * shell, read and search tools (and nothing else) in `--repo`, and reads stored
- * originals from the scratch directory. It is started with
+ * cache, or the models download into the scratch directory. The child may run
+ * `awk` (the only command the tasks use) and the read and search tools, in `--repo`,
+ * and nothing else (`claudeArgs`); it reads stored originals from the scratch
+ * directory. `--repo` may not hold `.claude/settings.json` or
+ * `.claude/settings.local.json`, which the child would load (`checkRepoSettings`).
+ * It is started with
  * `--no-session-persistence`, so no run lands in ~/.claude/projects, the folder
  * the replay stage reads.
  */
@@ -369,7 +372,15 @@ function freePort(): Promise<number> {
   })
 }
 
-/** The environment of the child only: this proxy and its CA, and no other proxy setting. */
+/**
+ * The environment of the child only: this proxy and its CA, and no other proxy setting.
+ *
+ * Everything else in the parent's environment is passed through, API credentials included. An
+ * allowlist would be tighter, but which variables `claude -p` needs to authenticate and to run
+ * the shell cannot be verified without a paid run, and a wrong list fails every run. Until one
+ * has been made, the limits on the child are the tool list (`claudeArgs`) and the settings
+ * check (`checkRepoSettings`), not this environment.
+ */
 function childEnv(proxyPort: number, caCertPath: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -380,28 +391,52 @@ function childEnv(proxyPort: number, caCertPath: string): NodeJS.ProcessEnv {
   return env
 }
 
-/** The argument list of one `claude -p` child. Stub: the tests in test/eval/shuntCompare.test.ts specify it. */
-export function claudeArgs(_scratch: string, _maxBudgetUsd: number): string[] {
-  throw new Error('not implemented')
-}
-
-/** Refuses a repository whose own project settings the child would load. Stub: the tests specify it. */
-export function checkRepoSettings(_repo: string): void {
-  throw new Error('not implemented')
-}
-
-/** One `claude -p` session. Its stream-json on stdout, whatever the exit code; a run that does not start rejects. */
-function runClaude(task: CompareTask, repo: string, scratch: string, env: NodeJS.ProcessEnv, maxBudgetUsd: number): Promise<string> {
-  const args = [
+/**
+ * The argument list of one `claude -p` child (test/eval/shuntCompare.test.ts pins it).
+ *
+ * The shell is limited to the commands test/eval/shunt/compare-tasks.json tells the agent to
+ * run, one prefix rule per command: every task runs `awk`. The test derives that set from the
+ * tasks file, so a task that needs another command fails there until it is added here. A prefix
+ * rule narrows the shell, it is not a sandbox: `awk` itself can still start a process. The
+ * child's other tools read and search; none writes.
+ */
+export function claudeArgs(scratch: string, maxBudgetUsd: number): string[] {
+  return [
     '-p', '--output-format', 'stream-json', '--verbose',
+    // Project settings only, and `checkRepoSettings` refuses a `--repo` that has any. Do not widen
+    // this to user settings, and do not drop it for none: user settings on this machine deny the
+    // native Read tool (lean-ctx), which would leave the child unable to read a stored original.
     '--setting-sources', 'project', '--strict-mcp-config',
     // A run is not saved where the replay stage reads recorded sessions.
     '--no-session-persistence',
     '--max-budget-usd', String(maxBudgetUsd),
-    // The tools the tasks need and nothing that writes; the scratch folder holds the stored originals.
-    '--allowedTools', 'Bash,Read,Grep,Glob',
+    // The scratch folder holds the stored originals.
+    '--allowedTools', 'Bash(awk:*),Read,Grep,Glob',
     '--add-dir', scratch,
   ]
+}
+
+/** The project settings files `--setting-sources project` loads from the directory the child starts in. */
+const PROJECT_SETTINGS = ['settings.json', 'settings.local.json']
+
+/**
+ * Refuses a repository that carries project settings of its own. The child loads them
+ * (`--setting-sources project`), and a settings file can declare hooks, which run commands, and
+ * permissions that widen the tool allowlist of `claudeArgs`. Only files directly under
+ * `<repo>/.claude` are looked for; a settings file in a parent directory is not.
+ */
+export function checkRepoSettings(repo: string): void {
+  for (const name of PROJECT_SETTINGS) {
+    const file = join(repo, '.claude', name)
+    if (fs.existsSync(file)) {
+      throw new Error(`--repo holds ${file}: the agent would load that repository's hooks and permissions (--setting-sources project). Name a repository without it`)
+    }
+  }
+}
+
+/** One `claude -p` session. Its stream-json on stdout, whatever the exit code; a run that does not start rejects. */
+function runClaude(task: CompareTask, repo: string, scratch: string, env: NodeJS.ProcessEnv, maxBudgetUsd: number): Promise<string> {
+  const args = claudeArgs(scratch, maxBudgetUsd)
   return new Promise((resolveRun, reject) => {
     // Async: the proxy that answers this child runs in this process, so a blocking spawn would deadlock it.
     const child = spawn('claude', args, { cwd: repo, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -442,6 +477,7 @@ export async function runApproved(args: string[], tasks: CompareTask[]): Promise
   if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) {
     throw new Error('--repo is inside llm-fw: enforce mode refuses reads of llm-fw\'s own detection docs and source (#349), so name another repository')
   }
+  checkRepoSettings(repo)
 
   const { isLocalWorkerUrl } = await import('../../../src/modules/shuntWorker.js')
   if (!isLocalWorkerUrl(workerUrl)) throw new Error('--worker-url must name this machine (http or https to localhost, 127.x.x.x or ::1)')
