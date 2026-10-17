@@ -1,0 +1,32 @@
+[
+  {
+    "id": "failing-test",
+    "prompt": "Run this command exactly as written, with your shell tool. It stands in for a test run.\n\n```\nawk 'BEGIN { for (i = 1; i <= 420; i++) { if (i == 233) print \"FAIL  test/payments/refund.spec.ts > refunds a partial capture (AssertionError: expected 4250 to equal 4205)\"; else printf \"PASS  test/suite%03d.spec.ts (%d ms)\\n\", i, 10 + i % 37 } print \"Tests  1 failed | 419 passed (420)\"; exit 1 }'\n```\n\nWhich test failed, and what was the assertion? Answer in one or two sentences.",
+    "expect": "^(?=[\\s\\S]*refund\\.spec\\.ts)(?=[\\s\\S]*4205)"
+  },
+  {
+    "id": "build-error",
+    "prompt": "Run this command exactly as written, with your shell tool. It stands in for a build.\n\n```\nawk 'BEGIN { for (i = 1; i <= 400; i++) { if (i == 311) print \"src/billing/ledger.ts(88,17): error TS2345: Argument of type string is not assignable to parameter of type number.\"; else printf \"compiled src/module%03d.ts\\n\", i } print \"Found 1 error.\"; exit 2 }'\n```\n\nIn which file and at which line does the build fail? Answer in one sentence.",
+    "expect": "^(?=[\\s\\S]*ledger\\.ts)(?=[\\s\\S]*\\b88\\b)"
+  },
+  {
+    "id": "audit-warnings",
+    "prompt": "Run this command exactly as written, with your shell tool. It stands in for a dependency install.\n\n```\nawk 'BEGIN { for (i = 1; i <= 410; i++) { if (i == 150) print \"WARN high severity: pkg-150 (prototype pollution), fixed in 2.3.1\"; else if (i == 290) print \"WARN high severity: pkg-290 (path traversal), fixed in 4.0.2\"; else printf \"added pkg-%03d\\n\", i } print \"audit finished: 2 high\" }'\n```\n\nWhich packages does it warn about with high severity, and which version fixes each? Answer in two sentences at most.",
+    "expect": "^(?=[\\s\\S]*pkg-150)(?=[\\s\\S]*2\\.3\\.1)(?=[\\s\\S]*pkg-290)(?=[\\s\\S]*4\\.0\\.2)"
+  },
+  {
+    "id": "log-error",
+    "prompt": "Run this command exactly as written, with your shell tool. It stands in for reading a server log.\n\n```\nawk 'BEGIN { for (i = 1; i <= 450; i++) { if (i == 377) printf \"2026-10-01T12:%02d:%02dZ ERROR req=8f3a21 upstream timeout after 30000 ms\\n\", i % 60, i % 60; else printf \"2026-10-01T12:%02d:%02dZ INFO req=%06x handled GET /health 200\\n\", i % 60, i % 60, i * 4099 } }'\n```\n\nThere is one error in the log. What is the request id and what went wrong? Answer in one sentence.",
+    "expect": "^(?=[\\s\\S]*8f3a21)(?=[\\s\\S]*timeout)"
+  },
+  {
+    "id": "benchmark-row",
+    "prompt": "Run this command exactly as written, with your shell tool. It stands in for a benchmark report.\n\n```\nawk 'BEGIN { for (i = 1; i <= 400; i++) printf \"case-%03d  %d ms\\n\", i, 100 + (i * 7919) % 900 }'\n```\n\nHow long did case-217 take? Answer with the number of milliseconds.",
+    "expect": "\\b423 ?ms\\b"
+  },
+  {
+    "id": "largest-file",
+    "prompt": "Run this command exactly as written, with your shell tool. It stands in for a directory listing.\n\n```\nawk 'BEGIN { for (i = 1; i <= 400; i++) printf \"-rw-r--r-- 1 dev dev %6d Oct  1 12:00 asset-%03d.bin\\n\", (i * 7919) % 99991 + 1, i }'\n```\n\nWhich file in the listing is the largest? Answer with its name.",
+    "expect": "asset-101\\.bin"
+  }
+]
