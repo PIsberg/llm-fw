@@ -70,6 +70,7 @@ In pipeline order, which is also the order of the cards:
 
 | Module id | Config key | Rewrites |
 | --- | --- | --- |
+| `history-window` | `modules.historyWindow` | drops the oldest turns of a long conversation (lossy) |
 | `ansi-strip` | `modules.ansiStrip` | terminal escape codes in tool output and prompts |
 | `progress-collapse` | `modules.progressCollapse` | progress-bar frames in tool output and prompts |
 | `repeat-collapse` | `modules.repeatCollapse` | runs of identical lines in tool output |
@@ -159,6 +160,35 @@ stream events), OpenAI chat `usage` (a stream carries it only when the client
 sends `stream_options.include_usage`), the Responses API `response.completed`
 event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
 is not metered, so a large download is never held in memory twice.
+
+### History window
+
+`modules.historyWindow.enabled` (`LLM_FW_HISTORY_WINDOW_ENABLED`). **Lossy**:
+the model no longer sees the turns it drops.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `maxMessages` | `100` | Turns kept, not counting leading system and developer messages or the top-level system prompt, which always stay. At least `2`. |
+| `step` | `25` | Turns dropped at a time. |
+
+When a conversation is longer than `maxMessages`, the oldest turns are dropped
+in whole steps, and the cut then moves forward to the first plain user turn,
+so a tool call is never separated from its result. The first kept turn starts
+with `[llm-fw: N earlier messages omitted]`. Works on OpenAI chat, Anthropic
+and Gemini conversations; the Responses API, which keeps history on the server
+with `previous_response_id`, is left alone.
+
+What it costs:
+
+- **One prompt-cache miss per step.** Between steps the kept history is a
+  stable prefix and the cache keeps matching; a larger `step` means fewer
+  misses and more turns kept on average.
+- **Thinking blocks in the kept turns are removed.** Dropping turns changes
+  the conversation every later thinking block was signed against, and models
+  with preserved thinking refuse a block whose prefix changed. The model loses
+  that reasoning. Anthropic's server-side compaction
+  (`context_management`) keeps it and summarizes instead of dropping, so a
+  client that can use it should prefer it.
 
 ### ANSI escape stripper
 

@@ -1,6 +1,7 @@
 import type { GatewayModule, GatewayModuleContext, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
+import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
 import { ProgressCollapseModule } from './builtin/progressCollapse.js'
 import { RepeatCollapseModule } from './builtin/repeatCollapse.js'
@@ -19,9 +20,12 @@ const log = createLogger('modules')
 type BuiltinKey = Exclude<keyof ModulesConfig, 'enabled'>
 
 // Built-in modules in pipeline order, each keyed by the `modules.<key>`
-// object that holds its switch and options. Content cleaners run first, so
-// the whitespace pruners see text without escape codes.
+// object that holds its switch and options. The history window runs first,
+// so the rest only work on turns that are kept (and dedup never points at a
+// dropped one); content cleaners run before the whitespace pruners, so those
+// see text without escape codes.
 export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
+  { key: 'historyWindow', create: cfg => new HistoryWindowModule(cfg as HistoryWindowConfig) },
   { key: 'ansiStrip', create: cfg => new AnsiStripModule(cfg) },
   { key: 'progressCollapse', create: cfg => new ProgressCollapseModule(cfg) },
   { key: 'repeatCollapse', create: cfg => new RepeatCollapseModule(cfg as RepeatCollapseConfig) },

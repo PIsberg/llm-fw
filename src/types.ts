@@ -455,6 +455,13 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
   maxChars: number;
 }
 
+export interface HistoryWindowConfig extends ModuleSwitchConfig {
+  /** Turns kept, system messages aside; at least 2. */
+  maxMessages: number;
+  /** Turns dropped at a time, so the cached prefix only moves once per step. */
+  step: number;
+}
+
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   /** Minify tool output that is a JSON object or array, keeping every literal. */
   minifyJson: boolean;
@@ -469,6 +476,7 @@ export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
 export interface ModulesConfig {
   enabled: boolean;
   tokenPruner: TokenPrunerConfig;
+  historyWindow?: HistoryWindowConfig;
   ansiStrip?: ModuleSwitchConfig;
   progressCollapse?: ModuleSwitchConfig;
   repeatCollapse?: RepeatCollapseConfig;

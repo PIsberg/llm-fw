@@ -344,6 +344,11 @@ export const DEFAULT_CONFIG: Config = {
     tokenPruner: {
       enabled: false,
     },
+    historyWindow: {
+      enabled: false,
+      maxMessages: 100,
+      step: 25,
+    },
     ansiStrip: {
       enabled: false,
     },
@@ -719,6 +724,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_BLOCK_STATUS: (c, v) => { if (v === '403' || v === '422') c.blockStatus = v === '403' ? 403 : 422; },
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },
+  LLM_FW_HISTORY_WINDOW_ENABLED: (c, v) => { if (c.modules?.historyWindow) c.modules.historyWindow.enabled = v === 'true'; },
   LLM_FW_ANSI_STRIP_ENABLED: (c, v) => { if (c.modules?.ansiStrip) c.modules.ansiStrip.enabled = v === 'true'; },
   LLM_FW_PROGRESS_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.progressCollapse) c.modules.progressCollapse.enabled = v === 'true'; },
   LLM_FW_REPEAT_COLLAPSE_ENABLED: (c, v) => { if (c.modules?.repeatCollapse) c.modules.repeatCollapse.enabled = v === 'true'; },

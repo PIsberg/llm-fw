@@ -70,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).** Oversized tool output keeps its first `headLines`
   (200) and last `tailLines` (100) lines, then at most `maxChars` (40,000) characters, with a
   marker saying how much was cut.
+- **A History Window module, opt-in and lossy (`modules.historyWindow.enabled`,
+  `LLM_FW_HISTORY_WINDOW_ENABLED`, `maxMessages` 100, `step` 25).** A long conversation keeps its
+  system prompt and last turns; the oldest are dropped in whole steps, cut only at a plain user
+  turn, so the cached prefix moves once per step. Thinking blocks in kept turns are removed,
+  because the prefix they were signed against changed.
 - **Gemini Live, and WebSockets through the gateway (#344).** Gemini Live
   (`BidiGenerateContent`) sessions are now relayed with their client messages inspected, on
   the proxy and the gateway: streamed audio is transcribed and scanned when a turn ends (and

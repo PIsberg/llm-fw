@@ -231,7 +231,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_97 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_98 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -277,6 +277,7 @@ _97 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm 
 | `LLM_FW_GATEWAY_TOKEN` | `gateway.authToken` | _unset_ |
 | `LLM_FW_HARMFUL_REQUEST_ENABLED` | `harmfulRequest.enabled` | `true` |
 | `LLM_FW_HARMFUL_REQUEST_MODE` | `harmfulRequest.mode` | `block` |
+| `LLM_FW_HISTORY_WINDOW_ENABLED` | `modules.historyWindow.enabled` | `false` |
 | `LLM_FW_HOT_RELOAD` | `hotReload` | `true` |
 | `LLM_FW_HTTPS_PORT` | `proxy.httpsPort` | `8443` |
 | `LLM_FW_INDIRECT_INSTRUCTION_ENABLED` | `indirectInstruction.enabled` | `true` |
