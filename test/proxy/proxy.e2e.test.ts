@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import https from 'node:https'
 import http from 'node:http'
 import net from 'node:net'
@@ -12,7 +12,13 @@ import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { UpstreamResolver } from '../../src/proxy/upstream.js'
 import { CertFactory } from '../../src/proxy/certs.js'
+import { ModuleManager } from '../../src/modules/registry.js'
+import { Screening } from '../../src/modules/screening.js'
+import { collectTextSlots } from '../../src/modules/payload.js'
+import { isLoopbackAddr } from '../../src/auth.js'
+import type { QuotaManager } from '../../src/detection/dos/quota.js'
 import { issueUpstreamCert, trustCA } from './lib/tls-trust.js'
+import { ScreenedProbe, markBody, shrinkToolResults, PROBE_FIELD } from '../modules/fixtures/screenedProbe.js'
 
 // Mock the upstream DNS resolver to always point target hostnames to localhost
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
@@ -197,7 +203,16 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     // The pruner is opt-in; Case 6 exercises it. A fresh object, so the
     // module's live reference never points into DEFAULT_CONFIG.
     modules: { enabled: true, tokenPruner: { enabled: true } },
+    // A copy, so the post-screening quota case can move the token budget live
+    // without moving DEFAULT_CONFIG's.
+    dos: { ...DEFAULT_CONFIG.dos },
   }
+
+  // A module that runs after detection and DLP (afterScreening), registered
+  // beside the built-in ones; disabled until a case of the post-screening
+  // describe at the end of this suite turns it on.
+  const probe = new ScreenedProbe()
+  let moduleManager: ModuleManager
 
   beforeAll(async () => {
     // 1. Set up a isolated sandbox directory for the CA and database
@@ -272,14 +287,15 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
 
     // 5. Start the Proxy Server
     eventBus = new EventBus(testConfig.dashboard)
-    proxy = new ProxyServer(testConfig, eventBus)
+    moduleManager = new ModuleManager(testConfig)
+    moduleManager.register(probe)
+    proxy = new ProxyServer(testConfig, eventBus, undefined, undefined, moduleManager)
     await proxy.init()
     proxy.start()
 
     // 6. Start the Dashboard Server
     const pipeline = (proxy as any).pipeline
-    const modules = (proxy as any).modules
-    dashboard = createDashboardServer(testConfig, eventBus, pipeline, undefined, undefined, modules)
+    dashboard = createDashboardServer(testConfig, eventBus, pipeline, undefined, undefined, moduleManager)
     await new Promise<void>(resolve => dashboard.listen(testConfig.dashboard.port, '127.0.0.1', () => resolve()))
   })
 
@@ -712,6 +728,272 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     } finally {
       Object.assign(truncate, saved)
     }
+  })
+
+  // A module marked afterScreening runs once DLP and the pipeline have passed
+  // the request, on the body that would be forwarded, and what it returns is
+  // forwarded (specs/001-tool-result-shunt: FR-012, FR-015, US4-4, plan Design
+  // 1 and 2). The probe below stands in for the tool result shunt: it records
+  // what it is given and rewrites the body as each case scripts it.
+  describe('a module that runs after detection and DLP (afterScreening)', () => {
+    const GH_TOKEN = 'ghp_' + 'a'.repeat(36)
+    const CLEAN = 'tests: 12 passed, 0 failed'
+    const LINT = 'lint: no problems found in 40 files'
+    // The first corpus attack of the override family blocks at the heuristic stage when it
+    // is a tool result (checked at the pipeline directly, 2026-10-17).
+    const INJECTION = (JSON.parse(fs.readFileSync(new URL('../detection/fixtures/corpus.json', import.meta.url), 'utf8')) as
+      { attacks: Array<{ category: string; prompt: string }> }).attacks.find(a => a.category === 'override')!.prompt
+
+    const quota = () => (proxy as unknown as { quota: QuotaManager }).quota
+    const loop = () => (proxy as unknown as { loop: { reset(): void } }).loop
+
+    /** An Anthropic request: a prompt, then one Bash call per result and the results answering them. */
+    const toolRequest = (results: string[]) => ({
+      model: 'claude-3-opus-20240229',
+      max_tokens: 64,
+      messages: [
+        { role: 'user', content: 'Run the checks and report.' },
+        { role: 'assistant', content: results.map((_, i) => ({ type: 'tool_use', id: `toolu_p${i}`, name: 'Bash', input: { command: `check ${i}` } })) },
+        { role: 'user', content: results.map((r, i) => ({ type: 'tool_result', tool_use_id: `toolu_p${i}`, content: r })) },
+      ],
+    })
+    const post = (payload: unknown) => sendProxyRequest(
+      testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+      { 'Content-Type': 'application/json' }, JSON.stringify(payload),
+    )
+    const without = (record: object, ...keys: string[]): Record<string, unknown> => {
+      const copy: Record<string, unknown> = { ...record }
+      for (const key of ['id', 'timestamp', ...keys]) delete copy[key]
+      return copy
+    }
+
+    /** What one request produced besides its response: the dashboard events (oldest first) and the traffic record. */
+    async function run(payload: unknown) {
+      const knownEvents = new Set(eventBus.getAll().map(e => e.id))
+      const knownTraffic = new Set(eventBus.getTrafficMetrics(500).map(t => t.id))
+      const response = await post(payload)
+      const fresh = () => eventBus.getTrafficMetrics(500).filter(t => !knownTraffic.has(t.id))
+      // The traffic record is written after the response has gone out.
+      await vi.waitFor(() => expect(fresh()).toHaveLength(1))
+      const events = eventBus.getAll().filter(e => !knownEvents.has(e.id)).reverse().map(e => without(e))
+      return { response, events, traffic: fresh()[0]! }
+    }
+
+    /** The same request with the probe off, then on. */
+    async function offThenOn(payload: unknown) {
+      receivedRequests = []
+      probe.enabled = false
+      const off = await run(payload)
+      const forwardedOff = receivedRequests.at(-1)!.body
+      probe.enabled = true
+      const on = await run(payload)
+      return { off, on, forwardedOff, forwardedOn: receivedRequests.at(-1)!.body }
+    }
+
+    beforeEach(() => {
+      receivedRequests = []
+      probe.reset()
+      quota().reset()
+      loop().reset()
+    })
+
+    afterEach(() => {
+      probe.enabled = false
+      probe.reset()
+      quota().reset()
+      loop().reset()
+      testConfig.enforcement = 'enforce'
+    })
+
+    it('forwards the body the module returns, and hands it the body DLP has already redacted (FR-012, D2)', async () => {
+      const { off, on, forwardedOff, forwardedOn } = await offThenOn(toolRequest([`install log\ntoken ${GH_TOKEN} was used`, CLEAN]))
+      expect(off.response.statusCode).toBe(200)
+      expect(on.response.statusCode).toBe(200)
+      // With the probe off the upstream gets the DLP-redacted body.
+      expect(forwardedOff).toContain('[REDACTED_GITHUB_TOKEN]')
+      expect(forwardedOff).not.toContain(GH_TOKEN)
+      // The probe was handed exactly that body, and the upstream got the probe's rewrite of it.
+      expect(probe.seen).toHaveLength(1)
+      expect(probe.seen[0]!.body).toBe(forwardedOff)
+      expect(forwardedOn).toBe(markBody(forwardedOff))
+      expect(JSON.parse(forwardedOn)[PROBE_FIELD]).toBe('screened')
+    })
+
+    it('leaves every dashboard event and the traffic record\'s request body as they are with the module off (FR-012, D2)', async () => {
+      const { off, on, forwardedOff, forwardedOn } = await offThenOn(toolRequest([`install log\ntoken ${GH_TOKEN} was used`, CLEAN]))
+      // Not an empty comparison: DLP and the MCP result audit both put events on the bus.
+      expect(off.events.length).toBeGreaterThan(0)
+      expect(on.events).toEqual(off.events)
+      // The traffic inspector shows the screened body, not the module's.
+      expect(on.traffic.requestBody).toBe(off.traffic.requestBody)
+      expect(on.traffic.requestBody).toBe(forwardedOff)
+      expect(without(on.traffic, 'bytesSent')).toEqual(without(off.traffic, 'bytesSent'))
+      // bytesSent counts what was forwarded.
+      expect(off.traffic.bytesSent).toBe(Buffer.byteLength(forwardedOff))
+      expect(on.traffic.bytesSent).toBe(Buffer.byteLength(forwardedOn))
+      expect(on.traffic.bytesSent).toBeGreaterThan(off.traffic.bytesSent)
+    })
+
+    it('puts the module event it returns on the bus the dashboard streams (US4-4)', async () => {
+      probe.enabled = true
+      const before = new Set(eventBus.getRecentModuleEvents().map(e => e.id))
+      const res = await post(toolRequest([CLEAN]))
+      expect(res.statusCode).toBe(200)
+      expect(probe.emitted).toHaveLength(1)
+      const recent = eventBus.getRecentModuleEvents()
+      expect(before.has(probe.emitted[0]!.id)).toBe(false)
+      expect(recent.find(e => e.id === probe.emitted[0]!.id)).toMatchObject({ moduleId: probe.id, applied: true })
+    })
+
+    it('gives the module the body that would go upstream before it answers or observes, and what it returns is what both then see (FR-012)', async () => {
+      probe.enabled = true
+      const res = await post(toolRequest([CLEAN]))
+      expect(res.statusCode).toBe(200)
+      expect(probe.seen).toHaveLength(1)
+      await vi.waitFor(() => expect(probe.observed).toHaveLength(1))
+      const forwarded = receivedRequests[0]!.body
+      expect(forwarded === markBody(probe.seen[0]!.body), 'the upstream got the probe\'s rewrite of the screened body').toBe(true)
+      expect(probe.answered[0] === forwarded, 'respond was asked with the body that goes upstream').toBe(true)
+      expect(probe.observed[0] === forwarded, 'observeResponse was given the body that went upstream').toBe(true)
+    })
+
+    it('charges the quota with the screened body, so a module that shrinks it changes no 429 decision (FR-012)', async () => {
+      // About 16 KB of tool output, which the probe shrinks to a few characters.
+      const long = Array.from({ length: 600 }, (_, i) => `compiling module ${i} of 600 finished`).join('\n')
+      const payload = toolRequest([long])
+      const full = JSON.stringify(payload)
+      const limit = Math.floor((quota().estimateTokens(full) + quota().estimateTokens(shrinkToolResults(full))) / 2)
+      expect(limit).toBeGreaterThan(quota().estimateTokens(shrinkToolResults(full)))
+      expect(limit).toBeLessThan(quota().estimateTokens(full))
+
+      const savedBudget = testConfig.dos.maxTokensPerSession
+      testConfig.dos.maxTokensPerSession = limit
+      try {
+        const statuses = async (enabled: boolean) => {
+          probe.enabled = enabled
+          probe.rewrite = shrinkToolResults
+          quota().reset()
+          loop().reset()
+          const first = await post(payload)
+          const second = await post(payload)
+          return [first.statusCode, second.statusCode]
+        }
+        expect(await statuses(false)).toEqual([200, 429])
+        receivedRequests = []
+        expect(await statuses(true)).toEqual([200, 429])
+        // The probe really did shrink what the first request forwarded.
+        expect(receivedRequests).toHaveLength(1)
+        expect(receivedRequests[0]!.body.includes('[shrunk]'), 'the first request forwarded the probe\'s shrunk body').toBe(true)
+        expect(receivedRequests[0]!.body.includes('compiling module 5 of 600')).toBe(false)
+      } finally {
+        testConfig.dos.maxTokensPerSession = savedBudget
+      }
+    })
+
+    it('tracks the screened body for the loop breaker, so a module that varies the body changes no 429 decision (FR-012)', async () => {
+      const payload = toolRequest([CLEAN])
+      const statuses = async (enabled: boolean) => {
+        probe.enabled = enabled
+        let n = 0
+        probe.rewrite = body => JSON.stringify({ ...(JSON.parse(body) as object), [PROBE_FIELD]: ++n })
+        loop().reset()
+        quota().reset()
+        const codes: number[] = []
+        for (let i = 0; i < 4; i++) codes.push((await post(payload)).statusCode)
+        return codes
+      }
+      expect(await statuses(false)).toEqual([200, 200, 200, 429])
+      receivedRequests = []
+      probe.reset()
+      expect(await statuses(true)).toEqual([200, 200, 200, 429])
+      // The probe really did vary what the three admitted requests forwarded.
+      expect(probe.seen).toHaveLength(3)
+      expect(receivedRequests.map(r => (JSON.parse(r.body) as Record<string, unknown>)[PROBE_FIELD])).toEqual([1, 2, 3])
+    })
+
+    it('tells the module which tool result DLP redacted and which the scan reached clean (FR-012)', async () => {
+      probe.enabled = true
+      const res = await post(toolRequest([`install log\ntoken ${GH_TOKEN} was used`, CLEAN]))
+      expect(res.statusCode).toBe(200)
+      expect(probe.seen).toHaveLength(1)
+      const call = probe.seen[0]!
+      expect(call.screening).toBeInstanceOf(Screening)
+      const slots = collectTextSlots(JSON.parse(call.body))
+      const redacted = slots.findIndex(s => s.kind === 'tool_result' && s.text.includes('[REDACTED_GITHUB_TOKEN]'))
+      const clean = slots.findIndex(s => s.kind === 'tool_result' && s.text === CLEAN)
+      expect(redacted).toBeGreaterThanOrEqual(0)
+      expect(clean).toBeGreaterThanOrEqual(0)
+      const { flagged, unreached, all } = call.screening!.flaggedSlots(slots)
+      expect(flagged.has(redacted)).toBe(true)
+      expect(flagged.has(clean)).toBe(false)
+      expect(unreached.size).toBe(0)
+      expect(all).toBe(false)
+    })
+
+    it('tells the module the caller is on this machine (FR-002)', async () => {
+      probe.enabled = true
+      await post(toolRequest([CLEAN]))
+      expect(probe.seen).toHaveLength(1)
+      expect(probe.seen[0]!.remoteAddress).toBeDefined()
+      expect(isLoopbackAddr(probe.seen[0]!.remoteAddress)).toBe(true)
+      expect(probe.seen[0]!.dryRun).toBe(false)
+    })
+
+    it('never runs the module for a request the pipeline refused (FR-012)', async () => {
+      probe.enabled = true
+      // A request the pipeline passes reaches the module ...
+      expect((await post(toolRequest([CLEAN]))).statusCode).toBe(200)
+      expect(probe.seen).toHaveLength(1)
+      // ... one it refuses does not, and nothing of it goes upstream.
+      const res = await post(toolRequest([CLEAN, INJECTION, LINT]))
+      expect(res.statusCode).toBe(422)
+      expect(probe.seen).toHaveLength(1)
+      expect(receivedRequests).toHaveLength(1)
+    })
+
+    describe('in observe mode', () => {
+      beforeEach(() => { testConfig.enforcement = 'observe' })
+
+      it('forwards the screened body, not the module\'s, and still reports what the module did (FR-015, US4-3)', async () => {
+        probe.enabled = true
+        const res = await post(toolRequest([CLEAN, LINT]))
+        expect(res.statusCode).toBe(200)
+        expect(probe.seen).toHaveLength(1)
+        expect(probe.seen[0]!.dryRun).toBe(true)
+        const screened = probe.seen[0]!.body
+        expect(receivedRequests).toHaveLength(1)
+        expect(receivedRequests[0]!.body).toBe(screened)
+        expect(receivedRequests[0]!.body).not.toContain(PROBE_FIELD)
+        // The module's event reaches the dashboard marked as not applied.
+        expect(eventBus.getRecentModuleEvents().find(e => e.id === probe.emitted[0]!.id)).toMatchObject({ moduleId: probe.id, applied: false })
+        // respond and observeResponse see the body that went upstream.
+        await vi.waitFor(() => expect(probe.observed).toHaveLength(1))
+        expect(probe.answered).toEqual([screened])
+        expect(probe.observed).toEqual([screened])
+      })
+
+      it('marks the result a blocking scan stopped on as flagged, the ones before it as neither, and the ones after it as unreached (FR-012, audit 4 M1)', async () => {
+        probe.enabled = true
+        const res = await post(toolRequest([CLEAN, INJECTION, LINT]))
+        // Observe mode forwards the request the pipeline would have refused.
+        expect(res.statusCode).toBe(200)
+        expect(probe.seen).toHaveLength(1)
+        const call = probe.seen[0]!
+        expect(receivedRequests[0]!.body).toBe(call.body)
+        const slots = collectTextSlots(JSON.parse(call.body))
+        const at = (text: string) => slots.findIndex(s => s.kind === 'tool_result' && s.text === text)
+        const [first, second, third] = [at(CLEAN), at(INJECTION), at(LINT)]
+        expect([first, second, third].every(i => i >= 0)).toBe(true)
+        const { flagged, unreached, all } = call.screening!.flaggedSlots(slots)
+        expect(flagged.has(second)).toBe(true)
+        expect(flagged.has(first)).toBe(false)
+        expect(unreached.has(first)).toBe(false)
+        expect(unreached.has(third)).toBe(true)
+        expect(flagged.has(third)).toBe(false)
+        expect(unreached.has(second)).toBe(false)
+        expect(all).toBe(false)
+      })
+    })
   })
 })
 
