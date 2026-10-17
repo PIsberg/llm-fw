@@ -47,8 +47,8 @@ reason the result is forwarded whole:
 4. Below the size threshold: `below-threshold`.
 5. `chars > maxInputChars`: `too-large`.
 6. `isLoopbackAddr(ctx.remoteAddress)` (`src/auth.ts`) false: `remote-client`.
-7. Its slot in the Screening record's `flagged`, or, for a result not yet decided, `all` true or
-   no record on the context: `flagged`.
+7. Its slot in the Screening record's `flagged` (which includes a slot detection did not scan), or,
+   for a result not yet decided, `all` true or no record on the context: `flagged`.
 
 An eligible result is then decided once (Remembered outcome): condensed, or whole with
 `worker-failed` (no worker, worker not local, error, timeout, empty or malformed answer),
@@ -61,13 +61,25 @@ folder could not be restricted) or `store-full`.
 
 ## Remembered outcome (FR-006)
 
-`Map<key, { text: string; path: string } | { whole: WholeReason }>`, key
-`sha256(toolName + '\0' + text)`, least recently used evicted past 4,096 entries. Only decided
-outcomes are stored (steps 7 and after); steps 1 to 6 are recomputed on every request. A
-condensed outcome is replayed byte-identical on every request that carries the result, until a
-request puts its own slot in `flagged`: it then becomes `flagged` (plan Design 8). `all` and a
-missing record never change a remembered outcome: a result first condensed was judged clean, by
-the same key, in a scan that judged every item. A `flagged` outcome stays whole for good (FR-012).
+`Map<key, { out: { text: string; path: string } | { whole: WholeReason }; carriedAt: number }>`,
+key `sha256(toolName + '\0' + text)`, no entry cap. Only decided outcomes are stored (steps 7 and
+after); steps 1 to 6 are recomputed on every request. Every request that carries a remembered
+result sets its `carriedAt` to `Date.now()`, dry run included.
+
+- **Kept while carried (D9).** On the first `prepare` at least an hour after the last prune, every
+  outcome other than `flagged` whose `carriedAt` is older than `retentionHours` is dropped (the
+  clock a stored original expires by). A dropped result is decided again as new. A `flagged`
+  outcome is kept until restart.
+- **Decided once, concurrent requests included (FR-006).** `inflight: Map<key, Promise<outcome>>`
+  holds a decision under way (worker call, store write, remember), deleted when it settles. A
+  request carrying a key in it awaits that promise instead of calling the worker and uses the
+  settled outcome as a remembered one (write-back included, FR-024). The owner registered first,
+  so its deadline `start + waitMs` falls within the joiner's (FR-008).
+- **Flags.** A condensed outcome is replayed byte-identical on every request that carries the
+  result, until a request puts its own slot in `flagged`: it then becomes `flagged` (plan Design
+  8). `all` and a missing record never change a remembered outcome: a result first condensed was
+  judged clean, by the same key, in a scan that judged every item. Nothing replaces a `flagged`
+  outcome, a settling in-flight decision included (FR-012).
 
 ## Screening record (FR-012, D1)
 
@@ -76,6 +88,7 @@ while they screen, read by the module through `ctx.screening`.
 
 | Input | Noted by |
 | --- | --- |
+| scan-item text the item loop reaches, item-cache hits included | `noteItemScanned(text)` from `Pipeline.run` meta `onItemScanned` |
 | scan-item text with a warn outcome, or handed to the async judge | `noteItemFlag(text)` from `Pipeline.run` meta `onItemFlag` |
 | DLP findings and the body before redaction | `noteDlp(preDlpBody, findings)` |
 | MCP tool-result audit | `noteMcpAudit(toolUseId)` |
@@ -92,7 +105,13 @@ where:
 - the slot's `toolCallId` was MCP-audited, or
 - the slot counts match and the pre-DLP slot at the same index contains a DLP `match`, raw or
   `JSON.stringify`-escaped. When they differ this rule is skipped: a slot DLP redacted no longer
-  has its remembered key, so the module decides it as new and `all` keeps it whole.
+  has its remembered key, so the module decides it as new and `all` keeps it whole, or
+- `all` is false and no noted scanned text contains the slot's text: detection did not scan it
+  (FR-012). Today that is every OpenAI Responses `function_call_output`, which
+  `src/detection/parsers.ts` never extracts; extending the parser changes verdicts and is a
+  follow-up. Exact match against a set of the scanned texts first, containment only for the rest
+  (SC-005). Skipped when `all` is true: an incomplete scan leaves items unscanned by design, and
+  `all` already keeps new results whole (plan Design 8).
 
 DLP `match` values stay in memory for the request and are never logged.
 

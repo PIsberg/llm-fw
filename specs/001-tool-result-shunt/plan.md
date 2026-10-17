@@ -23,7 +23,7 @@ already a dependency and the tokenizer `test/modules/tokens.test.ts` was calibra
 Claude's tokenizer is not public (FR-019).
 
 **Storage**: stored originals as files under `getLlmFwDir()` (data-model.md); remembered outcomes in
-memory only, lost on restart (spec Assumptions).
+memory only, lost on restart (spec Assumptions) and after a retention period uncarried (D9).
 
 **Testing**: vitest. Unit tests under `test/modules/`, `test/detection/`, `test/dashboard/`,
 `test/eval/`; e2e in `test/proxy/proxy.e2e.test.ts` and `test/gateway/*.e2e.test.ts`. The worker in
@@ -55,15 +55,17 @@ either settled below or listed under Decisions. No `research.md`: the two techno
    `observeResponse` get the shunted body. Observe mode (proxy `enforcement`, gateway per tenant)
    forwards the screened body.
 2. **What detection flagged (FR-012, D1).** A per-request `Screening` record (`src/modules/screening.ts`)
-   is filled while screening: scan items with a warn outcome or a pending async-judge verdict
-   (`Pipeline.run` meta `onItemFlag`, T010), DLP findings, MCP tool-result audits, and an
-   "incomplete" mark when the scan did not judge every item (fail-open pipeline error, or
-   `result.enforced === false`, an observe-mode block that ended the scan). Attribution rules:
-   data-model.md "Screening record".
-3. **One decision per distinct result (FR-006, FR-008).** Key `sha256(toolName \0 text)`, kept in an
-   LRU of 4,096 like `LeanCtxModule.decided` (`src/modules/builtin/leanCtx.ts`). All new results of a
+   is filled while screening: every scan item the pipeline reaches (`Pipeline.run` meta
+   `onItemScanned`, T010), scan items with a warn outcome or a pending async-judge verdict
+   (`onItemFlag`, T010), DLP findings, MCP tool-result audits, and an "incomplete" mark when the
+   scan did not judge every item (fail-open pipeline error, or `result.enforced === false`, an
+   observe-mode block that ended the scan). A tool result the scan never reached counts as flagged
+   (FR-012); the parser is not extended (no verdict changes). Attribution rules: data-model.md
+   "Screening record".
+3. **One decision per distinct result (FR-006, FR-008).** Key `sha256(toolName \0 text)`, kept while
+   carried (D9); requests carrying the same key at once share one decision. All new results of a
    request go to the worker at once under one deadline, `start + waitMs`; anything unanswered then is
-   aborted and remembered whole as `worker-failed`.
+   aborted and remembered whole as `worker-failed`. Data-model.md "Remembered outcome".
 4. **Condensed result and worker call**: `contracts/interfaces.md` sections 1 to 4.
 5. **Stored originals (FR-021 to FR-025)**: data-model.md "Stored original". The sweep runs from
    `src/cli/start.ts` at start and hourly, whether or not the module is on (T014); the dashboard
@@ -76,10 +78,11 @@ either settled below or listed under Decisions. No `research.md`: the two techno
    (FR-011) means at first use after the value changes: the module reads the live config object.
 8. **FR-012 over FR-006**: a remembered condensed result whose own slot detection flags on a later
    request (Screening `flagged`, for example after a detection setting or suppression change) is
-   forwarded whole from then on. A flag the record cannot place on a slot (`all`: an incomplete
-   scan, a DLP match outside any text slot such as a tool call's input) and a missing record keep
-   only results not yet decided whole; a remembered outcome stays as it is (FR-006), so earlier
-   turns never change because of one.
+   forwarded whole from then on; a slot the scan did not reach counts as such a flag. A flag the
+   record cannot place on a slot (`all`: an incomplete scan, a DLP match outside any text slot such
+   as a tool call's input) and a missing record keep only results not yet decided whole; a
+   remembered outcome stays as it is (FR-006), so earlier turns never change because of one. Under
+   `all` an unscanned slot is expected and is not counted.
 9. **Measurement (US5)**: `test/eval/shunt/replay.ts` (free) and `test/eval/shunt/compare.ts`
    (billed, refuses to run without `--approve-spend`), both on a scratch `LLM_FW_DIR` (FR-020); how
    to run them is in quickstart.md.
@@ -102,7 +105,7 @@ violations, re-checked after design.
 | VI. Savings claims carry measured numbers | T021, T022, T030 | replay harness, then measured numbers in the guide |
 | VI. Generated markers not hand-edited | T002 | env table via `npm run config:reference` |
 | Engineering: strict TS, ESM, domain structure, `test/` mirrors `src/` | all implementation tasks | new code under `src/modules/`, tests under `test/modules/` |
-| Do not apply | none | III: no threshold or verdict change (T010 adds a callback; T002, T010 only re-pin `RULESET_DIGEST`, as PR #370 did). IV auth-first, constant-time compare: untouched. IV `replayStoredResponse`: the module makes no response. V new dependency: none. ConfigError: no numeric env var. Workflow: main session's |
+| Do not apply | none | III: no threshold or verdict change (T010 adds two callbacks, the parser is untouched; T002, T010 only re-pin `RULESET_DIGEST`, as PR #370 did). IV auth-first, constant-time compare: untouched. IV `replayStoredResponse`: the module makes no response. V new dependency: none. ConfigError: no numeric env var. Workflow: main session's |
 
 ## Project Structure
 
@@ -126,7 +129,7 @@ src/modules/screening.ts                 new: Screening record
 src/modules/shuntWorker.ts               new: worker client, condensed result, citation check
 src/modules/shuntStore.ts                new: stored originals
 src/modules/types.ts, registry.ts        post-screening pass
-src/detection/pipeline.ts, ruleset.ts    onItemFlag, digest re-pin
+src/detection/pipeline.ts, ruleset.ts    onItemFlag, onItemScanned, digest re-pin
 src/proxy/proxy.ts, src/gateway/gateway.ts, src/cli/start.ts, src/dashboard/server.ts
 src/types.ts, src/config/config.ts, src/config/hotReload.ts
 test/modules/{toolResultShunt,screening,shuntWorker,shuntStore}.test.ts, fixtures/fakeWorker.ts
@@ -257,3 +260,39 @@ None.
   19.4% of the tokens an earlier module cut).
   Spec: FR-002: "...its tool is not excluded, it is not a ranged file read, it is not a shell command that prints a file, it is at or above the size threshold, ..."
   Spec: FR-003: append "Shell commands that print a file (cat, sed, Get-Content and the like) count as file reads."
+
+### D9. When may the module forget a remembered outcome? (FR-006, FR-024)
+
+**Decided: A** (maintainer, 2026-10-17).
+
+A forgotten outcome is decided again when its result comes back, so a condensation can be reworded
+and a once-flagged result condensed. The maintainer ruled out the LRU of 4,096 (an evicted entry
+of a live conversation was re-decided). data-model.md "Remembered outcome" and T015 to T018 follow
+A.
+
+- **A (recommended): keep while carried.** No entry cap. Every carry sets `carriedAt`; at most once
+  an hour `prepare` drops outcomes not carried for `retentionHours` (default 24 h), the clock a
+  stored original expires by; `flagged` outcomes are kept until restart. Follows: a conversation
+  that sends a request at least once per retention period never has a result re-decided; one idle
+  longer may see a condensation reworded (its prompt cache, at most 1 h, is cold by then). Memory
+  holds the outcomes carried within the window plus every flagged key: roughly 250 bytes per whole
+  outcome and the condensation's length (at most half the original's tokens, FR-005) per condensed
+  one, about 3 MB for 1,000 distinct large results a day (estimated, not measured). An outcome
+  dropped while its file survives is decided again and finds the file stored; a file swept while
+  its outcome survives is written back (FR-024). Tasks: T015 (retention case), T016 (prune), T017
+  and T018 (`flagged` exempt), T029 (the idle case in the guide).
+  Spec: FR-006: "For a given original result, the module MUST produce the same output on every request that carries it, for as long as the firewall runs and a request carries the result at least once per retention period: the same condensed text, including the same stored original path, or the same decision to forward whole. A result forwarded whole because the detection flagged it or did not scan it MUST stay whole until a restart. The output MUST depend only on that result and its tool call, never on the length of the conversation or on a retry. The worker MUST be asked at most once for each distinct original result while its outcome is remembered, including when several requests carry it at the same time."
+  Spec: FR-018: replace "the effect of changing a setting in the middle of a conversation and of a restart" with "the effect of changing a setting in the middle of a conversation, of a restart, and of a retention period in which no request carried the result".
+  Spec: Assumptions: "Remembered outcomes live in memory only. A restart loses them, and so does a retention period in which no request carries the result, except that a result forwarded whole because the detection flagged it or did not scan it is kept until a restart. A condensation can then be worded differently, and the documentation says so. Stored originals outlive a restart and are reused at the same path."
+- **B: keep every outcome until restart.** No cap and no prune; FR-006 holds as written. Follows:
+  memory grows with every distinct eligible result the process sees, at the sizes above, and only a
+  restart frees it. T015 drops the retention case, T016 the prune, T018 the `flagged` exemption,
+  T029 the idle clause.
+  Spec: FR-006: append "The worker MUST be asked at most once even when several requests carry the result at the same time."
+- **C: persist outcomes beside the stored originals** (`<sha256>.condensed` in the store, read back
+  on a miss). Follows: outcomes survive a restart, which changes the spec Assumptions and the
+  restart edge case; a second file per result enters the cap, the sweep, the purge and FR-023's
+  access check (T007, T008, T019); a disk read on every miss. No FR asks for outcomes to outlive a
+  restart.
+  Spec: Assumptions: "Remembered outcomes are kept beside the stored originals for the retention period and outlive a restart. Stored originals outlive a restart and are reused at the same path."
+  Spec: Edge Cases (restart): "The firewall restarts in the middle of a conversation: remembered condensations within the retention period are read back, and the result keeps its wording."
