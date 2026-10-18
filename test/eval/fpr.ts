@@ -162,6 +162,10 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.78 (harmful-request incite frame within 120
+  // characters of its topic; measured, no row moved).
+  // Held at ruleset 2026.10.77 ("email" in noun position beside an address
+  // is not an exfil verb; measured, no row moved).
   // Held at ruleset 2026.10.76 (unified-diff line markers stripped before
   // the whitespace collapse; measured, no row moved).
   // Held at ruleset 2026.10.75 (polite "add" needs an object in its own

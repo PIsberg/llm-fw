@@ -60,6 +60,32 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.78
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** The harmful-request incitement rule (Rule 2)
+joined a topic word, a framing word and a production verb from anywhere in
+the text, so long agent prompts ("where they conflict, follow them" ... "the
+spec should win") were refused as hateful content. The framing word must now
+sit within 120 characters of its topic, as Rule 2b already keeps its
+adjective next to the protected class. A small step on real traffic: of the
+321 real blocks, 151 remain (152 before); the other two such prompts also
+match a second rule.
+
+## Result, ruleset 2026.10.77
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** The exfil-target rule pairs a send-class
+word with an address, and "email" beside an address is usually the noun:
+Claude Code's own `userEmail` context block ("The user's email address is
+..."), "the buyer's email domain", "the email field". After a determiner or
+possessive, or before the noun it qualifies, "email" is a noun now. Of the
+321 real blocks, 152 remain; most of the other "email" rows in the replay
+carry a second shape (a Javadoc `{@code meta.scope.email}`, a JSON key
+`customer_email`) and are left for later.
+
 ## Result, ruleset 2026.10.76
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

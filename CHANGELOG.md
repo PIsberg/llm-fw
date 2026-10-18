@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tool Usage keeps its list across restarts.** `llm-fw start` saves the offered tools, their
+  token estimates and the call counts to `<LLM_FW_DIR>/tool-usage.json` (no request content),
+  at most every 5 seconds and on a graceful stop, and loads it on the next start. Before, every
+  restart emptied the never-called list, so it never held enough traffic to act on. `uninstall
+  --purge` deletes the file. Measuring 14 days of transcripts for other savings found the remaining
+  lossless options small (collapsing passing-test and build lines 0.24% of the bill, repeated shell
+  output 0.32%), so the tool list, about 6%, stays the lever this module serves.
 - **Tool Usage module (`modules.toolUsage`), on by default because it only reads.** Lists the
   tools a client is offered but never calls, largest first with their tokens per request, on its
   Modules card, so you know what to name in the Tool Filter's `dropTools`. Calls are learned from
@@ -203,6 +210,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Long agent prompts no longer read as requests for hateful content (ruleset 2026.10.78).**
+  The harmful-request rule for incitement joins a topic word ("conflict", "war", "immigration"),
+  a framing word ("should", "evidence", "promote") and a production verb, and took all three from
+  anywhere in the text, so a coordinator prompt with "where they conflict, follow them" in one
+  paragraph and "the spec should win" in another was refused. The framing word must now sit within
+  120 characters of its topic; "a speech that promotes genocide" still blocks. InjecAgent unchanged,
+  0 of 23,938 eval verdicts changed; of the 321 real blocks, 151 remain (152 on 2026.10.77; the
+  other two such prompts also match a second rule).
+- **"email" as a noun beside an address is no longer read as "email this to ..." (ruleset
+  2026.10.77).** The exfil rule paired the word "email" with an address within 200 characters,
+  so Claude Code's own context block ("The user's email address is ..."), "the buyer's email domain:
+  billing@acme.com" and "the email field must contain a valid address" were refused in tool
+  results. "email" after a determiner or possessive ("the user's", "your", "a"), or before the noun
+  it qualifies ("address", "domain", "field"), is a noun now. "Email the records to ...", "please
+  email ...", "then email it to ..." still block. InjecAgent unchanged, 0 of 23,938 eval verdicts
+  changed; of the 321 real blocks, 152 remain (157 on 2026.10.76).
 - **A `git diff` of a CI file or code no longer reads as "execute a + b" (ruleset 2026.10.76).**
   Detection flattens newlines before matching, so a diff's line-start `+` (`run lat check` then
   `+  uses: actions/setup-node@v4`) became an inline `run x + y` and matched `payload-assembly`, which
