@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tool Filter module (`modules.toolFilter`).** Removes the tools named in `dropTools`
+  (exact names or `*` patterns) from every request's tool list, in the Anthropic, OpenAI chat,
+  Responses API and Gemini shapes. Off, with an empty list, by default. A tool the conversation
+  has called, one `tool_choice` forces, or one carrying a cache breakpoint is kept. On a
+  captured Claude Code request, naming 27 tools that 30 days of one developer's transcripts called at
+  most once cut tool definitions from 21,798 to 11,347 tokens per request. `ruleset.ts` digest
+  re-pinned for the new default in `config.ts`; no detection change.
 - **Spec Kit for planned feature work (contributors).** `.specify/` (Spec Kit 1.1.2) and ten
   `speckit-*` skills under `.claude/skills/` take a feature through spec, plan, audit, test-first
   build and verification. `.specify/memory/constitution.md` restates six rules from `CLAUDE.md`,

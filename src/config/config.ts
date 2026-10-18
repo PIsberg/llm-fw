@@ -393,6 +393,11 @@ export const DEFAULT_CONFIG: Config = {
       // Anthropic's text editor tool (its view command).
       skipTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
     },
+    toolFilter: {
+      enabled: false,
+      // Which tools a client never uses is the operator's call.
+      dropTools: [],
+    },
     toolDefinitionPruner: {
       enabled: false,
     },
@@ -758,6 +763,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },
+  LLM_FW_TOOL_FILTER_ENABLED: (c, v) => { if (c.modules?.toolFilter) c.modules.toolFilter.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
   LLM_FW_CACHE_CONTROL_ENABLED: (c, v) => { if (c.modules?.cacheControl) c.modules.cacheControl.enabled = v === 'true'; },
   LLM_FW_RESPONSE_CACHE_ENABLED: (c, v) => { if (c.modules?.responseCache) c.modules.responseCache.enabled = v === 'true'; },

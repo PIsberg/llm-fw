@@ -148,6 +148,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
+| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -335,6 +336,40 @@ How llm-fw runs lean-ctx:
   not stop it before then.
 - The Docker image does not include lean-ctx, so there the module forwards
   every result whole.
+
+### Tool filter
+
+`modules.toolFilter.enabled` (`LLM_FW_TOOL_FILTER_ENABLED`), `modules.toolFilter.dropTools`.
+An agent sends a definition for every tool it has on every request, used or
+not, and the provider bills the whole list each time (as a cache read once it
+is cached). This removes the tools named in `dropTools`: an exact name, or a
+pattern where `*` matches any run of characters, over the whole name
+(`mcp__axiom__*`, `Cron*`). The list is empty by default, so turning the
+module on changes nothing until you name tools; which tools a client never
+needs is your call, and the model cannot call a tool it is not shown.
+
+What stays even when it is named:
+
+- a tool the conversation has already called, or that `tool_choice` (Gemini:
+  `allowedFunctionNames`) forces, since the provider refuses a request that
+  references a tool it was not given;
+- a tool that carries a `cache_control` breakpoint, which the client placed;
+- every tool, when all of them would go;
+- server tools without a name (`{"type": "web_search"}`), and tools a
+  conversation adds as `tool_addition` blocks, which are left to the client.
+
+A tool kept because the history calls it changes the tool list on the turn the
+call first appears, which is one cache write, the same as switching the module.
+Name only tools a client does not call, and that turn never comes.
+
+Measured on one captured Claude Code 2.1.302 request (44 tools, 21,798 tokens of
+definitions, sent on every request by a client pointed at a custom base URL):
+naming 27 tools, 26 that 30 days of this developer's transcripts never called
+and `Workflow`, called once (DesignSync, the cron and worktree tools, LSP,
+NotebookEdit, two MCP servers), cut the
+definitions to 11,347 tokens, 48%. Its effect on the bill is not measured; the
+tool list is a cache read on most turns, so expect a tenth of that in cost
+between cache writes, and the full amount on each write.
 
 ### Tool definition pruner
 
