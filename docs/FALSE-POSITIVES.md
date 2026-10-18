@@ -60,6 +60,23 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.65
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** This ruleset reads the tool output of OpenAI Responses API requests
+(`function_call_output`, `custom_tool_call_output` and
+`local_shell_call_output` input items, as OpenAI Codex CLI sends them), which
+detection did not extract before (GHSA-83jp-cppw-c3v6). No eval row is a
+Responses request carrying tool output, so `npm run verdicts:diff` reports 0
+of 23,938 changed. The traffic it does change was measured instead: of 1,382
+distinct tool outputs from 32 real Codex CLI sessions, 0 were refused before
+and 31 (2.2%) are refused now (21 by the indirect-instruction rule, 7 by the
+heuristic stage, 3 by the RAG stage). All 31 are benign by their first 150
+characters: build files, READMEs, source files, test-runner logs and diffs.
+Each of the 31 is refused by the same stage when the same text arrives as an
+Anthropic `tool_result`, so Codex tool output now gets the verdicts, false
+positives included, that Claude Code tool output already gets.
+
 ## Result, ruleset 2026.10.64
 
 **2.68% overall (9 of 336), unchanged.** This ruleset only adds the

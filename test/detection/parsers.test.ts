@@ -193,6 +193,34 @@ describe('OpenAIParser', () => {
     expect(results[0].result).toBe('file contents')
   })
 
+  // Codex CLI and other Responses API clients return tool output as `input`
+  // items typed `*_call_output`, not as `role: 'tool'` messages.
+  it('extracts tool results from Responses API *_call_output input items', () => {
+    const body = JSON.stringify({
+      input: [
+        { type: 'message', role: 'user', content: 'run the tests' },
+        { type: 'function_call', call_id: 'c1', name: 'shell', arguments: '{}' },
+        { type: 'function_call_output', call_id: 'c1', output: 'plain output' },
+        { type: 'function_call_output', call_id: 'c2', output: [{ type: 'input_text', text: 'line one' }, { type: 'input_text', text: 'line two' }] },
+        { type: 'custom_tool_call_output', call_id: 'c3', output: 'patch applied' },
+        { type: 'local_shell_call_output', id: 'c4', output: 'shell output' },
+      ],
+    })
+    expect(o.extractToolResults(body)).toEqual([
+      { toolUseId: 'c1', result: 'plain output' },
+      { toolUseId: 'c2', result: 'line one\nline two' },
+      { toolUseId: 'c3', result: 'patch applied' },
+      { toolUseId: 'c4', result: 'shell output' },
+    ])
+  })
+
+  it('does not read a non-text Responses call output (a computer screenshot) as a tool result', () => {
+    const body = JSON.stringify({
+      input: [{ type: 'computer_call_output', call_id: 'c1', output: { type: 'computer_screenshot', image_url: 'data:image/png;base64,AAAA' } }],
+    })
+    expect(o.extractToolResults(body)).toEqual([])
+  })
+
   it('returns [] on invalid JSON across all extractors', () => {
     expect(o.extractPrompts('not json{')).toEqual([])
     expect(o.extractTools('not json{')).toEqual([])

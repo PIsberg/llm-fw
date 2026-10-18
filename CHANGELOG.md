@@ -121,6 +121,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Tool output sent through the OpenAI Responses API is now scanned for prompt injection
+  (GHSA-83jp-cppw-c3v6).** OpenAI Codex CLI sends each tool result as a `function_call_output`
+  item in `input` (or `custom_tool_call_output`, `local_shell_call_output`), and the detection
+  parser read only Chat Completions `role: "tool"` messages. An injection in a Codex tool result,
+  such as a hostile file printed by a shell command, reached the model without the heuristic,
+  embedding or indirect-instruction stage seeing it. DLP scans the raw body and was not affected.
+  A new gateway end-to-end test forwarded such an injection with status 200 before the fix and
+  refuses it with 422 after. Ruleset 2026.10.65: 0 of 23,938 eval verdicts changed and
+  `npm run fpr` is unchanged, because no eval row has this shape. Expect new refusals on Codex
+  traffic: of 1,382 tool outputs from 32 real Codex sessions, 31 (2.2%) are now refused, all
+  benign, and each is refused by the same stage when the same text arrives as a Claude Code tool
+  result. Codex now gets the scanning, and the false positives, that Claude Code already gets.
 - **The node-forge advisory's "not reachable" claim is now enforced (#254).** node-forge
   `<= 1.4.0` (Dependabot #57, high, still no patched release) mis-verifies RSA PKCS#1 v1.5
   signatures; llm-fw only signs and parses with forge. `test/proxy/forge-advisory.test.ts` fails
