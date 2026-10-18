@@ -42,13 +42,13 @@ import { fileURLToPath } from 'node:url';
  * a green run there is evidence about those corpora and nothing else. Only the
  * held-out splits answer "did this cost recall".
  */
-export const RULESET_VERSION = '2026.10.73';
+export const RULESET_VERSION = '2026.10.74';
 
 /**
  * sha256 over RULESET_FILES (path + content, sorted, newlines normalised).
  * Regenerate with `npm run ruleset:digest`.
  */
-export const RULESET_DIGEST = '5a3cc59dc2d25305abbe1fd3cdaefe569e39d9e6401ed270b90b3e5c66a9a406';
+export const RULESET_DIGEST = 'd44dcfedc2136a97d44382419a75ccff3713310cbdbc8e04d956683e44af7fe8';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Repository root, from either src/detection or dist/detection. */

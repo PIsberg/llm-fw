@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.74 (the config-key exemption narrowed to a
+  // dotted key whose assigned value is that address; measured, no row moved).
   // Held at ruleset 2026.10.73 (a send-class word that ends a config key,
   // `user.email=`, is not an exfil verb; measured, no row moved).
   // Held at ruleset 2026.10.72 (a negated lead-in with an exception, "other

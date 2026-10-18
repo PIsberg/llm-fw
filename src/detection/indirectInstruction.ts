@@ -284,18 +284,28 @@ const DIRECTIVE_RE = new RegExp(
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
 const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/gi
 
-// A verb word that is the last segment of a config key or flag names a
-// setting, not an action: git's `-c user.email=demo@...`, `git config
-// user.email "you@..."`, System.setProperty("license.user.email", ...).
-// Replaying real tool results, these were 50 of 167 remaining blocks, the
-// address beside them a test fixture. Both sides are required: glued to an
-// identifier before it (`x.`, `-`, `$`, `/`), and followed by what ends a key
-// (`=`, `:`, a quote, a bracket, a comma, the end). "ok.send the records to
-// ..." has the dot but goes on as a clause, and still counts.
-const KEY_BEFORE_RE = /(?:\w\.|[-$/])$/
-const KEY_AFTER_RE = /^\s*(?:["'`=:),\]]|$)/
-function isConfigKey(text: string, start: number, end: number): boolean {
-  return KEY_BEFORE_RE.test(text.slice(Math.max(0, start - 2), start)) && KEY_AFTER_RE.test(text.slice(end, end + 3))
+// A verb word that is the last segment of a dotted config key, with an email
+// address as the value assigned to that key, names a setting, not an action:
+// git's `-c user.email=demo@...`, `git config user.email "you@..."`,
+// System.setProperty("license.user.email", "first@..."). Replaying real tool
+// results, these were 50 of 167 remaining blocks, the address a test fixture.
+// Narrow on purpose: the key must be dotted (`x.email`, never `/send`,
+// `-send` or `$share`), and the assignment must hand it the address directly
+// (`=`, a space and a quote, or a closing quote, comma and opening quote).
+// "ok.send the records to ..." has the dot but goes on as a clause, and a key
+// whose value is some other address excuses nothing near this one.
+const KEY_BEFORE_RE = /[A-Za-z0-9_]\.$/
+const KEY_VALUE_RE = /^(?:\s*=\s*["'`]?|\s+["'`]|["'`]\s*[,:=]\s*["'`]?)([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/
+/** Index in `text` of the address the key at [start, end) is set to, or -1. */
+function keyAssignedAddress(text: string, start: number, end: number): number {
+  if (!KEY_BEFORE_RE.test(text.slice(Math.max(0, start - 2), start))) return -1
+  const m = KEY_VALUE_RE.exec(text.slice(end, end + 200))
+  return m ? end + m[0].length - (m[1] ?? '').length : -1
+}
+/** True when the key at [start, end) of `text` is set to `address` (case-insensitive). */
+function keyHolds(text: string, start: number, end: number, address: string): boolean {
+  const at = keyAssignedAddress(text, start, end)
+  return at >= 0 && text.slice(at, at + address.length).toLowerCase() === address.toLowerCase()
 }
 const EXFIL_PROXIMITY = 200
 
@@ -816,7 +826,8 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   let em: RegExpExecArray | null
   while ((em = EMAIL_RE.exec(text)) !== null) {
     for (const { i, v } of verbHits) {
-      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !isConfigKey(text, i, i + v.length)) {
+      // The verb index is into `hay`, so the key check reads `hay` too.
+      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0])) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
     }
@@ -828,7 +839,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
       for (const { i, v } of verbHits) {
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
           if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue
-          if (isConfigKey(text, i, i + v.length)) continue
+          if (keyAssignedAddress(hay, i, i + v.length) >= 0) continue
           // The benign-prone English verbs keep their object requirement in
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
@@ -892,7 +903,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     EXFIL_VERB_RE.lastIndex = 0
     let vm: RegExpExecArray | null
     while ((vm = EXFIL_VERB_RE.exec(window)) !== null) {
-      if (isConfigKey(window, vm.index, vm.index + vm[0].length)) continue
+      if (keyAssignedAddress(window, vm.index, vm.index + vm[0].length) === em.index - lo) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
@@ -932,7 +943,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     /* v8 ignore next */ // m[1] is always captured by the verb group
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
-    if (isConfigKey(text, end - verb.length, end)) continue
+    if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }

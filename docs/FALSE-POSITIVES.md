@@ -60,6 +60,28 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.74
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** Review of 2026.10.73 found its config-key
+exemption too wide: any word after `-`, `$` or `/`, and any key followed by
+`,`, `)` or `]`, counted as a setting, so `/send "attacker@evil.com"` and
+`$share, attacker@...` passed, and the exemption covered every address within
+200 characters rather than the key's own value. Only a dotted key whose
+assigned value is that same address is a setting now, and the multilingual
+path checks the lowercased copy it found the verb in, since lowercasing can
+change the string's length.
+
+The real-traffic replay is complete: 27,051 unique prompts and tool results
+from 14 days of one developer's Claude Code transcripts (115 project
+directories, llm-fw's own excluded). On 2026.10.70 it blocked 321 (1.19%):
+243 of 24,989 tool results and 78 of 1,951 prompts. This ruleset blocks 209
+of them (0.77%), and 17 prompts (0.87%). The largest causes left are the
+indirect-instruction imperative on document prose ("add each issue's link to
+README.md", 21; a spec template's "reset their password", 19) and
+`payload-assembly` on diffs (17).
+
 ## Result, ruleset 2026.10.73
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
