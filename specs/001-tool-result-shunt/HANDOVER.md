@@ -6,11 +6,12 @@ this folder, then `CLAUDE.md` and `.specify/projects/llm-fw/instructions.md`.
 
 ## Where it stands
 
-- **Branch** `001-tool-result-shunt`, on top of `main` at 6d3630d. Pushed on 2026-10-18 only to
-  the advisory's private fork `PIsberg/llm-fw-ghsa-83jp-cppw-c3v6`, as a branch with no PR, and
-  never to `origin`, because it describes an unpublished vulnerability (see "Blocked on"). Do not
-  open a PR for it in that fork: GitHub merges only one PR into a temporary private fork's `main`,
-  and a second one blocks merging the fix (PR #1 there).
+- **Branch** `001-tool-result-shunt`, on top of `main` at 6d3630d. Opened on 2026-10-18 as draft
+  PR #392 at the maintainer's request, before the Codex fix merged; the maintainer accepted that
+  this discloses the gap described under "Depends on". The follow-up issues are #375 to #391. A copy
+  also sits in the advisory's private fork `PIsberg/llm-fw-ghsa-83jp-cppw-c3v6` as a branch with no
+  PR. Never open a PR for it there: GitHub merges only one PR into a temporary private fork's
+  `main`, and a second one blocks merging the fix (PR #1 there).
 - **Built:** all 31 tasks, T000 to T030, ticked. The `tool-result-shunt` gateway module
   (`src/modules/builtin/toolResultShunt.ts`, with `src/modules/screening.ts`, `shuntWorker.ts`,
   `shuntStore.ts`). Two new detection callbacks, `onItemScanned` and `onItemFlag`, in
@@ -57,11 +58,11 @@ left out, then with them included.
 
 The maintainer chose to open the PR without merging it, knowing these figures.
 
-## Blocked on: GHSA-83jp-cppw-c3v6
+## Depends on: GHSA-83jp-cppw-c3v6
 
 Detection did not scan OpenAI Responses API tool output (`function_call_output` and siblings, as
 sent by Codex CLI). This branch says so in `spec.md`, `data-model.md`, `tasks.md` and four test
-files. Pushing the branch before the advisory is published would disclose the gap.
+files, and the module therefore forwards Codex tool output whole (#377).
 
 - **The fix:** commit 6841cd4 on `fix/ghsa-83jp-responses-tool-output`, as PR #1 in the
   advisory's temporary private fork `PIsberg/llm-fw-ghsa-83jp-cppw-c3v6`. GitHub Actions does not
@@ -74,7 +75,7 @@ files. Pushing the branch before the advisory is published would disclose the ga
 - **Order:**
   1. The maintainer merges that PR and publishes the advisory.
   2. Upstream CI runs on `main` and goes green.
-  3. Only then does this branch go anywhere public.
+  3. Then this branch is rebased onto it (step 1 below).
 
 ## Remaining work, in order
 
@@ -121,18 +122,20 @@ files. Pushing the branch before the advisory is published would disclose the ga
 5. **Re-run the spec-gatekeeper** (`Feature directory: specs/001-tool-result-shunt/`). It will still
    reject on SC-002. Put that to the maintainer as the decision already taken, not as a defect to
    route.
-6. **Push, open the PR against `main`, and do not merge it.** Arm `gh pr checks <N> --watch` in the
-   same turn as the push, and fix red checks until every one is green. The PR body says it is not
-   recommended on the measured figures above, and links every issue from step 7.
-7. **Open one GitHub issue per left-behind item**, each saying what is missing, why it was not done
-   and what it would take:
-   - a configurable or remote worker;
-   - a hosted worker;
-   - a way back for remote agents;
-   - encrypting stored originals and outcome files;
-   - SC-002 measurement;
-   - SC-007, the billed comparison stage, never run;
-   - the accepted findings below that the PR body calls known limits.
+6. **Keep draft PR #392 green, and do not merge it.** After every push, arm
+   `gh pr checks 392 --watch` in the same turn and fix red checks until every one is green. Update
+   the PR body when a step above lands. Merging is the maintainer's call.
+7. **Close issues as their work lands.** One issue per left-behind item was opened with the PR:
+   - #375: FR-018 doc gaps.
+   - #376: SC-002.
+   - #377: Responses flip.
+   - #378: remote worker.
+   - #379: hosted worker.
+   - #380: way back for remote agents.
+   - #381: encryption.
+   - #382: SC-007.
+   - #383 to #390: the accepted findings below.
+   - #391: tool-output false positives.
 
 ## Maintainer decisions already taken
 
