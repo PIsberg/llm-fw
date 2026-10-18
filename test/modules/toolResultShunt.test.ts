@@ -750,14 +750,22 @@ describe('ToolResultShuntModule: condensing a tool result', { timeout: 60_000 },
     })
 
     it('adds at most one wait limit to a request carrying five eligible results (US3-4, FR-008)', async () => {
-      m.shunt.waitMs = 400
-      reply = () => ({ delayMs: 5_000 })
+      // The limit is long against the machine's jitter, so one wait and five waits stay far apart however
+      // loaded the run is. With a 400 ms limit the full parallel unit run once took 2,235 ms here, up to
+      // 1,835 ms of it beyond the one wait, against a bound of 1,200 ms; alone the test takes the limit plus ~60 ms.
+      const waitMs = 3_000
+      m.shunt.waitMs = waitMs
+      // The worker answers after more than five limits together, so every wait runs to the end of its limit.
+      reply = () => ({ delayMs: 6 * waitMs })
       const calls = [1, 2, 3, 4, 5].map(i => bash(`toolu_${i}`, `step ${i}`, output(`slow ${i}`)))
       const started = Date.now()
       const res = await send(request(turn(calls)))
       const elapsed = Date.now() - started
-      // Five waits of the limit would take 2 s.
-      expect(elapsed).toBeLessThan(1_200)
+      // The bound is 3 limits, 9,000 ms. One shared limit takes waitMs plus the work around it, so it passes
+      // until that work reaches 6,000 ms, 3.3 times the 1,835 ms seen. A request that waits once per result takes
+      // at least 5 limits, 15,000 ms, whatever the load: a timer never fires early and the worker never answers
+      // inside a limit. That is 6,000 ms over the bound before any contention adds to it, and contention only adds.
+      expect(elapsed, `took ${elapsed} ms, one limit is ${waitMs} ms`).toBeLessThan(3 * waitMs)
       expect(res.body).toBe(res.input)
       expect(worker.received.length).toBeGreaterThan(0)
     })

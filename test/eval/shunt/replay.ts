@@ -30,6 +30,7 @@ import { Pipeline } from '../../../src/detection/pipeline.js'
 import { DlpScanner } from '../../../src/detection/dlp/scanner.js'
 import { Screening } from '../../../src/modules/screening.js'
 import { collectTextSlots } from '../../../src/modules/payload.js'
+import { parsePayload } from '../../../src/modules/base.js'
 import { eligibility } from '../../../src/modules/builtin/toolResultShunt.js'
 import { condense, isLocalWorkerUrl } from '../../../src/modules/shuntWorker.js'
 import { StoredOriginals } from '../../../src/modules/shuntStore.js'
@@ -194,6 +195,13 @@ export function detectionScreen(config: Config): (item: ReplayItem) => Promise<S
       }
     }
 
+    // Redaction can cut a JSON escape in two: an entropy match runs on to the backslash of an escaped quote
+    // after the value, and the bare quote it leaves ends the string early. The module forwards a body it
+    // cannot parse unchanged (`parsePayload`), so none of this body's results is condensed: count them as
+    // flagged and go on.
+    const payload = parsePayload(body)
+    if (payload === null) return 'flagged'
+
     try {
       const result = await pipeline.run(REQUEST_PATH, body, {
         target: 'api.anthropic.com',
@@ -209,7 +217,7 @@ export function detectionScreen(config: Config): (item: ReplayItem) => Promise<S
       screening.incomplete()
     }
 
-    const slots = collectTextSlots(JSON.parse(body))
+    const slots = collectTextSlots(payload)
     const screened = screening.flaggedSlots(slots)
     const results = slots.flatMap((slot, index) => (slot.kind === 'tool_result' ? [index] : []))
     if (results.some(index => screened.flagged.has(index))) return 'flagged'

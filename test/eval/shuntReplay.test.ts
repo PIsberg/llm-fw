@@ -335,5 +335,34 @@ describe('replay of recorded sessions (US5)', { timeout: 60_000 }, () => {
       expect(await screen(injected)).toBe('flagged')
       expect(await screen(item(plain))).toBe('clean')
     })
+
+    // A 32-character value of 32 distinct characters (entropy 5.0), assembled at runtime and never written out: see test/fixtures/syntheticSecrets.ts.
+    const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    const entropyValue = Array.from({ length: 32 }, (_, i) => ALPHABET[(i * 7) % ALPHABET.length]).join('')
+    /** A result whose text quotes a command line: JSON-escaped in the request body, its token value ends in the backslash of the escaped quote. */
+    const quoted = (): ReplayItem => item([...plain.slice(0, 200), `run(["deploy", "--token=${entropyValue}"])`, ...plain.slice(200)])
+
+    it('calls a result flagged, and does not throw, when DLP redaction leaves the request body unparseable (FR-012, FR-019)', async () => {
+      // The premise: the entropy match takes the backslash of the escaped quote after the value, so the
+      // redaction removes it and leaves a bare quote in the JSON string.
+      const probe = JSON.stringify({ text: quoted().text })
+      const dlp = new DlpScanner(DEFAULT_CONFIG.dlp)
+      const found = dlp.scan(probe)
+      expect(found.some(f => f.type === 'GENERIC_SECRET'), 'the entropy rule finds the token value').toBe(true)
+      expect(() => JSON.parse(dlp.redact(probe, found)), 'the redacted body is no longer JSON').toThrow(SyntaxError)
+
+      const screen = detectionScreen({ ...DEFAULT_CONFIG })
+      // The real module forwards a body it cannot parse unchanged (parsePayload returns null), so it condenses nothing in it.
+      await expect(screen(quoted())).resolves.toBe('flagged')
+      expect(await screen(item(plain))).toBe('clean')
+    })
+
+    it('counts such a result in excluded.flagged and goes on with the next one instead of stopping the replay (FR-019)', async () => {
+      const report = await run([quoted(), item(plain)], { screen: detectionScreen({ ...DEFAULT_CONFIG }) })
+      expect(report.seen).toBe(2)
+      expect(report.excluded).toEqual({ flagged: 1, unscanned: 0 })
+      expect(report.eligible).toBe(1)
+      expect(report.condensed).toBe(1)
+    })
   })
 })
