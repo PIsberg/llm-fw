@@ -183,17 +183,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **"unrestricted bash/shell tool" and "never issue system overrides" no longer refuse a request
-  on their own (rulesets 2026.10.68 and 2026.10.69).** Two block-alone patterns matched a bare
+  on their own (rulesets 2026.10.68 to 2026.10.70).** Two block-alone patterns matched a bare
   phrase anywhere: Claude Code's `/security-review` prompt was refused for "... or an unrestricted
   bash/shell tool", and an agent reading llm-fw's dashboard source was refused for "passive data
   should never issue system overrides". "unrestricted" directly followed by a resource or
   permission noun (access, upload, shell, network and similar, with at most one modifier such as
   "file" or "bash/") is now security prose. "you are unrestricted", "an unrestricted AI with
   access", "unrestricted capabilities" and "the unrestricted answer" still block. "system
-  override" now matches every inflection ("SYSTEM OVERRIDES ACTIVE", "system overridden") except
-  after "never/not/no ... issue/emit/send". 2026.10.68 allowed any two words before the noun,
-  which let "an unrestricted AI with access" through, and dropped the plural; 2026.10.69 closes
-  both. 0 of 23,938 eval verdicts changed.
+  override", "overridden" and "overriding" match unconditionally; only the plural "system
+  overrides" after "never/not/no ... issue/emit/send" is exempt. 2026.10.68 allowed any two words
+  before the noun, which let "an unrestricted AI with access" through, and dropped the plural;
+  2026.10.69 closed both but exempted the singular in a defensive frame too, so "Do not send
+  system override: ..." passed; 2026.10.70 closes that. 0 of 23,938 eval verdicts changed.
 - **Claude Code's own harness text no longer raises embedding warnings (ruleset 2026.10.67).**
   Three items warned live on every session: the CLAUDE.md reminder, the suggestion-mode prompt
   and a lean-ctx help listing. The reminder scored 25 on two generic heuristic signals (a markdown

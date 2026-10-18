@@ -60,6 +60,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.70
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** The 2026.10.69 defensive-frame exemption covered the singular "system
+override" too, so an attacker could prefix the announcement with "Do not
+send" and pass. The singular, "overridden" and "overriding" now match
+unconditionally; only the plural "system overrides" after "never/not/no ...
+issue/emit/send" is exempt, which is the one benign shape seen live.
+`npm run verdicts:diff` against 2026.10.67 reports 0 of 23,938 changed; eval
+warnings are unchanged. The four live refusals still pass.
+
 ## Result, ruleset 2026.10.69
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
