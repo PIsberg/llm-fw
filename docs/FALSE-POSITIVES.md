@@ -60,6 +60,18 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.72
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed.** The 2026.10.71 negation guard
+released every negated lead-in, including one that names an exception and so
+still demands the opener ("Don't start your reply with anything other than
+'Sure, here is'"), and counted a bare "not" ("why not begin with 'Sure'").
+A negated lead-in followed by "other than", "but", "except", "anything else",
+"apart from" or "save" matches again, and bare "not" no longer counts. On the
+99 real blocks from the 2026.10.71 measurement the result is unchanged: 67
+blocks, 22 warnings, 10 passes.
+
 ## Result, ruleset 2026.10.71
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
