@@ -60,6 +60,22 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.73
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** Continuing the real-traffic replay to 19,000
+items gave 212 blocks on 2026.10.70, of which 167 remained on 2026.10.72. The
+largest group, 50 of them, was the indirect-instruction exfil-target rule on
+test code and git commands: the send-class "verb" was the last segment of a
+config key (`git -c user.email=demo@example.invalid`, `git config user.email
+"you@example.com"`, `System.setProperty("license.user.email", ...)`) and the
+address a fixture. A word glued to an identifier (`x.`, `-`, `$`, `/`) and
+followed by what ends a key (`=`, `:`, a quote, a bracket) is not a verb now,
+in the English exfil and imperative paths and the multilingual path. Both
+sides are required, so "ok.send the records to ..." still counts. 132 of the
+212 remain.
+
 ## Result, ruleset 2026.10.72
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

@@ -282,7 +282,21 @@ const DIRECTIVE_RE = new RegExp(
 // verbs, and we require the verb within EXFIL_PROXIMITY chars of the address so
 // a passive 'from'/'to' field with no instruction does not fire.
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
-const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/i
+const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/gi
+
+// A verb word that is the last segment of a config key or flag names a
+// setting, not an action: git's `-c user.email=demo@...`, `git config
+// user.email "you@..."`, System.setProperty("license.user.email", ...).
+// Replaying real tool results, these were 50 of 167 remaining blocks, the
+// address beside them a test fixture. Both sides are required: glued to an
+// identifier before it (`x.`, `-`, `$`, `/`), and followed by what ends a key
+// (`=`, `:`, a quote, a bracket, a comma, the end). "ok.send the records to
+// ..." has the dot but goes on as a clause, and still counts.
+const KEY_BEFORE_RE = /(?:\w\.|[-$/])$/
+const KEY_AFTER_RE = /^\s*(?:["'`=:),\]]|$)/
+function isConfigKey(text: string, start: number, end: number): boolean {
+  return KEY_BEFORE_RE.test(text.slice(Math.max(0, start - 2), start)) && KEY_AFTER_RE.test(text.slice(end, end + 3))
+}
 const EXFIL_PROXIMITY = 200
 
 // A contact instruction: how a HUMAN reaches somebody ("send an email to
@@ -802,7 +816,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   let em: RegExpExecArray | null
   while ((em = EMAIL_RE.exec(text)) !== null) {
     for (const { i, v } of verbHits) {
-      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY) {
+      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !isConfigKey(text, i, i + v.length)) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
     }
@@ -814,6 +828,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
       for (const { i, v } of verbHits) {
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
           if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue
+          if (isConfigKey(text, i, i + v.length)) continue
           // The benign-prone English verbs keep their object requirement in
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
@@ -874,8 +889,10 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   while ((em = EMAIL_RE.exec(text)) !== null) {
     const lo = Math.max(0, em.index - EXFIL_PROXIMITY)
     const window = text.slice(lo, em.index + em[0].length + EXFIL_PROXIMITY)
-    const vm = EXFIL_VERB_RE.exec(window)
-    if (vm) {
+    EXFIL_VERB_RE.lastIndex = 0
+    let vm: RegExpExecArray | null
+    while ((vm = EXFIL_VERB_RE.exec(window)) !== null) {
+      if (isConfigKey(window, vm.index, vm.index + vm[0].length)) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
@@ -915,6 +932,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     /* v8 ignore next */ // m[1] is always captured by the verb group
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (isConfigKey(text, end - verb.length, end)) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
