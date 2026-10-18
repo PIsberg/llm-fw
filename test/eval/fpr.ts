@@ -162,6 +162,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.67 (embedding warn needs the contrastive margin;
+  // "original request/commands" no longer the model's own; warns only, no
+  // block verdict moved).
   // Held at ruleset 2026.10.66 (prefix-injection compliance word bounded as
   // a whole word; measured, no row moved).
   // Held at ruleset 2026.10.65 (Responses API tool output extracted for

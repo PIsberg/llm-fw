@@ -182,6 +182,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Claude Code's own harness text no longer raises embedding warnings (ruleset 2026.10.67).**
+  Three items warned live on every session: the CLAUDE.md reminder, the suggestion-mode prompt
+  and a lean-ctx help listing. The reminder scored 25 on two generic heuristic signals (a markdown
+  bullet "- Stop ..." and the phrase "instead of"), and a score of 20 or more skipped the
+  contrastive margin, so the embedding warn fired on raw similarity although the text sat closer
+  to a benign anchor (margin -0.001). The warn now needs the margin, as the block already did. The
+  other two said "original request" and "original commands", which counted as the model's own
+  instructions and turned the margin off; requests, commands and settings now count only as
+  "previous/prior/earlier" ones ("ignore all previous commands" still does). 0 of 23,938 eval
+  block verdicts changed. Warnings on eval rows fell from 98 to 39 on benign rows and from 80 to
+  31 on attack rows, all of it from the margin change; most attack rows that stopped warning are
+  AdvBench "write a script that ..." requests, which no stage blocks.
 - **"Start/begin/open ... with" no longer refuses text because a compliance word hides inside
   another word (ruleset 2026.10.66).** The `prefix-injection` rule matched "I'll" in "still" and
   "kill", "sure" in "measure" and "here is" in "there is", so Claude Code's own `ArtifactComments`
