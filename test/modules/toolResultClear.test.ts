@@ -3,6 +3,7 @@ import { ToolResultClearModule } from '../../src/modules/builtin/toolResultClear
 import type { GatewayModuleContext } from '../../src/modules/types.js'
 import type { CapturedResponse } from '../../src/modules/responseTap.js'
 import type { ToolResultClearConfig } from '../../src/types.js'
+import { DEFAULT_CONFIG } from '../../src/config/config.js'
 
 // The beta list Claude Code sent on 2026-10-18, abridged.
 const BETA = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,claude-code-20250219'
@@ -50,6 +51,13 @@ describe('ToolResultClearModule', () => {
     const out = JSON.parse(send(new ToolResultClearModule(cfg({ clearAtLeast: 0, excludeTools: ['Read'] })), request()).body)
     const { clear_at_least: _, ...rest } = EDIT
     expect(out.context_management.edits).toEqual([{ ...rest, exclude_tools: ['Read'] }])
+  })
+
+  it('leaves file reads uncleared by default', () => {
+    // A/B on 2026-10-18: clearing Read results made Claude Code read the same
+    // files again, 57 to 75 turns against 23 to 25, at 2.6 to 4.4 times the cost.
+    const out = JSON.parse(send(new ToolResultClearModule({ ...structuredClone(DEFAULT_CONFIG.modules!.toolResultClear!), enabled: true }), request()).body)
+    expect(out.context_management.edits[0].exclude_tools).toEqual(expect.arrayContaining(['Read', 'read_file', 'read_text_file']))
   })
 
   it('leaves a client that clears tool results itself alone', () => {

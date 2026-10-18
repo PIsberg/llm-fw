@@ -14,10 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sends the `context-management-2025-06-27` beta (Claude Code does), so the server replaces old
   tool results with a placeholder once a request passes 100,000 input tokens, keeping the last 10
   tool calls and clearing at least 20,000 tokens at a time. The card shows what the server reports
-  clearing. Modelled over 14 days of one developer's transcripts, that is a ceiling of 13.1% of the
-  bill net of cache rewrites, against under 0.5% for any other module; it leaves out the turns an
-  agent spends fetching cleared output again, so the real effect is not measured yet. Without the
-  minimum the cache rewrites cost more than the clearing saves (6.8% of the bill lost). `LLM_FW_TOOL_RESULT_CLEAR_ENABLED`.
+  clearing. File reads are excluded by default (`excludeTools`): in an A/B on three read-heavy
+  tasks, clearing them made the agent re-read the same files, 57 to 75 turns against 23 to 25 and up
+  to 4.4 times the cost. With them excluded those tasks cost the same as with the module off.
+  Modelled over 14 days of one developer's transcripts, the ceiling with file reads excluded is
+  10.9% of the bill net of cache rewrites; no measured saving yet, so it stays off by default.
+  Without the 20,000-token minimum the cache rewrites cost more than the clearing saves. `LLM_FW_TOOL_RESULT_CLEAR_ENABLED`.
 - **Tool Usage keeps its list across restarts.** `llm-fw start` saves the offered tools, their
   token estimates and the call counts to `<LLM_FW_DIR>/tool-usage.json` (no request content),
   at most every 5 seconds and on a graceful stop, and loads it on the next start. Before, every

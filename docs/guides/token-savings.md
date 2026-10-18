@@ -446,7 +446,7 @@ the client sends itself.
 | `triggerTokens` | `100000` | Input tokens a request must pass before anything is cleared. |
 | `keepToolUses` | `10` | The most recent tool calls whose results stay. |
 | `clearAtLeast` | `20000` | Input tokens each clearing must remove, or `0` for no minimum. |
-| `excludeTools` | `[]` | Tools whose results are never cleared, such as `Read`. |
+| `excludeTools` | the file readers, as the truncator's `skipTools` | Tools whose results are never cleared, by exact name. Add `mcp__lean-ctx__ctx_read` if you read files through lean-ctx. |
 
 It acts only when the client already sends the `context-management-2025-06-27`
 beta in `anthropic-beta`, because the API refuses the field without it (400,
@@ -475,9 +475,26 @@ what Claude Code writes for 88% of its cache; tokens as characters / 4):
 Setting `clearAtLeast` to `0` costs more than it saves.
 
 That is a ceiling, not a measurement: it leaves out the turns an agent spends
-calling a tool again for output that was cleared, which made the truncator's
-sessions 24% longer in the live round above. What it does to a real bill has
-not been measured yet.
+calling a tool again for output that was cleared. Leaving file reads alone
+(and lean-ctx's `ctx_read`) still leaves a ceiling of 10.9% on the same
+transcripts.
+
+Measured on 2026-10-18, Claude Code with Claude Haiku 5.5 through a relay
+running this module, three read-heavy tasks on this repository, two rounds:
+
+| Task | Off | On, file reads cleared | On, file reads kept (default) |
+| --- | --- | --- | --- |
+| Read 14 module files, answer three questions | 16 to 17 turns, $0.021 to 0.026 | 17 to 18 turns, $0.023 to 0.024 | 16 turns, $0.020 |
+| Read two 700 to 1,600-line files in full | 9 to 11 turns, $0.047 to 0.070 | 8 to 9 turns, $0.062 to 0.071 | 10 turns, $0.072 |
+| Read 22 files, then answer across all of them | 23 to 25 turns, $0.134 to 0.143 | **57 to 75 turns, $0.367 to 0.585** | 24 turns, $0.134 |
+
+Clearing file reads made the agent read the files again ("Many tool results
+were cleared during the session, so I re-read them"), and the cleared re-reads
+were cleared in turn: up to 4.4 times the cost, with the same answer. That is
+why file readers are excluded by default. With them kept, these tasks cost the
+same as with the module off, because nearly all their tool output was file
+reads. A saving on long sessions with heavy shell or search output, which is
+where the ceiling above comes from, has not been measured.
 
 Verified against the API on 2026-10-18 through Claude Code's own
 credentials: `keep: 1` on a request with three tool results cleared the two

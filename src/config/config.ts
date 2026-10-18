@@ -412,7 +412,9 @@ export const DEFAULT_CONFIG: Config = {
       triggerTokens: 100000,
       keepToolUses: 10,
       clearAtLeast: 20000,
-      excludeTools: [],
+      // File reads, as the truncator's skipTools: clearing them made the
+      // agent read the same files again (A/B in the guide).
+      excludeTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
     },
     cacheControl: {
       enabled: false,

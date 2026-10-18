@@ -481,7 +481,7 @@ export interface ToolResultClearConfig extends ModuleSwitchConfig {
    * clearing on every turn costs more than it saves.
    */
   clearAtLeast: number;
-  /** Tools whose results are never cleared. */
+  /** Tools whose results are never cleared: exact names, file readers by default. */
   excludeTools: string[];
 }
 
