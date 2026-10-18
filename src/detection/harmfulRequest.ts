@@ -267,6 +267,8 @@ function countActions(text: string): number {
 // under review. An attack names the act next to the object ("exploit security
 // vulnerabilities in ..."). Same reach as the indirect detector's object window.
 const SOFT_OBJECT_WINDOW = 120
+// How far either side of an incite topic its frame may sit (Rule 2).
+const INCITE_WINDOW = 120
 
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 30)
@@ -403,9 +405,21 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     return { kind: 'hateful', anchor: (qual[1] ?? '').toLowerCase(), snippet: snippetAround(text, qual.index, (qual[1] ?? '').length) }
   }
   // Incite-topic only with explicit incitement framing.
-  const topic = INCITE_TOPIC_RE.exec(text)
-  if (topic && (hasProduce || hasHowto) && INCITE_FRAME_RE.test(text)) {
-    return { kind: 'hateful', anchor: (topic[1] ?? '').toLowerCase(), snippet: snippetAround(text, topic.index, (topic[1] ?? '').length) }
+  // The incitement frame must sit next to its topic ("a speech that promotes
+  // genocide"), as Rule 2b keeps its adjective next to the protected class.
+  // Joined across the whole text, a long agent prompt with "where they
+  // conflict" in one paragraph and "the spec should win" in another was
+  // refused as hateful content (three real coordinator prompts). Every topic
+  // occurrence is tried, so an early harmless one cannot hide a later one.
+  if (hasProduce || hasHowto) {
+    const topics = new RegExp(INCITE_TOPIC_RE.source, 'gi')
+    let topic: RegExpExecArray | null
+    while ((topic = topics.exec(text)) !== null) {
+      const near = text.slice(Math.max(0, topic.index - INCITE_WINDOW), topic.index + topic[0].length + INCITE_WINDOW)
+      if (INCITE_FRAME_RE.test(near)) {
+        return { kind: 'hateful', anchor: (topic[1] ?? '').toLowerCase(), snippet: snippetAround(text, topic.index, (topic[1] ?? '').length) }
+      }
+    }
   }
 
   // Rule 2b — Hate speech targeting protected classes with offensive adjectives.

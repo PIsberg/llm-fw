@@ -60,6 +60,19 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.78
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** The harmful-request incitement rule (Rule 2)
+joined a topic word, a framing word and a production verb from anywhere in
+the text, so long agent prompts ("where they conflict, follow them" ... "the
+spec should win") were refused as hateful content. The framing word must now
+sit within 120 characters of its topic, as Rule 2b already keeps its
+adjective next to the protected class. A small step on real traffic: of the
+321 real blocks, 151 remain (152 before); the other two such prompts also
+match a second rule.
+
 ## Result, ruleset 2026.10.77
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

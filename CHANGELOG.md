@@ -210,6 +210,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Long agent prompts no longer read as requests for hateful content (ruleset 2026.10.78).**
+  The harmful-request rule for incitement joins a topic word ("conflict", "war", "immigration"),
+  a framing word ("should", "evidence", "promote") and a production verb, and took all three from
+  anywhere in the text, so a coordinator prompt with "where they conflict, follow them" in one
+  paragraph and "the spec should win" in another was refused. The framing word must now sit within
+  120 characters of its topic; "a speech that promotes genocide" still blocks. InjecAgent unchanged,
+  0 of 23,938 eval verdicts changed; of the 321 real blocks, 151 remain (152 on 2026.10.77; the
+  other two such prompts also match a second rule).
 - **"email" as a noun beside an address is no longer read as "email this to ..." (ruleset
   2026.10.77).** The exfil rule paired the word "email" with an address within 200 characters,
   so Claude Code's own context block ("The user's email address is ..."), "the buyer's email domain:
