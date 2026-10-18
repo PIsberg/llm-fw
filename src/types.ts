@@ -534,6 +534,8 @@ export interface ModulesConfig {
   toolResultTruncate?: ToolResultTruncateConfig;
   toolFilter?: ToolFilterConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
+  /** Records which offered tools get called. On by default: it changes nothing. */
+  toolUsage?: ModuleSwitchConfig;
   cacheControl?: CacheControlConfig;
   responseCache?: ResponseCacheConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */

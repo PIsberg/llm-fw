@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tool Usage module (`modules.toolUsage`), on by default because it only reads.** Lists the
+  tools a client is offered but never calls, largest first with their tokens per request, on its
+  Modules card, so you know what to name in the Tool Filter's `dropTools`. Calls are learned from
+  the request history and from responses, which is where Claude Code's calls appear through the
+  proxy. 14 days of one developer's transcripts put cache reads at 78.5% of the bill, and the
+  tool list (21,798 tokens on a captured request) is re-read on every turn.
 - **Token Economy, one switch for every token-saving module.** The modules are now
   sub-modules of a Token Economy parent with its own toggle at the top of the dashboard's
   **Modules** tab, `POST /api/modules {"id": "token-economy", "enabled": false}`, and a

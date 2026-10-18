@@ -13,6 +13,7 @@ import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
 import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
 import { ToolFilterModule } from './builtin/toolFilter.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
+import { ToolUsageModule } from './builtin/toolUsage.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
@@ -42,6 +43,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolResultTruncate', create: cfg => new ToolResultTruncateModule(cfg as ToolResultTruncateConfig) },
   { key: 'toolFilter', create: cfg => new ToolFilterModule(cfg as ToolFilterConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
+  { key: 'toolUsage', create: cfg => new ToolUsageModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },

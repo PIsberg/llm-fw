@@ -37,7 +37,7 @@ function compile(patterns: string[]): Matcher | null {
 // A tool's name in the Anthropic, OpenAI chat, Responses API and Gemini
 // declaration shapes; a server tool without one (`{type: "web_search"}`)
 // is never dropped.
-function toolName(tool: unknown): string | undefined {
+export function toolName(tool: unknown): string | undefined {
   if (!isObj(tool)) return undefined
   const fn = isObj(tool.function) ? tool.function : tool
   return typeof fn.name === 'string' ? fn.name : undefined

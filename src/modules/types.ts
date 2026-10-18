@@ -43,6 +43,8 @@ export interface ModuleStats {
   recentEvents: ModuleEvent[];
   /** Replaces the default savings KPIs on the module's dashboard card. */
   kpis?: Array<{ key: string; label: string; value: number | string }>;
+  /** One line of text under the KPIs, for findings a number cannot carry. */
+  detail?: string;
 }
 
 export interface GatewayModule {

@@ -12,7 +12,7 @@ import type { Config } from '../../src/types.js'
 // rather than in a user's hands.
 
 // Modules that only read and may therefore be on by default.
-const READ_ONLY = new Set(['usageMeter'])
+const READ_ONLY = new Set(['usageMeter', 'toolUsage'])
 // A different valid value for each string option, for the hot-reload check.
 const OTHER_STRING: Record<string, string> = { ttl: '1h' }
 

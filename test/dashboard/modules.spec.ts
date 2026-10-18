@@ -179,6 +179,26 @@ test.describe('Modules tab (#341)', () => {
     await expect(page.locator('.module-card[data-module="token-pruner"] input')).toBeChecked()
   })
 
+  // Tool Usage carries its finding as one line of text, the tools to name
+  // in the Tool Filter.
+  test('shows a module\'s detail line, escaped', async ({ page }) => {
+    await page.route('**/api/modules', async (route: Route) => {
+      const base = JSON.parse(modulesBody({ saved: 0, original: 0, pct: 0 }))
+      base.modules.push({
+        id: 'tool-usage', name: 'Tool Usage', enabled: true, description: 'Records which offered tools get called',
+        totalInvocations: 2, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [],
+        kpis: [{ key: 'never', label: 'Never called', value: 2 }],
+        detail: 'Never called, largest first (tokens per request): NotebookEdit (1,204), <b>CronCreate</b> (310)',
+      })
+      await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base) })
+    })
+    await page.goto('/')
+    await page.click('button:has-text("Modules")')
+    const detail = page.locator('.module-card[data-module="tool-usage"] .module-card-detail')
+    await expect(detail).toHaveText('Never called, largest first (tokens per request): NotebookEdit (1,204), <b>CronCreate</b> (310)')
+    await expect(page.locator('.module-card[data-module="token-pruner"] .module-card-detail')).toHaveCount(0)
+  })
+
   test('marks a dry-run row as observed, not saved', async ({ page }) => {
     const server = await gatedServer(page, { saved: 0, original: 0, pct: 0 })
     await page.goto('/')

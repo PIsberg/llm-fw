@@ -263,6 +263,7 @@ const HTML = `<!DOCTYPE html>
   .module-card-name { font-weight: 600; }
   .module-card-desc { color: #666; font-size: 0.8rem; margin: 4px 0 12px; }
   .economy-card { margin-bottom: 12px; border-color: #b0bec5; }
+  .module-card-detail { color: #555; font-size: 0.78rem; margin-top: 10px; overflow-wrap: anywhere; }
   .module-cards.economy-off .module-card { opacity: 0.5; }
   .module-kpis { display: flex; gap: 24px; flex-wrap: wrap; }
   .module-kpi-value { font-size: 1.3rem; font-weight: 700; }
@@ -922,7 +923,8 @@ function renderModuleCards(mods) {
       '<div class="module-card-head"><span class="module-card-name">' + esc(m.name) + '</span>' +
       '<label style="font-size:0.8rem;cursor:pointer"><input type="checkbox"' + (m.enabled ? ' checked' : '') + '> Enabled</label></div>' +
       '<div class="module-card-desc">' + esc(m.description || '') + '</div>' +
-      '<div class="module-kpis">' + kpis + '</div>';
+      '<div class="module-kpis">' + kpis + '</div>' +
+      (m.detail ? '<div class="module-card-detail">' + esc(m.detail) + '</div>' : '');
     const toggle = card.querySelector('input');
     toggle.onchange = () => setModuleEnabled(m.id, toggle);
     return card;

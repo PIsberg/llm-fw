@@ -6,7 +6,7 @@ The firewall already sits on every LLM request, so it can also make requests
 cheaper before they leave. Each technique below is a separate gateway module
 with its own switch, its own KPIs on the dashboard's **Modules** tab, and its
 own live events. All of them are off by default, because each one changes what
-the provider receives, except the usage meter, which only reads responses.
+the provider receives, except the usage meter and tool usage, which only read.
 
 ## Turning a module on and off
 
@@ -167,6 +167,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
 | `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
+| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
@@ -387,6 +388,28 @@ NotebookEdit, two MCP servers), cut the
 definitions to 11,347 tokens, 48%. Its effect on the bill is not measured; the
 tool list is a cache read on most turns, so expect a tenth of that in cost
 between cache writes, and the full amount on each write.
+
+### Tool usage
+
+`modules.toolUsage.enabled` (`LLM_FW_TOOL_USAGE_ENABLED`), on by default
+because it changes nothing. It answers the question the tool filter leaves to
+you: which tools does this client never call? It records every tool a request
+offers, with the token estimate of its definition, and every call it sees, from
+the request history and from responses (a request that continues a server-side
+thread, as Claude Code does through the proxy, carries the results but not the
+calls). Its card lists the tools no call has named yet, largest first, with
+their combined tokens per request: names you can copy into
+`modules.toolFilter.dropTools`. It runs after the tool filter and the
+definition pruner, so the list is what still costs.
+
+Why it matters: across 14 days of one developer's Claude Code transcripts
+(34,209 assistant turns), cache reads were 78.5% of the bill by list-price
+weights, and the tool list is part of that prefix on every turn. A captured
+request carried 21,798 tokens of definitions, an estimated 6% of the bill at that
+turn count (21,798 x 34,209 turns x 0.1, not measured per request), while those
+sessions called 44 distinct tools in total. A tool that
+has not been called yet may still be needed; the list is evidence, not a
+verdict, and it starts empty on every restart.
 
 ### Tool definition pruner
 

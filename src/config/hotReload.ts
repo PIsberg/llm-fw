@@ -182,6 +182,7 @@ const HOT_PATHS: Path[] = [
   ['modules', 'toolFilter', 'enabled'],
   ['modules', 'toolFilter', 'dropTools'],
   ['modules', 'toolDefinitionPruner', 'enabled'],
+  ['modules', 'toolUsage', 'enabled'],
   ['modules', 'cacheControl', 'enabled'],
   ['modules', 'cacheControl', 'ttl'],
   ['modules', 'cacheControl', 'cacheSystem'],

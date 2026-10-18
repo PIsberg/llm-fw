@@ -90,3 +90,8 @@ export class RememberedCalls {
     return id === undefined ? undefined : this.calls.get(id)
   }
 }
+
+/** Every tool call a captured response made. */
+export function responseCalls(response: CapturedResponse): ToolCall[] {
+  return responseToolCalls(responseEvents(response.body, response.headers) ?? [])
+}

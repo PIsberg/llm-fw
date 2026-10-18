@@ -1,0 +1,142 @@
+import type { ModuleSwitchConfig } from '../../types.js'
+import type { GatewayModuleContext, ModuleStats } from '../types.js'
+import type { CapturedResponse } from '../responseTap.js'
+import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
+import { responseCalls } from '../toolCalls.js'
+import { toolName } from './toolFilter.js'
+
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+// Bounds on what one process remembers: every distinct tool name a client
+// offered, and the ids of calls already counted, oldest evicted first.
+const MAX_TOOLS = 2000
+const MAX_CALL_IDS = 8192
+// How many never-called tools the card lists.
+const DETAIL_LIMIT = 30
+
+// Each tool definition in the Anthropic, OpenAI chat, Responses API and
+// Gemini shapes, with the JSON it is billed as.
+function offeredTools(payload: Obj): Array<{ name: string; json: string }> {
+  if (!Array.isArray(payload.tools)) return []
+  const out: Array<{ name: string; json: string }> = []
+  for (const tool of payload.tools) {
+    const decls = isObj(tool) && Array.isArray(tool.functionDeclarations) ? tool.functionDeclarations as unknown[] : [tool]
+    for (const d of decls) {
+      const name = toolName(d)
+      if (name) out.push({ name, json: JSON.stringify(d) })
+    }
+  }
+  return out
+}
+
+const idOr = (id: unknown, fallback: string): string => typeof id === 'string' && id !== '' ? id : fallback
+
+// Calls a request's history carries, as [id, name]; Gemini calls carry no id,
+// so their name stands in for one.
+function historyCalls(payload: Obj): Array<[string, string]> {
+  const out: Array<[string, string]> = []
+  const turns = [payload.messages, payload.input, payload.contents].filter(Array.isArray).flat() as unknown[]
+  for (const turn of turns) {
+    if (!isObj(turn)) continue
+    if (turn.type === 'function_call' && typeof turn.name === 'string') out.push([idOr(turn.call_id, turn.name), turn.name])
+    if (Array.isArray(turn.tool_calls)) {
+      for (const c of turn.tool_calls) {
+        const name = toolName(c)
+        if (name && isObj(c)) out.push([idOr(c.id, name), name])
+      }
+    }
+    const parts = Array.isArray(turn.content) ? turn.content : Array.isArray(turn.parts) ? turn.parts : []
+    for (const p of parts) {
+      if (!isObj(p)) continue
+      if (p.type === 'tool_use' && typeof p.name === 'string') out.push([idOr(p.id, p.name), p.name])
+      if (isObj(p.functionCall) && typeof p.functionCall.name === 'string') out.push([`gemini:${p.functionCall.name}`, p.functionCall.name])
+    }
+  }
+  return out
+}
+
+/**
+ * Records which offered tools a client actually calls, so you know which to
+ * name in the Tool Filter's dropTools. Every tool definition is billed on every
+ * request, as a cache read once cached; one the model never calls is cost with
+ * no use. Calls are learned from the request history and from responses,
+ * because a request that continues a server-side thread (Claude Code through
+ * the proxy) carries tool results without the calls. Reads only, and runs after
+ * the Tool Filter and the definition pruner, so the list is what still costs.
+ */
+export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
+  readonly id = 'tool-usage'
+  readonly name = 'Tool Usage'
+  readonly description = 'Records which offered tools get called, and lists the ones that never do with their token cost, for the Tool Filter. Changes nothing.'
+
+  private requests = 0
+  // Name to the token estimate of its definition as last offered.
+  private readonly offered = new Map<string, number>()
+  private readonly called = new Set<string>()
+  private readonly countedCalls = new Set<string>()
+  private calls = 0
+
+  constructor(config?: ModuleSwitchConfig) {
+    super(config ?? { enabled: true })
+  }
+
+  private count(id: string, name: string): void {
+    if (this.countedCalls.has(id)) return
+    this.countedCalls.add(id)
+    if (this.countedCalls.size > MAX_CALL_IDS) this.countedCalls.delete(this.countedCalls.values().next().value!)
+    this.calls++
+    this.called.add(name)
+  }
+
+  protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
+    const tools = offeredTools(payload)
+    if (tools.length > 0) {
+      this.requests++
+      for (const { name, json } of tools) {
+        if (!this.offered.has(name) && this.offered.size >= MAX_TOOLS) continue
+        this.offered.set(name, estimate(json, estimates))
+      }
+    }
+    for (const [id, name] of historyCalls(payload)) this.count(id, name)
+    return null
+  }
+
+  observeResponse(_requestBody: string, _ctx: GatewayModuleContext, response: CapturedResponse): void {
+    if (!this.enabled) return
+    for (const call of responseCalls(response)) this.count(call.id, call.name)
+  }
+
+  private neverCalled(): Array<[string, number]> {
+    return [...this.offered].filter(([name]) => !this.called.has(name)).sort((a, b) => b[1] - a[1])
+  }
+
+  getStats(): ModuleStats {
+    const never = this.neverCalled()
+    const neverTokens = never.reduce((sum, [, n]) => sum + n, 0)
+    const listed = never.slice(0, DETAIL_LIMIT).map(([name, n]) => `${name} (${n.toLocaleString('en-US')})`)
+    const more = never.length > DETAIL_LIMIT ? `, and ${never.length - DETAIL_LIMIT} more` : ''
+    return {
+      ...super.getStats(),
+      totalInvocations: this.requests,
+      kpis: [
+        { key: 'requests', label: 'Requests with a tool list', value: this.requests },
+        { key: 'offered', label: 'Tools offered', value: this.offered.size },
+        { key: 'called', label: 'Tools called', value: [...this.offered.keys()].filter(n => this.called.has(n)).length },
+        { key: 'calls', label: 'Calls seen', value: this.calls },
+        { key: 'never', label: 'Never called', value: never.length },
+        { key: 'neverTokens', label: 'Their tokens per request', value: neverTokens.toLocaleString('en-US') },
+      ],
+      ...(never.length > 0 ? { detail: `Never called, largest first (tokens per request): ${listed.join(', ')}${more}` } : {}),
+    }
+  }
+
+  resetStats(): void {
+    super.resetStats()
+    this.requests = 0
+    this.offered.clear()
+    this.called.clear()
+    this.countedCalls.clear()
+    this.calls = 0
+  }
+}
