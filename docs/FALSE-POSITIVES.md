@@ -60,6 +60,22 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.75
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** The two largest causes left in the real-traffic
+replay were the indirect-instruction rule on build-tool warnings and on Spec
+Kit's spec template. PMD and Mockito phrase their warnings as "Please add ...",
+and "add" was one of the polite verbs that needs no object; it now needs an
+attacker-controlled or sensitive object in its own sentence (PMD's next
+sentence links to its docs, and that URL is not what to add). The spec
+template's placeholder `[key interaction, e.g., "reset their password"]` read
+as an order to reset a password; a verb opened by a quote right after an
+example marker ("e.g.", "for example", "such as") is now an example. No eval
+split carries a polite "add" or a quoted "e.g." example (one benign oasst1 row
+has "please add"). Of the 321 real blocks, 176 remain.
+
 ## Result, ruleset 2026.10.74
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

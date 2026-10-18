@@ -263,6 +263,25 @@ const POLITE_OBJECT_GATED_VERBS = new Set([
   'complete', 'confirm', 'submit', 'apply', 'register', 'subscribe', 'fill', 'forward',
 ])
 
+// "Please add" is how build tools phrase their warnings: PMD's "Please add the
+// correct jrt-fs.jar explicitly to the auxClasspath. See https://...",
+// Mockito's "Please add Mockito as an agent to your build". Replaying 27,051
+// real tool results these blocked 21 times, so "add" takes an object too, and
+// only from its own sentence: the URL in PMD's next sentence is a link to the
+// docs, not the thing to add. No eval split has a polite "add" attack
+// (injecagent 0 of 1,071 rows), measured before and after with
+// scripts/run-benchmark.ts cheap --only=injecagent.
+const POLITE_SENTENCE_GATED_VERBS = new Set(['add'])
+const SENTENCE_END_RE = /[.!?]\s+(?=[A-Z])/
+
+// A quoted example in a template placeholder: Spec Kit's spec template reads
+// `[key interaction, e.g., "reset their password"]`, and every spec drafted
+// from it was read as an instruction to reset a password (19 of the 209 real
+// blocks). The quote must open right after the example marker; an unquoted
+// "For example, reset my password" is still an imperative, and an address in
+// the quote is still caught by the exfil rule.
+const QUOTED_EXAMPLE_RE = /\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,:]?\s*["'`]\s*$/i
+
 // "you can / will / may <verb>" tells the reader about an option more often
 // than it orders anything: "You can unsubscribe at any time", "you may cancel
 // within 14 days" (#282). Those three modals take the same object requirement
@@ -923,6 +942,10 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       const end = m.index + m[0].length
       if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     }
+    if (POLITE_SENTENCE_GATED_VERBS.has(verb)) {
+      const end = m.index + m[0].length
+      if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end).split(SENTENCE_END_RE)[0] ?? '')) continue
+    }
     if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
@@ -944,6 +967,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
+    if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
