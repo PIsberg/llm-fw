@@ -409,7 +409,13 @@ request carried 21,798 tokens of definitions, an estimated 6% of the bill at tha
 turn count (21,798 x 34,209 turns x 0.1, not measured per request), while those
 sessions called 44 distinct tools in total. A tool that
 has not been called yet may still be needed; the list is evidence, not a
-verdict, and it starts empty on every restart.
+verdict.
+
+`llm-fw start` keeps the list across restarts in `<LLM_FW_DIR>/tool-usage.json`
+(tool names, their token estimates and the call counts; no request content),
+written at most every 5 seconds and on a graceful stop, so it builds up over
+days of traffic instead of starting empty each time. Resetting the module's
+stats empties it; `uninstall --purge` deletes it.
 
 ### Tool definition pruner
 

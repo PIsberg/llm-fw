@@ -613,8 +613,8 @@ What it does, in order:
    and the `proxy.mode` key setup wrote into `config.json` (left behind, the
    next `start` would re-arm the sinkhole). What you authored is kept: your
    other settings in `config.json`, both false-positive stores
-   (`whitelist.json`, `suppressions.json`), the audit log, the OCR cache and the
-   licence key. It prints what it removed and what it left. `--purge` deletes
+   (`whitelist.json`, `suppressions.json`), the audit log, the OCR cache, the
+   Tool Usage counts (`tool-usage.json`) and the licence key. It prints what it removed and what it left. `--purge` deletes
    all of that too, except the licence key.
 6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)
    from the project `.llm-fw.json`, keeping any settings you authored yourself.

@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import fs from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { ToolUsageModule } from '../../src/modules/builtin/toolUsage.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
 
@@ -84,6 +87,47 @@ describe('ToolUsageModule', () => {
     expect(detail).toContain('g_unused')
     expect(detail).not.toContain('lookup')
     expect(detail).not.toContain('g_used')
+  })
+
+  // A restart started the list from nothing, so it never held enough evidence
+  // to name a tool in the Tool Filter. With persistTo, a later process carries on.
+  describe('persistence', () => {
+    let dir: string
+    beforeEach(() => { dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-tool-usage-')) })
+    afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+    it('a later process sees what an earlier one recorded', () => {
+      const file = join(dir, 'tool-usage.json')
+      const first = usage()
+      first.persistTo(file)
+      first.transformRequest(JSON.stringify({
+        tools: offered,
+        messages: [{ role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'Bash', input: {} }] }],
+      }), ctx)
+      first.flush()
+
+      const second = usage()
+      second.persistTo(file)
+      expect(kpi(second, 'requests')).toBe(1)
+      expect(kpi(second, 'offered')).toBe(4)
+      expect(kpi(second, 'called')).toBe(1)
+      expect(second.getStats().detail).toContain('NotebookEdit')
+      expect(second.getStats().detail).not.toContain('Bash')
+    })
+
+    it('starts empty on a missing or unreadable file, and writes nothing without persistTo', () => {
+      const file = join(dir, 'tool-usage.json')
+      fs.writeFileSync(file, '{not json')
+      const mod = usage()
+      mod.persistTo(file)
+      expect(kpi(mod, 'requests')).toBe(0)
+
+      const unbound = usage()
+      unbound.transformRequest(JSON.stringify({ tools: offered, messages: [] }), ctx)
+      unbound.flush()
+      expect(fs.readdirSync(dir)).toEqual(['tool-usage.json'])
+      expect(fs.readFileSync(file, 'utf8')).toBe('{not json')
+    })
   })
 
   it('does nothing while off', () => {

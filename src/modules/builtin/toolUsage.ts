@@ -1,12 +1,27 @@
+import fs from 'node:fs'
+import { dirname } from 'node:path'
 import type { ModuleSwitchConfig } from '../../types.js'
 import type { GatewayModuleContext, ModuleStats } from '../types.js'
 import type { CapturedResponse } from '../responseTap.js'
 import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
 import { responseCalls } from '../toolCalls.js'
 import { toolName } from './toolFilter.js'
+import { createLogger } from '../../logger.js'
+
+const log = createLogger('tool-usage')
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** What persistTo keeps between processes: tool names and counts, no request content. */
+interface SavedUsage {
+  requests: number
+  calls: number
+  offered: Record<string, number>
+  called: string[]
+}
+// Coalesce writes: one per this many ms while traffic flows.
+const SAVE_DELAY_MS = 5000
 
 // Bounds on what one process remembers: every distinct tool name a client
 // offered, and the ids of calls already counted, oldest evicted first.
@@ -77,8 +92,54 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
   private readonly countedCalls = new Set<string>()
   private calls = 0
 
+  // Where the totals survive a restart; unset in tests and library use, so
+  // nothing reads or writes a file unless `llm-fw start` asks for it.
+  private file: string | undefined
+  private saveTimer: NodeJS.Timeout | undefined
+
   constructor(config?: ModuleSwitchConfig) {
     super(config ?? { enabled: true })
+  }
+
+  /**
+   * Keep the totals in `file` across restarts: load what is there, then
+   * write changes back at most every SAVE_DELAY_MS. A list that started empty
+   * on every restart never held enough evidence to name a tool in the Tool
+   * Filter. A missing or unreadable file starts empty.
+   */
+  persistTo(file: string): void {
+    this.file = file
+    try {
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<SavedUsage>
+      if (typeof saved.requests === 'number') this.requests = saved.requests
+      if (typeof saved.calls === 'number') this.calls = saved.calls
+      for (const [name, n] of Object.entries(saved.offered ?? {}).slice(0, MAX_TOOLS)) {
+        if (typeof n === 'number') this.offered.set(name, n)
+      }
+      for (const name of (saved.called ?? []).slice(0, MAX_TOOLS)) if (typeof name === 'string') this.called.add(name)
+    } catch { /* nothing saved yet, or unreadable: start empty */ }
+  }
+
+  /** Write the totals now, if persisting. */
+  flush(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer)
+    this.saveTimer = undefined
+    if (!this.file) return
+    const saved: SavedUsage = { requests: this.requests, calls: this.calls, offered: Object.fromEntries(this.offered), called: [...this.called] }
+    try {
+      fs.mkdirSync(dirname(this.file), { recursive: true })
+      const tmp = `${this.file}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify(saved), 'utf8')
+      fs.renameSync(tmp, this.file)
+    } catch (err) {
+      log.warn('could not save tool usage; it stays in memory', { err })
+    }
+  }
+
+  private changed(): void {
+    if (!this.file || this.saveTimer) return
+    this.saveTimer = setTimeout(() => this.flush(), SAVE_DELAY_MS)
+    this.saveTimer.unref()
   }
 
   private count(id: string, name: string): void {
@@ -87,6 +148,7 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     if (this.countedCalls.size > MAX_CALL_IDS) this.countedCalls.delete(this.countedCalls.values().next().value!)
     this.calls++
     this.called.add(name)
+    this.changed()
   }
 
   protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
@@ -97,6 +159,7 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
         if (!this.offered.has(name) && this.offered.size >= MAX_TOOLS) continue
         this.offered.set(name, estimate(json, estimates))
       }
+      this.changed()
     }
     for (const [id, name] of historyCalls(payload)) this.count(id, name)
     return null
@@ -138,5 +201,6 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     this.called.clear()
     this.countedCalls.clear()
     this.calls = 0
+    this.changed()
   }
 }

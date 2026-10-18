@@ -451,6 +451,7 @@ image).
 | `config.json` | Yes | Written by `setup`, `setup-judge`, and dashboard settings changes |
 | `license.key`, `license-offline.lfw` | Yes | Your licence |
 | `audit.jsonl`, `audit.jsonl.1` | Ship it, do not back it up | Rotating log; send it to a SIEM |
+| `tool-usage.json` | Optional | Which offered tools clients called (Tool Usage module); rebuilds itself from traffic |
 | `llm-fw.pid` | No | Recreated at start |
 | `llm-fw.state.json` | No | Recreated at start |
 | `models/` | No | Re-downloadable cache |

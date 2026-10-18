@@ -10,6 +10,7 @@ import { MetricsRegistry } from '../dashboard/metrics.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { ModuleManager } from '../modules/registry.js';
+import type { ToolUsageModule } from '../modules/builtin/toolUsage.js';
 import { startConfigHotReload } from '../config/hotReload.js';
 import { removeRuntimeState, writeRuntimeState } from './runtimeState.js';
 import forge from 'node-forge';
@@ -268,6 +269,7 @@ export async function run(args: string[] = []): Promise<void> {
   let gateway: GatewayServer | null = null;
   let auditLog: AuditLog | null = null;
   let auditWebhook: AuditWebhook | null = null;
+  let toolUsage: ToolUsageModule | null = null;
   // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
   // the record of the last seconds before a rollout — exactly the window
   // someone goes looking for afterwards.
@@ -283,6 +285,7 @@ export async function run(args: string[] = []): Promise<void> {
       { what: 'gateway', done: gateway ? gateway.stop() : Promise.resolve() },
       { what: 'audit webhook', done: auditWebhook ? auditWebhook.stop() : Promise.resolve() },
       { what: 'audit log', done: auditLog ? auditLog.close() : Promise.resolve() },
+      { what: 'tool usage', done: Promise.resolve().then(() => toolUsage?.flush()) },
     ];
     const results = await Promise.allSettled(tasks.map(t => t.done));
     results.forEach((r, i) => {
@@ -402,6 +405,10 @@ export async function run(args: string[] = []): Promise<void> {
   console.log('Model ready.');
 
   const modules = new ModuleManager(config);
+  // Tool Usage keeps its list across restarts, so the never-called tools it
+  // suggests for the Tool Filter rest on more than one process's traffic.
+  toolUsage = (modules.getModule('tool-usage') as ToolUsageModule | undefined) ?? null;
+  toolUsage?.persistTo(join(getLlmFwDir(), 'tool-usage.json'));
   const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening

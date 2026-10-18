@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tool Usage keeps its list across restarts.** `llm-fw start` saves the offered tools, their
+  token estimates and the call counts to `<LLM_FW_DIR>/tool-usage.json` (no request content),
+  at most every 5 seconds and on a graceful stop, and loads it on the next start. Before, every
+  restart emptied the never-called list, so it never held enough traffic to act on. `uninstall
+  --purge` deletes the file. Measuring 14 days of transcripts for other savings found the remaining
+  lossless options small (collapsing passing-test and build lines 0.24% of the bill, repeated shell
+  output 0.32%), so the tool list, about 6%, stays the lever this module serves.
 - **Tool Usage module (`modules.toolUsage`), on by default because it only reads.** Lists the
   tools a client is offered but never calls, largest first with their tokens per request, on its
   Modules card, so you know what to name in the Tool Filter's `dropTools`. Calls are learned from
