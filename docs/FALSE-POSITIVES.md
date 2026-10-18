@@ -60,6 +60,19 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.76
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed; InjecAgent 1,054 of 1,054 attacks
+and 0 of 17 benign, unchanged.** The largest cause left in the real-traffic
+replay was `payload-assembly` on diffs (27 of 176 blocks, 20 of them `git
+diff` output). Normalization collapses whitespace, newlines included, before
+any rule runs, so a diff's line-start `+` read as an inline operator: "run lat
+check" then "+ uses: actions/setup-node@v4" became "run ... check + uses".
+Text with a diff header (`diff --git`, or `@@ -n,n +n,n @@`) now loses each
+line's leading `+` or `-` before the collapse; an inline "+" is untouched.
+Of the 321 real blocks, 157 remain.
+
 ## Result, ruleset 2026.10.75
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
