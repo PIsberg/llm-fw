@@ -129,7 +129,7 @@ without the slices after it. Setup and foundational tasks carry no story label.
 
 ### S16. US5: measured results
 
-- [ ] T030 [US5] Run the replay stage per quickstart.md section 1 and add the measured results to the "Tool result shunt" section of docs/guides/token-savings.md (FR-018, SC-001, SC-002, SC-003, SC-006, SC-010): date, sample size, worker model, tokenizer, each US5-1 figure with file reads excluded and included as plan Design 9 defines them (tokens avoided, bill-weighted saving, worker tokens as the local cost, the net of each, the flagged and unscanned results excluded and that only results the module would condense were counted), labelled-subset retention, saying so when either net is not a saving; state that the comparison stage was not run unless D7 approved it. If no local worker can run, report the task as not run and write no estimate. No test task: a measurement.
+- [X] T030 [US5] Run the replay stage per quickstart.md section 1 and add the measured results to the "Tool result shunt" section of docs/guides/token-savings.md (FR-018, SC-001, SC-002, SC-003, SC-006, SC-010): date, sample size, worker model, tokenizer, each US5-1 figure with file reads excluded and included as plan Design 9 defines them (tokens avoided, bill-weighted saving, worker tokens as the local cost, the net of each, the flagged and unscanned results excluded and that only results the module would condense were counted), labelled-subset retention, saying so when either net is not a saving; state that the comparison stage was not run unless D7 approved it. If no local worker can run, report the task as not run and write no estimate. No test task: a measurement.
 
 ---
 

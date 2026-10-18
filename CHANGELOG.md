@@ -94,9 +94,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running user, and the module card has a **Delete stored originals** button
   (`POST /api/modules/tool-result-shunt/purge`). `npm run eval:shunt:replay` measures the saving
   over recorded sessions, and `npm run eval:shunt:compare` runs the billed comparison only with
-  `--approve-spend`; the measured saving is not in this entry yet. The guide and the dashboard's
-  Modules blurb no longer say that every module runs before DLP and detection. See
-  [Token savings](docs/guides/token-savings.md#tool-result-shunt).
+  `--approve-spend` (not run). Measured on 2026-10-18 over 1,805 transcripts (64,510 tool
+  results) with `qwen2.5:3b`: bill-weighted, the module spares 0.35% of the input bill (0.29% net
+  of the worker's tokens), and counted in tokens alone it is a loss, the worker reading 1.7 tokens
+  per token it spares (net -479,715). On the laptop it was measured on, none of 215 worker calls
+  answered within the default `waitMs` of 15 s (median 47 s), so at the shipped settings it
+  would have saved nothing there. Retention of key facts was not established: the labelled
+  subset held 10 results, under the 50 asked for, and none of their fact lines appeared
+  verbatim. The guide and the dashboard's Modules blurb no longer say that every module runs
+  before DLP and detection. See
+  [Token savings](docs/guides/token-savings.md#tool-result-shunt) and
+  [the measurement](docs/guides/token-savings.md#measured-on-recorded-sessions).
 - **A lean-ctx Shell Output Compressor module, opt-in and lossy (`modules.leanCtx.enabled`,
   `LLM_FW_LEAN_CTX_ENABLED`, `tools`, `skipCommands`, `timeoutMs` 500).** The output of a
   `Bash` or `PowerShell` command goes to a private [lean-ctx](https://github.com/yvgude/lean-ctx)

@@ -522,7 +522,113 @@ sample), the stored originals and their size, and the stored originals missing.
 
 How much it saves is measured over recorded Claude Code sessions by
 `npm run eval:shunt:replay`, which needs a worker and writes nothing under
-`~/.llm-fw`. The measured results are not in this guide yet.
+`~/.llm-fw`. The first measurement is
+[below](#measured-on-recorded-sessions).
+
+#### Measured on recorded sessions
+
+Measured on 2026-10-18 with the replay stage over every Claude Code transcript
+on one developer's machine: 1,805 files holding 64,510 tool results (435 of the
+files are under project directories named for this repository). The worker was
+`qwen2.5:3b` under Ollama 0.31.1 with a 32,768-token window, on a laptop with an
+Intel Arc A370M (4 GB, Vulkan, part of the model on the GPU) and a 12-core CPU.
+Tokens are counted with the `Xenova/gpt-4o` tokenizer on LF-normalised text, not
+with the estimate above. The stage runs the module's own checks, then detection
+and DLP with the shipped settings, then the worker and the stored original, and
+counts **only the results the module would condense**. A result that passed the
+tool, size and argument checks but that detection or DLP flagged is left out of
+every token figure and counted as flagged; none was left unscanned. The stage
+counts a result each time it appears, including the copies that resumed sessions
+repeat, while the worker answered each distinct text once (215 texts).
+
+The comparison stage, a billed run of the agent with and without the module, was
+not run. What the agent does after it gets a condensed result, such as reading
+the stored original back, is therefore not measured.
+
+How the figures are counted:
+
+- **Tokens avoided**: the original's tokens less those of the condensed result
+  as forwarded, summed over the condensed results, counted once, as new input.
+- **Bill-weighted**: the same difference times `1.25 + 0.1 x R`, where R is the
+  number of distinct assistant messages after the result and before the
+  conversation was next compacted, less the first, which reads it as new input:
+  one cache write, then a cache read per later turn. The weight averaged 9.2
+  (7.6 with file reads) per token avoided.
+- **Worker tokens**: what the worker read and wrote, answers that were rejected
+  included. They are local compute and cost nothing on the bill; the net
+  subtracts them to show what the worker spends against what it saves.
+
+| | File reads left out (the default) | File reads included |
+| --- | --- | --- |
+| Passed the tool, size and argument checks | 233 | 435 |
+| Flagged by detection or DLP, left out | 78 | 198 |
+| Sent to the worker | 155 | 237 |
+| Condensed | 125 (81%) | 194 (82%) |
+| Rejected by the checks, forwarded whole | 30 | 43 |
+| Worker failed, forwarded whole | 0 | 0 |
+| Original tokens of the results sent | 901,315 | 1,458,535 |
+| Tokens of the condensed results as forwarded | 30,178 | 44,431 |
+| Tokens avoided | 699,549 | 1,149,719 |
+| Share of all 64,510 results' tokens | 2.14% | 3.52% |
+| Bill-weighted saving | 6,402,208 | 8,722,381 |
+| Worker tokens, read plus written | 1,154,393 + 24,871 | 1,955,779 + 41,102 |
+| Net tokens avoided (less worker tokens) | -479,715 | -847,162 |
+| Net bill-weighted (less worker tokens) | 5,222,944 | 6,725,500 |
+
+Read them with these limits in mind:
+
+- **Counted in tokens alone the module is a loss.** The worker read 1.7 tokens
+  for every token it spared the model (its input carries a line number on every
+  line, and it counts with its own tokenizer), so both net token figures are
+  negative. The bill-weighted net is positive because a condensed result is
+  spared on every later turn, not once.
+- **The saving is small.** Against the same transcripts' own usage records
+  (assistant messages counted once per file: input at 1, cache writes at 1.25,
+  cache reads at 0.1, 1.82 billion units), the bill-weighted saving is 0.35% of
+  the input bill (0.29% net of the worker tokens), and 0.48% (0.37% net) with
+  file reads. Only 0.36% of the tool results (0.67% with file reads) passed the
+  tool, size and argument checks, so the module has little to work on in this
+  traffic.
+- **On this machine at the shipped settings the module saves nothing.** None of
+  the 215 worker calls finished within the default `waitMs` of 15,000 ms: the
+  fastest took 17 s, the median 47 s, the slowest 19 minutes (a reply that ran
+  to the answer cap). Every result would have been forwarded whole as a worker
+  failure; that follows from the call times and was not run separately. The
+  figures above come from a run with the wait raised to 15 minutes, and show what
+  a worker that answers within the limit would save. A worker that holds the
+  model on a faster GPU, or a larger `waitMs`, which makes a request that carries
+  new results wait up to that long, are the two ways to get there.
+- **The worker's answers were rejected one time in five** (30 of 155). A
+  rejected result is forwarded whole and costs the worker tokens for nothing.
+  The condensed results averaged 241 tokens as forwarded against 5,838 for their
+  originals (95.9% smaller).
+- **Retention was not measured with the sample size it needs.** The stage checks
+  that the lines a rule-based extractor takes for facts (failing test names,
+  error messages, the final status, summary counts) appear verbatim in the
+  condensed text. It found any in only 19 of the 218 distinct shell outputs that
+  passed the checks, so the labelled subset is 10 condensed results (20 with file
+  reads), under the 50 the success criterion asks for. Of those results' fact
+  lines, none appeared verbatim. That does not show the facts were lost, since
+  the worker paraphrases (an exit-code line comes back as "exit code 0"), and
+  some of what the extractor takes for a fact is not one (a source line that
+  looks like an error call). It does mean nothing here shows that the condensed
+  text keeps the failures.
+- **One developer, one worker.** A third of the results that passed the checks
+  (78 of 233) were flagged and left out, 45% with file reads; whether the
+  sessions in this repository, where test output can hold attack strings,
+  explain that was not measured. One result in each report, whose DLP redaction
+  left the request body unparseable, was counted as flagged. Another worker
+  model, or traffic with fewer flagged results, would give other numbers.
+
+The second run reused the first run's worker answers (a caching proxy in front
+of Ollama answered each distinct request once) and recomputed everything else.
+The results seen, the results eligible and their original tokens agreed exactly
+between the two, and with file reads left out the whole report matched. With
+file reads included they differed by one worker call that took 19 minutes: the
+first run's wait of 15 minutes ended it as a worker failure, the second took its
+answer, which was rejected. The figures above are the second run's. The answers
+themselves are one sample from a model at temperature 0; they were not asked for
+twice. `~/.llm-fw` was listed before and after and did not change.
 
 ### Tool definition pruner
 
