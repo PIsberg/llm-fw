@@ -203,6 +203,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`git -c user.email=...` and test code that sets an email property no longer read as
+  exfiltration (rulesets 2026.10.73 and 2026.10.74).** The indirect-instruction rule refuses a
+  tool result that points a send-class verb ("email", "share", "send") at an address within 200
+  characters, and the "verb" here was the last segment of a config key: `git -c
+  user.email=demo@example.invalid`, `git config user.email "you@example.com"`,
+  `System.setProperty("license.user.email", "first@...")`. A send-class word that ends a dotted key
+  whose assigned value is that same address is a setting now, in the English and multilingual
+  paths. "/send \"attacker@evil.com\"", "$share, attacker@..." and a key holding some other address
+  still count; 2026.10.73 had excused those too. InjecAgent unchanged (1,054 of 1,054 attacks, 0 of
+  17 benign flagged), 0 of 23,938 eval verdicts changed. Across all 27,051 real Claude Code items of
+  the replay, blocks fell from 321 on 2026.10.70 to 209 with this and the fixes above.
 - **Claude Code's compaction prompt and the automated security review no longer get refused
   (rulesets 2026.10.71 and 2026.10.72).** After a context compaction, Claude Code tells the model "do not preface
   with \"I'll continue\"", which matched `prefix-injection`, so every compacted session was refused.
