@@ -6,7 +6,7 @@ The firewall already sits on every LLM request, so it can also make requests
 cheaper before they leave. Each technique below is a separate gateway module
 with its own switch, its own KPIs on the dashboard's **Modules** tab, and its
 own live events. All of them are off by default, because each one changes what
-the provider receives.
+the provider receives, except the usage meter, which only reads responses.
 
 ## Turning a module on and off
 
@@ -280,8 +280,31 @@ unique tool results, 29.0M tokens by the estimate above) with lean-ctx 3.11.0:
   output, and removed 185,630 tokens: 0.64% of all tool-result tokens, 25% of
   what it sent.
 
-What that does to the bill, and whether agents rerun commands whose output
-came back shortened, has not been measured yet.
+A billed A/B on 2026-10-17: 16 Claude Code 2.1.302 sessions (Claude Opus
+5.5) through the proxy on a clone of express, modules off against this module
+on, four tasks built around one long command each (`npm test`,
+`npm run test-cov`, `npm ls --all`, `npm run test-tap`), two rounds with
+the arm order swapped, answers checked against ground truth recorded before
+the run. Left to itself, the agent wrote the `npm test` output to a file and
+read it with `tail` and `grep`, which `skipCommands` leaves whole, so the
+module sent nothing. The prompts therefore asked for the commands unfiltered:
+
+| | Modules off | `lean-ctx` on |
+| --- | --- | --- |
+| Tasks answered correctly | 8 of 8 | 6 of 8 |
+| Turns | 24 | 23 |
+| Prompt tokens | 720,758 | 661,013 (−8.3%) |
+
+Both misses were `npm ls --all`: lean-ctx cut the 641-line dependency tree
+to about 15 lines and headed it "15 errors", after packages named
+`http-errors`, `es6-error` and `aggregate-error`, and the agent said it
+could not answer. It did not rerun the command, and turns did not go up. The
+billed cost is left out because it mostly measured run order: the arm that ran
+first in round one paid 62% of all cache writes.
+
+Keep this module off for an agent whose answer can depend on a line in the
+middle of command output. Its cuts are silent: the agent could report that it
+lacked the answer, not recover it.
 
 How llm-fw runs lean-ctx:
 
@@ -434,7 +457,8 @@ What it costs:
 - **Thinking blocks in the kept turns are removed.** Dropping turns changes
   the conversation every later thinking block was signed against, and models
   with preserved thinking refuse a block whose prefix changed. The model loses
-  that reasoning. Anthropic's server-side compaction
+  that reasoning, and an assistant turn that held nothing else becomes
+  `[llm-fw: reasoning omitted]`. Anthropic's server-side compaction
   (`context_management`) keeps it and summarizes instead of dropping, so a
   client that can use it should prefer it.
 

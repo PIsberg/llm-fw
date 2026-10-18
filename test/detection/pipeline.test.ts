@@ -194,6 +194,26 @@ describe('Pipeline', () => {
     expect(result.stage).toBe('embedding')
   })
 
+  // Claude Code's harness reminder (the user's CLAUDE.md inside
+  // <system-reminder>) scores 25 on the heuristic and 0.84 to an attack
+  // anchor, but sits closer to a benign anchor (margin -0.001). The heuristic
+  // score routed it past the margin, and the embedding warn then fired on raw
+  // cosine alone, on every session's first request.
+  it('elevated heuristic + warn-band similarity but LOW margin -> pass, not an embedding warn', async () => {
+    mockScore.mockReturnValue({ score: 25, matches: ['delimiter-break', 'soft-signal'] })
+    mockCheck.mockResolvedValue({ similarity: 0.8406, benignSimilarity: 0.8418, nearest: 'tpl', chunkCount: 24 })
+    const result = await new Pipeline(makeConfig()).run('/v1/messages', USER_BODY, META)
+    expect(result.action).toBe('pass')
+  })
+
+  it('elevated heuristic + warn-band similarity AND margin -> embedding warn', async () => {
+    mockScore.mockReturnValue({ score: 25, matches: ['delimiter-break', 'soft-signal'] })
+    mockCheck.mockResolvedValue({ similarity: 0.84, benignSimilarity: 0.80, nearest: 'tpl', chunkCount: 1 })
+    const result = await new Pipeline(makeConfig()).run('/v1/messages', USER_BODY, META)
+    expect(result.action).toBe('warn')
+    expect(result.stage).toBe('embedding')
+  })
+
   it('score 25 + similarity 0.50 -> action=pass', async () => {
     mockScore.mockReturnValue({ score: 25, matches: [] })
     mockCheck.mockResolvedValue({ similarity: 0.50, nearest: '', chunkCount: 1 })

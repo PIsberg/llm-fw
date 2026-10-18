@@ -60,6 +60,33 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.67
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** This ruleset changes warnings, not refusals: `npm run verdicts:diff`
+reports 0 of 23,938 block verdicts changed. The embedding warn now needs the
+contrastive margin that the block already needed, and "original/initial/
+standard/existing" requests, commands and settings no longer count as the
+model's own instructions. Three items of Claude Code's own traffic had warned
+in every session (the CLAUDE.md reminder, the suggestion-mode prompt, a
+lean-ctx help listing). Across the eval splits, warnings on benign rows fell
+from 98 to 39 and on attack rows from 80 to 31, so the share of warnings that
+are attacks is about the same (45% before, 44% after) with 60% fewer
+warnings. The self-reference change alone flips 1 eval row, benign, with no
+verdict change; the rest is the margin.
+
+## Result, ruleset 2026.10.66
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** This ruleset makes the `prefix-injection` rule's compliance word a
+whole word. Unbounded, "still" and "kill" matched "I'll", "measure" matched
+"sure" and "there is" matched "here is", and Claude Code's own
+`ArtifactComments` tool description was refused on every request that carried
+it. `npm run verdicts:diff` reports 0 of 23,938 changed. On real traffic,
+500,917 distinct strings from 7 days of Claude Code transcripts, the rule's
+patterns matched 79 before and 36 after; every snippet among the 43 dropped is
+benign prose.
+
 ## Result, ruleset 2026.10.65
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

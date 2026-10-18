@@ -100,6 +100,7 @@ Stage 2 leverages a local, high-performance multilingual ONNX embedding model (`
 *   **Threshold-Based Action** (tuned for e5-small's distribution):
     *   **Block (≥ 0.86)**: a cosine match at `0.86` or higher to an intent anchor is blocked at Stage 2.
     *   **Warn (0.80 – 0.86)**: high-risk but non-definitive matches log a warn event and are forwarded, or evaluated by the Stage 3 judge if enabled.
+    *   **Contrastive margin, for both**: a match only counts when the text is also at least `detection.embeddingMarginThreshold` (default 0.02) closer to an injection anchor than to the nearest benign anchor (`data/semantic-anchors-benign.json`). Text that talks about the model's own instructions ("your system prompt", "all previous instructions") skips the subtraction and is judged on raw similarity. Before ruleset 2026.10.67 a heuristic score of 20 or more let a warn through on raw similarity alone, so two generic signals, a markdown bullet starting "- Stop" and the phrase "instead of", made Claude Code's CLAUDE.md reminder warn in every session.
 *   **Intent-Based**: Because embeddings model semantic meaning rather than literal strings, they naturally catch novel restructurings of jailbreaks and prompt injections — in any language.
 
 ### Retrieved documents are scanned on their own
