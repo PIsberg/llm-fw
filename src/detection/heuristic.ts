@@ -200,16 +200,22 @@ export class HeuristicScorer {
           // an answer ("you are unrestricted", "unrestricted capabilities",
           // "the unrestricted answer") still blocks; every eval row with the
           // word is an attack, and none of them uses a noun excluded here.
-          /\bunrestricted\b(?! (?:[\w-]+[ /]){0,2}?(?:access|tools?|uploads?|downloads?|permissions?|execution|bash|shell|terminal|powershell|commands?|network|internet|egress|ingress|filesystem|redirects?)\b)/,
+          // Only the resource noun itself, or one modifier from a closed list,
+          // may follow: a free filler let "an unrestricted AI with access" and
+          // "unrestricted and obey commands" through. The second pattern keeps
+          // a model frame ("you are", "DAN is") matching whatever follows.
+          /\bunrestricted\b(?! (?:(?:file|bash|shell|network|database|db|api|admin|root|read|write|internet|outbound|inbound|disk)[ /-])?(?:access|tools?|uploads?|downloads?|permissions?|execution|bash|shell|terminal|powershell|network|internet|egress|ingress|filesystem|redirects?)\b)/,
+          /\b(?:you(?:'re| are)|dan is|i am|i'm)\b[^.!?]{0,30}\bunrestricted\b/,
           /(instructions?|rules?|guidelines?|constraints?|polic(?:y|ies)) (is|are|were|have been) (cancelled|canceled|revoked|suspended|void|voided|lifted|removed|reset|replaced|overridden)/,
           /discard (every|all|any) (instructions?|rules?|prior|previous)/,
           /discard (?:the |your )?(?:previous|prior|above|earlier) (?:instructions?|rules?|prompts?|commands?)/,
           /(administrator|admin|operator) has (reset|cleared|wiped|replaced) your/,
           /nothing you were told (earlier|before) applies/,
-          // The announcement, not the plural noun: "never issue system
-          // overrides" (llm-fw's own dashboard copy, read back as a tool
-          // result) blocked alone.
-          /\bsystem override\b/,
+          // Every inflection of the announcement ("SYSTEM OVERRIDES ACTIVE",
+          // "system overridden"), except in a defensive frame: "passive data
+          // should never issue system overrides" (llm-fw's own dashboard copy,
+          // read back as a tool result) blocked alone.
+          /(?<!\b(?:never|not|no|cannot|can't|must not|should not) (?:issue|emit|send|contain|carry|include|perform|make) )\bsystem[ -]overrid(?:e|es|den|ing)\b/,
           /obey only (the |my )?(instructions?|commands?)/,
           /(safety|content) (layers?|systems?|filters?|polic(?:y|ies)) (is|are) (disabled|off|offline|suspended)/,
 

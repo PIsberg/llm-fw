@@ -162,6 +162,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.69 (the 2026.10.68 exceptions tightened: one
+  // closed-list modifier, model frame always matches, every "system
+  // override" inflection outside a defensive frame; measured, no row moved).
   // Held at ruleset 2026.10.68 ("unrestricted" naming a resource and the
   // plural "system overrides" no longer block alone; measured, no row moved).
   // Held at ruleset 2026.10.67 (embedding warn needs the contrastive margin;
