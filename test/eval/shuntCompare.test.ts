@@ -492,7 +492,7 @@ describe('--repo may not carry project settings of its own (FR-020, security rev
   })
 
   const SETTINGS = ['settings.json', 'settings.local.json']
-  const nameOf = (file: string): RegExp => new RegExp(file.replace(/\./g, '\.'))
+  const nameOf = (file: string): RegExp => new RegExp(file.replace(/\./g, '\\.'))
 
   it.each(SETTINGS)('checkRepoSettings throws, naming the file, for a repo with .claude/%s: --setting-sources project would load its hooks and permissions', file => {
     expect(() => checkRepoSettings(repoWith([`.claude/${file}`]))).toThrow(nameOf(file))
