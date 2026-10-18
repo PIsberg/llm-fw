@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.65 (Responses API tool output extracted for
+  // detection; no eval row has that shape; measured, no row moved).
   // Held at ruleset 2026.10.64 (token-saving module defaults in config.ts,
   // all off but the response-only usage meter; detection never sees them).
   // Held at ruleset 2026.10.63 (no line break crossed after a verb on a

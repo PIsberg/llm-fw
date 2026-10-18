@@ -335,6 +335,18 @@ class OpenAIParser implements PayloadParser {
           }
         }
       }
+      // Responses API: tool output arrives as `*_call_output` input items
+      // (function_call_output, custom_tool_call_output, local_shell_call_output),
+      // never as a role:'tool' message, so Codex CLI's tool output was not
+      // scanned at all. A non-text output (a computer_call_output screenshot
+      // object) carries nothing to scan and is skipped.
+      if (Array.isArray(data.input)) {
+        for (const item of data.input) {
+          if (typeof item?.type !== 'string' || !item.type.endsWith('_call_output')) continue
+          if (typeof item.output !== 'string' && !Array.isArray(item.output)) continue
+          results.push({ toolUseId: item.call_id || item.id || 'unknown', result: toolResultText(item.output) })
+        }
+      }
       return results
     } catch { return [] }
   }
