@@ -203,6 +203,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"email" as a noun beside an address is no longer read as "email this to ..." (ruleset
+  2026.10.77).** The exfil rule paired the word "email" with an address within 200 characters,
+  so Claude Code's own context block ("The user's email address is ..."), "the buyer's email domain:
+  billing@acme.com" and "the email field must contain a valid address" were refused in tool
+  results. "email" after a determiner or possessive ("the user's", "your", "a"), or before the noun
+  it qualifies ("address", "domain", "field"), is a noun now. "Email the records to ...", "please
+  email ...", "then email it to ..." still block. InjecAgent unchanged, 0 of 23,938 eval verdicts
+  changed; of the 321 real blocks, 152 remain (157 on 2026.10.76).
 - **A `git diff` of a CI file or code no longer reads as "execute a + b" (ruleset 2026.10.76).**
   Detection flattens newlines before matching, so a diff's line-start `+` (`run lat check` then
   `+  uses: actions/setup-node@v4`) became an inline `run x + y` and matched `payload-assembly`, which

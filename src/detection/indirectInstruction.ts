@@ -321,6 +321,18 @@ function keyAssignedAddress(text: string, start: number, end: number): number {
   const m = KEY_VALUE_RE.exec(text.slice(end, end + 200))
   return m ? end + m[0].length - (m[1] ?? '').length : -1
 }
+// "email" beside an address is usually the noun: Claude Code's own context
+// block ("The user's email address is ..."), "the buyer's email domain",
+// "the email field". After a determiner or possessive, or before the noun it
+// qualifies, it names something; "Email the records to ...", "please email
+// ...", "then email it to ..." stay verbs.
+const EMAIL_NOUN_BEFORE_RE = /(?:['’]s|s['’]|\b(?:a|an|the|your|my|our|their|his|her|its|this|that|valid|primary|work|contact|billing|support|customer|user|buyer))\s+$/i
+const EMAIL_NOUN_AFTER_RE = /^\s+(?:address(?:es)?|domains?|fields?|headers?|lists?|accounts?|templates?|settings?|verification|notifications?|format|validation|scope|provider|client|server|signature)\b/i
+function isEmailNoun(text: string, start: number, end: number): boolean {
+  if (!/^e-?mail$/i.test(text.slice(start, end))) return false
+  return EMAIL_NOUN_BEFORE_RE.test(text.slice(Math.max(0, start - 24), start)) || EMAIL_NOUN_AFTER_RE.test(text.slice(end, end + 24))
+}
+
 /** True when the key at [start, end) of `text` is set to `address` (case-insensitive). */
 function keyHolds(text: string, start: number, end: number, address: string): boolean {
   const at = keyAssignedAddress(text, start, end)
@@ -923,6 +935,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     let vm: RegExpExecArray | null
     while ((vm = EXFIL_VERB_RE.exec(window)) !== null) {
       if (keyAssignedAddress(window, vm.index, vm.index + vm[0].length) === em.index - lo) continue
+      if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
