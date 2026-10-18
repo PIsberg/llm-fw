@@ -155,6 +155,30 @@ describe('/api/modules', () => {
     expect(saved.modules.tokenPruner.enabled).toBe(true)
   })
 
+  // Token Economy is the parent of every module: its switch is
+  // modules.enabled, and turning it off leaves each module's own switch alone,
+  // so turning it back on restores exactly what ran before.
+  it('reports the Token Economy parent switch', async () => {
+    const res = await call('GET', '/api/modules')
+    expect(res.json.tokenEconomy).toEqual({ id: 'token-economy', name: 'Token Economy', enabled: true })
+  })
+
+  it('turns Token Economy off and on without touching the sub-modules, and persists it', async () => {
+    const pruner = mgr.getModule('token-pruner')?.enabled
+    const off = await call('POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: false }))
+    expect(off.status).toBe(200)
+    expect(off.json.tokenEconomy.enabled).toBe(false)
+    expect(config.modules?.enabled).toBe(false)
+    expect(mgr.getModule('token-pruner')?.enabled).toBe(pruner)
+    expect(JSON.parse(fs.readFileSync(join(tempDir, 'config.json'), 'utf8')).modules.enabled).toBe(false)
+    expect((await call('GET', '/api/modules')).json.tokenEconomy.enabled).toBe(false)
+
+    const on = await call('POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: true }))
+    expect(on.status).toBe(200)
+    expect(config.modules?.enabled).toBe(true)
+    expect(JSON.parse(fs.readFileSync(join(tempDir, 'config.json'), 'utf8')).modules.enabled).toBe(true)
+  })
+
   // The dashboard fetches this summary every time its event stream opens and
   // renders whatever answers last. Without the flag, a page reloaded under
   // --observe said "% saved" for savings that were never applied.

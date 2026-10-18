@@ -49,7 +49,7 @@ const HARM_OBJECT = [
   'handgun\\w*', 'pistol\\w*', 'assault\\s+rifle\\w*',
   // CBRN
   'nerve agent', 'sarin', 'vx', 'ricin', 'anthrax', 'chlorine gas', 'mustard gas',
-  'dimethylmercury', 'lewisite', 'novichok', 'tabun', 'soman',
+  'dimethylmercury', 'lewisite', 'novichok', 'tabun', 'soman', 'hydrogen cyanide',
   'chemical weapon', 'chemical warfare', 'biological weapon',
   'bioweapon', 'biological warfare', 'dirty bomb', 'radiological', 'nuclear (?:bomb|device|weapon)',
   'weaponize\\w*',
@@ -260,6 +260,14 @@ function countActions(text: string): number {
   return text.match(HARM_ACTION_ALL_RE)?.length ?? 0
 }
 
+// How far either side of a soft object its how-to or harm verb may sit. The
+// automated security review's prompt ("Review this change for security
+// vulnerabilities", then the diff) was refused because "build" in a CI file or
+// a Java method acquireRead() lay hundreds of characters later, in the code
+// under review. An attack names the act next to the object ("exploit security
+// vulnerabilities in ..."). Same reach as the indirect detector's object window.
+const SOFT_OBJECT_WINDOW = 120
+
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 30)
   const end = Math.min(text.length, index + len + 70)
@@ -316,7 +324,11 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
     const hasAction = totalActions > (anchorIsVerb ? 0 : countActions(obj[0]))
     const soft = SOFT_HARM_OBJECT_RE.test(anchor) ||
       (/^scam/i.test(anchor) && NAMED_SCAM_RE.test(text.slice(Math.max(0, obj.index - 80), obj.index)))
-    if (hasHowto || hasAction || (hasProduce && !soft)) {
+    const near = soft ? text.slice(Math.max(0, obj.index - SOFT_OBJECT_WINDOW), obj.index + obj[0].length + SOFT_OBJECT_WINDOW) : ''
+    const fires = soft
+      ? HOWTO_RE.test(near) || countActions(near) > (anchorIsVerb ? 0 : countActions(obj[0]))
+      : hasHowto || hasAction || hasProduce
+    if (fires) {
       return { kind: 'operational', anchor: anchor.toLowerCase(), snippet: snippetAround(text, obj.index, anchor.length) }
     }
     if (obj[0].length === 0) objRe.lastIndex++

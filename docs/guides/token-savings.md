@@ -6,7 +6,7 @@ The firewall already sits on every LLM request, so it can also make requests
 cheaper before they leave. Each technique below is a separate gateway module
 with its own switch, its own KPIs on the dashboard's **Modules** tab, and its
 own live events. All of them are off by default, because each one changes what
-the provider receives, except the usage meter, which only reads responses.
+the provider receives, except the usage meter and tool usage, which only read.
 
 ## Turning a module on and off
 
@@ -19,8 +19,25 @@ without a restart, in any of these ways:
 - editing `config.json`, which is hot-reloaded,
 - the `LLM_FW_*_ENABLED` environment variable, at start-up.
 
-`modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
-whole pipeline.
+## Token Economy, the parent switch
+
+Every module is a sub-module of **Token Economy**. Its switch is
+`modules.enabled` (default `true`, `LLM_FW_MODULES_ENABLED`), and off, no
+module runs on the proxy or the gateway, the usage meter included. Turning it
+off leaves each module's own switch as it was, so turning it back on restores
+exactly the set that ran before. Flip it live, without a restart:
+
+- the toggle on the **Token Economy** card at the top of the **Modules** tab,
+  which dims the sub-module cards while it is off and persists the change to
+  `~/.llm-fw/config.json`,
+- `POST /api/modules` with `{"id": "token-economy", "enabled": false}`;
+  `GET /api/modules` reports it as
+  `"tokenEconomy": {"id": "token-economy", "name": "Token Economy", "enabled": true}`,
+- editing `modules.enabled` in `config.json`, which is hot-reloaded.
+
+Switching it changes what the provider receives on the next request, so on a
+conversation that a rewriting module was already shaping, the next turn is one
+cache write, the same as switching any one module.
 
 ## What every module guarantees
 
@@ -148,7 +165,9 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
+| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
+| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
@@ -335,6 +354,62 @@ How llm-fw runs lean-ctx:
   not stop it before then.
 - The Docker image does not include lean-ctx, so there the module forwards
   every result whole.
+
+### Tool filter
+
+`modules.toolFilter.enabled` (`LLM_FW_TOOL_FILTER_ENABLED`), `modules.toolFilter.dropTools`.
+An agent sends a definition for every tool it has on every request, used or
+not, and the provider bills the whole list each time (as a cache read once it
+is cached). This removes the tools named in `dropTools`: an exact name, or a
+pattern where `*` matches any run of characters, over the whole name
+(`mcp__axiom__*`, `Cron*`). The list is empty by default, so turning the
+module on changes nothing until you name tools; which tools a client never
+needs is your call, and the model cannot call a tool it is not shown.
+
+What stays even when it is named:
+
+- a tool the conversation has already called, or that `tool_choice` (Gemini:
+  `allowedFunctionNames`) forces, since the provider refuses a request that
+  references a tool it was not given;
+- a tool that carries a `cache_control` breakpoint, which the client placed;
+- every tool, when all of them would go;
+- server tools without a name (`{"type": "web_search"}`), and tools a
+  conversation adds as `tool_addition` blocks, which are left to the client.
+
+A tool kept because the history calls it changes the tool list on the turn the
+call first appears, which is one cache write, the same as switching the module.
+Name only tools a client does not call, and that turn never comes.
+
+Measured on one captured Claude Code 2.1.302 request (44 tools, 21,798 tokens of
+definitions, sent on every request by a client pointed at a custom base URL):
+naming 27 tools, 26 that 30 days of this developer's transcripts never called
+and `Workflow`, called once (DesignSync, the cron and worktree tools, LSP,
+NotebookEdit, two MCP servers), cut the
+definitions to 11,347 tokens, 48%. Its effect on the bill is not measured; the
+tool list is a cache read on most turns, so expect a tenth of that in cost
+between cache writes, and the full amount on each write.
+
+### Tool usage
+
+`modules.toolUsage.enabled` (`LLM_FW_TOOL_USAGE_ENABLED`), on by default
+because it changes nothing. It answers the question the tool filter leaves to
+you: which tools does this client never call? It records every tool a request
+offers, with the token estimate of its definition, and every call it sees, from
+the request history and from responses (a request that continues a server-side
+thread, as Claude Code does through the proxy, carries the results but not the
+calls). Its card lists the tools no call has named yet, largest first, with
+their combined tokens per request: names you can copy into
+`modules.toolFilter.dropTools`. It runs after the tool filter and the
+definition pruner, so the list is what still costs.
+
+Why it matters: across 14 days of one developer's Claude Code transcripts
+(34,209 assistant turns), cache reads were 78.5% of the bill by list-price
+weights, and the tool list is part of that prefix on every turn. A captured
+request carried 21,798 tokens of definitions, an estimated 6% of the bill at that
+turn count (21,798 x 34,209 turns x 0.1, not measured per request), while those
+sessions called 44 distinct tools in total. A tool that
+has not been called yet may still be needed; the list is evidence, not a
+verdict, and it starts empty on every restart.
 
 ### Tool definition pruner
 

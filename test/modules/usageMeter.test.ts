@@ -64,6 +64,8 @@ describe('ModuleManager — responses', () => {
     expect(kpi(mgr.getModule('usage-meter')!.getStats(), 'responses')).toBe(1)
 
     mgr.setModuleEnabled('usage-meter', false)
+    // The other response reader that is on by default.
+    mgr.setModuleEnabled('tool-usage', false)
     mgr.setModuleEnabled('throws', false)
     expect(mgr.wantsResponses()).toBe(false)
     mgr.observeResponse('{}', ctx, anthropic({ input_tokens: 1, output_tokens: 1 }))

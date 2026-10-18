@@ -187,7 +187,9 @@ altered. Savings are estimated over the text it examined, with a run of
 spaces counted as one token (see [Token savings](token-savings.md#how-savings-are-counted)), and shown live in the dashboard header and at `GET /api/modules`.
 Under observe mode it runs as a dry run and forwards the original body.
 `modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
-whole module pipeline. Both keys are hot-reloaded. Every token-saving module,
+whole module pipeline: it is the switch of the **Token Economy** parent module
+(see [Token savings](token-savings.md#token-economy-the-parent-switch)), and
+each module keeps its own switch while it is off. Both keys are hot-reloaded. Every token-saving module,
 with what it rewrites and what to watch for, is in
 [Token savings](token-savings.md). The design is in
 [SPEC-modules.md](../specs/SPEC-modules.md).
@@ -233,7 +235,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_101 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_103 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -330,10 +332,12 @@ _101 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TAINT_MODE` | `taint.mode` | `audit` |
 | `LLM_FW_TOKEN_PRUNER_ENABLED` | `modules.tokenPruner.enabled` | `false` |
 | `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED` | `modules.toolDefinitionPruner.enabled` | `false` |
+| `LLM_FW_TOOL_FILTER_ENABLED` | `modules.toolFilter.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_DEDUP_ENABLED` | `modules.toolResultDedup.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED` | `modules.toolResultTruncate.enabled` | `false` |
+| `LLM_FW_TOOL_USAGE_ENABLED` | `modules.toolUsage.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
 | `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |

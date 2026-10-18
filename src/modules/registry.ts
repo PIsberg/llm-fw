@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -11,7 +11,9 @@ import { TokenPrunerModule } from './builtin/tokenPruner.js'
 import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
 import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
+import { ToolFilterModule } from './builtin/toolFilter.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
+import { ToolUsageModule } from './builtin/toolUsage.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
@@ -39,7 +41,9 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolResultPruner', create: cfg => new ToolResultPrunerModule(cfg as ToolResultPrunerConfig) },
   { key: 'toolResultDedup', create: cfg => new ToolResultDedupModule(cfg as ToolResultDedupConfig) },
   { key: 'toolResultTruncate', create: cfg => new ToolResultTruncateModule(cfg as ToolResultTruncateConfig) },
+  { key: 'toolFilter', create: cfg => new ToolFilterModule(cfg as ToolFilterConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
+  { key: 'toolUsage', create: cfg => new ToolUsageModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
@@ -55,10 +59,28 @@ export interface ModulesSummaryStats {
   applied?: boolean
 }
 
+/**
+ * Token Economy is the parent of every module. Its switch is
+ * `modules.enabled`, which the proxy and the gateway already check before
+ * running any module; the modules' own switches are left alone, so turning it
+ * back on restores exactly the set that ran before.
+ */
+export const TOKEN_ECONOMY_ID = 'token-economy'
+
+export interface TokenEconomyStatus {
+  id: typeof TOKEN_ECONOMY_ID
+  name: 'Token Economy'
+  enabled: boolean
+}
+
 export class ModuleManager {
   private modules = new Map<string, GatewayModule>()
+  // The live modules config, so the parent switch writes where the proxy and
+  // gateway read it. Absent for a manager built without a config.
+  private economy: ModulesConfig | undefined
 
   constructor(config?: Config, registerBuiltins = true) {
+    this.economy = config?.modules
     if (registerBuiltins) {
       // Hand each module the live config sub-object, creating it from the
       // defaults if a caller's config predates it, so hot reload and the
@@ -68,6 +90,7 @@ export class ModuleManager {
       const modules: ModulesConfig = config
         ? (config.modules ??= structuredClone(defaults))
         : structuredClone(defaults)
+      this.economy = modules
       const slots = modules as unknown as Record<BuiltinKey, ModuleSwitchConfig | undefined>
       for (const { key, create } of BUILTINS) {
         const cfg = (slots[key] ??= structuredClone(defaults[key]) ?? { enabled: false })
@@ -127,8 +150,20 @@ export class ModuleManager {
     return Array.from(this.modules.values())
   }
 
-  /** Returns false when no module with that id is registered. */
+  getTokenEconomy(): TokenEconomyStatus {
+    return { id: TOKEN_ECONOMY_ID, name: 'Token Economy', enabled: this.economy?.enabled ?? false }
+  }
+
+  /**
+   * Returns false when no module with that id is registered. The id
+   * `token-economy` sets the parent switch.
+   */
   setModuleEnabled(id: string, enabled: boolean): boolean {
+    if (id === TOKEN_ECONOMY_ID) {
+      if (!this.economy) return false
+      this.economy.enabled = enabled
+      return true
+    }
     const mod = this.modules.get(id)
     if (!mod) return false
     mod.enabled = enabled

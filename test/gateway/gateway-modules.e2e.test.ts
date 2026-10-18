@@ -317,6 +317,27 @@ def calculate(x):
     expect(receivedPayload.messages[0].content).toContain('Re-enabled pruner with spaces:')
   })
 
+  it('Token Economy off stops an enabled sub-module; on again resumes it', async () => {
+    const body = (content: string) => JSON.stringify({ model: 'test', messages: [{ role: 'user', content }] })
+    expect(config.modules!.tokenPruner.enabled).toBe(true)
+
+    const off = await reqHttp(dashboardPort, 'POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: false }))
+    expect(off.status).toBe(200)
+    try {
+      calls = []
+      const raw = 'Economy    off    keeps    spaces'
+      await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', body(raw), { 'x-llm-fw-key': TOKEN })
+      expect(JSON.parse(calls[0]!.body).messages[0].content).toBe(raw)
+    } finally {
+      const on = await reqHttp(dashboardPort, 'POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: true }))
+      expect(on.status).toBe(200)
+    }
+
+    calls = []
+    await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', body('Economy    on    again'), { 'x-llm-fw-key': TOKEN })
+    expect(JSON.parse(calls[0]!.body).messages[0].content).toBe('Economy on again')
+  })
+
   it('observe mode forwards the original body and reports the saving as not applied', async () => {
     config.enforcement = 'observe'
     try {

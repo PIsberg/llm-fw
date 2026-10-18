@@ -229,6 +229,8 @@ export interface Config {
 
 Defaults: `modules.enabled: true`, `modules.tokenPruner.enabled: false`. Both are hot-reloadable.
 
+`modules.enabled` is the switch of the **Token Economy** parent module: the dashboard shows it as its own card, and `POST /api/modules` takes it as `{"id": "token-economy", "enabled": ...}`. Turning it off leaves every module's own switch unchanged.
+
 Environment variable overrides:
 - `LLM_FW_MODULES_ENABLED=true|false`
 - `LLM_FW_TOKEN_PRUNER_ENABLED=true|false`

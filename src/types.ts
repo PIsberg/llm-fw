@@ -461,6 +461,15 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
   skipTools: string[];
 }
 
+export interface ToolFilterConfig extends ModuleSwitchConfig {
+  /**
+   * Tools removed from every request's tool list: an exact name, or a
+   * pattern where `*` matches any run of characters (`mcp__axiom__*`).
+   * Empty by default, so turning the module on changes nothing by itself.
+   */
+  dropTools: string[];
+}
+
 export interface LeanCtxConfig extends ModuleSwitchConfig {
   /**
    * Shell tools whose results go to lean-ctx, matched like the truncator's
@@ -523,7 +532,10 @@ export interface ModulesConfig {
   toolResultPruner?: ToolResultPrunerConfig;
   toolResultDedup?: ToolResultDedupConfig;
   toolResultTruncate?: ToolResultTruncateConfig;
+  toolFilter?: ToolFilterConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
+  /** Records which offered tools get called. On by default: it changes nothing. */
+  toolUsage?: ModuleSwitchConfig;
   cacheControl?: CacheControlConfig;
   responseCache?: ResponseCacheConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
