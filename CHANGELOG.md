@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Server-side tool result clearing (`modules.toolResultClear`, off by default, lossy).** Adds
+  Anthropic's `clear_tool_uses_20250919` context edit to Messages requests whose client already
+  sends the `context-management-2025-06-27` beta (Claude Code does), so the server replaces old
+  tool results with a placeholder once a request passes 100,000 input tokens, keeping the last 10
+  tool calls and clearing at least 20,000 tokens at a time. The card shows what the server reports
+  clearing. Modelled over 14 days of one developer's transcripts, that is a ceiling of 14.4% of the
+  bill net of cache rewrites, against under 0.5% for any other module; it leaves out the turns an
+  agent spends fetching cleared output again, so the real effect is not measured yet. Without the
+  minimum the cache rewrites eat almost all of it (2.7% net). `LLM_FW_TOOL_RESULT_CLEAR_ENABLED`.
 - **Tool Usage keeps its list across restarts.** `llm-fw start` saves the offered tools, their
   token estimates and the call counts to `<LLM_FW_DIR>/tool-usage.json` (no request content),
   at most every 5 seconds and on a graceful stop, and loads it on the next start. Before, every

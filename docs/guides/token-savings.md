@@ -168,6 +168,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
+| `tool-result-clear` | `modules.toolResultClear` | asks Anthropic to clear old tool results server side (lossy) |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
@@ -428,6 +429,61 @@ Responses API and Gemini shapes, and in tools added mid-conversation as
 are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
 it is switched, and nothing after.
+
+### Server-side tool result clearing
+
+`modules.toolResultClear.enabled` (`LLM_FW_TOOL_RESULT_CLEAR_ENABLED`).
+**Lossy**: the model no longer sees old tool output. Anthropic's context
+editing replaces the results of old tool calls with a placeholder on the
+server, before the model reads the request. The client still sends the whole
+history, and the provider bills the edited one. For an Anthropic Messages
+request (`api.anthropic.com`, `/v1/messages`) this adds a
+`clear_tool_uses_20250919` edit to `context_management.edits`, after any edit
+the client sends itself.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `triggerTokens` | `100000` | Input tokens a request must pass before anything is cleared. |
+| `keepToolUses` | `10` | The most recent tool calls whose results stay. |
+| `clearAtLeast` | `20000` | Input tokens each clearing must remove, or `0` for no minimum. |
+| `excludeTools` | `[]` | Tools whose results are never cleared, such as `Read`. |
+
+It acts only when the client already sends the `context-management-2025-06-27`
+beta in `anthropic-beta`, because the API refuses the field without it (400,
+"Extra inputs are not permitted") and a module cannot add a header. Claude
+Code sends it, together with its own `clear_thinking` edit. A request that
+already carries a `clear_tool_uses` edit is left alone. The card counts what
+the server reports in `applied_edits`: responses cleared, input tokens
+cleared and tool results cleared, so the saving shown is the provider's own
+count, not an estimate.
+
+Why `clearAtLeast` matters: clearing changes the prompt from the first
+cleared result onwards, so the cache is written again from there. Clearing
+one result per turn as the window slides rewrites the cache every turn.
+Modelled over 14 days of one developer's Claude Code transcripts (1,333
+transcripts, 29,908 API calls, list-price weights: input 1, cache write
+1.25, cache read 0.1, output 5, tokens as characters / 4):
+
+| Trigger | Keep | Clear at least | Cache reads saved | Cache rewrites | Net, share of the bill |
+| --- | --- | --- | --- | --- | --- |
+| 100,000 | 10 | 0 | 17.5% | 14.9% | 2.7% |
+| 100,000 | 10 | 20,000 | 15.4% | 1.0% | 14.4% |
+| 60,000 | 5 | 20,000 | 15.9% | 0.9% | 15.0% |
+| 150,000 | 20 | 40,000 | 12.5% | 0.8% | 11.7% |
+
+That is a ceiling, not a measurement: it leaves out the turns an agent spends
+calling a tool again for output that was cleared, which made the truncator's
+sessions 24% longer in the live round above. What it does to a real bill has
+not been measured yet.
+
+Verified against the API on 2026-10-18 through Claude Code's own
+credentials: `keep: 1` on a request with three tool results cleared the two
+oldest (9,331 input tokens), and the next identical request read the edited
+prompt from the cache with nothing written. The edit is the same on every
+request, so it never breaks the request prefix; turning the module on or off
+mid-conversation changes what the server bills from that point, which costs
+one cache write. Not verified: a Claude Code thread continuation through the
+proxy (`thread.type` is `continue`), where the server holds the history.
 
 ### Prompt cache marker
 

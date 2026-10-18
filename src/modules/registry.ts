@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, ToolResultClearConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -14,6 +14,7 @@ import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
 import { ToolFilterModule } from './builtin/toolFilter.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
 import { ToolUsageModule } from './builtin/toolUsage.js'
+import { ToolResultClearModule } from './builtin/toolResultClear.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
@@ -44,6 +45,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolFilter', create: cfg => new ToolFilterModule(cfg as ToolFilterConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
   { key: 'toolUsage', create: cfg => new ToolUsageModule(cfg) },
+  { key: 'toolResultClear', create: cfg => new ToolResultClearModule(cfg as ToolResultClearConfig) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
