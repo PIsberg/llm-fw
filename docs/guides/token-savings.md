@@ -461,15 +461,18 @@ Why `clearAtLeast` matters: clearing changes the prompt from the first
 cleared result onwards, so the cache is written again from there. Clearing
 one result per turn as the window slides rewrites the cache every turn.
 Modelled over 14 days of one developer's Claude Code transcripts (1,333
-transcripts, 29,908 API calls, list-price weights: input 1, cache write
-1.25, cache read 0.1, output 5, tokens as characters / 4):
+transcripts, 29,908 API calls, list-price weights: input 1, cache read 0.1,
+output 5, cache write 1.25 for five minutes and 2 for one hour, which is
+what Claude Code writes for 88% of its cache; tokens as characters / 4):
 
 | Trigger | Keep | Clear at least | Cache reads saved | Cache rewrites | Net, share of the bill |
 | --- | --- | --- | --- | --- | --- |
-| 100,000 | 10 | 0 | 17.5% | 14.9% | 2.7% |
-| 100,000 | 10 | 20,000 | 15.4% | 1.0% | 14.4% |
-| 60,000 | 5 | 20,000 | 15.9% | 0.9% | 15.0% |
-| 150,000 | 20 | 40,000 | 12.5% | 0.8% | 11.7% |
+| 100,000 | 10 | 0 | 16.7% | 23.5% | −6.8% (a loss) |
+| 100,000 | 10 | 20,000 | 14.7% | 1.6% | 13.1% |
+| 60,000 | 5 | 20,000 | 15.1% | 1.4% | 13.7% |
+| 150,000 | 20 | 40,000 | 12.0% | 1.3% | 10.7% |
+
+Setting `clearAtLeast` to `0` costs more than it saves.
 
 That is a ceiling, not a measurement: it leaves out the turns an agent spends
 calling a tool again for output that was cleared, which made the truncator's
