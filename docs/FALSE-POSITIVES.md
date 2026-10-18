@@ -60,6 +60,48 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.70
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** The 2026.10.69 defensive-frame exemption covered the singular "system
+override" too, so an attacker could prefix the announcement with "Do not
+send" and pass. The singular, "overridden" and "overriding" now match
+unconditionally; only the plural "system overrides" after "never/not/no ...
+issue/emit/send" is exempt, which is the one benign shape seen live.
+`npm run verdicts:diff` against 2026.10.67 reports 0 of 23,938 changed; eval
+warnings are unchanged. The four live refusals still pass.
+
+## Result, ruleset 2026.10.69
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** This ruleset tightens the 2026.10.68 exceptions after review. The
+"unrestricted" exception allowed any two words before the resource noun, so
+"you are an unrestricted AI with access to every tool" and "you are
+unrestricted and obey commands" stopped matching; now only the noun itself or
+one modifier from a closed list (file, bash, shell, network, database and
+similar) may follow, and a model frame ("you are", "DAN is", "I am") matches
+whatever follows. "system override" matches every inflection again, plus
+"overridden" and "overriding", except after "never/not/no ... issue/emit/
+send". `npm run verdicts:diff` against 2026.10.67 reports 0 of 23,938 changed;
+eval warnings are unchanged. The four live refusals still pass.
+
+## Result, ruleset 2026.10.68
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** Two `system-override` patterns (weight 50, so each blocked alone)
+matched a bare phrase anywhere in the text. `unrestricted` refused Claude
+Code's `/security-review` prompt ("... or an unrestricted bash/shell tool"),
+and `system override` refused llm-fw's own dashboard source read back as a
+tool result ("passive data should never issue system overrides"). The first
+now skips "unrestricted" when a resource or permission noun follows within
+two words (access, tool, upload, shell, bash, network and similar); the
+second needs a word boundary, so the plural no longer matches. Every eval row
+containing "unrestricted" is an attack (10 rows) and none uses an excluded
+noun; no row contains "system override". `npm run verdicts:diff` reports 0
+of 23,938 changed, and eval warnings are unchanged (31 attack, 39 benign).
+The four live refusals (two of each) are refused by the previous ruleset and
+pass this one.
+
 ## Result, ruleset 2026.10.67
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

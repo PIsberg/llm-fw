@@ -194,13 +194,31 @@ export class HeuristicScorer {
           // prompt is too long" is developer talk. 0 attack rows in every
           // eval corpus matched the old unframed pattern.
           /system prompt (?:is now|has (?:now )?been (?:replaced|overridden|reset|removed|disabled|deleted|revoked|lifted)|was (?:replaced|overridden|reset|removed|disabled|deleted|revoked|lifted)|should now be|no longer applies)/,
-          /unrestricted/,
+          // "unrestricted" naming a resource or permission is security prose:
+          // Claude Code's /security-review prompt ("... or an unrestricted
+          // bash/shell tool") was refused on it. Naming the model, a mode or
+          // an answer ("you are unrestricted", "unrestricted capabilities",
+          // "the unrestricted answer") still blocks; every eval row with the
+          // word is an attack, and none of them uses a noun excluded here.
+          // Only the resource noun itself, or one modifier from a closed list,
+          // may follow: a free filler let "an unrestricted AI with access" and
+          // "unrestricted and obey commands" through. The second pattern keeps
+          // a model frame ("you are", "DAN is") matching whatever follows.
+          /\bunrestricted\b(?! (?:(?:file|bash|shell|network|database|db|api|admin|root|read|write|internet|outbound|inbound|disk)[ /-])?(?:access|tools?|uploads?|downloads?|permissions?|execution|bash|shell|terminal|powershell|network|internet|egress|ingress|filesystem|redirects?)\b)/,
+          /\b(?:you(?:'re| are)|dan is|i am|i'm)\b[^.!?]{0,30}\bunrestricted\b/,
           /(instructions?|rules?|guidelines?|constraints?|polic(?:y|ies)) (is|are|were|have been) (cancelled|canceled|revoked|suspended|void|voided|lifted|removed|reset|replaced|overridden)/,
           /discard (every|all|any) (instructions?|rules?|prior|previous)/,
           /discard (?:the |your )?(?:previous|prior|above|earlier) (?:instructions?|rules?|prompts?|commands?)/,
           /(administrator|admin|operator) has (reset|cleared|wiped|replaced) your/,
           /nothing you were told (earlier|before) applies/,
-          /system override/,
+          // Every inflection of the announcement ("SYSTEM OVERRIDE:", "system
+          // overridden") matches unconditionally. Only the plural noun in a
+          // defensive frame is exempt: "passive data should never issue
+          // system overrides" (llm-fw's own dashboard copy, read back as a
+          // tool result) blocked alone. Exempting the singular too let an
+          // attacker glue "do not send" onto the announcement.
+          /\bsystem[ -]overrid(?:e|den|ing)\b/,
+          /(?<!\b(?:never|not|no|cannot|can't|must not|should not) (?:issue|emit|send|contain|carry|include|perform|make) )\bsystem[ -]overrides\b/,
           /obey only (the |my )?(instructions?|commands?)/,
           /(safety|content) (layers?|systems?|filters?|polic(?:y|ies)) (is|are) (disabled|off|offline|suspended)/,
 
