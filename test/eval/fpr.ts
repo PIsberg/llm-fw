@@ -162,6 +162,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.71 (negated prefix-injection lead-in ignored; a
+  // soft harmful-request object takes its verb from 120 characters around it;
+  // "hydrogen cyanide" a hard object; measured, no row moved).
   // Held at ruleset 2026.10.70 (only the plural "system overrides" keeps the
   // defensive-frame exemption; measured, no row moved).
   // Held at ruleset 2026.10.69 (the 2026.10.68 exceptions tightened: one

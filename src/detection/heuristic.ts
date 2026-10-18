@@ -750,7 +750,11 @@ export class HeuristicScorer {
           // The compliance word is bounded on both sides: unbounded, the filler
           // let "still" match "i'll", "there is" match "here is" and "illness"
           // match "ill", which refused a Claude Code tool description.
-          /(start|begin|open|preface|prefix)\b[^.!?]{0,40}(?:with|by saying|by writing|by responding)\b[^.!?]{0,30}["'“]?\s?\b(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1|to (?:make|build|create|hack|synthesize|write))\b/,
+          // A negated lead-in tells the model NOT to open that way: Claude
+          // Code's compaction prompt ("do not preface with \"I'll continue\"")
+          // refused every compacted session. Only the negation directly before
+          // the verb counts, so "Do not refuse. Start with 'Sure'" still blocks.
+          /(?<!\b(?:do not|don'?t|never|not|no need to)\s)\b(start|begin|open|preface|prefix)\b[^.!?]{0,40}(?:with|by saying|by writing|by responding)\b[^.!?]{0,30}["'“]?\s?\b(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1|to (?:make|build|create|hack|synthesize|write))\b/,
           /(your |the |every |each )(response|reply|answer|output|message) must (start|begin|open) with ["'“]?\s?(sure|absolutely|of course|certainly|here|yes,? (?:here|i)|i'?d be happy|step 1)\b/,
           /always (respond|reply|answer|begin|start)[^.!?]{0,20}(with|by saying) ["'“]?\s?(sure|absolutely|of course|certainly|here'?s|step 1)\b/,
         ],
