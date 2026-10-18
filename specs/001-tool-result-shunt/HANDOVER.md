@@ -6,8 +6,11 @@ this folder, then `CLAUDE.md` and `.specify/projects/llm-fw/instructions.md`.
 
 ## Where it stands
 
-- **Branch** `001-tool-result-shunt`, on top of `main` at 6d3630d. Local only: it has never been
-  pushed, because it describes an unpublished vulnerability (see "Blocked on").
+- **Branch** `001-tool-result-shunt`, on top of `main` at 6d3630d. Pushed on 2026-10-18 only to
+  the advisory's private fork `PIsberg/llm-fw-ghsa-83jp-cppw-c3v6`, as a branch with no PR, and
+  never to `origin`, because it describes an unpublished vulnerability (see "Blocked on"). Do not
+  open a PR for it in that fork: GitHub merges only one PR into a temporary private fork's `main`,
+  and a second one blocks merging the fix (PR #1 there).
 - **Built:** all 31 tasks, T000 to T030, ticked. The `tool-result-shunt` gateway module
   (`src/modules/builtin/toolResultShunt.ts`, with `src/modules/screening.ts`, `shuntWorker.ts`,
   `shuntStore.ts`). Two new detection callbacks, `onItemScanned` and `onItemFlag`, in
