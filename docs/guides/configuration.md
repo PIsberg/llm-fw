@@ -187,7 +187,9 @@ altered. Savings are estimated over the text it examined, with a run of
 spaces counted as one token (see [Token savings](token-savings.md#how-savings-are-counted)), and shown live in the dashboard header and at `GET /api/modules`.
 Under observe mode it runs as a dry run and forwards the original body.
 `modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
-whole module pipeline. Both keys are hot-reloaded. Every token-saving module,
+whole module pipeline: it is the switch of the **Token Economy** parent module
+(see [Token savings](token-savings.md#token-economy-the-parent-switch)), and
+each module keeps its own switch while it is off. Both keys are hot-reloaded. Every token-saving module,
 with what it rewrites and what to watch for, is in
 [Token savings](token-savings.md). The design is in
 [SPEC-modules.md](../specs/SPEC-modules.md).

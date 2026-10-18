@@ -147,6 +147,38 @@ test.describe('Modules tab (#341)', () => {
     await expect(card.locator('[data-kpi="requests"]')).toHaveText('3')
   })
 
+  // Token Economy is the parent switch (modules.enabled): off, the sub-module
+  // cards dim but keep their own switches.
+  test('switches Token Economy off and dims the sub-modules', async ({ page }) => {
+    let economy = true
+    const posts: unknown[] = []
+    await page.route('**/api/modules', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { id: string; enabled: boolean }
+        posts.push(body)
+        if (body.id === 'token-economy') economy = body.enabled
+        await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true, tokenEconomy: { id: 'token-economy', name: 'Token Economy', enabled: economy } }) })
+        return
+      }
+      const base = JSON.parse(modulesBody({ saved: 0, original: 0, pct: 0 }))
+      await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, tokenEconomy: { id: 'token-economy', name: 'Token Economy', enabled: economy } }) })
+    })
+    await page.goto('/')
+    await page.click('button:has-text("Modules")')
+
+    const toggle = page.locator('#token-economy-toggle')
+    await expect(toggle).toBeChecked()
+    await expect(page.locator('#module-cards')).not.toHaveClass(/economy-off/)
+    await expect(page.locator('.module-card[data-module="token-pruner"] input')).toBeChecked()
+
+    await toggle.uncheck()
+    await expect(page.locator('#module-cards')).toHaveClass(/economy-off/)
+    await expect(toggle).not.toBeChecked()
+    expect(posts).toEqual([{ id: 'token-economy', enabled: false }])
+    // The sub-module's own switch is untouched.
+    await expect(page.locator('.module-card[data-module="token-pruner"] input')).toBeChecked()
+  })
+
   test('marks a dry-run row as observed, not saved', async ({ page }) => {
     const server = await gatedServer(page, { saved: 0, original: 0, pct: 0 })
     await page.goto('/')

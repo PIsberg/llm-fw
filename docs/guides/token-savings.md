@@ -19,8 +19,25 @@ without a restart, in any of these ways:
 - editing `config.json`, which is hot-reloaded,
 - the `LLM_FW_*_ENABLED` environment variable, at start-up.
 
-`modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
-whole pipeline.
+## Token Economy, the parent switch
+
+Every module is a sub-module of **Token Economy**. Its switch is
+`modules.enabled` (default `true`, `LLM_FW_MODULES_ENABLED`), and off, no
+module runs on the proxy or the gateway, the usage meter included. Turning it
+off leaves each module's own switch as it was, so turning it back on restores
+exactly the set that ran before. Flip it live, without a restart:
+
+- the toggle on the **Token Economy** card at the top of the **Modules** tab,
+  which dims the sub-module cards while it is off and persists the change to
+  `~/.llm-fw/config.json`,
+- `POST /api/modules` with `{"id": "token-economy", "enabled": false}`;
+  `GET /api/modules` reports it as
+  `"tokenEconomy": {"id": "token-economy", "name": "Token Economy", "enabled": true}`,
+- editing `modules.enabled` in `config.json`, which is hot-reloaded.
+
+Switching it changes what the provider receives on the next request, so on a
+conversation that a rewriting module was already shaping, the next turn is one
+cache write, the same as switching any one module.
 
 ## What every module guarantees
 

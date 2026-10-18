@@ -262,6 +262,8 @@ const HTML = `<!DOCTYPE html>
   .module-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .module-card-name { font-weight: 600; }
   .module-card-desc { color: #666; font-size: 0.8rem; margin: 4px 0 12px; }
+  .economy-card { margin-bottom: 12px; border-color: #b0bec5; }
+  .module-cards.economy-off .module-card { opacity: 0.5; }
   .module-kpis { display: flex; gap: 24px; flex-wrap: wrap; }
   .module-kpi-value { font-size: 1.3rem; font-weight: 700; }
   .module-saved { color: #2e7d32; font-weight: 700; }
@@ -387,6 +389,11 @@ const HTML = `<!DOCTYPE html>
 
   <div id="tab-modules" class="tab-panel">
     <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
+    <div class="module-card economy-card" id="token-economy-card">
+      <div class="module-card-head"><span class="module-card-name">Token Economy</span>
+      <label style="font-size:0.8rem;cursor:pointer"><input type="checkbox" id="token-economy-toggle"> Enabled</label></div>
+      <div class="module-card-desc" id="token-economy-desc">The parent of every module below. Off, no module runs on the proxy or the gateway, and each keeps its own switch for when it comes back on.</div>
+    </div>
     <div class="module-cards" id="module-cards"></div>
     <div class="tlog-wrap">
       <div class="tlog-title">Recent Activity</div>
@@ -956,12 +963,23 @@ function updateModuleStats(data) {
   }
 }
 
+// Token Economy: the parent switch (modules.enabled). Off, the sub-module
+// cards are dimmed; their own switches keep their state.
+function renderTokenEconomy(te) {
+  const toggle = document.getElementById('token-economy-toggle');
+  if (!toggle || !te) return;
+  toggle.checked = !!te.enabled;
+  document.getElementById('module-cards').classList.toggle('economy-off', !te.enabled);
+}
+document.getElementById('token-economy-toggle').onchange = function () { setModuleEnabled('token-economy', this); };
+
 async function loadModuleStats() {
   try {
     const res = await fetch('/api/modules');
     if (res.ok) {
       const data = await res.json();
       updateModuleStats(data);
+      renderTokenEconomy(data.tokenEconomy);
       if (Array.isArray(data.modules)) renderModuleCards(data.modules);
     }
   } catch(_) {}
@@ -2306,6 +2324,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({
         ...summary,
+        tokenEconomy: modManager.getTokenEconomy(),
         modules: modManager.listModules().map(m => ({ ...m.getStats(), description: m.description })),
         summary,
       }))
@@ -2339,7 +2358,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           // a reference to it), so persisting config persists the toggle.
           persistSettings(config, before)
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ ok: true, module: modManager.getModule(patch.id)?.getStats() }))
+          res.end(JSON.stringify({ ok: true, module: modManager.getModule(patch.id)?.getStats(), tokenEconomy: modManager.getTokenEconomy() }))
         } catch (err) {
           log.error('/api/modules handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })

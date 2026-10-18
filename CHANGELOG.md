@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Token Economy, one switch for every token-saving module.** The modules are now
+  sub-modules of a Token Economy parent with its own toggle at the top of the dashboard's
+  **Modules** tab, `POST /api/modules {"id": "token-economy", "enabled": false}`, and a
+  `tokenEconomy` object in `GET /api/modules`. Its switch is the existing `modules.enabled`
+  (`LLM_FW_MODULES_ENABLED`), so no config changes; before, that key could only be set in
+  `config.json` or the environment, and nothing on the dashboard showed it. Off, no module runs on
+  the proxy or the gateway, and each keeps its own switch for when it comes back on.
+
 - **Tool Filter module (`modules.toolFilter`).** Removes the tools named in `dropTools`
   (exact names or `*` patterns) from every request's tool list, in the Anthropic, OpenAI chat,
   Responses API and Gemini shapes. Off, with an empty list, by default. A tool the conversation
