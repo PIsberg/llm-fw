@@ -5,12 +5,33 @@ import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 
+type Matcher = (name: string) => boolean
+
 // `*` matches any run of characters, `__` included; the rest is literal and
-// the pattern spans the whole name.
-function compile(patterns: string[]): RegExp | null {
-  const parts = patterns.filter(p => typeof p === 'string' && p !== '')
-    .map(p => p.split('*').map(s => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*'))
-  return parts.length > 0 ? new RegExp(`^(?:${parts.join('|')})$`) : null
+// the pattern spans the whole name. Matched without a RegExp: a pattern with
+// several stars compiled to `.*` runs backtracked for minutes on a long name
+// that almost matched, holding the event loop. Taking each literal piece at
+// its first occurrence after the previous one is enough for `*` alone, and
+// stays linear in the name.
+function globMatches(pieces: string[], name: string): boolean {
+  if (pieces.length === 1) return name === pieces[0]
+  const first = pieces[0]!
+  const last = pieces[pieces.length - 1]!
+  if (name.length < first.length + last.length || !name.startsWith(first) || !name.endsWith(last)) return false
+  const end = name.length - last.length
+  let at = first.length
+  for (let i = 1; i < pieces.length - 1; i++) {
+    const piece = pieces[i]!
+    const found = name.indexOf(piece, at)
+    if (found < 0 || found + piece.length > end) return false
+    at = found + piece.length
+  }
+  return true
+}
+
+function compile(patterns: string[]): Matcher | null {
+  const globs = patterns.filter(p => typeof p === 'string' && p !== '').map(p => p.split('*'))
+  return globs.length > 0 ? name => globs.some(g => globMatches(g, name)) : null
 }
 
 // A tool's name in the Anthropic, OpenAI chat, Responses API and Gemini
@@ -68,27 +89,27 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
   readonly description = 'Removes the tools you name from every request\'s tool list, so unused definitions stop being billed on each turn'
 
   private dropped = 0
-  private compiled: { key: string, re: RegExp | null } = { key: '', re: null }
+  private compiled: { key: string, match: Matcher | null } = { key: '', match: null }
 
   constructor(config?: ToolFilterConfig) {
     super(config ?? { enabled: false, dropTools: [] })
   }
 
   // Recompiled only when hot reload changes the list.
-  private pattern(): RegExp | null {
+  private pattern(): Matcher | null {
     const list = Array.isArray(this.cfg.dropTools) ? this.cfg.dropTools : []
     const key = JSON.stringify(list)
-    if (key !== this.compiled.key) this.compiled = { key, re: compile(list) }
-    return this.compiled.re
+    if (key !== this.compiled.key) this.compiled = { key, match: compile(list) }
+    return this.compiled.match
   }
 
   protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
-    const re = this.pattern()
-    if (!re || !Array.isArray(payload.tools) || payload.tools.length === 0) return null
+    const matches = this.pattern()
+    if (!matches || !Array.isArray(payload.tools) || payload.tools.length === 0) return null
     const keep = namesInUse(payload)
     const drops = (def: unknown): boolean => {
       const name = toolName(def)
-      return name !== undefined && re.test(name) && !keep.has(name) && !(isObj(def) && 'cache_control' in def)
+      return name !== undefined && matches(name) && !keep.has(name) && !(isObj(def) && 'cache_control' in def)
     }
     const size = (def: unknown): number => estimate(JSON.stringify(def), estimates)
 

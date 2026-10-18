@@ -33,6 +33,27 @@ describe('ToolFilterModule', () => {
     expect(res.modified).toBe(false)
   })
 
+  it('matches several stars, a star at either end, and regex characters literally', () => {
+    const body = JSON.stringify({
+      tools: [tool('mcp__a__x__run'), tool('mcp__b__run'), tool('Cron.Create'), tool('CronXCreate'), tool('Keep')],
+      messages: [{ role: 'user', content: 'hi' }],
+    })
+    expect(names(filter(['mcp__*__*__run', 'Cron.Create', '*eep*x']).transformRequest(body, ctx).body))
+      .toEqual(['mcp__b__run', 'CronXCreate', 'Keep'])
+    expect(names(filter(['*run', 'Cron*']).transformRequest(body, ctx).body)).toEqual(['Keep'])
+  })
+
+  // dropTools is turned into a matcher, so a pattern with many stars must not
+  // backtrack on a long name that almost matches.
+  it('stays linear on a many-star pattern against a long near-miss name', () => {
+    const long = 'a'.repeat(4000)
+    const body = JSON.stringify({ tools: [tool(long), tool('Keep')], messages: [{ role: 'user', content: 'hi' }] })
+    const started = performance.now()
+    const res = filter(['a*a*a*a*a*a*a*a*a*a*b']).transformRequest(body, ctx)
+    expect(performance.now() - started).toBeLessThan(250)
+    expect(res.modified).toBe(false)
+  })
+
   it('counts the dropped definitions as the saving', () => {
     const mod = filter(['NotebookEdit'])
     mod.transformRequest(anthropic(), ctx)
