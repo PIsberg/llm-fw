@@ -60,6 +60,23 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.68
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each.** Two `system-override` patterns (weight 50, so each blocked alone)
+matched a bare phrase anywhere in the text. `unrestricted` refused Claude
+Code's `/security-review` prompt ("... or an unrestricted bash/shell tool"),
+and `system override` refused llm-fw's own dashboard source read back as a
+tool result ("passive data should never issue system overrides"). The first
+now skips "unrestricted" when a resource or permission noun follows within
+two words (access, tool, upload, shell, bash, network and similar); the
+second needs a word boundary, so the plural no longer matches. Every eval row
+containing "unrestricted" is an attack (10 rows) and none uses an excluded
+noun; no row contains "system override". `npm run verdicts:diff` reports 0
+of 23,938 changed, and eval warnings are unchanged (31 attack, 39 benign).
+The four live refusals (two of each) are refused by the previous ruleset and
+pass this one.
+
 ## Result, ruleset 2026.10.67
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
