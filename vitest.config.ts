@@ -17,6 +17,10 @@ export default defineConfig({
     // in isolation). Give setup/teardown hooks generous headroom — a hung hook
     // still fails, just later.
     hookTimeout: 120000,
+    // V8 coverage slows all code in the worker, not only the files it reports
+    // on, so a latency bound checked under it measures the instrumentation.
+    // Latency tests skip on this flag; `npm run test:run` still checks them.
+    env: { LLM_FW_TEST_COVERAGE: process.argv.includes('--coverage') ? 'true' : '' },
     coverage: {
       provider: 'v8',
       include: ['src/detection/**'],

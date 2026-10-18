@@ -492,10 +492,9 @@ describe('--repo may not carry project settings of its own (FR-020, security rev
   })
 
   const SETTINGS = ['settings.json', 'settings.local.json']
-  const nameOf = (file: string): RegExp => new RegExp(file.replace(/\./g, '\\.'))
 
   it.each(SETTINGS)('checkRepoSettings throws, naming the file, for a repo with .claude/%s: --setting-sources project would load its hooks and permissions', file => {
-    expect(() => checkRepoSettings(repoWith([`.claude/${file}`]))).toThrow(nameOf(file))
+    expect(() => checkRepoSettings(repoWith([`.claude/${file}`]))).toThrow(file)
   })
 
   it('checkRepoSettings accepts a repo without a .claude folder, and one whose .claude holds neither settings file', () => {
@@ -510,7 +509,7 @@ describe('--repo may not carry project settings of its own (FR-020, security rev
     // The scratch directory is the first thing runApproved writes. Stopping there keeps this test from starting a proxy or an agent.
     const mkdtemp = vi.spyOn(fs, 'mkdtempSync').mockImplementation(() => { throw new Error('scratch directory created') })
 
-    await expect(runApproved(argsFor(flagged), [FAILING])).rejects.toThrow(nameOf(file))
+    await expect(runApproved(argsFor(flagged), [FAILING])).rejects.toThrow(file)
     expect(mkdtemp).not.toHaveBeenCalled()
 
     // The control: the same call for a repo without settings gets past the check and reaches the scratch directory.

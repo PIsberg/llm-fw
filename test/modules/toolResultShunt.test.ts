@@ -820,7 +820,8 @@ describe('ToolResultShuntModule: condensing a tool result', { timeout: 60_000 },
       expect(shuntWarnings()).toHaveLength(1)
     })
 
-    it('does not ask the worker, and adds under 5 ms at the median, for a request with no eligible result (US3-5, SC-005)', async () => {
+    // About 0.5 ms uninstrumented; 2.6 ms under --coverage locally and 5.3 ms on a CI runner, so the bound is only checked without it.
+    it.skipIf(process.env.LLM_FW_TEST_COVERAGE === 'true')('does not ask the worker, and adds under 5 ms at the median, for a request with no eligible result (US3-5, SC-005)', async () => {
       await expectLive()
       const asked = worker.received.length
       // Thirty turns of 40-line outputs: all below the threshold.
