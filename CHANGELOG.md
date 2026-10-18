@@ -210,6 +210,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The history window now cuts agent conversations, and keeps the window it promises.** It used
+  to move each cut forward to the next plain user turn, so a tool call was never separated from
+  its result. An agent loop has no plain user turn for hundreds of turns, so over 30 days of one
+  developer's Claude Code transcripts the window did nothing on 3,997 of 7,144 over-limit
+  requests, and a cut that did happen kept a median 26 messages fewer than intended, once a single
+  message. It now cuts at the step itself (or the user turn right after it) and sends the results
+  of a call it dropped as text behind `[llm-fw: result of an omitted tool call]`, since the API
+  refuses a `tool_result` whose `tool_use` is not in the request (verified: 400). On a fresh
+  sample of 5,678 over-limit requests every one was cut and kept 75 to 99 messages with the
+  defaults (window 100, step 25), and the API accepted the cut requests.
+
 - **Long agent prompts no longer read as requests for hateful content (ruleset 2026.10.78).**
   The harmful-request rule for incitement joins a topic word ("conflict", "war", "immigration"),
   a framing word ("should", "evidence", "promote") and a production verb, and took all three from

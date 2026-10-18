@@ -523,9 +523,13 @@ the model no longer sees the turns it drops.
 | `step` | `25` | Turns dropped at a time. |
 
 When a conversation is longer than `maxMessages`, the oldest turns are dropped
-in whole steps, and the cut then moves forward to the first plain user turn,
-so a tool call is never separated from its result. The first kept turn starts
-with `[llm-fw: N earlier messages omitted]`. Works on OpenAI chat, Anthropic
+in whole steps. The kept history starts at the step, or at the user turn right
+after it when the step lands on an assistant turn, and the first kept turn
+starts with `[llm-fw: N earlier messages omitted]`. A tool result whose call
+was dropped is sent as user text behind `[llm-fw: result of an omitted tool
+call]`, because providers refuse a result whose call is not in the request.
+The cut therefore never waits for a plain user turn, which an agent loop may
+not have for hundreds of turns. Works on OpenAI chat, Anthropic
 and Gemini conversations. Requests whose history lives on the server are left
 alone: a Responses API request with `previous_response_id`, and an Anthropic
 thread continuation (`thread.type` is `continue`), whose messages are all new.
