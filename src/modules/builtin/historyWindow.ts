@@ -8,18 +8,61 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 
 const marker = (dropped: number): string => `[llm-fw: ${dropped} earlier messages omitted]`
 
+const ORPHAN = '[llm-fw: result of an omitted tool call]'
+
 // Where to cut a conversation of `n` turns: past the window by a whole
-// number of steps, then forward to the first plain user turn, so a tool
-// call is never separated from its result and the kept history starts the
-// way every provider requires. Null when nothing needs cutting or no plain
-// user turn follows.
-function cutIndex(n: number, maxMessages: number, step: number, isPlainUser: (i: number) => boolean): number | null {
+// number of steps, then forward to the first turn on the user's side (a user
+// or tool message), so the kept history starts the way every provider
+// requires. Results whose call was dropped are turned into text afterwards
+// (see orphanText), so the cut never has to wait for a plain user turn: an
+// agent loop has none for hundreds of turns. Null when nothing needs cutting
+// or no user-side turn follows.
+function cutIndex(n: number, maxMessages: number, step: number, isUserSide: (i: number) => boolean): number | null {
   const max = Math.max(2, Math.floor(maxMessages))
   if (n <= max) return null
   const s = Math.max(1, Math.floor(step))
   let cut = Math.ceil((n - max) / s) * s
-  while (cut < n && !isPlainUser(cut)) cut++
+  while (cut < n && !isUserSide(cut)) cut++
   return cut < n ? cut : null
+}
+
+// An Anthropic tool_result as user content: its text behind the ORPHAN
+// line, any image or document parts after it.
+function orphanBlocks(result: Obj): unknown[] {
+  const parts: unknown[] = typeof result.content === 'string'
+    ? [{ type: 'text', text: result.content }]
+    : Array.isArray(result.content) ? result.content : []
+  const out: unknown[] = []
+  let labelled = false
+  for (const part of parts) {
+    if (!labelled && isObj(part) && part.type === 'text' && typeof part.text === 'string') {
+      out.push({ type: 'text', text: `${ORPHAN}\n${part.text}` })
+      labelled = true
+    } else {
+      out.push(part)
+    }
+  }
+  if (!labelled) out.unshift({ type: 'text', text: ORPHAN })
+  return out
+}
+
+// Kept turns whose tool call was cut off: a provider refuses a result whose
+// call is not in the request, so each becomes user text.
+function orphanText(kept: Obj[]): void {
+  const calls = new Set<string>()
+  for (const m of kept) {
+    if (Array.isArray(m.tool_calls)) for (const c of m.tool_calls) if (isObj(c) && typeof c.id === 'string') calls.add(c.id)
+    if (m.role === 'assistant' && Array.isArray(m.content)) for (const b of m.content) if (isObj(b) && b.type === 'tool_use' && typeof b.id === 'string') calls.add(b.id)
+  }
+  for (const m of kept) {
+    if (m.role === 'tool' && !(typeof m.tool_call_id === 'string' && calls.has(m.tool_call_id))) {
+      const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')
+      for (const key of Object.keys(m)) delete m[key]
+      Object.assign(m, { role: 'user', content: `${ORPHAN}\n${text}` })
+    } else if (m.role === 'user' && Array.isArray(m.content)) {
+      m.content = (m.content as unknown[]).flatMap((b): unknown[] => isObj(b) && b.type === 'tool_result' && !(typeof b.tool_use_id === 'string' && calls.has(b.tool_use_id)) ? orphanBlocks(b) : [b])
+    }
+  }
 }
 
 const textTokens = (payload: unknown, estimates: Map<string, number>): number =>
@@ -63,16 +106,15 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     let lead = 0
     while (lead < messages.length && isObj(messages[lead]) && ((messages[lead] as Obj).role === 'system' || (messages[lead] as Obj).role === 'developer')) lead++
     const turns = messages.slice(lead)
-    const isPlainUser = (i: number): boolean => {
+    const isUserSide = (i: number): boolean => {
       const m = turns[i]
-      if (!isObj(m) || m.role !== 'user') return false
-      if (typeof m.content === 'string') return true
-      return Array.isArray(m.content) && !m.content.some(b => isObj(b) && b.type === 'tool_result')
+      return isObj(m) && (m.role === 'user' || m.role === 'tool')
     }
-    const cut = cutIndex(turns.length, this.cfg.maxMessages, this.cfg.step, isPlainUser)
+    const cut = cutIndex(turns.length, this.cfg.maxMessages, this.cfg.step, isUserSide)
     if (cut === null) return false
 
     const kept = turns.slice(cut).map(m => structuredClone(m) as Obj)
+    orphanText(kept)
     const first = kept[0]!
     if (typeof first.content === 'string') first.content = `${marker(cut)}\n\n${first.content}`
     else (first.content as unknown[]).unshift({ type: 'text', text: marker(cut) })
@@ -88,16 +130,19 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
   }
 
   // Gemini: the system instruction is a separate field; a user turn that
-  // answers a function call carries a functionResponse part.
+  // answers a function call carries a functionResponse part, which becomes
+  // text when the call before it is cut off.
   private windowContents(payload: Obj, contents: unknown[]): boolean {
-    const isPlainUser = (i: number): boolean => {
+    const isUserSide = (i: number): boolean => {
       const c = contents[i]
-      return isObj(c) && c.role === 'user' && Array.isArray(c.parts) && !c.parts.some(p => isObj(p) && 'functionResponse' in p)
+      return isObj(c) && c.role === 'user' && Array.isArray(c.parts)
     }
-    const cut = cutIndex(contents.length, this.cfg.maxMessages, this.cfg.step, isPlainUser)
+    const cut = cutIndex(contents.length, this.cfg.maxMessages, this.cfg.step, isUserSide)
     if (cut === null) return false
     const kept = contents.slice(cut).map(c => structuredClone(c) as Obj)
-    ;(kept[0]!.parts as unknown[]).unshift({ text: marker(cut) })
+    const first = kept[0]!
+    first.parts = (first.parts as unknown[]).map(p => isObj(p) && 'functionResponse' in p ? { text: `${ORPHAN}\n${JSON.stringify(p.functionResponse)}` } : p)
+    ;(first.parts as unknown[]).unshift({ text: marker(cut) })
     payload.contents = kept
     return true
   }
