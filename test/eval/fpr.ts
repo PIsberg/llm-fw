@@ -162,6 +162,40 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.79 (module defaults in config.ts only, no
+  // detector change; measured, no row moved).
+  // Held at ruleset 2026.10.78 (harmful-request incite frame within 120
+  // characters of its topic; measured, no row moved).
+  // Held at ruleset 2026.10.77 ("email" in noun position beside an address
+  // is not an exfil verb; measured, no row moved).
+  // Held at ruleset 2026.10.76 (unified-diff line markers stripped before
+  // the whitespace collapse; measured, no row moved).
+  // Held at ruleset 2026.10.75 (polite "add" needs an object in its own
+  // sentence; a quoted "e.g." example is not an imperative; measured, no row moved).
+  // Held at ruleset 2026.10.74 (the config-key exemption narrowed to a
+  // dotted key whose assigned value is that address; measured, no row moved).
+  // Held at ruleset 2026.10.73 (a send-class word that ends a config key,
+  // `user.email=`, is not an exfil verb; measured, no row moved).
+  // Held at ruleset 2026.10.72 (a negated lead-in with an exception, "other
+  // than"/"but"/"except", still matches; bare "not" no longer a negation;
+  // measured, no row moved).
+  // Held at ruleset 2026.10.71 (negated prefix-injection lead-in ignored; a
+  // soft harmful-request object takes its verb from 120 characters around it;
+  // "hydrogen cyanide" a hard object; measured, no row moved).
+  // Held at ruleset 2026.10.70 (only the plural "system overrides" keeps the
+  // defensive-frame exemption; measured, no row moved).
+  // Held at ruleset 2026.10.69 (the 2026.10.68 exceptions tightened: one
+  // closed-list modifier, model frame always matches, every "system
+  // override" inflection outside a defensive frame; measured, no row moved).
+  // Held at ruleset 2026.10.68 ("unrestricted" naming a resource and the
+  // plural "system overrides" no longer block alone; measured, no row moved).
+  // Held at ruleset 2026.10.67 (embedding warn needs the contrastive margin;
+  // "original request/commands" no longer the model's own; warns only, no
+  // block verdict moved).
+  // Held at ruleset 2026.10.66 (prefix-injection compliance word bounded as
+  // a whole word; measured, no row moved).
+  // Held at ruleset 2026.10.65 (Responses API tool output extracted for
+  // detection; no eval row has that shape; measured, no row moved).
   // Held at ruleset 2026.10.64 (token-saving module defaults in config.ts,
   // all off but the response-only usage meter; detection never sees them).
   // Held at ruleset 2026.10.63 (no line break crossed after a verb on a

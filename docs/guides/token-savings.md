@@ -6,7 +6,7 @@ The firewall already sits on every LLM request, so it can also make requests
 cheaper before they leave. Each technique below is a separate gateway module
 with its own switch, its own KPIs on the dashboard's **Modules** tab, and its
 own live events. All of them are off by default, because each one changes what
-the provider receives.
+the provider receives, except the usage meter and tool usage, which only read.
 
 ## Turning a module on and off
 
@@ -19,8 +19,44 @@ without a restart, in any of these ways:
 - editing `config.json`, which is hot-reloaded,
 - the `LLM_FW_*_ENABLED` environment variable, at start-up.
 
-`modules.enabled: false` (or `LLM_FW_MODULES_ENABLED=false`) turns off the
-whole pipeline.
+### Changing a module's options
+
+Every option listed under a module below (`historyWindow.maxMessages`,
+`toolResultTruncate.skipTools`, `cacheControl.ttl` and the rest) can be
+changed live as well:
+
+- under **Options** on the module's card in the dashboard's **Modules** tab,
+  which validates each field against the module's bounds, applies the change
+  to the next request and persists it to `~/.llm-fw/config.json`,
+- `POST /api/modules` with `{"id": "<module id>", "options": {"maxMessages": 50}}`,
+  alone or together with `"enabled"`; a bad value gets a 400 that names the
+  option and nothing is changed, and `GET /api/modules` lists each module's
+  `options` with their type, bounds and live value,
+- editing `config.json`, which is hot-reloaded.
+
+Changing an option of a rewriting module in the middle of a conversation has
+the same effect as switching the module, under
+[Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
+
+## Token Economy, the parent switch
+
+Every module is a sub-module of **Token Economy**. Its switch is
+`modules.enabled` (default `true`, `LLM_FW_MODULES_ENABLED`), and off, no
+module runs on the proxy or the gateway, the usage meter included. Turning it
+off leaves each module's own switch as it was, so turning it back on restores
+exactly the set that ran before. Flip it live, without a restart:
+
+- the toggle on the **Token Economy** card at the top of the **Modules** tab,
+  which dims the sub-module cards while it is off and persists the change to
+  `~/.llm-fw/config.json`,
+- `POST /api/modules` with `{"id": "token-economy", "enabled": false}`;
+  `GET /api/modules` reports it as
+  `"tokenEconomy": {"id": "token-economy", "name": "Token Economy", "enabled": true}`,
+- editing `modules.enabled` in `config.json`, which is hot-reloaded.
+
+Switching it changes what the provider receives on the next request, so on a
+conversation that a rewriting module was already shaping, the next turn is one
+cache write, the same as switching any one module.
 
 ## What every module guarantees
 
@@ -155,7 +191,11 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
+| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
+| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
+| `tool-result-clear` | `modules.toolResultClear` | asks Anthropic to clear old tool results server side (lossy) |
+| `stream-usage` | `modules.streamUsage` | asks OpenAI-style chat streams to report usage; saves nothing, makes the meter complete |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `tool-result-shunt` | `modules.toolResultShunt` | very large shell, search and listing output, as a list of facts a local model read from it, with the original kept in a file; runs after DLP and detection (lossy) |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -204,6 +244,7 @@ head and tail usually carry the command, the error and the summary.
 | `tailLines` | `100` | Lines kept from the end. The middle becomes `[llm-fw: N lines elided]`. Both `0` turns the line cut off. |
 | `maxChars` | `40000` | After the line cut, a result still longer than this keeps two thirds of it from the head and one third from the tail, with `[llm-fw: N characters elided]` between; this catches one huge line, such as minified code. `0` is off. |
 | `skipTools` | the file readers below | Tools whose results are never cut. |
+| `skipCommands` | `cat`, `head`, `tail`, `sed`, `awk`, `nl`, `less`, `more`, `bat`, `tac`, `type`, `gc`, `Get-Content` | Programs that print a file. A result whose call has a `command` argument with any of these as a word (a shell tool running `cat src/x.ts` or `cd repo && sed -n 1,400p x.ts`) is never cut either. An entry with a hyphen matches in any case. |
 
 File reads stay whole. In the live round above, Claude Code read files
 through lean-ctx's `ctx_read` MCP tool, and after a read came back cut it read
@@ -227,10 +268,19 @@ history (the SDKs, Claude Code through the gateway) carries the call in the
 same request. Claude Code through the proxy continues a server-side thread
 and sends results without their calls, as does the Responses API with
 `previous_response_id`; there the module learns each call's tool from the
-response that made it. A result whose tool it cannot tell is cut:
-after a restart, while the module was off, or when that response was larger
-than `proxy.maxBodyBytes`. A file read through a shell tool (`cat` in
-`Bash`) is command output by name, so it is cut too.
+response that made it, the command included. A result whose tool it cannot
+tell is cut: after a restart, while the module was off, or when that response
+was larger than `proxy.maxBodyBytes`.
+
+A file read through a shell tool is recognised by its command, not its tool:
+a call whose `command` argument (a string, or Codex's argv array) has a word
+in `skipCommands` stays whole, wherever the word sits (`cd repo && sed -n
+1,400p x.ts`, `npm test | tail -30`). Over 30 days of one developer's Claude
+Code transcripts (61,639 tool results), `cat`, `sed` and `awk` in `Bash` were
+19.4% of the tokens the truncator removed, against 9.5% for all other shell
+output, on a machine that denies the native `Read` tool and so pushes reads
+into the shell. What the module still cuts there is command output proper:
+test runs, build logs, `git log`.
 
 For a client that resends its history, the cut depends only on the result
 and the call before it in the request, so the same history is sent the same
@@ -260,7 +310,7 @@ missing or stops, results are forwarded whole and one warning is logged.
 
 | Option | Default | Does |
 | --- | --- | --- |
-| `tools` | `["Bash", "PowerShell"]` | Shell tools whose results are sent, matched like `skipTools` above. The call's `command` argument must be a string. |
+| `tools` | `["Bash", "PowerShell", "shell", "run_shell_command"]` | Shell tools whose results are sent, matched like `skipTools` above: Claude Code's `Bash` and `PowerShell`, Codex CLI's `shell`, Gemini CLI's `run_shell_command`. The call's `command` argument must be a string, or the argv array Codex sends (`["bash", "-lc", "npm test"]`), which is read as one line, so a file read behind `bash -lc` stays whole. |
 | `skipCommands` | file printers, below | A result whose command has any of these as a word stays whole. |
 | `timeoutMs` | `500` | How long a request waits for lean-ctx. A result it has not answered by then is forwarded whole, on that turn and every later one. |
 
@@ -288,8 +338,31 @@ unique tool results, 29.0M tokens by the estimate above) with lean-ctx 3.11.0:
   output, and removed 185,630 tokens: 0.64% of all tool-result tokens, 25% of
   what it sent.
 
-What that does to the bill, and whether agents rerun commands whose output
-came back shortened, has not been measured yet.
+A billed A/B on 2026-10-17: 16 Claude Code 2.1.302 sessions (Claude Opus
+5.5) through the proxy on a clone of express, modules off against this module
+on, four tasks built around one long command each (`npm test`,
+`npm run test-cov`, `npm ls --all`, `npm run test-tap`), two rounds with
+the arm order swapped, answers checked against ground truth recorded before
+the run. Left to itself, the agent wrote the `npm test` output to a file and
+read it with `tail` and `grep`, which `skipCommands` leaves whole, so the
+module sent nothing. The prompts therefore asked for the commands unfiltered:
+
+| | Modules off | `lean-ctx` on |
+| --- | --- | --- |
+| Tasks answered correctly | 8 of 8 | 6 of 8 |
+| Turns | 24 | 23 |
+| Prompt tokens | 720,758 | 661,013 (−8.3%) |
+
+Both misses were `npm ls --all`: lean-ctx cut the 641-line dependency tree
+to about 15 lines and headed it "15 errors", after packages named
+`http-errors`, `es6-error` and `aggregate-error`, and the agent said it
+could not answer. It did not rerun the command, and turns did not go up. The
+billed cost is left out because it mostly measured run order: the arm that ran
+first in round one paid 62% of all cache writes.
+
+Keep this module off for an agent whose answer can depend on a line in the
+middle of command output. Its cuts are silent: the agent could report that it
+lacked the answer, not recover it.
 
 How llm-fw runs lean-ctx:
 
@@ -316,10 +389,88 @@ How llm-fw runs lean-ctx:
   shortened, with the consequences described under
   [Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
 - lean-ctx starts on the first request that needs it (45 to 78 ms on the
-  machine above) and stops when llm-fw exits. Switching the module off does
-  not stop it before then.
-- The Docker image does not include lean-ctx, so there the module forwards
-  every result whole.
+  machine above) and stops when llm-fw exits, when the module is switched off
+  on the dashboard or through `POST /api/modules`, or after 10 minutes without
+  a request that needed it. The idle stop is what covers a `config.json`
+  edit, which flips the switch without telling the module. The next request
+  that needs it starts it again.
+- The Docker image does not include lean-ctx unless it was built with the
+  `LEAN_CTX_VERSION` and `LEAN_CTX_SHA256` build arguments (see
+  [Docker](deployment-server.md#docker)); without them the module forwards
+  every result whole there.
+
+### Tool filter
+
+`modules.toolFilter.enabled` (`LLM_FW_TOOL_FILTER_ENABLED`), `modules.toolFilter.dropTools`.
+An agent sends a definition for every tool it has on every request, used or
+not, and the provider bills the whole list each time (as a cache read once it
+is cached). This removes the tools named in `dropTools`: an exact name, or a
+pattern where `*` matches any run of characters, over the whole name
+(`mcp__axiom__*`, `Cron*`). The list is empty by default, so turning the
+module on changes nothing until you name tools; which tools a client never
+needs is your call, and the model cannot call a tool it is not shown.
+
+What stays even when it is named:
+
+- a tool the conversation has already called, or that `tool_choice` (Gemini:
+  `allowedFunctionNames`) forces, since the provider refuses a request that
+  references a tool it was not given;
+- a tool that carries a `cache_control` breakpoint, which the client placed;
+- every tool, when all of them would go;
+- server tools without a name (`{"type": "web_search"}`), and tools a
+  conversation adds as `tool_addition` blocks, which are left to the client.
+
+A tool kept because the history calls it changes the tool list on the turn the
+call first appears, which is one cache write, the same as switching the module.
+Name only tools a client does not call, and that turn never comes.
+
+Measured on one captured Claude Code 2.1.302 request (44 tools, 21,798 tokens of
+definitions, sent on every request by a client pointed at a custom base URL):
+naming 27 tools, 26 that 30 days of this developer's transcripts never called
+and `Workflow`, called once (DesignSync, the cron and worktree tools, LSP,
+NotebookEdit, two MCP servers), cut the
+definitions to 11,347 tokens, 48%. Its effect on the bill is not measured; the
+tool list is a cache read on most turns, so expect a tenth of that in cost
+between cache writes, and the full amount on each write.
+
+### Tool usage
+
+`modules.toolUsage.enabled` (`LLM_FW_TOOL_USAGE_ENABLED`), on by default
+because it changes nothing. It answers the question the tool filter leaves to
+you: which tools does this client never call? It records every tool a request
+offers, with the token estimate of its definition, and every call it sees, from
+the request history and from responses (a request that continues a server-side
+thread, as Claude Code does through the proxy, carries the results but not the
+calls). Its card lists the tools no call has named yet, largest first, with
+their combined tokens per request: names you can copy into
+`modules.toolFilter.dropTools`. It runs after the tool filter and the
+definition pruner, so the list is what still costs.
+
+Once 1,000 calls have been seen, the card offers the list as one click:
+**Drop these N tools in the Tool Filter** writes every never-called tool the
+filter does not already match into `modules.toolFilter.dropTools`, keeping
+what is there, and switches the filter on. The click is armed first and sent
+on a second click, since it changes what the model can call, and the list is
+evidence, not a verdict: a tool that has not been called in 1,000 calls may
+still be needed (`AskUserQuestion`, say), so read the list before you click.
+The filter keeps any tool a conversation has already called, whatever the
+list says. The threshold is not configurable; the card says how many calls
+it has seen until then.
+
+Why it matters: across 14 days of one developer's Claude Code transcripts
+(34,209 assistant turns), cache reads were 78.5% of the bill by list-price
+weights, and the tool list is part of that prefix on every turn. A captured
+request carried 21,798 tokens of definitions, an estimated 6% of the bill at that
+turn count (21,798 x 34,209 turns x 0.1, not measured per request), while those
+sessions called 44 distinct tools in total. A tool that
+has not been called yet may still be needed; the list is evidence, not a
+verdict.
+
+`llm-fw start` keeps the list across restarts in `<LLM_FW_DIR>/tool-usage.json`
+(tool names, their token estimates and the call counts; no request content),
+written at most every 5 seconds and on a graceful stop, so it builds up over
+days of traffic instead of starting empty each time. Resetting the module's
+stats empties it; `uninstall --purge` deletes it.
 
 ### Tool result shunt
 
@@ -642,6 +793,102 @@ are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
 it is switched, and nothing after.
 
+### Server-side tool result clearing
+
+`modules.toolResultClear.enabled` (`LLM_FW_TOOL_RESULT_CLEAR_ENABLED`).
+**Lossy**: the model no longer sees old tool output. Anthropic's context
+editing replaces the results of old tool calls with a placeholder on the
+server, before the model reads the request. The client still sends the whole
+history, and the provider bills the edited one. For an Anthropic Messages
+request (`api.anthropic.com`, `/v1/messages`) this adds a
+`clear_tool_uses_20250919` edit to `context_management.edits`, after any edit
+the client sends itself.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `triggerTokens` | `100000` | Input tokens a request must pass before anything is cleared. |
+| `keepToolUses` | `10` | The most recent tool calls whose results stay. |
+| `clearAtLeast` | `20000` | Input tokens each clearing must remove, or `0` for no minimum. |
+| `excludeTools` | the file readers, as the truncator's `skipTools` | Tools whose results are never cleared, by exact name. Add `mcp__lean-ctx__ctx_read` if you read files through lean-ctx. |
+
+The API refuses the field without the `context-management-2025-06-27` beta
+in `anthropic-beta` (400, "Extra inputs are not permitted"). Claude Code
+sends it, together with its own `clear_thinking` edit; a plain SDK client
+does not, so the module appends it to whatever betas the client sent, and
+the proxy or the gateway puts the header on the upstream request. The card
+counts those under **Beta header added**. A request that already carries a
+`clear_tool_uses` edit is left alone. The card also counts what the server
+reports in `applied_edits`: responses cleared, input tokens cleared and tool
+results cleared, so the saving shown is the provider's own count, not an
+estimate.
+
+Why `clearAtLeast` matters: clearing changes the prompt from the first
+cleared result onwards, so the cache is written again from there. Clearing
+one result per turn as the window slides rewrites the cache every turn.
+Modelled over 14 days of one developer's Claude Code transcripts (1,333
+transcripts, 29,908 API calls, list-price weights: input 1, cache read 0.1,
+output 5, cache write 1.25 for five minutes and 2 for one hour, which is
+what Claude Code writes for 88% of its cache; tokens as characters / 4):
+
+| Trigger | Keep | Clear at least | Cache reads saved | Cache rewrites | Net, share of the bill |
+| --- | --- | --- | --- | --- | --- |
+| 100,000 | 10 | 0 | 16.7% | 23.5% | −6.8% (a loss) |
+| 100,000 | 10 | 20,000 | 14.7% | 1.6% | 13.1% |
+| 60,000 | 5 | 20,000 | 15.1% | 1.4% | 13.7% |
+| 150,000 | 20 | 40,000 | 12.0% | 1.3% | 10.7% |
+
+Setting `clearAtLeast` to `0` costs more than it saves.
+
+That is a ceiling, not a measurement: it leaves out the turns an agent spends
+calling a tool again for output that was cleared. Leaving file reads alone
+(and lean-ctx's `ctx_read`) still leaves a ceiling of 10.9% on the same
+transcripts.
+
+Measured on 2026-10-18, Claude Code with Claude Haiku 5.5 through a relay
+running this module, three read-heavy tasks on this repository, two rounds:
+
+| Task | Off | On, file reads cleared | On, file reads kept (default) |
+| --- | --- | --- | --- |
+| Read 14 module files, answer three questions | 16 to 17 turns, $0.021 to 0.026 | 17 to 18 turns, $0.023 to 0.024 | 16 turns, $0.020 |
+| Read two 700 to 1,600-line files in full | 9 to 11 turns, $0.047 to 0.070 | 8 to 9 turns, $0.062 to 0.071 | 10 turns, $0.072 |
+| Read 22 files, then answer across all of them | 23 to 25 turns, $0.134 to 0.143 | **57 to 75 turns, $0.367 to 0.585** | 24 turns, $0.134 |
+
+Clearing file reads made the agent read the files again ("Many tool results
+were cleared during the session, so I re-read them"), and the cleared re-reads
+were cleared in turn: up to 4.4 times the cost, with the same answer. That is
+why file readers are excluded by default. With them kept, these tasks cost the
+same as with the module off, because nearly all their tool output was file
+reads. A saving on long sessions with heavy shell or search output, which is
+where the ceiling above comes from, has not been measured.
+
+Verified against the API on 2026-10-18 through Claude Code's own
+credentials: `keep: 1` on a request with three tool results cleared the two
+oldest (9,331 input tokens), and the next identical request read the edited
+prompt from the cache with nothing written. The edit is the same on every
+request, so it never breaks the request prefix; turning the module on or off
+mid-conversation changes what the server bills from that point, which costs
+one cache write. Not verified: a Claude Code thread continuation through the
+proxy (`thread.type` is `continue`), where the server holds the history.
+
+### Stream usage reporter
+
+`modules.streamUsage.enabled` (`LLM_FW_STREAM_USAGE_ENABLED`). An OpenAI
+chat completions stream reports its token usage only when the client asks
+with `stream_options: {"include_usage": true}`, and most clients do not, so
+the usage meter cannot meter those streams. This sets it on every streaming
+`/chat/completions` request that does not already, on any host that serves
+that path (OpenAI, Azure OpenAI, Groq, Together), keeping the client's other
+stream options. Saves nothing by itself; it makes the Usage Meter's totals
+complete for OpenAI-style clients.
+
+What changes for the client: one more chunk at the end of the stream, with an
+empty `choices` array and the `usage` object, which is how the API documents
+the option. The official OpenAI SDKs handle that chunk; a client that reads
+`choices[0]` without checking the array gets `undefined` there. That is why it
+is opt-in. No message text is touched, so the prompt cache is unaffected. Not
+verified against each SDK's stream parser; check yours with the module on
+before relying on it.
+
 ### Prompt cache marker
 
 `modules.cacheControl.enabled` (`LLM_FW_CACHE_CONTROL_ENABLED`). Anthropic
@@ -717,11 +964,24 @@ cards can be checked against the bill:
 - **Cache reads** and **cache writes**: the prompt-cache traffic that decides
   what a long agent session costs,
 - **Output**,
-- **Input served from cache**: cache reads over all input.
+- **Input served from cache**: cache reads over all input,
+- **Billed input per estimated text token**, over the responses compared:
+  the billed input (uncached, cache reads and writes) divided by the estimate
+  from [How savings are counted](#how-savings-are-counted) over the text of
+  the request that earned it. The estimate is fitted to public tokenizers and
+  Claude's is not public, so this is the only measure of its error on the
+  traffic you send. The estimate covers the request's text (tool descriptions,
+  system prompt, conversation, tool results), not the JSON around it or the
+  tool schemas' structure, so expect a ratio above 1; what matters is that it
+  holds steady, and by how much. A request whose history the server holds
+  (a Claude Code thread continuation, a Responses API request with
+  `previous_response_id`) is billed for text it does not carry, so it is
+  left out, and **Responses compared** says how many went in.
 
 It reads Anthropic `usage` (JSON and the `message_start` / `message_delta`
 stream events), OpenAI chat `usage` (a stream carries it only when the client
-sends `stream_options.include_usage`), the Responses API `response.completed`
+sends `stream_options.include_usage`; the
+[stream usage reporter](#stream-usage-reporter) adds it), the Responses API `response.completed`
 event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
 is not metered, so a large download is never held in memory twice.
 
@@ -736,12 +996,20 @@ the model no longer sees the turns it drops.
 | `step` | `25` | Turns dropped at a time. |
 
 When a conversation is longer than `maxMessages`, the oldest turns are dropped
-in whole steps, and the cut then moves forward to the first plain user turn,
-so a tool call is never separated from its result. The first kept turn starts
-with `[llm-fw: N earlier messages omitted]`. Works on OpenAI chat, Anthropic
-and Gemini conversations. Requests whose history lives on the server are left
-alone: a Responses API request with `previous_response_id`, and an Anthropic
-thread continuation (`thread.type` is `continue`), whose messages are all new.
+in whole steps. The kept history starts at the step, or at the user turn right
+after it when the step lands on an assistant turn, and the first kept turn
+starts with `[llm-fw: N earlier messages omitted]`. A tool result whose call
+was dropped is sent as user text behind `[llm-fw: result of an omitted tool
+call]`, because providers refuse a result whose call is not in the request.
+The cut therefore never waits for a plain user turn, which an agent loop may
+not have for hundreds of turns. Works on OpenAI chat `messages`, Anthropic
+`messages`, Gemini `contents` and a Responses API `input` array, where the
+cut lands on a user message or on a `function_call_output` (one whose
+`function_call` was dropped becomes user text the same way) and `reasoning`
+items in the kept history are dropped, as thinking blocks are below.
+Requests whose history lives on the server are left alone: a Responses API
+request with `previous_response_id`, and an Anthropic thread continuation
+(`thread.type` is `continue`), whose messages are all new.
 
 What it costs:
 
@@ -751,7 +1019,8 @@ What it costs:
 - **Thinking blocks in the kept turns are removed.** Dropping turns changes
   the conversation every later thinking block was signed against, and models
   with preserved thinking refuse a block whose prefix changed. The model loses
-  that reasoning. Anthropic's server-side compaction
+  that reasoning, and an assistant turn that held nothing else becomes
+  `[llm-fw: reasoning omitted]`. Anthropic's server-side compaction
   (`context_management`) keeps it and summarizes instead of dropping, so a
   client that can use it should prefer it.
 

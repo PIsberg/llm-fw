@@ -155,6 +155,88 @@ describe('/api/modules', () => {
     expect(saved.modules.tokenPruner.enabled).toBe(true)
   })
 
+  // Token Economy is the parent of every module: its switch is
+  // modules.enabled, and turning it off leaves each module's own switch alone,
+  // so turning it back on restores exactly what ran before.
+  it('reports the Token Economy parent switch', async () => {
+    const res = await call('GET', '/api/modules')
+    expect(res.json.tokenEconomy).toEqual({ id: 'token-economy', name: 'Token Economy', enabled: true })
+  })
+
+  it('turns Token Economy off and on without touching the sub-modules, and persists it', async () => {
+    const pruner = mgr.getModule('token-pruner')?.enabled
+    const off = await call('POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: false }))
+    expect(off.status).toBe(200)
+    expect(off.json.tokenEconomy.enabled).toBe(false)
+    expect(config.modules?.enabled).toBe(false)
+    expect(mgr.getModule('token-pruner')?.enabled).toBe(pruner)
+    expect(JSON.parse(fs.readFileSync(join(tempDir, 'config.json'), 'utf8')).modules.enabled).toBe(false)
+    expect((await call('GET', '/api/modules')).json.tokenEconomy.enabled).toBe(false)
+
+    const on = await call('POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: true }))
+    expect(on.status).toBe(200)
+    expect(config.modules?.enabled).toBe(true)
+    expect(JSON.parse(fs.readFileSync(join(tempDir, 'config.json'), 'utf8')).modules.enabled).toBe(true)
+  })
+
+  // #354: a module's options could only be changed in config.json or the
+  // environment. The card now lists them with their live values, and a POST
+  // with `options` validates each against the module's schema, writes the
+  // live config object the module reads, and persists it.
+  it('lists each module\'s options with their type, bounds and live value', async () => {
+    const res = await call('GET', '/api/modules')
+    const window = res.json.modules.find((m: { id: string }) => m.id === 'history-window')
+    expect(window.options).toEqual([
+      { key: 'maxMessages', type: 'number', value: 100, min: 2, max: 100000 },
+      { key: 'step', type: 'number', value: 25, min: 1, max: 100000 },
+    ])
+    const cache = res.json.modules.find((m: { id: string }) => m.id === 'cache-control')
+    expect(cache.options).toEqual(expect.arrayContaining([
+      { key: 'ttl', type: 'enum', value: '5m', values: ['5m', '1h'] },
+      { key: 'cacheSystem', type: 'boolean', value: true },
+    ]))
+    const truncate = res.json.modules.find((m: { id: string }) => m.id === 'tool-result-truncate')
+    expect(truncate.options).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'skipTools', type: 'list', value: expect.arrayContaining(['Read']) })]))
+    expect(res.json.modules.find((m: { id: string }) => m.id === 'usage-meter').options).toEqual([])
+  })
+
+  it('changes a module\'s options live and persists them', async () => {
+    const res = await call('POST', '/api/modules', JSON.stringify({ id: 'history-window', options: { maxMessages: 50, step: 10 } }))
+    expect(res.status).toBe(200)
+    expect(res.json.module.options).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'maxMessages', value: 50 })]))
+    expect(config.modules?.historyWindow).toEqual({ enabled: false, maxMessages: 50, step: 10 })
+    const saved = JSON.parse(fs.readFileSync(join(tempDir, 'config.json'), 'utf8'))
+    expect(saved.modules.historyWindow).toEqual({ maxMessages: 50, step: 10 })
+
+    // Both at once: the switch and an option.
+    const both = await call('POST', '/api/modules', JSON.stringify({ id: 'tool-filter', enabled: true, options: { dropTools: [' NotebookEdit ', 'mcp__axiom__*'] } }))
+    expect(both.status).toBe(200)
+    expect(config.modules?.toolFilter).toEqual({ enabled: true, dropTools: ['NotebookEdit', 'mcp__axiom__*'] })
+    expect(mgr.getModule('tool-filter')?.enabled).toBe(true)
+  })
+
+  it('refuses an option that is unknown, of the wrong type, out of bounds or the switch, and changes nothing', async () => {
+    const before = structuredClone(config.modules)
+    for (const [options, error] of [
+      [{ maxMessages: 1 }, /maxMessages/],
+      [{ maxMessages: '50' }, /maxMessages/],
+      [{ maxMessages: 50.5 }, /maxMessages/],
+      [{ windowSize: 50 }, /windowSize/],
+      [{ enabled: true }, /enabled/],
+      [{ step: 10, maxMessages: 0 }, /maxMessages/],
+    ] as const) {
+      const res = await call('POST', '/api/modules', JSON.stringify({ id: 'history-window', options }))
+      expect(res.status, JSON.stringify(options)).toBe(400)
+      expect(res.json.error).toMatch(error)
+    }
+    expect((await call('POST', '/api/modules', JSON.stringify({ id: 'cache-control', options: { ttl: '2h' } }))).status).toBe(400)
+    expect((await call('POST', '/api/modules', JSON.stringify({ id: 'tool-filter', options: { dropTools: ['', 'x'] } }))).status).toBe(400)
+    expect((await call('POST', '/api/modules', JSON.stringify({ id: 'tool-filter', options: 'x' }))).status).toBe(400)
+    expect((await call('POST', '/api/modules', JSON.stringify({ id: 'tool-filter' }))).status).toBe(400)
+    expect((await call('POST', '/api/modules', JSON.stringify({ id: 'no-such', options: { a: 1 } }))).status).toBe(404)
+    expect(config.modules).toEqual(before)
+  })
+
   // The dashboard fetches this summary every time its event stream opens and
   // renders whatever answers last. Without the flag, a page reloaded under
   // --observe said "% saved" for savings that were never applied.

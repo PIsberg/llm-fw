@@ -17,7 +17,7 @@ import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
-import { ModuleManager } from '../modules/registry.js'
+import { ModuleManager, TOKEN_ECONOMY_ID } from '../modules/registry.js'
 import { ToolResultShuntModule } from '../modules/builtin/toolResultShunt.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
@@ -263,6 +263,17 @@ const HTML = `<!DOCTYPE html>
   .module-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .module-card-name { font-weight: 600; }
   .module-card-desc { color: #666; font-size: 0.8rem; margin: 4px 0 12px; }
+  .economy-card { margin-bottom: 12px; border-color: #b0bec5; }
+  .module-card-detail { color: #555; font-size: 0.78rem; margin-top: 10px; overflow-wrap: anywhere; }
+  .module-cards.economy-off .module-card { opacity: 0.5; }
+  .module-options { margin-top: 10px; font-size: 0.8rem; }
+  .module-options summary { cursor: pointer; color: #555; }
+  .module-options-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .module-option { display: flex; align-items: center; gap: 6px; }
+  .module-option input[type="number"] { width: 110px; }
+  .module-option-list input { flex: 1; min-width: 200px; }
+  .module-options-status { color: #2e7d32; }
+  .module-options-status.is-error { color: #c62828; }
   .module-kpis { display: flex; gap: 24px; flex-wrap: wrap; }
   .module-kpi-value { font-size: 1.3rem; font-weight: 700; }
   .module-saved { color: #2e7d32; font-weight: 700; }
@@ -388,6 +399,11 @@ const HTML = `<!DOCTYPE html>
 
   <div id="tab-modules" class="tab-panel">
     <p style="color:#666;font-size:0.85rem;margin:0 0 10px">Gateway modules rewrite a request before DLP and detection scan it, so both see the body that is forwarded, on the proxy and the gateway alike; the Tool Result Shunt is the exception and runs after them, on the body they passed, so the condensed text it puts in a request is never scanned. A module that fails is skipped and the request continues. Under observe mode the request goes upstream unmodified, and the figures are what would have been saved.</p>
+    <div class="module-card economy-card" id="token-economy-card">
+      <div class="module-card-head"><span class="module-card-name">Token Economy</span>
+      <label style="font-size:0.8rem;cursor:pointer"><input type="checkbox" id="token-economy-toggle"> Enabled</label></div>
+      <div class="module-card-desc" id="token-economy-desc">The parent of every module below. Off, no module runs on the proxy or the gateway, and each keeps its own switch for when it comes back on.</div>
+    </div>
     <div class="module-cards" id="module-cards"></div>
     <div class="tlog-wrap">
       <div class="tlog-title">Recent Activity</div>
@@ -898,6 +914,8 @@ function appendModuleRow(ev) {
 
 function renderModuleCards(mods) {
   const box = document.getElementById('module-cards');
+  // An option editor left open survives the refresh a module event triggers.
+  const open = new Set([...box.querySelectorAll('.module-card details[open]')].map(d => d.closest('.module-card').dataset.module));
   box.replaceChildren(...mods.map(m => {
     const card = document.createElement('div');
     card.className = 'module-card';
@@ -912,12 +930,29 @@ function renderModuleCards(mods) {
         kpi('original', 'Original tokens', Number(m.tokensOriginal || 0).toLocaleString()) +
         kpi('ratio', 'Savings ratio', (m.percentSaved || 0) + '%') +
         kpi('requests', 'Requests examined', Number(m.totalInvocations || 0).toLocaleString());
+    // The module's options (#354): one field per option, saved together.
+    const options = Array.isArray(m.options) ? m.options : [];
+    const field = (o) => {
+      const name = 'data-option="' + esc(o.key) + '"';
+      if (o.type === 'boolean') return '<label class="module-option"><input type="checkbox" ' + name + (o.value ? ' checked' : '') + '> ' + esc(o.key) + '</label>';
+      if (o.type === 'enum') return '<label class="module-option">' + esc(o.key) + ' <select ' + name + '>' + o.values.map(v => '<option' + (v === o.value ? ' selected' : '') + '>' + esc(v) + '</option>').join('') + '</select></label>';
+      if (o.type === 'number') return '<label class="module-option">' + esc(o.key) + ' <input type="number" ' + name + ' value="' + esc(o.value) + '"' + (o.min !== undefined ? ' min="' + esc(o.min) + '"' : '') + (o.max !== undefined ? ' max="' + esc(o.max) + '"' : '') + '></label>';
+      if (o.type === 'list') return '<label class="module-option module-option-list">' + esc(o.key) + ' <input type="text" ' + name + ' value="' + esc((o.value || []).join(', ')) + '" placeholder="comma-separated"></label>';
+      return '<label class="module-option">' + esc(o.key) + ' <input type="text" ' + name + ' value="' + esc(o.value) + '"></label>';
+    };
+    const optionsHtml = options.length
+      ? '<details class="module-options"><summary>Options</summary><form class="module-options-form" novalidate>' + options.map(field).join('') +
+        '<div><button type="submit" class="btn btn-sm">Save</button> <span class="module-options-status"></span></div></form></details>'
+      : '';
     card.innerHTML =
       '<div class="module-card-head"><span class="module-card-name">' + esc(m.name) + '</span>' +
-      '<label style="font-size:0.8rem;cursor:pointer"><input type="checkbox"' + (m.enabled ? ' checked' : '') + '> Enabled</label></div>' +
+      '<label style="font-size:0.8rem;cursor:pointer"><input type="checkbox" class="module-switch"' + (m.enabled ? ' checked' : '') + '> Enabled</label></div>' +
       '<div class="module-card-desc">' + esc(m.description || '') + '</div>' +
-      '<div class="module-kpis">' + kpis + '</div>';
-    const toggle = card.querySelector('input');
+      '<div class="module-kpis">' + kpis + '</div>' +
+      (m.detail ? '<div class="module-card-detail">' + esc(m.detail) + '</div>' : '') +
+      (m.action ? '<div class="module-card-action"><button type="button" class="btn btn-sm module-action">' + esc(m.action.label) + '</button> <span class="module-options-status"></span></div>' : '') +
+      optionsHtml;
+    const toggle = card.querySelector('input.module-switch');
     toggle.onchange = () => setModuleEnabled(m.id, toggle);
     if (m.id === 'tool-result-shunt') {
       const purge = document.createElement('button');
@@ -928,6 +963,35 @@ function renderModuleCards(mods) {
       purge.title = 'Deletes every file in the folder of stored originals, and the outcomes remembered beside them';
       purge.onclick = () => purgeStoredOriginals(purge);
       card.appendChild(purge);
+    }
+    // A one-click action (#407) changes another module, so it is armed by a
+    // first click and sent by a second.
+    const action = card.querySelector('button.module-action');
+    if (action) {
+      let armed = false;
+      action.onclick = async () => {
+        if (!armed) { armed = true; action.textContent = 'Click again to confirm'; return; }
+        const status = card.querySelector('.module-card-action .module-options-status');
+        try {
+          const res = await fetch('/api/modules', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: m.action.module, ...(typeof m.action.enabled === 'boolean' ? { enabled: m.action.enabled } : {}), options: m.action.options }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+          loadModuleStats();
+        } catch (err) {
+          armed = false;
+          action.textContent = m.action.label;
+          status.textContent = err.message;
+          status.classList.add('is-error');
+        }
+      };
+    }
+    const form = card.querySelector('.module-options-form');
+    if (form) {
+      form.onsubmit = (ev) => { ev.preventDefault(); saveModuleOptions(m.id, options, form); };
+      if (open.has(m.id)) card.querySelector('details').open = true;
     }
     return card;
   }));
@@ -946,6 +1010,43 @@ async function purgeStoredOriginals(button) {
     return;
   }
   loadModuleStats();
+}
+
+// Reads the option fields back in the types the API validates: a number
+// input as a number, a list field split on commas with blanks dropped.
+function readModuleOptions(options, form) {
+  const out = {};
+  for (const o of options) {
+    const el = form.querySelector('[data-option="' + o.key + '"]');
+    if (!el) continue;
+    if (o.type === 'boolean') out[o.key] = el.checked;
+    else if (o.type === 'number') out[o.key] = Number(el.value);
+    else if (o.type === 'list') out[o.key] = el.value.split(',').map(s => s.trim()).filter(Boolean);
+    else out[o.key] = el.value;
+  }
+  return out;
+}
+
+async function saveModuleOptions(id, options, form) {
+  const status = form.querySelector('.module-options-status');
+  status.textContent = '';
+  status.classList.remove('is-error');
+  try {
+    const res = await fetch('/api/modules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, options: readModuleOptions(options, form) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    // The cards are rendered again with the live values; the editor stays
+    // open (see renderModuleCards) and the message goes on the new card.
+    await loadModuleStats();
+    const fresh = document.querySelector('.module-card[data-module="' + id + '"] .module-options-status');
+    if (fresh) fresh.textContent = 'Saved';
+  } catch (err) {
+    status.textContent = err.message;
+    status.classList.add('is-error');
+  }
 }
 
 async function setModuleEnabled(id, toggle) {
@@ -982,12 +1083,23 @@ function updateModuleStats(data) {
   }
 }
 
+// Token Economy: the parent switch (modules.enabled). Off, the sub-module
+// cards are dimmed; their own switches keep their state.
+function renderTokenEconomy(te) {
+  const toggle = document.getElementById('token-economy-toggle');
+  if (!toggle || !te) return;
+  toggle.checked = !!te.enabled;
+  document.getElementById('module-cards').classList.toggle('economy-off', !te.enabled);
+}
+document.getElementById('token-economy-toggle').onchange = function () { setModuleEnabled('token-economy', this); };
+
 async function loadModuleStats() {
   try {
     const res = await fetch('/api/modules');
     if (res.ok) {
       const data = await res.json();
       updateModuleStats(data);
+      renderTokenEconomy(data.tokenEconomy);
       if (Array.isArray(data.modules)) renderModuleCards(data.modules);
     }
   } catch(_) {}
@@ -2332,7 +2444,8 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({
         ...summary,
-        modules: modManager.listModules().map(m => ({ ...m.getStats(), description: m.description })),
+        tokenEconomy: modManager.getTokenEconomy(),
+        modules: modManager.listModules().map(m => ({ ...m.getStats(), description: m.description, options: modManager.getModuleOptions(m.id) ?? [] })),
         summary,
       }))
       return
@@ -2349,23 +2462,38 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
         try {
-          const patch = JSON.parse(body || '{}') as { id?: string; enabled?: boolean }
-          if (!patch.id || typeof patch.enabled !== 'boolean') {
+          const patch = JSON.parse(body || '{}') as { id?: string; enabled?: boolean; options?: unknown }
+          const hasSwitch = typeof patch.enabled === 'boolean'
+          const options = patch.options !== undefined && typeof patch.options === 'object' && patch.options !== null && !Array.isArray(patch.options)
+            ? patch.options as Record<string, unknown> : undefined
+          if (!patch.id || typeof patch.id !== 'string' || (!hasSwitch && !options)) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'id and enabled (boolean) are required' }))
+            res.end(JSON.stringify({ error: 'id and enabled (boolean) or options (object) are required' }))
             return
           }
-          const before = toPersistedPartial(config)
-          if (!modManager.setModuleEnabled(patch.id, patch.enabled)) {
+          if (patch.id !== TOKEN_ECONOMY_ID && !modManager.getModule(patch.id)) {
             res.writeHead(404, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'unknown module', id: patch.id }))
             return
           }
-          // A built-in module's enabled flag lives in config (the module holds
-          // a reference to it), so persisting config persists the toggle.
+          const before = toPersistedPartial(config)
+          // Options are validated as a whole before anything changes (#354),
+          // and checked before the switch so a bad request changes nothing.
+          if (options) {
+            const error = modManager.setModuleOptions(patch.id, options)
+            if (error) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error }))
+              return
+            }
+          }
+          if (hasSwitch) modManager.setModuleEnabled(patch.id, patch.enabled!)
+          // A built-in module's switch and options live in config (the module
+          // holds a reference to it), so persisting config persists them.
           persistSettings(config, before)
+          const mod = modManager.getModule(patch.id)
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ ok: true, module: modManager.getModule(patch.id)?.getStats() }))
+          res.end(JSON.stringify({ ok: true, module: mod ? { ...mod.getStats(), options: modManager.getModuleOptions(patch.id) ?? [] } : undefined, tokenEconomy: modManager.getTokenEconomy() }))
         } catch (err) {
           log.error('/api/modules handler error', { err: err })
           res.writeHead(500, { 'Content-Type': 'application/json' })

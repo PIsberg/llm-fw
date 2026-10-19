@@ -346,6 +346,32 @@ which is the baked-in read-only model cache.
 
 The image ships a `HEALTHCHECK` that polls `/readyz` on the gateway port.
 
+**lean-ctx, opt-in at build time.** The
+[lean-ctx shell output compressor](token-savings.md#lean-ctx-shell-output-compressor)
+runs a lean-ctx the operator installed, and the image has none by default:
+its release archive is about 28 MB, for a module that removed 0.64% of
+tool-result tokens where it was measured. To bake it in, build with the
+version and the SHA-256 of its archive, taken from that release's
+`SHA256SUMS`:
+
+```bash
+docker build \
+  --build-arg LEAN_CTX_VERSION=3.11.0 \
+  --build-arg LEAN_CTX_SHA256=32004ef3e8bea38e8f9b6effcb34ace3243c35a520d39cfc7ebbfce322790c0d \
+  -t llm-fw .
+```
+
+The build refuses a download whose hash disagrees, and both arguments are
+required together. The binary lands on `PATH` (`/usr/local/bin/lean-ctx`),
+where the module looks by default, together with Debian's CA bundle in
+`/etc/ssl/certs/`, which lean-ctx needs to start and the slim base image
+does not carry; `LLM_FW_LEAN_CTX_ENABLED=true` is then all the container
+needs. The default archive is the amd64 Linux one; set
+`LEAN_CTX_TARGET` (for example `aarch64-unknown-linux-gnu`) and that
+archive's hash for another platform. The Docker Image workflow builds the
+image both ways and checks that the module starts lean-ctx inside the
+container and that the default image carries none.
+
 ---
 
 ## Kubernetes
@@ -451,6 +477,7 @@ image).
 | `config.json` | Yes | Written by `setup`, `setup-judge`, and dashboard settings changes |
 | `license.key`, `license-offline.lfw` | Yes | Your licence |
 | `audit.jsonl`, `audit.jsonl.1` | Ship it, do not back it up | Rotating log; send it to a SIEM |
+| `tool-usage.json` | Optional | Which offered tools clients called (Tool Usage module); rebuilds itself from traffic |
 | `llm-fw.pid` | No | Recreated at start |
 | `llm-fw.state.json` | No | Recreated at start |
 | `models/` | No | Re-downloadable cache |

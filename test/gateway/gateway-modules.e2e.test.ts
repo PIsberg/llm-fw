@@ -190,6 +190,34 @@ def calculate(x):
     expect(pruner?.enabled).toBe(true)
   })
 
+  // #411: a module may ask for a request header on the upstream call (the
+  // tool-result-clear module adds Anthropic's context-management beta).
+  it('adds the request headers a module asks for to the upstream call', async () => {
+    const stub = {
+      id: 'stub-header', name: 'Stub', description: '', enabled: true,
+      transformRequest: (body: string) => ({ body, modified: true, headers: { 'anthropic-beta': 'context-management-2025-06-27' } }),
+      getStats: () => ({ id: 'stub-header', name: 'Stub', enabled: true, totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [] }),
+    }
+    moduleManager.register(stub)
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'header me' }] })
+      const res = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(res.status).toBe(200)
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.headers['anthropic-beta']).toBe('context-management-2025-06-27')
+
+      // Observe mode forwards the request as the client sent it, headers included.
+      config.enforcement = 'observe'
+      await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(calls).toHaveLength(2)
+      expect(calls[1]!.headers['anthropic-beta']).toBeUndefined()
+    } finally {
+      config.enforcement = 'enforce'
+      stub.enabled = false
+    }
+  })
+
   it('replays a repeated request from the response cache without calling upstream', async () => {
     config.modules!.responseCache!.enabled = true
     try {
@@ -326,6 +354,27 @@ def calculate(x):
     expect(receivedPayload.messages[0].content).toContain('Re-enabled pruner with spaces:')
   })
 
+  it('Token Economy off stops an enabled sub-module; on again resumes it', async () => {
+    const body = (content: string) => JSON.stringify({ model: 'test', messages: [{ role: 'user', content }] })
+    expect(config.modules!.tokenPruner.enabled).toBe(true)
+
+    const off = await reqHttp(dashboardPort, 'POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: false }))
+    expect(off.status).toBe(200)
+    try {
+      calls = []
+      const raw = 'Economy    off    keeps    spaces'
+      await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', body(raw), { 'x-llm-fw-key': TOKEN })
+      expect(JSON.parse(calls[0]!.body).messages[0].content).toBe(raw)
+    } finally {
+      const on = await reqHttp(dashboardPort, 'POST', '/api/modules', JSON.stringify({ id: 'token-economy', enabled: true }))
+      expect(on.status).toBe(200)
+    }
+
+    calls = []
+    await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', body('Economy    on    again'), { 'x-llm-fw-key': TOKEN })
+    expect(JSON.parse(calls[0]!.body).messages[0].content).toBe('Economy on again')
+  })
+
   it('observe mode forwards the original body and reports the saving as not applied', async () => {
     config.enforcement = 'observe'
     try {
@@ -421,6 +470,14 @@ def calculate(x):
       expect(probe.seen[0]!.body).toBe(forwardedOff)
       expect(forwardedOn).toBe(markBody(forwardedOff))
       expect(JSON.parse(forwardedOn)[PROBE_FIELD]).toBe('screened')
+    })
+
+    it('sends upstream the request headers the module asks for', async () => {
+      probe.headers = { 'x-llm-fw-probe': 'screened' }
+      await offThenOn(toolRequest([CLEAN]))
+      expect(calls).toHaveLength(2)
+      expect(calls[0]!.headers['x-llm-fw-probe']).toBeUndefined()
+      expect(calls[1]!.headers['x-llm-fw-probe']).toBe('screened')
     })
 
     it('leaves every dashboard event as it is with the module off (FR-012, D2)', async () => {

@@ -89,7 +89,7 @@ function chatBody(results: string[]): string {
   })
 }
 
-/** An OpenAI Responses body as Codex CLI sends it: the parser reads the prompt, not the function_call_output. */
+/** An OpenAI Responses body as Codex CLI sends it: a prompt, then a shell call and its output. */
 function responsesBody(output: string): string {
   return JSON.stringify({
     model: 'gpt-5-codex',
@@ -157,13 +157,13 @@ describe('Pipeline.run meta.onItemScanned (FR-012, D1)', () => {
     expect(sorted(rec.scanned)).toEqual(sorted([PROMPT, RESULT_A, RESULT_B, TOOL_DESCRIPTION]))
   })
 
-  it('is never called with an OpenAI Responses function_call_output output, which the parser does not read (the FR-012 gap)', async () => {
+  // GHSA-83jp-cppw-c3v6: the parser used to skip Responses tool output, and
+  // this case pinned that gap. It now reads it like any other tool result.
+  it('is called with an OpenAI Responses function_call_output output', async () => {
     const rec = recorder()
     const result = await new Pipeline(makeConfig()).run('/v1/responses', responsesBody(RESULT_A), { ...META, path: '/v1/responses', ...rec.callbacks })
     expect(result.action).toBe('pass')
-    // The prompt is scanned, so the empty-handed case is not a callback that never fires.
-    expect(rec.scanned).toEqual([PROMPT])
-    expect(rec.scanned).not.toContain(RESULT_A)
+    expect(sorted(rec.scanned)).toEqual(sorted([PROMPT, RESULT_A]))
   })
 
   describe.each([['enforce', undefined], ['observe', 'observe' as const]])('a block of the second of three items, %s mode', (_mode, enforcement) => {

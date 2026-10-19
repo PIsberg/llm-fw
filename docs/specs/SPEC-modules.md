@@ -109,6 +109,8 @@ export interface ModuleTransformResult {
   modified: boolean;
   metadata?: Record<string, unknown>;
   events?: ModuleEvent[];
+  /** Request headers to set upstream (lower-case names); applied by the proxy and the gateway, never under observe mode. */
+  headers?: Record<string, string>;
 }
 
 export interface ModuleStats {
@@ -121,6 +123,12 @@ export interface ModuleStats {
   tokensSaved: number;
   percentSaved: number;
   recentEvents: ModuleEvent[];
+  /** Replaces the default savings KPIs on the card (the usage meter, tool usage). */
+  kpis?: Array<{ key: string; label: string; value: number | string }>;
+  /** One line of text under the KPIs. */
+  detail?: string;
+  /** A change the card offers as one click, posted to /api/modules after a second click (#407). */
+  action?: { label: string; module: string; enabled?: boolean; options: Record<string, unknown> };
 }
 
 export interface GatewayModule {
@@ -201,6 +209,7 @@ To remain fast and dependency-free while maintaining fidelity across OpenAI (cl1
 - Mutating `config.modules.tokenPruner.enabled` takes effect on the very next request with no restart. The module holds a reference to that config object rather than a copy, so the Settings toggle, `POST /api/modules` and a hot-reloaded `config.json` all reach it.
 - Written to `~/.llm-fw/config.json` via `persistSettings()`.
 - `POST /api/modules` takes `{ "id": "<module id>", "enabled": true|false }`, needs the same JSON content-type and same-origin check as the other state-changing routes, and answers 404 for an id that is not registered.
+- It also takes `"options": { "<option>": value, ... }`, alone or with `"enabled"` (#354). `ModuleManager.getModuleOptions(id)` derives each built-in module's option schema (type, bounds, enum values) from its defaults in `DEFAULT_CONFIG` plus `OPTION_RULES` in `src/modules/registry.ts`; `setModuleOptions(id, patch)` validates the whole patch first and only then writes the leaves onto the live config object, so a bad value answers 400 naming the option and changes nothing. `GET /api/modules` lists each module's `options` with their live values, which the card renders as a form.
 
 ### 6.2 Real-time Dashboard UI Components
 1. **Header Stats Metric Card**:
@@ -240,6 +249,8 @@ export interface Config {
 ```
 
 Defaults: `modules.enabled: true`, `modules.tokenPruner.enabled: false`. Both are hot-reloadable.
+
+`modules.enabled` is the switch of the **Token Economy** parent module: the dashboard shows it as its own card, and `POST /api/modules` takes it as `{"id": "token-economy", "enabled": ...}`. Turning it off leaves every module's own switch unchanged.
 
 Environment variable overrides:
 - `LLM_FW_MODULES_ENABLED=true|false`

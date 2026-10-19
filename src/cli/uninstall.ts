@@ -260,6 +260,7 @@ const PURGED_FILES: ReadonlyArray<readonly [string, string]> = [
   ['suppressions.json', 'false positives that unblock future matches'],
   ['audit.jsonl', 'audit log'], ['audit.jsonl.1', 'rotated audit log'],
   ['ocr-cache', 'OCR cache'],
+  ['tool-usage.json', 'which offered tools your clients called (Tool Usage module)'],
 ];
 
 /**

@@ -246,12 +246,14 @@ export class GatewayServer {
       // goes upstream, unless this request is only being observed.
       const moduleCtx = this.moduleContext(req, route, tenant);
       let outgoing = decision.body;
+      let outgoingHeaders = decision.headers;
       let sent = outgoing.toString('utf-8');
       if (moduleCtx) {
         const modRes = await this.modules.transformScreened(sent, { ...moduleCtx, screening: decision.screening, remoteAddress: req.socket.remoteAddress });
         if (modRes.modified && !moduleCtx.dryRun) {
           sent = modRes.body;
           outgoing = Buffer.from(sent, 'utf-8');
+          if (Object.keys(modRes.headers).length > 0) outgoingHeaders = { ...outgoingHeaders, ...modRes.headers };
         }
         for (const ev of modRes.events) this.eventBus.emitModuleEvent(ev);
       }
@@ -269,7 +271,7 @@ export class GatewayServer {
       const captured = moduleCtx && this.modules.wantsResponses()
         ? tapResponse(res, this.config.proxy.maxBodyBytes)
         : null;
-      await this.forward(req, res, route, outgoing, authIsInternal);
+      await this.forward(req, res, route, outgoing, authIsInternal, outgoingHeaders);
       const response = captured?.();
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
@@ -469,7 +471,7 @@ export class GatewayServer {
     route: GatewayRoute,
     original: Buffer,
     tenant: Tenant | null,
-  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; screening: Screening | undefined }> {
+  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; screening: Screening | undefined; headers?: Record<string, string> }> {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
     const target = route.provider.host;
@@ -477,6 +479,9 @@ export class GatewayServer {
     const dashboardUrl = this.dashboardUrl();
     let bodyBuf = original;
     let text = bodyBuf.toString('utf-8');
+    // Request headers the modules ask for upstream (#411); an observed
+    // request goes as the client sent it, headers included.
+    let moduleHeaders: Record<string, string> | undefined;
 
     // Whether THIS request is only being observed. The deployment-wide setting
     // is not enough: a tenant can observe while the rest of the deployment
@@ -492,6 +497,7 @@ export class GatewayServer {
       if (modRes.modified && !observing) {
         text = modRes.body;
         bodyBuf = Buffer.from(text, 'utf-8');
+        if (Object.keys(modRes.headers).length > 0) moduleHeaders = modRes.headers;
       }
       if (modRes.events && modRes.events.length > 0) {
         for (const ev of modRes.events) {
@@ -581,7 +587,7 @@ export class GatewayServer {
       log.error(`pipeline error on ${method} ${path}: ${message}`);
       if (failOpen) {
         screening?.incomplete();
-        return { blocked: false, body: bodyBuf, screening };
+        return { blocked: false, body: bodyBuf, screening, ...(moduleHeaders ? { headers: moduleHeaders } : {}) };
       }
       return {
         blocked: true, status: this.config.blockStatus ?? 422,
@@ -605,7 +611,7 @@ export class GatewayServer {
       };
     }
 
-    return { blocked: false, body: bodyBuf, screening };
+    return { blocked: false, body: bodyBuf, screening, ...(moduleHeaders ? { headers: moduleHeaders } : {}) };
   }
 
   /** What the module pipeline sees of a request; null when modules do not run on it. */
@@ -654,11 +660,16 @@ export class GatewayServer {
     body: Buffer,
     /** True when the gateway consumed `Authorization` as its OWN credential. */
     authIsInternal: boolean,
+    /** Request headers a module asked for (lower-case names), each replacing the client's. */
+    extraHeaders?: Record<string, string>,
   ): Promise<void> {
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(req.headers)) {
       if (GatewayServer.STRIPPED_HEADERS.has(name) || value === undefined) continue;
       headers[name] = Array.isArray(value) ? value.join(', ') : value;
+    }
+    for (const [name, value] of Object.entries(extraHeaders ?? {})) {
+      if (!GatewayServer.STRIPPED_HEADERS.has(name)) headers[name] = value;
     }
     headers['host'] = upstreamHostHeader(route.provider);
     if (body.length) headers['content-length'] = String(body.length);

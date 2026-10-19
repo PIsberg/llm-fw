@@ -365,8 +365,8 @@ export const DEFAULT_CONFIG: Config = {
     },
     leanCtx: {
       enabled: false,
-      // Claude Code's shell tools.
-      tools: ['Bash', 'PowerShell'],
+      // The shell tools of Claude Code, Codex CLI (an argv array) and Gemini CLI.
+      tools: ['Bash', 'PowerShell', 'shell', 'run_shell_command'],
       // Programs whose output is a file or part of one, Unix and PowerShell.
       skipCommands: [
         'cat', 'head', 'tail', 'sed', 'awk', 'nl', 'less', 'more', 'bat', 'tac', 'xxd', 'od', 'hexdump', 'strings',
@@ -412,8 +412,36 @@ export const DEFAULT_CONFIG: Config = {
       // File reads: Claude Code, Gemini CLI, the MCP filesystem server, and
       // Anthropic's text editor tool (its view command).
       skipTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
+      // File reads through a shell tool (#363): on 30 days of one developer's
+      // transcripts, cat, sed and awk in Bash were 19.4% of what the truncator
+      // removed, against 9.5% for all other shell output.
+      skipCommands: ['cat', 'head', 'tail', 'sed', 'awk', 'nl', 'less', 'more', 'bat', 'tac', 'type', 'gc', 'Get-Content'],
+    },
+    toolFilter: {
+      enabled: false,
+      // Which tools a client never uses is the operator's call.
+      dropTools: [],
     },
     toolDefinitionPruner: {
+      enabled: false,
+    },
+    // Reads the tool list and the calls; changes nothing.
+    toolUsage: {
+      enabled: true,
+    },
+    // Server-side context editing; values from 14 days of transcripts, see
+    // docs/guides/token-savings.md.
+    toolResultClear: {
+      enabled: false,
+      triggerTokens: 100000,
+      keepToolUses: 10,
+      clearAtLeast: 20000,
+      // File reads, as the truncator's skipTools: clearing them made the
+      // agent read the same files again (A/B in the guide).
+      excludeTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
+    },
+    // Adds one chunk to the stream the client receives (#357).
+    streamUsage: {
       enabled: false,
     },
     cacheControl: {
@@ -779,7 +807,11 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },
+  LLM_FW_TOOL_FILTER_ENABLED: (c, v) => { if (c.modules?.toolFilter) c.modules.toolFilter.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
+  LLM_FW_TOOL_USAGE_ENABLED: (c, v) => { if (c.modules?.toolUsage) c.modules.toolUsage.enabled = v === 'true'; },
+  LLM_FW_TOOL_RESULT_CLEAR_ENABLED: (c, v) => { if (c.modules?.toolResultClear) c.modules.toolResultClear.enabled = v === 'true'; },
+  LLM_FW_STREAM_USAGE_ENABLED: (c, v) => { if (c.modules?.streamUsage) c.modules.streamUsage.enabled = v === 'true'; },
   LLM_FW_CACHE_CONTROL_ENABLED: (c, v) => { if (c.modules?.cacheControl) c.modules.cacheControl.enabled = v === 'true'; },
   LLM_FW_RESPONSE_CACHE_ENABLED: (c, v) => { if (c.modules?.responseCache) c.modules.responseCache.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },

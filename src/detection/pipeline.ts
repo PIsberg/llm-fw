@@ -934,7 +934,11 @@ export class Pipeline {
         // embedding similarity crossed the warning threshold. We DON'T return
         // here — a later candidate (or surface) may still block, which must
         // take precedence. Keep only the first/strongest warn.
-        if (eSim >= embeddingWarnThreshold && !pendingWarn) {
+        // The margin applies here too: a heuristic score of 20+ routes a
+        // candidate past the margin check above, and without it this warn
+        // fired on raw cosine for text closer to a benign anchor, such as
+        // Claude Code's CLAUDE.md reminder on every session's first request.
+        if (eSim >= embeddingWarnThreshold && eMargin >= embeddingMarginThreshold && !pendingWarn) {
           pendingWarn = {
             result: {
               action: 'warn',

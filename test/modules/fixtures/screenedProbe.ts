@@ -43,6 +43,8 @@ export class ScreenedProbe implements GatewayModule {
 
   /** How the probe rewrites the body it is given; `markBody` unless a test says otherwise. */
   rewrite: (body: string) => string = markBody
+  /** Request headers the probe asks for upstream; none unless a test sets them. */
+  headers: Record<string, string> | undefined
 
   /** Every `transformRequest` call, in order. */
   seen: ProbeCall[] = []
@@ -72,7 +74,7 @@ export class ScreenedProbe implements GatewayModule {
       applied: !ctx.dryRun,
     }
     this.emitted.push(event)
-    return { body: out, modified: out !== body, events: [event] }
+    return { body: out, modified: out !== body, events: [event], ...(this.headers ? { headers: this.headers } : {}) }
   }
 
   respond(requestBody: string): ModuleResponse | undefined {
@@ -105,5 +107,6 @@ export class ScreenedProbe implements GatewayModule {
     this.answered = []
     this.observed = []
     this.rewrite = markBody
+    this.headers = undefined
   }
 }

@@ -51,6 +51,33 @@ function responseToolCalls(events: unknown[]): ToolCall[] {
   return out
 }
 
+/**
+ * A shell call's command as one line: a string as it is (Claude Code's Bash,
+ * Gemini CLI's run_shell_command), an argv array joined with spaces (Codex's
+ * shell: `["bash", "-lc", "npm test"]`). Undefined for any other shape.
+ */
+export function commandText(command: unknown): string | undefined {
+  if (typeof command === 'string') return command
+  if (Array.isArray(command) && command.length > 0 && command.every(c => typeof c === 'string')) return command.join(' ')
+  return undefined
+}
+
+/**
+ * True when a word of `command` is one of `skipCommands`, compared by its
+ * basename without `.exe`; an entry with a hyphen (a PowerShell cmdlet such
+ * as Get-Content) matches in any case. Any word counts, a pipeline stage or
+ * an argument alike, so a doubtful command is treated as a file read, and so
+ * is the script behind `bash -lc`.
+ */
+export function isFileRead(command: string, skipCommands: readonly string[]): boolean {
+  for (const word of command.split(/[\s;&|()<>`$"'{}]+/)) {
+    const base = (word.split(/[\\/]/).pop() ?? '').replace(/\.exe$/i, '')
+    if (!base) continue
+    if (skipCommands.some(skip => skip === base || (skip.includes('-') && skip.toLowerCase() === base.toLowerCase()))) return true
+  }
+  return false
+}
+
 /** A call's arguments as an object: Anthropic's as they are, a JSON string parsed. */
 export function toolArgs(input: unknown): Obj | undefined {
   if (isObj(input)) return input
@@ -89,4 +116,9 @@ export class RememberedCalls {
   get(id: string | undefined): ToolCall | undefined {
     return id === undefined ? undefined : this.calls.get(id)
   }
+}
+
+/** Every tool call a captured response made. */
+export function responseCalls(response: CapturedResponse): ToolCall[] {
+  return responseToolCalls(responseEvents(response.body, response.headers) ?? [])
 }

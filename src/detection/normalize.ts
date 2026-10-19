@@ -30,6 +30,8 @@ function decodeLeetspeak(text: string): string {
 
 // A leetspeak run between two letters: pr3v10us, pa$$word, h@ck, m41nfr4me.
 const LEET_INSIDE_WORD = /[a-z][013457@$!8]+[a-z]/i
+// A unified diff: git's header, or a hunk header with its line ranges.
+const DIFF_HEADER_RE = /^(?:diff --git |@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@)/m
 // Words that mix letters and digits without hiding one: hashes and hex.
 const HEX_RUN = /^(?:0x)?[0-9a-f]{7,}$/i
 // An email address, tested against one whitespace-delimited token at a time.
@@ -387,6 +389,13 @@ export function normalize(text: string): string {
 
   // Prevents punctuation flooding to bypass keyword or pattern detectors
   result = result.replace(/([^\p{L}\p{N}\s])\1{2,}/gu, '$1');
+
+  // A unified diff's line markers are layout, not text: flattened with the
+  // newlines below, "run lat check\n+  uses: ..." read as "run x + y", which is
+  // payload assembly (20 of 27 such blocks replaying real tool results were
+  // diffs of CI files and code). Only text that carries a diff header loses
+  // them, one marker per line; an inline "+" is untouched.
+  if (DIFF_HEADER_RE.test(result)) result = result.replace(/^[+-]/gm, '');
 
   // Prevents whitespace padding / splitting tricks to fragment tokens
   result = result.replace(/\s+/g, ' ').trim();

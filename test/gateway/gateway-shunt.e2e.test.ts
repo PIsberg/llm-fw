@@ -190,36 +190,45 @@ describe('Gateway with the tool result shunt', { timeout: 120_000 }, () => {
     expect(fs.readdirSync(folder()).filter(name => name.endsWith('.txt'))).toEqual([basename(path)])
   })
 
-  it('forwards a large OpenAI Responses function_call_output whole: it reaches neither the worker nor the folder, however often it is sent (US1-6, FR-012, FR-016)', async () => {
-    // A control first, so a quiet worker below is not a module that is off.
-    const control = output('responses control')
-    await postMessages(toolRequest([control]))
-    expect(worker.received).toHaveLength(1)
-    expect(resultsOf(calls[0]!.body)[0]).toBe(renderCondensed(control, DEFAULT_FACTS, mod.store.pathFor(control)))
-    calls = []
-
-    const big = `${FLAG} responses\n${output('responses output')}`
-    const payload = {
+  // GHSA-83jp-cppw-c3v6 made detection read Responses tool output, so the
+  // shunt treats it like any other result: condensed when the scan passed it,
+  // forwarded whole when the scan flagged it (US1-6, FR-012, FR-016).
+  it('condenses a large OpenAI Responses function_call_output the scan passed, and forwards one DLP redacted whole', async () => {
+    const responses = (clean: string, secret: string) => ({
       model: 'gpt-5',
       input: [
         { role: 'user', content: 'Run the checks and report.' },
         { type: 'function_call', call_id: 'call_resp_1', name: 'shell', arguments: JSON.stringify({ command: ['npm', 'test'] }) },
-        { type: 'function_call_output', call_id: 'call_resp_1', output: big },
+        { type: 'function_call_output', call_id: 'call_resp_1', output: clean },
+        { type: 'function_call', call_id: 'call_resp_2', name: 'shell', arguments: JSON.stringify({ command: ['npm', 'run', 'lint'] }) },
+        { type: 'function_call_output', call_id: 'call_resp_2', output: secret },
       ],
-    }
+    })
+    const outputsOf = (body: string): string[] =>
+      (JSON.parse(body) as { input: Array<{ type?: string; output?: string }> }).input
+        .filter(i => i.type === 'function_call_output').map(i => i.output!)
+
+    const clean = output('responses output')
+    const secret = flaggedWith('responses secret', `token ghp_${'b'.repeat(36)}`)
     for (let i = 0; i < 2; i++) {
-      const res = await post('/testprovider/v1/responses', payload)
+      const res = await post('/testprovider/v1/responses', responses(clean, secret))
       expect(res.status).toBe(200)
     }
     expect(calls).toHaveLength(2)
+    const path = mod.store.pathFor(clean)
     for (const call of calls) {
       expect(call.path).toBe('/v1/responses')
-      expect(call.body).toBe(JSON.stringify(payload))
+      const [first, second] = outputsOf(call.body)
+      expect(first).toBe(renderCondensed(clean, DEFAULT_FACTS, path))
+      expect(second).toContain('[REDACTED_GITHUB_TOKEN]')
+      expect(second!.startsWith('[llm-fw: tool output condensed')).toBe(false)
     }
+    // Byte-identical on the repeat, from one worker call.
+    expect(calls[1]!.body).toBe(calls[0]!.body)
+    expect(fs.readFileSync(path, 'utf8')).toBe(clean)
     expect(worker.received).toHaveLength(1)
     expect(workerSaw(FLAG)).toBe(false)
     expect(folderHolds(FLAG)).toEqual([])
-    expect(fs.readdirSync(folder()).filter(name => name.endsWith('.txt'))).toHaveLength(1)
   })
 
   describe('the firewall decides the same with the module off and on (US6-1, US6-4, SC-009)', { timeout: 900_000 }, () => {

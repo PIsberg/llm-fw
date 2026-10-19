@@ -12,7 +12,7 @@ import type { Config } from '../../src/types.js'
 // rather than in a user's hands.
 
 // Modules that only read and may therefore be on by default.
-const READ_ONLY = new Set(['usageMeter'])
+const READ_ONLY = new Set(['usageMeter', 'toolUsage'])
 // A different valid value for each string option, for the hot-reload check.
 const OTHER_STRING: Record<string, string> = { ttl: '1h' }
 
@@ -39,6 +39,27 @@ describe.each(BUILTINS.map((b, i) => [b.key, i] as const))('built-in module %s',
     process.env[envName] = String(flipped)
     const cfg = await loadConfig()
     expect((cfg.modules as unknown as Record<string, { enabled: boolean }>)[key]!.enabled).toBe(flipped)
+  })
+
+  // #354: the dashboard edits options through a schema derived from the
+  // defaults, so a new option is editable without a new table entry.
+  it('exposes every option to the dashboard, and takes its default back as valid', () => {
+    const live = structuredClone(DEFAULT_CONFIG) as Config
+    const mgr = new ModuleManager(live)
+    const mod = mgr.listModules()[index]!
+    const schema = mgr.getModuleOptions(mod.id)!
+    const names = options(key).map(([name]) => name).filter(name => name !== 'enabled')
+    expect(schema.map(o => o.key)).toEqual(names)
+    for (const o of schema) {
+      const d = (DEFAULT_CONFIG.modules as unknown as Record<string, Record<string, unknown>>)[key]![o.key]
+      expect(o.value).toEqual(d)
+      if (o.type === 'number') expect(typeof d).toBe('number')
+      if (o.type === 'boolean') expect(typeof d).toBe('boolean')
+      if (o.type === 'list') expect(Array.isArray(d)).toBe(true)
+      if (o.type === 'enum') expect(o.values).toContain(d)
+    }
+    expect(mgr.setModuleOptions(mod.id, Object.fromEntries(schema.map(o => [o.key, o.value])))).toBeNull()
+    expect(mgr.setModuleOptions(mod.id, { enabled: true })).toMatch(/enabled/)
   })
 
   it('takes every option live from a hot reload', () => {

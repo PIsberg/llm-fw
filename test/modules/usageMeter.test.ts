@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { UsageMeterModule } from '../../src/modules/builtin/usageMeter.js'
+import { estimateTokens } from '../../src/modules/tokens.js'
 import { ModuleManager } from '../../src/modules/registry.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import type { GatewayModuleContext, ModuleStats } from '../../src/modules/types.js'
@@ -36,6 +37,33 @@ describe('UsageMeterModule', () => {
     expect(kpi(meter.getStats(), 'responses')).toBe(0)
   })
 
+  // #356: the module cards count savings with an estimate fitted to public
+  // tokenizers, not Claude's. The meter sees the billed input of each
+  // response, so it shows how the two compare on the traffic it meters.
+  it('compares the billed input with the estimate over the request text', () => {
+    const meter = new UsageMeterModule({ enabled: true })
+    const text = 'word '.repeat(400)
+    const request = JSON.stringify({ model: 'claude-opus-5-5', system: text, messages: [{ role: 'user', content: text }] })
+    const estimated = estimateTokens(text) * 2
+    meter.observeResponse(request, ctx, anthropic({ input_tokens: 100, cache_read_input_tokens: estimated, cache_creation_input_tokens: 50, output_tokens: 5 }))
+    const stats = meter.getStats()
+    expect(kpi(stats, 'estimateRatio')).toBe(((estimated + 150) / estimated).toFixed(2))
+    expect(kpi(stats, 'compared')).toBe(1)
+
+    // A request whose history the server holds is billed for text it does
+    // not carry, so it is left out of the comparison; so is one with no text.
+    meter.observeResponse(JSON.stringify({ thread: { type: 'continue', previous_message_id: 'm' }, messages: [{ role: 'user', content: 'x' }] }), ctx, anthropic({ input_tokens: 90000, output_tokens: 1 }))
+    meter.observeResponse(JSON.stringify({ previous_response_id: 'r', input: 'x' }), ctx, anthropic({ input_tokens: 90000, output_tokens: 1 }))
+    meter.observeResponse('{}', ctx, anthropic({ input_tokens: 90000, output_tokens: 1 }))
+    expect(kpi(meter.getStats(), 'compared')).toBe(1)
+    expect(kpi(meter.getStats(), 'responses')).toBe(4)
+  })
+
+  it('shows no ratio before a response could be compared', () => {
+    const meter = new UsageMeterModule({ enabled: true })
+    expect(kpi(meter.getStats(), 'estimateRatio')).toBe('n/a')
+  })
+
   it('never rewrites a request and saves nothing, so the savings totals stay honest', () => {
     const meter = new UsageMeterModule({ enabled: true })
     expect(meter.transformRequest('{"messages":[]}', ctx)).toEqual({ body: '{"messages":[]}', modified: false })
@@ -64,6 +92,8 @@ describe('ModuleManager — responses', () => {
     expect(kpi(mgr.getModule('usage-meter')!.getStats(), 'responses')).toBe(1)
 
     mgr.setModuleEnabled('usage-meter', false)
+    // The other response reader that is on by default.
+    mgr.setModuleEnabled('tool-usage', false)
     mgr.setModuleEnabled('throws', false)
     expect(mgr.wantsResponses()).toBe(false)
     mgr.observeResponse('{}', ctx, anthropic({ input_tokens: 1, output_tokens: 1 }))

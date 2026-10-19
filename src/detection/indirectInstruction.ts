@@ -263,6 +263,25 @@ const POLITE_OBJECT_GATED_VERBS = new Set([
   'complete', 'confirm', 'submit', 'apply', 'register', 'subscribe', 'fill', 'forward',
 ])
 
+// "Please add" is how build tools phrase their warnings: PMD's "Please add the
+// correct jrt-fs.jar explicitly to the auxClasspath. See https://...",
+// Mockito's "Please add Mockito as an agent to your build". Replaying 27,051
+// real tool results these blocked 21 times, so "add" takes an object too, and
+// only from its own sentence: the URL in PMD's next sentence is a link to the
+// docs, not the thing to add. No eval split has a polite "add" attack
+// (injecagent 0 of 1,071 rows), measured before and after with
+// scripts/run-benchmark.ts cheap --only=injecagent.
+const POLITE_SENTENCE_GATED_VERBS = new Set(['add'])
+const SENTENCE_END_RE = /[.!?]\s+(?=[A-Z])/
+
+// A quoted example in a template placeholder: Spec Kit's spec template reads
+// `[key interaction, e.g., "reset their password"]`, and every spec drafted
+// from it was read as an instruction to reset a password (19 of the 209 real
+// blocks). The quote must open right after the example marker; an unquoted
+// "For example, reset my password" is still an imperative, and an address in
+// the quote is still caught by the exfil rule.
+const QUOTED_EXAMPLE_RE = /\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,:]?\s*["'`]\s*$/i
+
 // "you can / will / may <verb>" tells the reader about an option more often
 // than it orders anything: "You can unsubscribe at any time", "you may cancel
 // within 14 days" (#282). Those three modals take the same object requirement
@@ -282,7 +301,43 @@ const DIRECTIVE_RE = new RegExp(
 // verbs, and we require the verb within EXFIL_PROXIMITY chars of the address so
 // a passive 'from'/'to' field with no instruction does not fire.
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
-const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/i
+const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/gi
+
+// A verb word that is the last segment of a dotted config key, with an email
+// address as the value assigned to that key, names a setting, not an action:
+// git's `-c user.email=demo@...`, `git config user.email "you@..."`,
+// System.setProperty("license.user.email", "first@..."). Replaying real tool
+// results, these were 50 of 167 remaining blocks, the address a test fixture.
+// Narrow on purpose: the key must be dotted (`x.email`, never `/send`,
+// `-send` or `$share`), and the assignment must hand it the address directly
+// (`=`, a space and a quote, or a closing quote, comma and opening quote).
+// "ok.send the records to ..." has the dot but goes on as a clause, and a key
+// whose value is some other address excuses nothing near this one.
+const KEY_BEFORE_RE = /[A-Za-z0-9_]\.$/
+const KEY_VALUE_RE = /^(?:\s*=\s*["'`]?|\s+["'`]|["'`]\s*[,:=]\s*["'`]?)([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/
+/** Index in `text` of the address the key at [start, end) is set to, or -1. */
+function keyAssignedAddress(text: string, start: number, end: number): number {
+  if (!KEY_BEFORE_RE.test(text.slice(Math.max(0, start - 2), start))) return -1
+  const m = KEY_VALUE_RE.exec(text.slice(end, end + 200))
+  return m ? end + m[0].length - (m[1] ?? '').length : -1
+}
+// "email" beside an address is usually the noun: Claude Code's own context
+// block ("The user's email address is ..."), "the buyer's email domain",
+// "the email field". After a determiner or possessive, or before the noun it
+// qualifies, it names something; "Email the records to ...", "please email
+// ...", "then email it to ..." stay verbs.
+const EMAIL_NOUN_BEFORE_RE = /(?:['’]s|s['’]|\b(?:a|an|the|your|my|our|their|his|her|its|this|that|valid|primary|work|contact|billing|support|customer|user|buyer))\s+$/i
+const EMAIL_NOUN_AFTER_RE = /^\s+(?:address(?:es)?|domains?|fields?|headers?|lists?|accounts?|templates?|settings?|verification|notifications?|format|validation|scope|provider|client|server|signature)\b/i
+function isEmailNoun(text: string, start: number, end: number): boolean {
+  if (!/^e-?mail$/i.test(text.slice(start, end))) return false
+  return EMAIL_NOUN_BEFORE_RE.test(text.slice(Math.max(0, start - 24), start)) || EMAIL_NOUN_AFTER_RE.test(text.slice(end, end + 24))
+}
+
+/** True when the key at [start, end) of `text` is set to `address` (case-insensitive). */
+function keyHolds(text: string, start: number, end: number, address: string): boolean {
+  const at = keyAssignedAddress(text, start, end)
+  return at >= 0 && text.slice(at, at + address.length).toLowerCase() === address.toLowerCase()
+}
 const EXFIL_PROXIMITY = 200
 
 // A contact instruction: how a HUMAN reaches somebody ("send an email to
@@ -802,7 +857,8 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   let em: RegExpExecArray | null
   while ((em = EMAIL_RE.exec(text)) !== null) {
     for (const { i, v } of verbHits) {
-      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY) {
+      // The verb index is into `hay`, so the key check reads `hay` too.
+      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0])) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
     }
@@ -814,6 +870,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
       for (const { i, v } of verbHits) {
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
           if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue
+          if (keyAssignedAddress(hay, i, i + v.length) >= 0) continue
           // The benign-prone English verbs keep their object requirement in
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
@@ -874,8 +931,11 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   while ((em = EMAIL_RE.exec(text)) !== null) {
     const lo = Math.max(0, em.index - EXFIL_PROXIMITY)
     const window = text.slice(lo, em.index + em[0].length + EXFIL_PROXIMITY)
-    const vm = EXFIL_VERB_RE.exec(window)
-    if (vm) {
+    EXFIL_VERB_RE.lastIndex = 0
+    let vm: RegExpExecArray | null
+    while ((vm = EXFIL_VERB_RE.exec(window)) !== null) {
+      if (keyAssignedAddress(window, vm.index, vm.index + vm[0].length) === em.index - lo) continue
+      if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
@@ -894,6 +954,10 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (POLITE_OBJECT_GATED_VERBS.has(verb)) {
       const end = m.index + m[0].length
       if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    }
+    if (POLITE_SENTENCE_GATED_VERBS.has(verb)) {
+      const end = m.index + m[0].length
+      if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end).split(SENTENCE_END_RE)[0] ?? '')) continue
     }
     if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
@@ -915,6 +979,8 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     /* v8 ignore next */ // m[1] is always captured by the verb group
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
+    if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }

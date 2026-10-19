@@ -50,7 +50,12 @@ const SELF_INSTRUCTION_PATTERNS: RegExp[] = [
   // The noun list is deliberately the whole operating-constraint family: the
   // drift gate showed 24 safeguard attacks lost purely because it originally
   // stopped at instructions/rules/directives/guidelines.
-  /\b(?:previous|prior|earlier|above|preceding|initial|original|standard|existing)\s+(?:\w+\s+){0,2}?(?:instructions?|rules?|directives?|guidelines?|restrictions?|constraints?|protocols?|policies|policy|limitations?|filters?|safeguards?|requests?|commands?|settings?|system\s+prompt)\b/i,
+  /\b(?:previous|prior|earlier|above|preceding|initial|original|standard|existing)\s+(?:\w+\s+){0,2}?(?:instructions?|rules?|directives?|guidelines?|restrictions?|constraints?|protocols?|policies|policy|limitations?|filters?|safeguards?|system\s+prompt)\b/i,
+  // Requests, commands and settings only with a temporal word: "ignore all
+  // previous commands" is the idiom, while "the user's original request" and
+  // "fall back to the original commands" are the user's material (Claude
+  // Code's suggestion prompt and lean-ctx's help text warned on those).
+  /\b(?:previous|prior|earlier|above|preceding)\s+(?:\w+\s+){0,2}?(?:requests?|commands?|settings?)\b/i,
   // "ignore all restrictions", "ignore all safety protocols" — no temporal word.
   /\b(?:ignore|disregard|bypass|override|forget|drop|remove|lift|suspend)\s+(?:all\s+|any\s+|the\s+|your\s+|every\s+)*(?:safety\s+|security\s+|content\s+|ethical\s+|moral\s+)?(?:restrictions?|constraints?|protocols?|policies|policy|guidelines?|rules?|filters?|safeguards?|limitations?)\b/i,
   // "don't follow the rules", "do not follow the standard security protocols"

@@ -34,6 +34,13 @@ export interface ModuleTransformResult {
   modified: boolean;
   metadata?: Record<string, unknown>;
   events?: ModuleEvent[];
+  /**
+   * Request headers to set on the upstream call, lower-case names, each
+   * value replacing the client's. The proxy and the gateway apply them with
+   * the body; under observe mode neither is applied. A module that appends
+   * to a header (a beta list) builds the whole value from `ctx.headers`.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface ModuleStats {
@@ -48,6 +55,21 @@ export interface ModuleStats {
   recentEvents: ModuleEvent[];
   /** Replaces the default savings KPIs on the module's dashboard card. */
   kpis?: Array<{ key: string; label: string; value: number | string }>;
+  /** One line of text under the KPIs, for findings a number cannot carry. */
+  detail?: string;
+  /**
+   * A change the card offers as one click: a `POST /api/modules` with the
+   * target module's id, its switch and options, sent after a second click.
+   */
+  action?: ModuleAction;
+}
+
+export interface ModuleAction {
+  label: string;
+  /** The module the change is posted to. */
+  module: string;
+  enabled?: boolean;
+  options: Record<string, unknown>;
 }
 
 export interface GatewayModule {
