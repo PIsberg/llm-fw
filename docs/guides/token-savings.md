@@ -436,6 +436,17 @@ their combined tokens per request: names you can copy into
 `modules.toolFilter.dropTools`. It runs after the tool filter and the
 definition pruner, so the list is what still costs.
 
+Once 1,000 calls have been seen, the card offers the list as one click:
+**Drop these N tools in the Tool Filter** writes every never-called tool the
+filter does not already match into `modules.toolFilter.dropTools`, keeping
+what is there, and switches the filter on. The click is armed first and sent
+on a second click, since it changes what the model can call, and the list is
+evidence, not a verdict: a tool that has not been called in 1,000 calls may
+still be needed (`AskUserQuestion`, say), so read the list before you click.
+The filter keeps any tool a conversation has already called, whatever the
+list says. The threshold is not configurable; the card says how many calls
+it has seen until then.
+
 Why it matters: across 14 days of one developer's Claude Code transcripts
 (34,209 assistant turns), cache reads were 78.5% of the bill by list-price
 weights, and the tool list is part of that prefix on every turn. A captured

@@ -52,6 +52,19 @@ export interface ModuleStats {
   kpis?: Array<{ key: string; label: string; value: number | string }>;
   /** One line of text under the KPIs, for findings a number cannot carry. */
   detail?: string;
+  /**
+   * A change the card offers as one click: a `POST /api/modules` with the
+   * target module's id, its switch and options, sent after a second click.
+   */
+  action?: ModuleAction;
+}
+
+export interface ModuleAction {
+  label: string;
+  /** The module the change is posted to. */
+  module: string;
+  enabled?: boolean;
+  options: Record<string, unknown>;
 }
 
 export interface GatewayModule {

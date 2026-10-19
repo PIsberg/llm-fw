@@ -1,11 +1,11 @@
 import fs from 'node:fs'
 import { dirname } from 'node:path'
-import type { ModuleSwitchConfig } from '../../types.js'
-import type { GatewayModuleContext, ModuleStats } from '../types.js'
+import type { ModuleSwitchConfig, ToolFilterConfig } from '../../types.js'
+import type { GatewayModuleContext, ModuleAction, ModuleStats } from '../types.js'
 import type { CapturedResponse } from '../responseTap.js'
 import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
 import { responseCalls } from '../toolCalls.js'
-import { toolName } from './toolFilter.js'
+import { matchesAny, toolName } from './toolFilter.js'
 import { createLogger } from '../../logger.js'
 
 const log = createLogger('tool-usage')
@@ -29,6 +29,10 @@ const MAX_TOOLS = 2000
 const MAX_CALL_IDS = 8192
 // How many never-called tools the card lists.
 const DETAIL_LIMIT = 30
+// Calls seen before the card offers the list to the Tool Filter (#407): a
+// tool not called yet may still be needed, and the click removes it from
+// what the model can call.
+const MIN_EVIDENCE_CALLS = 1000
 
 // Each tool definition in the Anthropic, OpenAI chat, Responses API and
 // Gemini shapes, with the JSON it is billed as.
@@ -96,9 +100,13 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
   // nothing reads or writes a file unless `llm-fw start` asks for it.
   private file: string | undefined
   private saveTimer: NodeJS.Timeout | undefined
+  // The Tool Filter's live config, read when the card is drawn, so the
+  // action names only tools the filter does not cover yet.
+  private readonly filter: (() => ToolFilterConfig | undefined) | undefined
 
-  constructor(config?: ModuleSwitchConfig) {
+  constructor(config?: ModuleSwitchConfig, filter?: () => ToolFilterConfig | undefined) {
     super(config ?? { enabled: true })
+    this.filter = filter
   }
 
   /**
@@ -174,11 +182,33 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     return [...this.offered].filter(([name]) => !this.called.has(name)).sort((a, b) => b[1] - a[1])
   }
 
+  // The one-click change for the Tool Filter: its current list plus every
+  // never-called tool it does not match yet, offered once enough calls have
+  // been seen. Undefined without a filter to write to, or nothing to add.
+  private action(never: Array<[string, number]>): { action?: ModuleAction; hint: string } {
+    const filter = this.filter?.()
+    if (!filter) return { hint: '' }
+    const dropped = Array.isArray(filter.dropTools) ? filter.dropTools : []
+    const add = never.map(([name]) => name).filter(name => !matchesAny(dropped, name))
+    if (add.length === 0) return { hint: '' }
+    if (this.calls < MIN_EVIDENCE_CALLS) return { hint: ` The Tool Filter action appears after ${MIN_EVIDENCE_CALLS.toLocaleString('en-US')} calls (${this.calls.toLocaleString('en-US')} so far).` }
+    return {
+      action: {
+        label: `Drop these ${add.length} tools in the Tool Filter`,
+        module: 'tool-filter',
+        enabled: true,
+        options: { dropTools: [...dropped, ...add] },
+      },
+      hint: '',
+    }
+  }
+
   getStats(): ModuleStats {
     const never = this.neverCalled()
     const neverTokens = never.reduce((sum, [, n]) => sum + n, 0)
     const listed = never.slice(0, DETAIL_LIMIT).map(([name, n]) => `${name} (${n.toLocaleString('en-US')})`)
     const more = never.length > DETAIL_LIMIT ? `, and ${never.length - DETAIL_LIMIT} more` : ''
+    const { action, hint } = this.action(never)
     return {
       ...super.getStats(),
       totalInvocations: this.requests,
@@ -190,7 +220,8 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
         { key: 'never', label: 'Never called', value: never.length },
         { key: 'neverTokens', label: 'Their tokens per request', value: neverTokens.toLocaleString('en-US') },
       ],
-      ...(never.length > 0 ? { detail: `Never called, largest first (tokens per request): ${listed.join(', ')}${more}` } : {}),
+      ...(never.length > 0 ? { detail: `Never called, largest first (tokens per request): ${listed.join(', ')}${more}.${hint}` } : {}),
+      ...(action ? { action } : {}),
     }
   }
 

@@ -32,7 +32,10 @@ type BuiltinKey = Exclude<keyof ModulesConfig, 'enabled'>
 // so the rest only work on turns that are kept (and dedup never points at a
 // dropped one); content cleaners run before the whitespace pruners, so those
 // see text without escape codes.
-export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig) => GatewayModule }> = [
+// `create` gets the module's own config object and the whole live modules
+// config, for the one module that reads another's (Tool Usage names the
+// tools the Tool Filter does not drop yet).
+export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig, modules: ModulesConfig) => GatewayModule }> = [
   { key: 'historyWindow', create: cfg => new HistoryWindowModule(cfg as HistoryWindowConfig) },
   { key: 'ansiStrip', create: cfg => new AnsiStripModule(cfg) },
   { key: 'progressCollapse', create: cfg => new ProgressCollapseModule(cfg) },
@@ -45,7 +48,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolResultTruncate', create: cfg => new ToolResultTruncateModule(cfg as ToolResultTruncateConfig) },
   { key: 'toolFilter', create: cfg => new ToolFilterModule(cfg as ToolFilterConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
-  { key: 'toolUsage', create: cfg => new ToolUsageModule(cfg) },
+  { key: 'toolUsage', create: (cfg, modules) => new ToolUsageModule(cfg, () => modules.toolFilter) },
   { key: 'toolResultClear', create: cfg => new ToolResultClearModule(cfg as ToolResultClearConfig) },
   { key: 'streamUsage', create: cfg => new StreamUsageModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
@@ -155,7 +158,7 @@ export class ModuleManager {
       const slots = modules as unknown as Record<BuiltinKey, ModuleSwitchConfig | undefined>
       for (const { key, create } of BUILTINS) {
         const cfg = (slots[key] ??= structuredClone(defaults[key]) ?? { enabled: false })
-        const mod = create(cfg)
+        const mod = create(cfg, modules)
         this.keys.set(mod.id, key)
         this.register(mod)
       }

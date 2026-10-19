@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tool Usage offers its never-called list to the Tool Filter in one click (#407).** Once the
+  module has seen 1,000 calls, its card shows **Drop these N tools in the Tool Filter**, which
+  writes every never-called tool the filter does not already match into
+  `modules.toolFilter.dropTools`, keeping the names already there, and switches the filter on.
+  The button is armed by a first click and sent by a second, since it changes what the model can
+  call; until the threshold the card says how many calls it has seen. Any module can offer such
+  an `action` in its stats; the card posts it to `/api/modules`.
 - **Module options are editable on the dashboard (#354).** Each card on the **Modules** tab has
   an **Options** section with one field per option (`historyWindow.maxMessages`,
   `toolResultTruncate.skipTools`, `cacheControl.ttl` and the rest), saved together.

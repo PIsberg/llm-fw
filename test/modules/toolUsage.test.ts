@@ -130,6 +130,34 @@ describe('ToolUsageModule', () => {
     })
   })
 
+  // #407: applying the list meant copying names into toolFilter.dropTools by
+  // hand. The card now offers a one-click action, once enough calls have
+  // been seen to trust the list, naming only the tools the filter does not
+  // already cover, with the filter's full new list.
+  it('offers to drop the never-called tools in the Tool Filter once a thousand calls say so', () => {
+    const filter = { enabled: false, dropTools: ['CronCreate', 'mcp__axiom__*'] }
+    const mod = new ToolUsageModule({ enabled: true }, () => filter)
+    const tools = [...offered, tool('mcp__axiom__axiom_query_symbol', 3)]
+    const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ role: 'assistant', content: [{ type: 'tool_use', id: `c${i}`, name: 'Bash', input: {} }] }))
+    mod.transformRequest(JSON.stringify({ tools, messages: [{ role: 'user', content: 'hi' }, ...calls(999)] }), ctx)
+    expect(mod.getStats().action).toBeUndefined()
+    expect(mod.getStats().detail).toContain('1,000 calls')
+
+    mod.transformRequest(JSON.stringify({ tools, messages: [{ role: 'user', content: 'hi' }, ...calls(1000)] }), ctx)
+    expect(mod.getStats().action).toEqual({
+      label: 'Drop these 2 tools in the Tool Filter',
+      module: 'tool-filter',
+      enabled: true,
+      options: { dropTools: ['CronCreate', 'mcp__axiom__*', 'NotebookEdit', 'Read'] },
+    })
+
+    // Once the filter has them, nothing is left to offer.
+    filter.dropTools = ['CronCreate', 'mcp__axiom__*', 'NotebookEdit', 'Read']
+    expect(mod.getStats().action).toBeUndefined()
+    // Without a filter to write to, none either.
+    expect(new ToolUsageModule({ enabled: true }).getStats().action).toBeUndefined()
+  })
+
   it('does nothing while off', () => {
     const mod = new ToolUsageModule({ enabled: false })
     mod.transformRequest(JSON.stringify({ tools: offered, messages: [] }), ctx)

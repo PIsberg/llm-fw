@@ -34,6 +34,11 @@ function compile(patterns: string[]): Matcher | null {
   return globs.length > 0 ? name => globs.some(g => globMatches(g, name)) : null
 }
 
+/** True when `name` matches any of `patterns`, as dropTools matches. */
+export function matchesAny(patterns: string[], name: string): boolean {
+  return compile(patterns)?.(name) ?? false
+}
+
 // A tool's name in the Anthropic, OpenAI chat, Responses API and Gemini
 // declaration shapes; a server tool without one (`{type: "web_search"}`)
 // is never dropped.

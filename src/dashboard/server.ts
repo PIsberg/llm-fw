@@ -949,9 +949,34 @@ function renderModuleCards(mods) {
       '<div class="module-card-desc">' + esc(m.description || '') + '</div>' +
       '<div class="module-kpis">' + kpis + '</div>' +
       (m.detail ? '<div class="module-card-detail">' + esc(m.detail) + '</div>' : '') +
+      (m.action ? '<div class="module-card-action"><button type="button" class="btn btn-sm module-action">' + esc(m.action.label) + '</button> <span class="module-options-status"></span></div>' : '') +
       optionsHtml;
     const toggle = card.querySelector('input.module-switch');
     toggle.onchange = () => setModuleEnabled(m.id, toggle);
+    // A one-click action (#407) changes another module, so it is armed by a
+    // first click and sent by a second.
+    const action = card.querySelector('button.module-action');
+    if (action) {
+      let armed = false;
+      action.onclick = async () => {
+        if (!armed) { armed = true; action.textContent = 'Click again to confirm'; return; }
+        const status = card.querySelector('.module-card-action .module-options-status');
+        try {
+          const res = await fetch('/api/modules', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: m.action.module, ...(typeof m.action.enabled === 'boolean' ? { enabled: m.action.enabled } : {}), options: m.action.options }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+          loadModuleStats();
+        } catch (err) {
+          armed = false;
+          action.textContent = m.action.label;
+          status.textContent = err.message;
+          status.classList.add('is-error');
+        }
+      };
+    }
     const form = card.querySelector('.module-options-form');
     if (form) {
       form.onsubmit = (ev) => { ev.preventDefault(); saveModuleOptions(m.id, options, form); };

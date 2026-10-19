@@ -119,6 +119,12 @@ export interface ModuleStats {
   tokensSaved: number;
   percentSaved: number;
   recentEvents: ModuleEvent[];
+  /** Replaces the default savings KPIs on the card (the usage meter, tool usage). */
+  kpis?: Array<{ key: string; label: string; value: number | string }>;
+  /** One line of text under the KPIs. */
+  detail?: string;
+  /** A change the card offers as one click, posted to /api/modules after a second click (#407). */
+  action?: { label: string; module: string; enabled?: boolean; options: Record<string, unknown> };
 }
 
 export interface GatewayModule {

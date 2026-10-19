@@ -258,6 +258,41 @@ test.describe('Modules tab (#341)', () => {
     await expect(page.locator('.module-card[data-module="cache-control"] select[data-option="ttl"]')).toHaveValue('5m')
   })
 
+  // #407: Tool Usage offers its never-called list as one click into the
+  // Tool Filter; the click is armed first, since it changes what the agent
+  // can call.
+  test('applies a module\'s one-click action after a second click', async ({ page }) => {
+    const posts: unknown[] = []
+    await page.route('**/api/modules', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        posts.push(route.request().postDataJSON())
+        await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true }) })
+        return
+      }
+      const base = JSON.parse(modulesBody({ saved: 0, original: 0, pct: 0 }))
+      base.modules.push({
+        id: 'tool-usage', name: 'Tool Usage', enabled: true, description: 'Records which offered tools get called',
+        totalInvocations: 2, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [],
+        kpis: [{ key: 'never', label: 'Never called', value: 2 }],
+        detail: 'Never called: NotebookEdit (1,204), CronCreate (310)',
+        action: posts.length ? undefined : { label: 'Drop these 2 tools in the Tool Filter', module: 'tool-filter', enabled: true, options: { dropTools: ['NotebookEdit', 'CronCreate'] } },
+      })
+      await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base) })
+    })
+    await page.goto('/')
+    await page.click('button:has-text("Modules")')
+    const button = page.locator('.module-card[data-module="tool-usage"] button.module-action')
+    await expect(button).toHaveText('Drop these 2 tools in the Tool Filter')
+    await button.click()
+    await expect(button).toHaveText('Click again to confirm')
+    expect(posts).toEqual([])
+    await button.click()
+    await expect.poll(() => posts.length).toBe(1)
+    expect(posts).toEqual([{ id: 'tool-filter', enabled: true, options: { dropTools: ['NotebookEdit', 'CronCreate'] } }])
+    // The refreshed card no longer offers it.
+    await expect(page.locator('.module-card[data-module="tool-usage"] button.module-action')).toHaveCount(0)
+  })
+
   test('marks a dry-run row as observed, not saved', async ({ page }) => {
     const server = await gatedServer(page, { saved: 0, original: 0, pct: 0 })
     await page.goto('/')
