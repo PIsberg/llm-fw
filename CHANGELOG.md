@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Docker image can bake in lean-ctx (#369).** `docker build --build-arg
+  LEAN_CTX_VERSION=3.11.0 --build-arg LEAN_CTX_SHA256=<the archive's hash>` downloads that
+  release's Linux archive, refuses it when the hash disagrees, and puts `lean-ctx` on `PATH`,
+  where the lean-ctx module looks; `LEAN_CTX_TARGET` picks another platform's archive. Without
+  the arguments the image is unchanged, since the archive is about 28 MB for a module that removed
+  0.64% of tool-result tokens where it was measured. The Docker Image workflow now builds both
+  ways and checks that the module starts lean-ctx inside the container and that the default
+  image carries none. Documented under Docker in `docs/guides/deployment-server.md`.
 - **Tool Usage offers its never-called list to the Tool Filter in one click (#407).** Once the
   module has seen 1,000 calls, its card shows **Drop these N tools in the Tool Filter**, which
   writes every never-called tool the filter does not already match into

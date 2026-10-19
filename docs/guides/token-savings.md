@@ -386,8 +386,10 @@ How llm-fw runs lean-ctx:
   a request that needed it. The idle stop is what covers a `config.json`
   edit, which flips the switch without telling the module. The next request
   that needs it starts it again.
-- The Docker image does not include lean-ctx, so there the module forwards
-  every result whole.
+- The Docker image does not include lean-ctx unless it was built with the
+  `LEAN_CTX_VERSION` and `LEAN_CTX_SHA256` build arguments (see
+  [Docker](deployment-server.md#docker)); without them the module forwards
+  every result whole there.
 
 ### Tool filter
 
