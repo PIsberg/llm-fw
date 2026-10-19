@@ -232,6 +232,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The guide reports the truncator's billed A/B with file reads left whole (#362).** On three
+  shell-heavy tasks (Haiku 5.5, two rounds), the module removed 169,788 tokens by its own count
+  but sessions took 106 turns against 82, and the total cost was $0.716 against $0.497 with it
+  off; every answer was right in both arms. With file reads whole, no saving is shown.
 - **The guide says what the OpenAI SDKs do with the stream usage chunk (#414).** Measured with
   openai-node 7.39.0 and openai-python 3.35.1 against a stand-in for the API's stream: both parse
   the extra chunk and their stream helpers report its usage, but client code that reads

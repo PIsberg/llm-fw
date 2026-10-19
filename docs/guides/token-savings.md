@@ -182,8 +182,32 @@ what it cut. Over 30 days of one developer's Claude Code transcripts
 (1,716 transcript files, 61,634 tool results, counted with the estimate above),
 `Read` results were 62% of the tokens the truncator would remove, lean-ctx's
 `ctx_read` 9% and `Bash` 22%. Skipping `Read` keeps 38% of the saving;
-skipping `ctx_read` as well keeps 29%. What that does to the bill, net of the
-turns it no longer adds, has not been measured.
+skipping `ctx_read` as well keeps 29%.
+
+Measured again on 2026-10-19 with file reads left whole (the default), on
+the output the truncator still cuts: Claude Code 2.1.303 with Claude Haiku
+5.5 at effort `high` through a relay running the module at its defaults,
+three tasks on a clone of this repository, two rounds, arm order swapped.
+Two tasks ran 16 commands with large output each (`git log -p -n 6`,
+`grep -rn`) and asked for a fact from the top of every output; one ran
+`git log --format='%h %s' -n 500` and asked for a commit in the elided
+middle.
+
+| Task, round | Off | Truncator on |
+| --- | --- | --- |
+| git log, 1 | $0.125, 17 turns | $0.275, 36 turns |
+| git log, 2 | $0.155, 25 turns | $0.100, 17 turns |
+| grep, 1 | $0.105, 17 turns | $0.098, 17 turns |
+| grep, 2 | $0.104, 17 turns | $0.239, 29 turns |
+| middle of a 500-line log, both | $0.006 and $0.002 | $0.003 and $0.002 |
+| **All** | **$0.497, 82 turns** | **$0.716, 106 turns** |
+
+Every answer was right in both arms. The module removed 169,788 tokens by
+its own count, but cache reads rose from 735,855 to 2,162,617 tokens with the
+extra turns, and the total cost went up 44%. The spread between rounds is
+wide (17 to 36 turns on one task), so read this as no saving shown, not as a
+measured loss of 44%. On this sample, with file reads whole, the truncator
+does not lower the bill.
 
 ### Where the input bill goes
 
