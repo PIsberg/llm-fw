@@ -60,6 +60,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.79
+
+**2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
+each; 0 of 23,938 eval verdicts changed, maximum similarity drift 0.0000.**
+No detector changed. The cut covers three token-saving module defaults in
+`config.ts`, which the digest hashes: the lean-ctx module's `tools` gained
+Codex CLI's `shell` and Gemini CLI's `run_shell_command`, the truncator gained
+`skipCommands`, and the stream usage reporter was added, off by default. None
+of them is read by any detection stage.
+
 ## Result, ruleset 2026.10.78
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000
