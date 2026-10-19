@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { LeanCtxModule, isFileRead, type LeanCtxSpawn } from '../../src/modules/builtin/leanCtx.js'
+import { LeanCtxModule, type LeanCtxSpawn } from '../../src/modules/builtin/leanCtx.js'
+import { isFileRead } from '../../src/modules/toolCalls.js'
 import { AnsiStripModule } from '../../src/modules/builtin/ansiStrip.js'
 import { ModuleManager } from '../../src/modules/registry.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
@@ -269,6 +270,28 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     cfg.tools = []
     const other = turn([bash('t2', 'npm run lint', log(40, 'lint'))])
     expect((await send(other)).messages[1]!.content[0]!.content).toBe(log(40, 'lint'))
+  })
+
+  // #367: Codex's `shell` tool passes the command as an argv array
+  // (["bash", "-lc", "npm test"]); Gemini CLI's `run_shell_command` takes a
+  // string. Both are shells, and a file read behind `bash -lc` stays whole.
+  it('covers the shell tools of Codex and Gemini CLI by default, array commands included', async () => {
+    const { send, sent } = setup()
+    const out = await send(turn([
+      { id: 't1', name: 'shell', input: { command: ['bash', '-lc', 'npm test'], workdir: '/repo' }, out: log(40, 'codex') },
+      { id: 't2', name: 'shell', input: { command: ['bash', '-lc', 'cat src/a.ts'] }, out: LOG },
+      { id: 't3', name: 'run_shell_command', input: { command: 'npm run build', description: 'build' }, out: log(40, 'gemini') },
+      { id: 't4', name: 'run_shell_command', input: { command: 'sed -n 1,40p a.ts' }, out: LOG },
+      { id: 't5', name: 'shell', input: { command: [1, 2] }, out: log(40, 'odd') },
+    ]))
+    expect(out.messages[1]!.content.map(r => r.content)).toEqual([
+      '[INFO] codex 1\n[INFO] codex 2\n[38 lines omitted]',
+      LOG,
+      '[INFO] gemini 1\n[INFO] gemini 2\n[38 lines omitted]',
+      LOG,
+      log(40, 'odd'),
+    ])
+    expect(sent().sort()).toEqual([log(40, 'codex'), log(40, 'gemini')])
   })
 
   // #368: switching the module off (dashboard toggle, POST /api/modules)

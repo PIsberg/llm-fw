@@ -11,7 +11,7 @@ import { getLlmFwDir } from '../../config/paths.js'
 import { createLogger } from '../../logger.js'
 import { SlotModule } from '../base.js'
 import { collectTextSlots, type SlotKind, type TextSlot } from '../payload.js'
-import { RememberedCalls, toolArgs } from '../toolCalls.js'
+import { RememberedCalls, commandText, isFileRead, toolArgs } from '../toolCalls.js'
 
 const log = createLogger('lean-ctx')
 
@@ -19,21 +19,6 @@ const TOOL_OUTPUT: ReadonlySet<SlotKind> = new Set(['tool_result'])
 
 /** child_process.spawn, or a stand-in for it in tests. */
 export type LeanCtxSpawn = (command: string, args: string[], options: SpawnOptions) => ChildProcess
-
-/**
- * True when a word of `command` is one of `skipCommands`, compared by its
- * basename without `.exe`; an entry with a hyphen (a PowerShell cmdlet such
- * as Get-Content) matches in any case. Any word counts, a pipeline stage or
- * an argument alike, so a doubtful command is treated as a file read.
- */
-export function isFileRead(command: string, skipCommands: readonly string[]): boolean {
-  for (const word of command.split(/[\s;&|()<>`$"'{}]+/)) {
-    const base = (word.split(/[\\/]/).pop() ?? '').replace(/\.exe$/i, '')
-    if (!base) continue
-    if (skipCommands.some(skip => skip === base || (skip.includes('-') && skip.toLowerCase() === base.toLowerCase()))) return true
-  }
-  return false
-}
 
 // lean-ctx appends one of these to a lossy result: an instruction to fetch
 // the original through a retrieve tool or from a file on this machine. No
@@ -247,8 +232,8 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
     const learned = slot.toolName === undefined ? this.calls.get(slot.toolCallId) : undefined
     const name = slot.toolName ?? learned?.name
     if (name === undefined || !this.cfg.tools.some(tool => name === tool || name.endsWith(`__${tool}`))) return undefined
-    const command = toolArgs(learned ? learned.input : slot.toolInput)?.command
-    if (typeof command !== 'string' || isFileRead(command, this.cfg.skipCommands)) return undefined
+    const command = commandText(toolArgs(learned ? learned.input : slot.toolInput)?.command)
+    if (command === undefined || isFileRead(command, this.cfg.skipCommands)) return undefined
     const key = createHash('sha256').update(name).update('\0').update(slot.text).digest('hex')
     return { key, name, text: slot.text }
   }

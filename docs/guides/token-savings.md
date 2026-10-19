@@ -272,7 +272,7 @@ missing or stops, results are forwarded whole and one warning is logged.
 
 | Option | Default | Does |
 | --- | --- | --- |
-| `tools` | `["Bash", "PowerShell"]` | Shell tools whose results are sent, matched like `skipTools` above. The call's `command` argument must be a string. |
+| `tools` | `["Bash", "PowerShell", "shell", "run_shell_command"]` | Shell tools whose results are sent, matched like `skipTools` above: Claude Code's `Bash` and `PowerShell`, Codex CLI's `shell`, Gemini CLI's `run_shell_command`. The call's `command` argument must be a string, or the argv array Codex sends (`["bash", "-lc", "npm test"]`), which is read as one line, so a file read behind `bash -lc` stays whole. |
 | `skipCommands` | file printers, below | A result whose command has any of these as a word stays whole. |
 | `timeoutMs` | `500` | How long a request waits for lean-ctx. A result it has not answered by then is forwarded whole, on that turn and every later one. |
 

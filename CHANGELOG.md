@@ -221,6 +221,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The lean-ctx module covers Codex CLI and Gemini CLI shells (#367).** `modules.leanCtx.tools`
+  now lists `shell` (Codex, whose `command` is an argv array such as
+  `["bash", "-lc", "npm test"]`, read as one line so a file read behind `bash -lc` stays whole)
+  and `run_shell_command` (Gemini CLI) next to Claude Code's `Bash` and `PowerShell`. Before,
+  an array command was treated as unknown and the result forwarded whole. Checked against the two
+  tools' documented argument shapes, not against captured traffic. `ruleset.ts` digest re-pinned
+  for the new default in `config.ts`; no detection change.
 - **Switching the lean-ctx module off now stops lean-ctx (#368).** The dashboard toggle and
   `POST /api/modules` stop the private `lean-ctx proxy` at once, and a `config.json` edit, which
   flips the switch without telling the module, is covered by an idle stop: lean-ctx exits 10

@@ -488,7 +488,8 @@ export interface ToolResultClearConfig extends ModuleSwitchConfig {
 export interface LeanCtxConfig extends ModuleSwitchConfig {
   /**
    * Shell tools whose results go to lean-ctx, matched like the truncator's
-   * skipTools. The call's `command` argument must be a string.
+   * skipTools. The call's `command` argument must be a string or an argv
+   * array of strings (Codex's shell).
    */
   tools: string[];
   /**

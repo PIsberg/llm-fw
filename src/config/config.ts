@@ -365,8 +365,8 @@ export const DEFAULT_CONFIG: Config = {
     },
     leanCtx: {
       enabled: false,
-      // Claude Code's shell tools.
-      tools: ['Bash', 'PowerShell'],
+      // The shell tools of Claude Code, Codex CLI (an argv array) and Gemini CLI.
+      tools: ['Bash', 'PowerShell', 'shell', 'run_shell_command'],
       // Programs whose output is a file or part of one, Unix and PowerShell.
       skipCommands: [
         'cat', 'head', 'tail', 'sed', 'awk', 'nl', 'less', 'more', 'bat', 'tac', 'xxd', 'od', 'hexdump', 'strings',
