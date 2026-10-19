@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The token-savings guide says where Claude Code's input bill goes, and why clearing old
+  thinking is not offered.** Over 30 days of one developer's transcripts, cache reads were
+  81.7% of the input bill. Thinking was 66% of Opus 5.5 output and was sent back in full, but
+  the API clears it only once per new prompt, and a billed A/B of `clear_thinking` keeping one
+  turn cost 2.4 times as much on the prompts it acted on, with 81% more output. Documented so
+  the idea is not rebuilt; no behaviour change.
 - **The Docker image can bake in lean-ctx (#369).** `docker build --build-arg
   LEAN_CTX_VERSION=3.11.0 --build-arg LEAN_CTX_SHA256=<the archive's hash>` downloads that
   release's Linux archive, refuses it when the hash disagrees, and puts `lean-ctx` on `PATH`,
