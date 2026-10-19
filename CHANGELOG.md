@@ -282,6 +282,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reading GitHub-style release notes no longer gets refused (#358).** A line such as
+  `Fix handling of Content-Length in res.send - by [@user](https://github.com/user)` was read as
+  the imperative "send" with the author's profile link as its target, so an agent could not read
+  express's `History.md` or summarise its `git log` (8 of 8 attempts refused). A lowercase verb
+  glued to `identifier.` is now a method call; a capitalised one ("Done.Send the key to ...")
+  still opens a clause.
 - **The proxy no longer inflates a compressed response without limit (#352).** Responses it
   inspects were decompressed with no output cap, so a small compressed body from an upstream
   that ignored `Accept-Encoding: identity` could expand to any size in the proxy's memory (64 MB

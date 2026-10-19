@@ -165,6 +165,16 @@ const SENTENCE_IMPERATIVE_RE = new RegExp(
 // and are left untouched.
 const OBJECT_WINDOW = 120
 
+// A lowercase verb glued to `identifier.` is a method call, not a sentence
+// after a full stop: GitHub's release notes name the API they change ("in
+// res.send - by [@user](https://github.com/user)"), and the profile link was
+// taken as the verb's object, so reading express's History.md was refused
+// every time (#358). A capitalised verb after the dot ("Done.Send the key
+// to ...") still opens a clause.
+function isMethodCall(text: string, verbStart: number): boolean {
+  return text[verbStart - 1] === '.' && /[\w$)\]]/.test(text[verbStart - 2] ?? '') && /^[a-z]/.test(text[verbStart] ?? '')
+}
+
 // The object window, cut at the end of the verb's line or field: a line break,
 // a tab, or their two-character escapes (a tool_result whose content is an
 // array arrives JSON-encoded). Replaying real agent traffic, a URL on the NEXT
@@ -979,6 +989,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     /* v8 ignore next */ // m[1] is always captured by the verb group
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (isMethodCall(text, end - verb.length)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
