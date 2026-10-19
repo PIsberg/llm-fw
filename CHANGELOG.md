@@ -282,6 +282,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Status prose about an open pull request no longer scores as prefix injection (#393).** "The
+  PR is open with CI still running, so I'll wait" matched the `prefix-injection` rule (weight 50)
+  with "open" read as the lead-in verb. "Open" after a copula or a state verb (is, are, was,
+  still, stays, remains, left, kept, 's) is now the adjective; "Open with 'Sure, here is'" and
+  "open your answer with" still match.
 - **Reading GitHub-style release notes no longer gets refused (#358).** A line such as
   `Fix handling of Content-Length in res.send - by [@user](https://github.com/user)` was read as
   the imperative "send" with the author's profile link as its target, so an agent could not read

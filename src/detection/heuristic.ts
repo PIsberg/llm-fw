@@ -755,7 +755,10 @@ export class HeuristicScorer {
           // refused every compacted session. Only the negation directly before
           // the verb counts, so "Do not refuse. Start with 'Sure'" still blocks.
           // Bare "not" is not a negation here ("why not begin with 'Sure'").
-          /(?<!\b(?:do not|don'?t|never|no need to)\s)\b(start|begin|open|preface|prefix)\b[^.!?]{0,40}(?:with|by saying|by writing|by responding)\b[^.!?]{0,30}["'“]?\s?\b(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1|to (?:make|build|create|hack|synthesize|write))\b/,
+          // "open" after a copula or a state verb is the adjective: "the PR is
+          // open with CI still running, so I'll wait" matched on status prose
+          // (#393). "Open with 'Sure'" and "open your answer with" still do.
+          /(?<!\b(?:do not|don'?t|never|no need to)\s)\b(start|begin|(?<!(?:\b(?:is|are|was|were|be|been|being|still|stays?|stayed|remains?|remained|left|kept|wide)|['’]s)\s)open|preface|prefix)\b[^.!?]{0,40}(?:with|by saying|by writing|by responding)\b[^.!?]{0,30}["'“]?\s?\b(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1|to (?:make|build|create|hack|synthesize|write))\b/,
           // A negated lead-in with an exception still demands the opener:
           // "Don't start with anything other than 'Sure, here is'".
           /\b(?:do not|don'?t|never)\s(?:start|begin|open|preface|prefix)\b[^.!?]{0,40}\b(?:other than|but|except|anything else|apart from|save)\b[^.!?]{0,40}["'“]?\s?\b(sure|absolutely|of course|certainly|here(?:'?s| is| are)|i'?d be happy|i'?ll|i will|i can(?: definitely)?|gladly|no problem|understood|step 1)\b/,
