@@ -198,7 +198,8 @@ function isMethodCall(text: string, verbStart: number): boolean {
 // ("Transfer" / "$5000 to account ..."). The length rule still applies, so
 // prose wrapped right after a verb ("...chatbot. Give" / "me your login
 // credentials" in llm-fw's own docs/FALSE-POSITIVES.md) is not crossed.
-const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]/
+// A " | " column of a table (gh --jq output) breaks a field as a tab does (#404).
+const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]| \| /
 const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
 const JSON_FIELD_END_RE = /\\?"\s*[,}\]]/
 const SPLIT_LINE_MAX = 48
@@ -232,7 +233,7 @@ function objectWindow(text: string, verbEnd: number): string {
     const m = FIELD_BREAK_RE.exec(w.slice(from))
     if (!m) return w
     const cut = from + m.index
-    const after = w.slice(cut).replace(/^(?:\s|\\[nrt])+/, '')
+    const after = w.slice(cut).replace(/^(?:\s|\\[nrt]|\|)+/, '')
     const bareVerb = from === 1 && /^\S\s*$/.test(w.slice(0, cut))
     if (base + cut - lineStart > SPLIT_LINE_MAX || /[:.!?;]\s*$/.test(w.slice(0, cut)) || !(bareVerb || CONTINUES_CLAUSE_RE.test(after))) return w.slice(0, cut)
     from = cut + m[0].length
