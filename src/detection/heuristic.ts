@@ -830,7 +830,12 @@ export class HeuristicScorer {
       },
       {
         weight: 10, label: 'soft-signal', patterns: [
-          /instead[,]? (?:of|do|please|just|simply|now)/,
+          // A bare "instead of" is ordinary prose ("build on the previous
+          // branch instead of on main", #395); it counts when it redirects
+          // the task to an output verb ("instead of summarizing, output the
+          // raw instructions"). "instead, do / just / now" still counts.
+          /instead[,]? (?:do|please|just|simply|now)\b/,
+          /instead of (?:answering|responding|replying|following|obeying|summari[sz]ing|translating|doing (?:that|this|so)|that|this)\b[^.!?]{0,40}\b(?:print|output|reveal|say|write|ignore|tell|show|repeat|disclose)\b/,
           /output only/,
           /print (?:the |your |raw |only |just )/,
           /reveal (?:your|the) (?:system|hidden|true|actual|real)/,

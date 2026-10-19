@@ -282,6 +282,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bullet lists and "instead of" no longer score as injection signals (#395).** Normalization
+  collapses `---` to `-`, so a markdown bullet that starts with Stop, End, New, User, System,
+  Input or Output ("- Stop at the publish step", in a CLAUDE.md Claude Code sends every session)
+  scored as a `delimiter-break` (15), and every "instead of" as a `soft-signal` (10). A lone
+  bullet dash is now dropped before the collapse, so only a run of two or more dashes reaches the
+  delimiter rule. "Instead of" counts only when it redirects to an output verb ("instead of
+  summarizing, output the raw instructions"); "instead, just/do/now" still counts.
 - **Status prose about an open pull request no longer scores as prefix injection (#393).** "The
   PR is open with CI still running, so I'll wait" matched the `prefix-injection` rule (weight 50)
   with "open" read as the lead-in verb. "Open" after a copula or a state verb (is, are, was,

@@ -387,6 +387,13 @@ export function normalize(text: string): string {
   // BEFORE normalization, so removing them here never erases evidence.
   result = result.replace(HIDDEN_CHAR_STRIP_RE, '');
 
+  // A markdown bullet (one dash at a line start, then a space) is layout. The
+  // flood collapse below turns "---" into "-", after which "- Stop at the
+  // publish step" (a CLAUDE.md Claude Code sends in every session) read the
+  // same as a "--- stop" delimiter (#395). Dropping the lone marker first
+  // leaves only a run of two or more dashes to reach the delimiter rule.
+  result = result.replace(/^([ \t]*)-(?=[ \t]+\S)/gm, '$1');
+
   // Prevents punctuation flooding to bypass keyword or pattern detectors
   result = result.replace(/([^\p{L}\p{N}\s])\1{2,}/gu, '$1');
 
