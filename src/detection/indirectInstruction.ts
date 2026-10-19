@@ -243,7 +243,9 @@ function objectWindow(text: string, verbEnd: number): string {
 
 const IMPERATIVE_OBJECT_RE = new RegExp([
   // Attacker-controlled targets.
-  '\\b\\d{3,}[-\\s.]\\d{3,}',                                // account / card / phone shaped
+  // Seven digits at least: "Use 200-500 for UI updates" in a Go tool
+  // description is a range, not an account (#391).
+  '\\b(?=(?:\\d[-\\s.]?){7})\\d{3,}[-\\s.]\\d{3,}',          // account / card / phone shaped
   '\\b\\d{6,}\\b',                                           // long bare identifier
   '(?:\\$|€|£)\\s*\\d',                                      // currency amount
   '\\b\\d+(?:\\.\\d+)?\\s*(?:bitcoin|btc|eth|ether|usd|eur|gbp|dollars?|euros?)\\b',
@@ -865,10 +867,13 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // Casefold for Latin/Cyrillic/Greek; identity for CJK/Arabic/Brahmic (no case).
   const hay = text.toLowerCase()
 
-  // Index every sensitive verb once.
+  // Index every sensitive verb once. Not a path segment: Tesseract's
+  // "...\share/eng.traineddata" before "Please make sure ..." paired "share"
+  // with "please" (#391, replaying Codex CLI tool output).
   const verbHits: { i: number; v: string }[] = []
+  const inPath = (i: number, len: number): boolean => /[\\/]/.test(hay[i - 1] ?? '') || /[\\/]/.test(hay[i + len] ?? '')
   for (const v of ML_VERBS) {
-    for (const i of mlIndices(hay, v)) verbHits.push({ i, v })
+    for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
   }
   if (!verbHits.length) return null
 

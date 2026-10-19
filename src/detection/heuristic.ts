@@ -679,7 +679,10 @@ export class HeuristicScorer {
         // role:system JSON inside user content. Weight 35: pairs with
         // delimiter-break (15) or any persona/override signal to block.
         weight: 35, label: 'system-spoof', patterns: [
-          /<\/(system|instructions?|prompt|context)>/,
+          // Not the end of a one-word <system> element: Maven's
+          // <issueManagement><system>GitHub</system> made every pom.xml read
+          // score 50 (#391, replaying Codex CLI tool output).
+          /(?<!<system>[\w.-]{1,40})<\/(system|instructions?|prompt|context)>/,
           /(end of|new) system prompt/,
           /<<\/?sys>>|\[\/?inst\]|<\|im_(start|end)\|>|<\|endoftext\|>/,
           /"role" ?: ?"system"/,
@@ -815,7 +818,11 @@ export class HeuristicScorer {
           // normalize() collapses runs of identical punctuation ("###" → "#",
           // "===" → "=") BEFORE these patterns run, so match the collapsed form
           // followed by a structural keyword rather than the raw run.
-          /[#=] ?(end|new|stop|system|admin|input|output|user|assistant)\b/,
+          // Not a keyword used as code: an assignment from a call, a member
+          // or a constructor ("graph = new Parser()", "x = input(...)",
+          // "name = user.name"), which put every Java file a rule closer to a
+          // block (#391).
+          /[#=] ?(end|new|stop|system|admin|input|output|user|assistant)\b(?!\s*[(\[]|\.[a-z_$]| [a-z_$][\w$.]*\s*[(<\[{])/,
           // A dash only counts as a delimiter when it stands alone: a dash run
           // then a space ("<!-- assistant:", "-- end"), or a keyword fenced by
           // dashes ("---END---" normalizes to "-end-"). A dash glued to the
@@ -825,7 +832,7 @@ export class HeuristicScorer {
           // a block (found live, 2026-10-11).
           /(?<![\w-])-+ (end|new|stop|system|admin|input|output|user|assistant)\b/,
           /(?<![\w-])-+(end|new|stop|system|admin|input|output|user|assistant)-+(?!\w)/,
-          /<\/?(?:system|instructions?|prompt|context)>/,
+          /(?<!<system>[\w.-]{1,40})<\/(?:system|instructions?|prompt|context)>|<(?:system|instructions?|prompt|context)>(?![\w.-]{1,40}<\/system>)/,
         ],
       },
       {

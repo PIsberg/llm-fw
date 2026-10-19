@@ -287,6 +287,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fewer refusals of ordinary tool output from Codex CLI (#391).** Replaying 1,234 distinct tool
+  outputs from 32 recorded Codex sessions, four shapes were refused although benign: Maven
+  `pom.xml` files (`<issueManagement><system>GitHub</system>` scored as a spoofed system tag and
+  a delimiter), Java and Go assignments (`graph = new Parser()` as an `= new` delimiter), a
+  library error naming `...\share/eng.traineddata` before "Please make sure" (a path segment
+  read as the verb "share"), and a numeric range ("Use 200-500 for UI updates") read as an
+  account number. A one-word `<system>` element, a keyword used as code, a verb inside a path
+  and a number shape under seven digits no longer count.
 - **Codex CLI's real shell tools are covered (#415).** In 32 recorded Codex sessions every shell
   call was `shell_command` (891, a string `command`) or `exec_command` (10, the command in
   `cmd`), never the argv-array `shell` its docs describe, which the lean-ctx module had been set
