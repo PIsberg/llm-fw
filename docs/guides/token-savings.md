@@ -97,11 +97,28 @@ see repeats within one turn.
 For a client that resends history, turning a rewriting module on or off, or
 changing one of its options, changes how the earlier turns of a running
 conversation are sent. The next request misses the prompt cache once. On
-models with preserved thinking, accounts the provider enforces the check for
-(Anthropic accounts created on or after 2026-08-31) get a 400 for that
-conversation: "The block is bound to a different conversation." Start a new
-conversation after changing a module, or change modules between sessions.
-A server-side thread is not affected: its earlier turns are never sent again.
+models with preserved thinking, every thinking block is bound to the turns
+before it, and accounts the provider enforces that check for (Anthropic
+accounts created on or after 2026-08-31) would get a 400 for the rest of the
+conversation: "The block is bound to a different conversation."
+
+So whenever the module pipeline runs on an Anthropic request from a Claude 5
+model whose history carries thinking blocks, llm-fw sets
+`thinking.block_binding.prefix_mismatch_behavior` to `"drop_block"` and adds
+the `thinking-binding-controls-2026-08-01` beta, unless the client set the
+field itself. A block an edit invalidated is then dropped instead of the
+request being refused; the model loses that reasoning for the turn. Probed
+on 2026-10-19 with a captured Claude Code request (Claude Haiku 5.5, three
+thinking turns): an earlier tool result edited with `"error"`, which is how
+an enforced account behaves, answered 400; the same edit with
+`"drop_block"` answered 200 with the later blocks dropped; an unedited
+request with `"drop_block"` dropped nothing and read the prompt cache as
+before (48,329 tokens, nothing written). On an older account, which is not
+enforced, the field opts the request into the check, so after an edit those
+blocks are dropped where the model would otherwise still have received
+them. Switching the Token Economy itself off is not covered: the pipeline,
+and so the field, stops with it. A server-side thread is not affected: its
+earlier turns are never sent again.
 
 ## How savings are counted
 

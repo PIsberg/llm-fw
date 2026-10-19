@@ -287,6 +287,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Switching a module mid-conversation no longer breaks preserved thinking on enforced accounts
+  (#353).** A rewriting module turned on or off changes an earlier turn, and Claude 5 models bind
+  every thinking block to the turns before it: accounts the check is enforced for got a 400
+  ("bound to a different conversation") for the rest of the conversation. When the module pipeline
+  runs on an Anthropic request with thinking in its history, llm-fw now sets
+  `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` and the
+  `thinking-binding-controls-2026-08-01` beta, unless the client set it. Probed against the API:
+  an edited request answers 200 with the affected blocks dropped instead of 400, and an unedited
+  one drops nothing and reads the prompt cache as before.
 - **Fewer refusals of ordinary tool output from Codex CLI (#391).** Replaying 1,234 distinct tool
   outputs from 32 recorded Codex sessions, four shapes were refused although benign: Maven
   `pom.xml` files (`<issueManagement><system>GitHub</system>` scored as a spoofed system tag and
