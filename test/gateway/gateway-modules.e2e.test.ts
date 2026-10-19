@@ -181,8 +181,7 @@ def calculate(x):
     expect(pruner?.enabled).toBe(true)
   })
 
-  // #411: a module may ask for a request header on the upstream call (the
-  // tool-result-clear module adds Anthropic's context-management beta).
+  // #411: a module may ask for a request header on the upstream call.
   it('adds the request headers a module asks for to the upstream call', async () => {
     const stub = {
       id: 'stub-header', name: 'Stub', description: '', enabled: true,

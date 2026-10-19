@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ProxyServer } from '../../src/proxy/proxy.js'
+import type { ModuleManager } from '../../src/modules/registry.js'
 import { createDashboardServer } from '../../src/dashboard/server.js'
 import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
@@ -753,28 +754,28 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     }
   })
 
-  // #411: the API refuses context_management without the beta, and a plain
-  // SDK client does not send it, so the module asks for the header and the
-  // proxy adds it to the upstream request.
+  // #411: a module may ask for a request header on the upstream call, and
+  // the proxy sends it, replacing a value the client sent for that name.
   it('E2E Case 13: a module can add a request header on the way upstream', async () => {
-    const clear = testConfig.modules!.toolResultClear!
-    const saved = structuredClone(clear)
-    Object.assign(clear, { enabled: true })
+    const stub = {
+      id: 'stub-header', name: 'Stub', description: '', enabled: true,
+      transformRequest: (body: string) => ({ body, modified: true, headers: { 'anthropic-beta': 'files-api-2025-04-14,stub-beta' } }),
+      getStats: () => ({ id: 'stub-header', name: 'Stub', enabled: true, totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [] }),
+    }
+    ;(proxy as unknown as { modules: ModuleManager }).modules.register(stub)
     try {
       receivedRequests = []
       const send = (headers: Record<string, string>) => sendProxyRequest(
         testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
         { 'Content-Type': 'application/json', ...headers },
-        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'clear me' }] }),
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'header me' }] }),
       )
       expect((await send({})).statusCode).toBe(200)
       expect((await send({ 'anthropic-beta': 'files-api-2025-04-14' })).statusCode).toBe(200)
       expect(receivedRequests).toHaveLength(2)
-      expect(receivedRequests[0]!.headers['anthropic-beta']).toBe('context-management-2025-06-27')
-      expect(receivedRequests[1]!.headers['anthropic-beta']).toBe('files-api-2025-04-14,context-management-2025-06-27')
-      for (const r of receivedRequests) expect(JSON.parse(r.body).context_management.edits[0].type).toBe('clear_tool_uses_20250919')
+      for (const r of receivedRequests) expect(r.headers['anthropic-beta']).toBe('files-api-2025-04-14,stub-beta')
     } finally {
-      Object.assign(clear, saved)
+      stub.enabled = false
     }
   })
 })

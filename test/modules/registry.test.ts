@@ -55,8 +55,8 @@ describe('ModuleManager', () => {
     expect(mgr.listModules()[0]?.id).toBe('dummy-uppercase')
   })
 
-  // #411: a module can ask for a request header on the upstream call (the
-  // context-management beta). The manager merges what each module asks for
+  // #411: a module can ask for a request header on the upstream call. The
+  // manager merges what each module asks for
   // and lets the modules after it see the request as it will be sent.
   it('carries the headers modules ask for, and shows them to the next module', async () => {
     const seen: Array<Record<string, string | string[] | undefined> | undefined> = []
@@ -85,6 +85,20 @@ describe('ModuleManager', () => {
     const none = await mgr.transformRequest('{}', dummyCtx)
     expect(none.headers).toEqual({ 'anthropic-beta': 'one,two', 'x-extra': 'yes' })
     await expect(new ModuleManager(undefined, false).transformRequest('{}', dummyCtx)).resolves.toMatchObject({ headers: {} })
+  })
+
+  // The tool-result-clear module was removed after two billed comparisons
+  // (token-savings guide). A config written while it existed must still load
+  // and must not send its context_management edit.
+  it('ignores the settings of a removed module and leaves the request alone', async () => {
+    const config = structuredClone(DEFAULT_CONFIG) as Config
+    ;(config.modules as Record<string, unknown>).toolResultClear = { enabled: true, triggerTokens: 1, keepToolUses: 0, clearAtLeast: 0, excludeTools: [] }
+    const mgr = new ModuleManager(config)
+    expect(mgr.getModule('tool-result-clear')).toBeUndefined()
+    const body = JSON.stringify({ model: 'claude-opus-5-5', messages: [{ role: 'user', content: 'hi' }] })
+    const res = await mgr.transformRequest(body, { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null })
+    expect(JSON.parse(res.body).context_management).toBeUndefined()
+    expect(res.headers).toEqual({})
   })
 
   it('registers token-pruner by default', () => {

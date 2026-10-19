@@ -476,21 +476,6 @@ export interface ToolFilterConfig extends ModuleSwitchConfig {
   dropTools: string[];
 }
 
-export interface ToolResultClearConfig extends ModuleSwitchConfig {
-  /** Input tokens a request must pass before the server clears anything. */
-  triggerTokens: number;
-  /** The most recent tool calls whose results are kept. */
-  keepToolUses: number;
-  /**
-   * Input tokens each clearing must remove, or 0 for no minimum. Clearing
-   * rewrites the prompt cache from the first cleared result, so a small
-   * clearing on every turn costs more than it saves.
-   */
-  clearAtLeast: number;
-  /** Tools whose results are never cleared: exact names, file readers by default. */
-  excludeTools: string[];
-}
-
 export interface LeanCtxConfig extends ModuleSwitchConfig {
   /**
    * Shell tools whose results go to lean-ctx, matched like the truncator's
@@ -558,7 +543,6 @@ export interface ModulesConfig {
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Records which offered tools get called. On by default: it changes nothing. */
   toolUsage?: ModuleSwitchConfig;
-  toolResultClear?: ToolResultClearConfig;
   /** Asks OpenAI chat completions streams to report usage (stream_options.include_usage). */
   streamUsage?: ModuleSwitchConfig;
   cacheControl?: CacheControlConfig;

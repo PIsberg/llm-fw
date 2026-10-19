@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output (#409).** At the shipped defaults, two tasks with 16 large outputs each cost 4.5 times
   as much with the module on ($2.81 against $0.62 on Haiku 5.5): the agent re-ran cleared
   commands, and outputs larger than `clearAtLeast` made the server clear and rewrite the cache
-  on nearly every call. No behaviour change; the module stays off by default.
+  on nearly every call. The module is removed; see Removed.
 - **The Docker image can bake in lean-ctx (#369).** `docker build --build-arg
   LEAN_CTX_VERSION=3.11.0 --build-arg LEAN_CTX_SHA256=<the archive's hash>` downloads that
   release's Linux archive, refuses it when the hash disagrees, and puts `lean-ctx` on `PATH`,
@@ -269,6 +269,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime state, the model cache, and the `proxy.mode` key setup wrote, which a later `start`
   would act on) and keeps your other settings, both false-positive stores, the audit log and the
   licence. The new `--purge` deletes everything except the licence key.
+
+### Removed
+
+- **The `tool-result-clear` module (`modules.toolResultClear`, `LLM_FW_TOOL_RESULT_CLEAR_ENABLED`).**
+  It asked Anthropic to clear old tool results server side. Off by default, and both billed
+  comparisons were losses: re-reading cleared files cost up to 4.4 times as much, and on shell
+  and search output it cost 4.5 times as much, because the agent re-ran cleared commands and the
+  cache was rewritten on nearly every call. A config file that still sets `modules.toolResultClear`
+  is ignored. The measurements stay in the token-savings guide. `ruleset.ts` digest re-pinned for
+  the default removed from `config.ts`; no detection change.
 
 ### Fixed
 
