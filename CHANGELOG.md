@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Usage Meter shows how the token estimate compares with the bill (#356).** Two new KPIs
+  on its card: **Billed input per estimated text token**, the provider's billed input (uncached,
+  cache reads and writes) over the estimate `src/modules/tokens.ts` makes for the text of the
+  request that earned it, and **Responses compared**. The estimate was fitted to the public
+  cl100k and o200k tokenizers and Claude's is not public, so this is the one place its error on
+  real traffic is visible. Requests whose history the server holds (thread continuations,
+  `previous_response_id`) are left out, since they are billed for text they do not carry.
 - **Stream usage reporter (`modules.streamUsage`, off by default) (#357).** An OpenAI chat
   completions stream reports its usage only when the client sends
   `stream_options.include_usage`, and most do not, so the Usage Meter missed those streams. The

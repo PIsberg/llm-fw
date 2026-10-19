@@ -615,7 +615,19 @@ cards can be checked against the bill:
 - **Cache reads** and **cache writes**: the prompt-cache traffic that decides
   what a long agent session costs,
 - **Output**,
-- **Input served from cache**: cache reads over all input.
+- **Input served from cache**: cache reads over all input,
+- **Billed input per estimated text token**, over the responses compared:
+  the billed input (uncached, cache reads and writes) divided by the estimate
+  from [How savings are counted](#how-savings-are-counted) over the text of
+  the request that earned it. The estimate is fitted to public tokenizers and
+  Claude's is not public, so this is the only measure of its error on the
+  traffic you send. The estimate covers the request's text (tool descriptions,
+  system prompt, conversation, tool results), not the JSON around it or the
+  tool schemas' structure, so expect a ratio above 1; what matters is that it
+  holds steady, and by how much. A request whose history the server holds
+  (a Claude Code thread continuation, a Responses API request with
+  `previous_response_id`) is billed for text it does not carry, so it is
+  left out, and **Responses compared** says how many went in.
 
 It reads Anthropic `usage` (JSON and the `message_start` / `message_delta`
 stream events), OpenAI chat `usage` (a stream carries it only when the client
