@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the API clears it only once per new prompt, and a billed A/B of `clear_thinking` keeping one
   turn cost 2.4 times as much on the prompts it acted on, with 81% more output. Documented so
   the idea is not rebuilt; no behaviour change.
+- **The guide reports the billed A/B of server-side tool result clearing on shell and search
+  output (#409).** At the shipped defaults, two tasks with 16 large outputs each cost 4.5 times
+  as much with the module on ($2.81 against $0.62 on Haiku 5.5): the agent re-ran cleared
+  commands, and outputs larger than `clearAtLeast` made the server clear and rewrite the cache
+  on nearly every call. No behaviour change; the module stays off by default.
 - **The Docker image can bake in lean-ctx (#369).** `docker build --build-arg
   LEAN_CTX_VERSION=3.11.0 --build-arg LEAN_CTX_SHA256=<the archive's hash>` downloads that
   release's Linux archive, refuses it when the hash disagrees, and puts `lean-ctx` on `PATH`,
