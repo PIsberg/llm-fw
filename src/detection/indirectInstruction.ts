@@ -200,6 +200,7 @@ function isMethodCall(text: string, verbStart: number): boolean {
 // credentials" in llm-fw's own docs/FALSE-POSITIVES.md) is not crossed.
 const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]/
 const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
+const JSON_FIELD_END_RE = /\\?"\s*[,}\]]/
 const SPLIT_LINE_MAX = 48
 /** Index just past the last field break before `i`; -Infinity when the line is longer than the look-back. */
 function lineStartBefore(text: string, i: number): number {
@@ -217,7 +218,15 @@ function objectWindow(text: string, verbEnd: number): string {
   // Never end mid-token: a path's hash cut after "083192" (of "083192e98768")
   // reads as a bare six-digit identifier. Replaying real tool results, lean-ctx's
   // "Use ctx_read(path=...)" hint blocked or passed depending on where the cut fell.
-  const w = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/\w+$/, '') : text.slice(base, stop)
+  const whole = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/\w+$/, '') : text.slice(base, stop)
+  // Nor run past the end of the verb's JSON string value: a closing quote
+  // (or its escape) and then a field or array separator. `gh pr checks
+  // --json` output ("Export game binaries" then the run's URL in "link")
+  // took the URL in the next field as the verb's object, 12 of 151 blocks
+  // left replaying real traffic (#404). An instruction planted in a value
+  // keeps its object in the same value.
+  const fieldEnd = whole.slice(1).search(JSON_FIELD_END_RE)
+  const w = fieldEnd >= 0 ? whole.slice(0, fieldEnd + 1) : whole
   let lineStart = lineStartBefore(text, base)
   for (let from = 1; ;) {
     const m = FIELD_BREAK_RE.exec(w.slice(from))

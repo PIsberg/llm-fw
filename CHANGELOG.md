@@ -282,6 +282,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`gh pr checks --json` output no longer reads as an instruction (#404).** A JSON string value
+  that starts with a verb ("Export game binaries") took its object from up to 120 characters on,
+  past the end of the value, so the run's URL in the next field made it an indirect instruction:
+  12 of the 151 blocks left replaying 27,051 real tool results. The object window now ends at
+  the end of the verb's JSON string value; an instruction planted in a value keeps its object in
+  that value.
 - **Bullet lists and "instead of" no longer score as injection signals (#395).** Normalization
   collapses `---` to `-`, so a markdown bullet that starts with Stop, End, New, User, System,
   Input or Output ("- Stop at the publish step", in a CLAUDE.md Claude Code sends every session)
