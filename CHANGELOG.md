@@ -236,6 +236,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The history window covers the Responses API `input` array (#355).** A client that keeps its
+  history client side sends it as `input` items, which the module left alone. It now cuts them
+  in whole steps at a user message or a `function_call_output`, never between a call and its
+  output; an output whose call was dropped becomes user text behind
+  `[llm-fw: result of an omitted tool call]`, and `reasoning` items in the kept history are
+  dropped, since their encrypted content records the conversation before them. A request with
+  `previous_response_id` is still left alone. Pinned with an out(n)-prefix-of-out(n+1) case.
 - **Server-side tool result clearing works for clients that do not send the beta (#411).** The
   module used to skip any request without `context-management-2025-06-27` in `anthropic-beta`,
   which only Claude Code sends, because a module could rewrite the body but not the headers. A

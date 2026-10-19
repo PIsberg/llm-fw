@@ -187,3 +187,72 @@ describe('HistoryWindowModule', () => {
     expect(mod.getStats().tokensSaved).toBeGreaterThan(0)
   })
 })
+
+// #355: a Responses API client that keeps its history client side sends it
+// as the `input` array: message items, function_call / function_call_output
+// pairs and reasoning items, whose encrypted content is bound to what came
+// before them.
+describe('HistoryWindowModule on a Responses API input array', () => {
+  const items = (n: number) => Array.from({ length: n }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: `m${i}` }))
+  const step = (i: number) => [
+    { type: 'reasoning', id: `rs${i}`, summary: [], encrypted_content: `enc${i}` },
+    { type: 'function_call', call_id: `c${i}`, name: 'read', arguments: '{}' },
+    { type: 'function_call_output', call_id: `c${i}`, output: `out${i}` },
+  ]
+
+  it('drops the oldest items in whole steps and says how many', () => {
+    const out = send(new HistoryWindowModule(cfg(10, 10)), { instructions: 'be brief', input: items(30) })
+    expect(out.instructions).toBe('be brief')
+    expect(out.input).toHaveLength(10)
+    expect(out.input[0]).toEqual({ role: 'user', content: '[llm-fw: 20 earlier messages omitted]\n\nm20' })
+    expect(out.input[9].content).toBe('m29')
+  })
+
+  it('never cuts a request whose history the server holds', () => {
+    const mod = new HistoryWindowModule(cfg(10, 10))
+    expect(mod.transformRequest(JSON.stringify({ previous_response_id: 'resp_1', input: items(30) }), ctx).modified).toBe(false)
+    expect(mod.transformRequest(JSON.stringify({ input: 'a string prompt' }), ctx).modified).toBe(false)
+  })
+
+  it('never separates a function call from its output, and turns an orphaned output into user text', () => {
+    // One prompt, then an agent loop of three-item steps. Window 10, step 3:
+    // 31 items, cut 21 lands on the output of the seventh step, whose call
+    // (and reasoning) are gone.
+    const input = [{ role: 'user', content: 'go' }, ...Array.from({ length: 10 }, (_, i) => step(i)).flat()]
+    const out = send(new HistoryWindowModule(cfg(10, 3)), { input }).input
+    expect(out[0]).toEqual({ role: 'user', content: [
+      { type: 'input_text', text: '[llm-fw: 21 earlier messages omitted]' },
+      { type: 'input_text', text: '[llm-fw: result of an omitted tool call]\nout6' },
+    ] })
+    const calls = new Set(out.filter((i: { type?: string }) => i.type === 'function_call').map((i: { call_id: string }) => i.call_id))
+    for (const i of out) if (i.type === 'function_call_output') expect(calls.has(i.call_id), i.call_id).toBe(true)
+    expect(JSON.stringify(out)).not.toContain('"type":"reasoning"')
+  })
+
+  it('drops reasoning items from the kept history, whose recorded prefix it changed', () => {
+    const input = [...items(20), { role: 'user', content: 'q' }, { type: 'reasoning', id: 'rs', summary: [{ type: 'summary_text', text: 'thought' }] }, { role: 'assistant', content: 'a' }, ...items(7)]
+    const out = send(new HistoryWindowModule(cfg(10, 10)), { input }).input
+    expect(out.map((i: { type?: string }) => i.type ?? 'message')).not.toContain('reasoning')
+    expect(out[1]).toEqual({ role: 'assistant', content: 'a' })
+  })
+
+  it('keeps leading system and developer messages', () => {
+    const out = send(new HistoryWindowModule(cfg(10, 10)), {
+      input: [{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }, ...items(30)],
+    }).input
+    expect(out.slice(0, 2)).toEqual([{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }])
+    expect(out).toHaveLength(12)
+  })
+
+  it('cuts the same way on every turn of an agent loop between two steps', () => {
+    // Window 30, step 9: from 40 to 48 items the cut stays at 18.
+    const mod = new HistoryWindowModule(cfg(30, 9))
+    const all = [{ role: 'user', content: 'go' }, ...Array.from({ length: 30 }, (_, i) => step(i)).flat()]
+    let previous: unknown[] | null = null
+    for (let n = 40; n <= 48; n += 2) {
+      const out = send(mod, { input: all.slice(0, n) }).input as unknown[]
+      if (previous) expect(out.slice(0, previous.length)).toEqual(previous)
+      previous = out
+    }
+  })
+})

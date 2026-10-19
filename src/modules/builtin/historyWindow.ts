@@ -89,15 +89,19 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
   }
 
   protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
-    if (!Array.isArray(payload.messages) && !Array.isArray(payload.contents)) return null
+    if (!Array.isArray(payload.messages) && !Array.isArray(payload.contents) && !Array.isArray(payload.input)) return null
     // A server-side thread continuation (Claude Code against api.anthropic.com)
     // carries only the turn's new messages; the server holds the history.
-    // Cutting it would drop content the server has never seen.
+    // Cutting it would drop content the server has never seen. The same for
+    // a Responses API request that continues a stored response.
     if (isObj(payload.thread) && payload.thread.type === 'continue') return null
+    if (typeof payload.previous_response_id === 'string') return null
     const before = textTokens(payload, estimates)
     const changed = Array.isArray(payload.messages)
       ? this.windowMessages(payload, payload.messages)
-      : this.windowContents(payload, payload.contents as unknown[])
+      : Array.isArray(payload.contents)
+        ? this.windowContents(payload, payload.contents)
+        : this.windowInput(payload, payload.input as unknown[])
     return { changed, tokensOriginal: before, tokensPruned: changed ? textTokens(payload, estimates) : before }
   }
 
@@ -126,6 +130,42 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
       }
     }
     payload.messages = [...messages.slice(0, lead), ...kept]
+    return true
+  }
+
+  // Responses API, history client side (#355): message items, function_call
+  // and function_call_output pairs, and reasoning items. Leading system and
+  // developer messages stay. The cut lands on a user message or on an output,
+  // never between a call and its output: an output whose call is gone
+  // becomes user text, since the API refuses it on its own. Reasoning items
+  // in the kept history go, as thinking blocks do above: their encrypted
+  // content records the conversation before them.
+  private windowInput(payload: Obj, input: unknown[]): boolean {
+    let lead = 0
+    while (lead < input.length && isObj(input[lead]) && ((input[lead] as Obj).role === 'system' || (input[lead] as Obj).role === 'developer')) lead++
+    const items = input.slice(lead)
+    const isUserSide = (i: number): boolean => {
+      const m = items[i]
+      return isObj(m) && (m.type === 'function_call_output' || ((m.type === undefined || m.type === 'message') && m.role === 'user'))
+    }
+    const cut = cutIndex(items.length, this.cfg.maxMessages, this.cfg.step, isUserSide)
+    if (cut === null) return false
+
+    const kept = items.slice(cut).map(m => structuredClone(m) as Obj).filter(m => m.type !== 'reasoning')
+    const calls = new Set<string>()
+    for (const m of kept) if (m.type === 'function_call' && typeof m.call_id === 'string') calls.add(m.call_id)
+    for (const m of kept) {
+      if (m.type !== 'function_call_output' || (typeof m.call_id === 'string' && calls.has(m.call_id))) continue
+      const text = typeof m.output === 'string' ? m.output : JSON.stringify(m.output ?? '')
+      for (const key of Object.keys(m)) delete m[key]
+      Object.assign(m, { role: 'user', content: [{ type: 'input_text', text: `${ORPHAN}\n${text}` }] })
+    }
+    const first = kept[0]
+    if (!first) return false
+    if (typeof first.content === 'string') first.content = `${marker(cut)}\n\n${first.content}`
+    else if (Array.isArray(first.content)) first.content.unshift({ type: 'input_text', text: marker(cut) })
+    else kept.unshift({ role: 'user', content: marker(cut) })
+    payload.input = [...input.slice(0, lead), ...kept]
     return true
   }
 

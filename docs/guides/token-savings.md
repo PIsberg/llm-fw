@@ -653,10 +653,14 @@ starts with `[llm-fw: N earlier messages omitted]`. A tool result whose call
 was dropped is sent as user text behind `[llm-fw: result of an omitted tool
 call]`, because providers refuse a result whose call is not in the request.
 The cut therefore never waits for a plain user turn, which an agent loop may
-not have for hundreds of turns. Works on OpenAI chat, Anthropic
-and Gemini conversations. Requests whose history lives on the server are left
-alone: a Responses API request with `previous_response_id`, and an Anthropic
-thread continuation (`thread.type` is `continue`), whose messages are all new.
+not have for hundreds of turns. Works on OpenAI chat `messages`, Anthropic
+`messages`, Gemini `contents` and a Responses API `input` array, where the
+cut lands on a user message or on a `function_call_output` (one whose
+`function_call` was dropped becomes user text the same way) and `reasoning`
+items in the kept history are dropped, as thinking blocks are below.
+Requests whose history lives on the server are left alone: a Responses API
+request with `previous_response_id`, and an Anthropic thread continuation
+(`thread.type` is `continue`), whose messages are all new.
 
 What it costs:
 
