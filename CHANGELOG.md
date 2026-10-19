@@ -221,6 +221,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Switching the lean-ctx module off now stops lean-ctx (#368).** The dashboard toggle and
+  `POST /api/modules` stop the private `lean-ctx proxy` at once, and a `config.json` edit, which
+  flips the switch without telling the module, is covered by an idle stop: lean-ctx exits 10
+  minutes after the last request that needed it, and the next one starts it again (45 to 78 ms).
+  Before, it idled on its loopback port until llm-fw exited.
 - **The history window now cuts agent conversations, and keeps the window it promises.** It used
   to move each cut forward to the next plain user turn, so a tool call was never separated from
   its result. An agent loop has no plain user turn for hundreds of turns, so over 30 days of one

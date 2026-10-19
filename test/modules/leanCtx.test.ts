@@ -68,24 +68,27 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
 
   // The fake lean-ctx runs under node with the arguments and environment
   // the module chose; the binary it asked for is recorded.
-  function setup(overrides: Partial<LeanCtxConfig> = {}) {
+  function setup(overrides: Partial<LeanCtxConfig> = {}, idleMs?: number) {
     const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-'))
     process.env.LLM_FW_DIR = dir
     const logFile = join(dir, 'fake.log')
     const binaries: string[] = []
+    const children: ReturnType<typeof spawn>[] = []
     const launch: LeanCtxSpawn = (command, args, options) => {
       binaries.push(command)
-      return spawn(process.execPath, [FAKE, ...args], { ...options, env: { ...options.env, FAKE_LEAN_CTX_LOG: logFile } })
+      const child = spawn(process.execPath, [FAKE, ...args], { ...options, env: { ...options.env, FAKE_LEAN_CTX_LOG: logFile } })
+      children.push(child)
+      return child
     }
     // The default 500 ms is for a lean-ctx that is already running.
     const cfg: LeanCtxConfig = { ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: START_BUDGET_MS, ...overrides }
-    const mod = new LeanCtxModule(cfg, launch)
+    const mod = new LeanCtxModule(cfg, launch, idleMs)
     modules.push(mod)
     const entries = () => fs.existsSync(logFile)
       ? fs.readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { started?: string[]; env?: Record<string, string>; compress?: string })
       : []
     const send = async (messages: unknown[]) => JSON.parse((await mod.transformRequest(JSON.stringify({ messages }), ctx)).body) as { messages: Array<{ content: Array<{ content: string }> }> }
-    return { dir, cfg, mod, binaries, entries, sent: () => entries().filter(e => e.compress !== undefined).map(e => e.compress), send }
+    return { dir, cfg, mod, binaries, children, entries, sent: () => entries().filter(e => e.compress !== undefined).map(e => e.compress), send }
   }
 
   it('compresses the output of a shell command through lean-ctx, without its retrieve instruction', async () => {
@@ -266,5 +269,34 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     cfg.tools = []
     const other = turn([bash('t2', 'npm run lint', log(40, 'lint'))])
     expect((await send(other)).messages[1]!.content[0]!.content).toBe(log(40, 'lint'))
+  })
+
+  // #368: switching the module off (dashboard toggle, POST /api/modules)
+  // left lean-ctx idling on its port until llm-fw exited.
+  it('stops lean-ctx when the module is switched off, and starts it again when switched on', async () => {
+    const { mod, children, send } = setup()
+    const mgr = new ModuleManager(undefined, false)
+    mgr.register(mod)
+    await send(turn([bash('t1', 'mvn -q verify')]))
+    expect(children).toHaveLength(1)
+    const exited = new Promise<void>(resolve => children[0]!.once('exit', () => resolve()))
+    mgr.setModuleEnabled('lean-ctx', false)
+    await exited
+    mgr.setModuleEnabled('lean-ctx', true)
+    const out = await send(turn([bash('t2', 'npm test', log(40, 'test'))]))
+    expect(out.messages[1]!.content[0]!.content).toBe('[INFO] test 1\n[INFO] test 2\n[38 lines omitted]')
+    expect(children).toHaveLength(2)
+  })
+
+  // A config.json edit flips `enabled` without telling the module, so it
+  // also stops lean-ctx after a while without a request to send it.
+  it('stops lean-ctx after idling without a request, and starts it again on the next one', async () => {
+    const { children, send } = setup({}, 300)
+    await send(turn([bash('t1', 'mvn -q verify')]))
+    expect(children).toHaveLength(1)
+    await new Promise<void>(resolve => children[0]!.once('exit', () => resolve()))
+    const out = await send(turn([bash('t2', 'npm test', log(40, 'test'))]))
+    expect(out.messages[1]!.content[0]!.content).toBe('[INFO] test 1\n[INFO] test 2\n[38 lines omitted]')
+    expect(children).toHaveLength(2)
   })
 })

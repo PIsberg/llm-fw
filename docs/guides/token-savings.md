@@ -351,8 +351,11 @@ How llm-fw runs lean-ctx:
   shortened, with the consequences described under
   [Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
 - lean-ctx starts on the first request that needs it (45 to 78 ms on the
-  machine above) and stops when llm-fw exits. Switching the module off does
-  not stop it before then.
+  machine above) and stops when llm-fw exits, when the module is switched off
+  on the dashboard or through `POST /api/modules`, or after 10 minutes without
+  a request that needed it. The idle stop is what covers a `config.json`
+  edit, which flips the switch without telling the module. The next request
+  that needs it starts it again.
 - The Docker image does not include lean-ctx, so there the module forwards
   every result whole.
 

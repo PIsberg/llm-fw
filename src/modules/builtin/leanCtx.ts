@@ -55,6 +55,9 @@ const PASSED_ENV = new Set(['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', '
 const CONCURRENCY = 8
 const STARTUP_MS = 10_000
 const RETRY_MS = 60_000
+// A config.json edit flips `enabled` on the module's config without telling
+// it, so a lean-ctx with nothing to do for this long is stopped (#368).
+const IDLE_MS = 10 * 60_000
 const MAX_REMEMBERED = 4096
 
 async function freePort(): Promise<number> {
@@ -213,10 +216,24 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
   // retry: without lean-ctx installed, a start is tried once a minute.
   private lastStop = ''
   private readonly launch: LeanCtxSpawn
+  private readonly idleMs: number
+  private idleTimer: NodeJS.Timeout | undefined
 
-  constructor(config?: LeanCtxConfig, launch: LeanCtxSpawn = spawn) {
+  constructor(config?: LeanCtxConfig, launch: LeanCtxSpawn = spawn, idleMs = IDLE_MS) {
     super(config ?? structuredClone(DEFAULT_CONFIG.modules!.leanCtx!))
     this.launch = launch
+    this.idleMs = idleMs
+  }
+
+  override get enabled(): boolean {
+    return this.cfg.enabled
+  }
+
+  // The dashboard toggle and POST /api/modules come through here: switching
+  // the module off stops lean-ctx at once instead of leaving it on its port.
+  override set enabled(value: boolean) {
+    this.cfg.enabled = value
+    if (!value) this.close()
   }
 
   observeResponse(_requestBody: string, _ctx: GatewayModuleContext, response: CapturedResponse): void {
@@ -278,6 +295,7 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
     if (jobs.size === 0) return
     const deadline = Date.now() + this.cfg.timeoutMs
     const sidecar = await this.client(deadline)
+    this.touch()
     const pending = [...jobs.values()]
     const answers = new Map<string, string | null>()
     if (sidecar) {
@@ -288,6 +306,15 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
       }))
     }
     for (const key of jobs.keys()) this.remember(key, answers.get(key) ?? null)
+    this.touch()
+  }
+
+  // Restarts the idle clock: lean-ctx stops idleMs after the last request
+  // that needed it, and the next one starts it again.
+  private touch(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    this.idleTimer = setTimeout(() => this.close(), this.idleMs)
+    this.idleTimer.unref()
   }
 
   protected rewrite(text: string, slot: TextSlot): string {
@@ -297,6 +324,8 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
 
   /** Stops lean-ctx. It is started again by the next request that needs it. */
   close(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    this.idleTimer = undefined
     void this.sidecar?.then(sidecar => sidecar?.close())
     this.sidecar = null
     this.retryAt = 0
