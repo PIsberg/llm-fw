@@ -15,6 +15,7 @@ import { ToolFilterModule } from './builtin/toolFilter.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
 import { ToolUsageModule } from './builtin/toolUsage.js'
 import { ToolResultClearModule } from './builtin/toolResultClear.js'
+import { StreamUsageModule } from './builtin/streamUsage.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
@@ -46,6 +47,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
   { key: 'toolUsage', create: cfg => new ToolUsageModule(cfg) },
   { key: 'toolResultClear', create: cfg => new ToolResultClearModule(cfg as ToolResultClearConfig) },
+  { key: 'streamUsage', create: cfg => new StreamUsageModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },

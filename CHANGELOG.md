@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stream usage reporter (`modules.streamUsage`, off by default) (#357).** An OpenAI chat
+  completions stream reports its usage only when the client sends
+  `stream_options.include_usage`, and most do not, so the Usage Meter missed those streams. The
+  module sets it on every streaming `/chat/completions` request that lacks it, on any host that
+  serves that path, keeping the client's other stream options. The client receives one more
+  chunk, with an empty `choices` array and the `usage` object, as the API documents; the
+  official SDKs handle it, a client that reads `choices[0]` unchecked does not, which is why it
+  is opt-in. Not verified against each SDK's parser. `LLM_FW_STREAM_USAGE_ENABLED`.
 - **Server-side tool result clearing (`modules.toolResultClear`, off by default, lossy).** Adds
   Anthropic's `clear_tool_uses_20250919` context edit to Messages requests whose client already
   sends the `context-management-2025-06-27` beta (Claude Code does), so the server replaces old

@@ -169,6 +169,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
 | `tool-result-clear` | `modules.toolResultClear` | asks Anthropic to clear old tool results server side (lossy) |
+| `stream-usage` | `modules.streamUsage` | asks OpenAI-style chat streams to report usage; saves nothing, makes the meter complete |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
@@ -520,6 +521,25 @@ mid-conversation changes what the server bills from that point, which costs
 one cache write. Not verified: a Claude Code thread continuation through the
 proxy (`thread.type` is `continue`), where the server holds the history.
 
+### Stream usage reporter
+
+`modules.streamUsage.enabled` (`LLM_FW_STREAM_USAGE_ENABLED`). An OpenAI
+chat completions stream reports its token usage only when the client asks
+with `stream_options: {"include_usage": true}`, and most clients do not, so
+the usage meter cannot meter those streams. This sets it on every streaming
+`/chat/completions` request that does not already, on any host that serves
+that path (OpenAI, Azure OpenAI, Groq, Together), keeping the client's other
+stream options. Saves nothing by itself; it makes the Usage Meter's totals
+complete for OpenAI-style clients.
+
+What changes for the client: one more chunk at the end of the stream, with an
+empty `choices` array and the `usage` object, which is how the API documents
+the option. The official OpenAI SDKs handle that chunk; a client that reads
+`choices[0]` without checking the array gets `undefined` there. That is why it
+is opt-in. No message text is touched, so the prompt cache is unaffected. Not
+verified against each SDK's stream parser; check yours with the module on
+before relying on it.
+
 ### Prompt cache marker
 
 `modules.cacheControl.enabled` (`LLM_FW_CACHE_CONTROL_ENABLED`). Anthropic
@@ -599,7 +619,8 @@ cards can be checked against the bill:
 
 It reads Anthropic `usage` (JSON and the `message_start` / `message_delta`
 stream events), OpenAI chat `usage` (a stream carries it only when the client
-sends `stream_options.include_usage`), the Responses API `response.completed`
+sends `stream_options.include_usage`; the
+[stream usage reporter](#stream-usage-reporter) adds it), the Responses API `response.completed`
 event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
 is not metered, so a large download is never held in memory twice.
 

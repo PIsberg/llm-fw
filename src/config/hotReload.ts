@@ -189,6 +189,7 @@ const HOT_PATHS: Path[] = [
   ['modules', 'toolResultClear', 'keepToolUses'],
   ['modules', 'toolResultClear', 'clearAtLeast'],
   ['modules', 'toolResultClear', 'excludeTools'],
+  ['modules', 'streamUsage', 'enabled'],
   ['modules', 'cacheControl', 'enabled'],
   ['modules', 'cacheControl', 'ttl'],
   ['modules', 'cacheControl', 'cacheSystem'],

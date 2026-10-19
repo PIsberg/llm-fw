@@ -559,6 +559,8 @@ export interface ModulesConfig {
   /** Records which offered tools get called. On by default: it changes nothing. */
   toolUsage?: ModuleSwitchConfig;
   toolResultClear?: ToolResultClearConfig;
+  /** Asks OpenAI chat completions streams to report usage (stream_options.include_usage). */
+  streamUsage?: ModuleSwitchConfig;
   cacheControl?: CacheControlConfig;
   responseCache?: ResponseCacheConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
