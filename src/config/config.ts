@@ -392,6 +392,10 @@ export const DEFAULT_CONFIG: Config = {
       // File reads: Claude Code, Gemini CLI, the MCP filesystem server, and
       // Anthropic's text editor tool (its view command).
       skipTools: ['Read', 'read_file', 'read_text_file', 'read_multiple_files', 'str_replace_based_edit_tool', 'str_replace_editor'],
+      // File reads through a shell tool (#363): on 30 days of one developer's
+      // transcripts, cat, sed and awk in Bash were 19.4% of what the truncator
+      // removed, against 9.5% for all other shell output.
+      skipCommands: ['cat', 'head', 'tail', 'sed', 'awk', 'nl', 'less', 'more', 'bat', 'tac', 'type', 'gc', 'Get-Content'],
     },
     toolFilter: {
       enabled: false,

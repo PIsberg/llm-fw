@@ -221,6 +221,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The truncator leaves file reads through a shell tool whole (#363).** `skipTools` recognised
+  a file read by its tool name, so `cat src/x.ts` or `sed -n 1,400p x.ts` in Claude Code's
+  `Bash`, lean-ctx's `ctx_shell` or Codex's `shell` was cut like any command output, and the agent
+  read the elided range back. The new `modules.toolResultTruncate.skipCommands` (default: `cat`,
+  `head`, `tail`, `sed`, `awk`, `nl`, `less`, `more`, `bat`, `tac`, `type`, `gc`, `Get-Content`)
+  keeps a result whole when its call's `command` has any of them as a word, for a call in the
+  request or one learned from the response that made it (its command arrives as
+  `input_json_delta` fragments, which the module already assembles). On 30 days of one developer's
+  transcripts those commands were 19.4% of what the truncator removed, against 9.5% for all other
+  shell output. `ruleset.ts` digest re-pinned for the new default in `config.ts`; no detection
+  change.
 - **The lean-ctx module covers Codex CLI and Gemini CLI shells (#367).** `modules.leanCtx.tools`
   now lists `shell` (Codex, whose `command` is an argv array such as
   `["bash", "-lc", "npm test"]`, read as one line so a file read behind `bash -lc` stays whole)

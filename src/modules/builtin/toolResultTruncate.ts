@@ -4,7 +4,7 @@ import type { CapturedResponse } from '../responseTap.js'
 import { DEFAULT_CONFIG } from '../../config/config.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind, TextSlot } from '../payload.js'
-import { RememberedCalls } from '../toolCalls.js'
+import { RememberedCalls, commandText, isFileRead, toolArgs } from '../toolCalls.js'
 
 type Limits = Pick<ToolResultTruncateConfig, 'headLines' | 'tailLines' | 'maxChars'>
 
@@ -46,9 +46,11 @@ const TOOL_OUTPUT: ReadonlySet<SlotKind> = new Set(['tool_result'])
  * on every later turn. The head and tail usually carry what matters (the
  * command, the error, the summary). Lossy: the model never sees the middle.
  *
- * Results of the tools in `skipTools` stay whole. Cutting a file read made
- * the agent read the cut range back: in the live round of 2026-10-17,
- * Claude Code sessions took 24% more turns with this module on.
+ * Results of the tools in `skipTools` stay whole, and so does a result whose
+ * call ran a program in `skipCommands` (a file read through a shell tool).
+ * Cutting a file read made the agent read the cut range back: in the live
+ * round of 2026-10-17, Claude Code sessions took 24% more turns with this
+ * module on.
  */
 export class ToolResultTruncateModule extends SlotModule<ToolResultTruncateConfig> {
   readonly id = 'tool-result-truncate'
@@ -71,8 +73,11 @@ export class ToolResultTruncateModule extends SlotModule<ToolResultTruncateConfi
   // A tool the request does not name, and no response seen here named
   // either, is cut as any other.
   protected rewrite(text: string, slot: TextSlot): string {
-    const tool = slot.toolName ?? this.calls.get(slot.toolCallId)?.name
+    const learned = slot.toolName === undefined ? this.calls.get(slot.toolCallId) : undefined
+    const tool = slot.toolName ?? learned?.name
     if (tool !== undefined && this.cfg.skipTools.some(skip => tool === skip || tool.endsWith(`__${skip}`))) return text
+    const command = commandText(toolArgs(learned ? learned.input : slot.toolInput)?.command)
+    if (command !== undefined && isFileRead(command, Array.isArray(this.cfg.skipCommands) ? this.cfg.skipCommands : [])) return text
     return truncateMiddle(text, this.cfg)
   }
 }

@@ -459,6 +459,12 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
    * in `__` and that name (`mcp__filesystem__read_file`).
    */
   skipTools: string[];
+  /**
+   * Programs that print a file. A result whose call has a `command` argument
+   * with any of these as a word (a shell tool running `cat`, `sed -n`) is
+   * never cut either; an entry with a hyphen (Get-Content) matches in any case.
+   */
+  skipCommands: string[];
 }
 
 export interface ToolFilterConfig extends ModuleSwitchConfig {

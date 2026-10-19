@@ -216,6 +216,7 @@ head and tail usually carry the command, the error and the summary.
 | `tailLines` | `100` | Lines kept from the end. The middle becomes `[llm-fw: N lines elided]`. Both `0` turns the line cut off. |
 | `maxChars` | `40000` | After the line cut, a result still longer than this keeps two thirds of it from the head and one third from the tail, with `[llm-fw: N characters elided]` between; this catches one huge line, such as minified code. `0` is off. |
 | `skipTools` | the file readers below | Tools whose results are never cut. |
+| `skipCommands` | `cat`, `head`, `tail`, `sed`, `awk`, `nl`, `less`, `more`, `bat`, `tac`, `type`, `gc`, `Get-Content` | Programs that print a file. A result whose call has a `command` argument with any of these as a word (a shell tool running `cat src/x.ts` or `cd repo && sed -n 1,400p x.ts`) is never cut either. An entry with a hyphen matches in any case. |
 
 File reads stay whole. In the live round above, Claude Code read files
 through lean-ctx's `ctx_read` MCP tool, and after a read came back cut it read
@@ -239,10 +240,19 @@ history (the SDKs, Claude Code through the gateway) carries the call in the
 same request. Claude Code through the proxy continues a server-side thread
 and sends results without their calls, as does the Responses API with
 `previous_response_id`; there the module learns each call's tool from the
-response that made it. A result whose tool it cannot tell is cut:
-after a restart, while the module was off, or when that response was larger
-than `proxy.maxBodyBytes`. A file read through a shell tool (`cat` in
-`Bash`) is command output by name, so it is cut too.
+response that made it, the command included. A result whose tool it cannot
+tell is cut: after a restart, while the module was off, or when that response
+was larger than `proxy.maxBodyBytes`.
+
+A file read through a shell tool is recognised by its command, not its tool:
+a call whose `command` argument (a string, or Codex's argv array) has a word
+in `skipCommands` stays whole, wherever the word sits (`cd repo && sed -n
+1,400p x.ts`, `npm test | tail -30`). Over 30 days of one developer's Claude
+Code transcripts (61,639 tool results), `cat`, `sed` and `awk` in `Bash` were
+19.4% of the tokens the truncator removed, against 9.5% for all other shell
+output, on a machine that denies the native `Read` tool and so pushes reads
+into the shell. What the module still cuts there is command output proper:
+test runs, build logs, `git log`.
 
 For a client that resends its history, the cut depends only on the result
 and the call before it in the request, so the same history is sent the same
