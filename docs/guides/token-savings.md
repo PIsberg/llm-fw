@@ -360,7 +360,8 @@ tell is cut: after a restart, while the module was off, or when that response
 was larger than `proxy.maxBodyBytes`.
 
 A file read through a shell tool is recognised by its command, not its tool:
-a call whose `command` argument (a string, or Codex's argv array) has a word
+a call whose `command` argument (a string, or an argv array), or `cmd` for
+Codex's `exec_command`, has a word
 in `skipCommands` stays whole, wherever the word sits (`cd repo && sed -n
 1,400p x.ts`, `npm test | tail -30`). Over 30 days of one developer's Claude
 Code transcripts (61,639 tool results), `cat`, `sed` and `awk` in `Bash` were
@@ -397,7 +398,7 @@ missing or stops, results are forwarded whole and one warning is logged.
 
 | Option | Default | Does |
 | --- | --- | --- |
-| `tools` | `["Bash", "PowerShell", "shell", "run_shell_command"]` | Shell tools whose results are sent, matched like `skipTools` above: Claude Code's `Bash` and `PowerShell`, Codex CLI's `shell`, Gemini CLI's `run_shell_command`. The call's `command` argument must be a string, or the argv array Codex sends (`["bash", "-lc", "npm test"]`), which is read as one line, so a file read behind `bash -lc` stays whole. |
+| `tools` | `["Bash", "PowerShell", "shell", "shell_command", "exec_command", "run_shell_command"]` | Shell tools whose results are sent, matched like `skipTools` above: Claude Code's `Bash` and `PowerShell`, Codex CLI's `shell_command`, `exec_command` and `shell`, Gemini CLI's `run_shell_command`. The command is the call's `command` argument, or `cmd` for `exec_command`: a string, or an argv array (`["bash", "-lc", "npm test"]`, the `shell` shape in Codex's docs), which is read as one line, so a file read behind `bash -lc` stays whole. In 32 recorded Codex sessions every shell call was `shell_command` (891) or `exec_command` (10), and file reads went through PowerShell's `Get-Content`. |
 | `skipCommands` | file printers, below | A result whose command has any of these as a word stays whole. |
 | `timeoutMs` | `500` | How long a request waits for lean-ctx. A result it has not answered by then is forwarded whole, on that turn and every later one. |
 

@@ -294,6 +294,28 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     expect(sent().sort()).toEqual([log(40, 'codex'), log(40, 'gemini')])
   })
 
+  // #415: the shapes recorded Codex CLI and Gemini CLI sessions on this
+  // machine actually send. Codex shells through `shell_command` (a string
+  // `command`, 891 of its calls) and `exec_command` (`cmd`), never the
+  // argv-array `shell` its docs describe; Gemini's run_shell_command carries
+  // a description and an is_background flag. Reads go through Get-Content.
+  it('covers the shell tools Codex and Gemini CLI send in recorded sessions', async () => {
+    const { send, sent } = setup()
+    const out = await send(turn([
+      { id: 't1', name: 'shell_command', input: { command: 'git status --short', workdir: 'C:\\repo', timeout_ms: 20000 }, out: log(40, 'codex') },
+      { id: 't2', name: 'exec_command', input: { cmd: 'mvn -q test', workdir: 'C:/repo', shell: 'powershell', max_output_tokens: 20000 }, out: log(40, 'exec') },
+      { id: 't3', name: 'exec_command', input: { cmd: 'Get-Content -LiteralPath src/a.ts', shell: 'powershell' }, out: LOG },
+      { id: 't4', name: 'run_shell_command', input: { command: 'python poc.py', description: 'start the server', is_background: true }, out: log(40, 'gemini') },
+    ]))
+    expect(out.messages[1]!.content.map(r => r.content)).toEqual([
+      '[INFO] codex 1\n[INFO] codex 2\n[38 lines omitted]',
+      '[INFO] exec 1\n[INFO] exec 2\n[38 lines omitted]',
+      LOG,
+      '[INFO] gemini 1\n[INFO] gemini 2\n[38 lines omitted]',
+    ])
+    expect(sent().sort()).toEqual([log(40, 'codex'), log(40, 'exec'), log(40, 'gemini')])
+  })
+
   // #368: switching the module off (dashboard toggle, POST /api/modules)
   // left lean-ctx idling on its port until llm-fw exited.
   it('stops lean-ctx when the module is switched off, and starts it again when switched on', async () => {

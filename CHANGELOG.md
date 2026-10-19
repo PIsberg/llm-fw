@@ -282,6 +282,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex CLI's real shell tools are covered (#415).** In 32 recorded Codex sessions every shell
+  call was `shell_command` (891, a string `command`) or `exec_command` (10, the command in
+  `cmd`), never the argv-array `shell` its docs describe, which the lean-ctx module had been set
+  up for. `modules.leanCtx.tools` now lists `shell_command` and `exec_command`, and both lean-ctx
+  and the truncator read `cmd`: a PowerShell `Get-Content` file read through `exec_command` was
+  cut by the truncator because its command was never read. Gemini CLI's `run_shell_command`
+  matched its recorded shape (a string `command`, plus `description` and `is_background`).
 - **The memory-poisoning stage no longer blocks test logs and Claude Code's CLAUDE.md wrapper
   (#406).** All 8 of its blocks in a replay of real tool results were benign, from three patterns:
   a test runner's hint ("rerun with ... to print them in full") read as redaction disabled,
