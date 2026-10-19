@@ -282,6 +282,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DLP redaction no longer breaks the request JSON when a secret ends at an escaped quote (#374).**
+  The generic-secret pattern runs on the raw body, where a quote inside a JSON string is `\"`,
+  and its value could end on that backslash, so redacting `--token=<value>"` or
+  `password=<value>" >> .env` left an unterminated string and the provider got invalid JSON on
+  every later turn. The value now stops at a backslash. Found on 1 of 398 large tool results in
+  recorded Claude Code traffic; pinned by a test that parses the redacted body.
 - **The history window covers the Responses API `input` array (#355).** A client that keeps its
   history client side sends it as `input` items, which the module left alone. It now cuts them
   in whole steps at a user message or a `function_call_output`, never between a call and its
