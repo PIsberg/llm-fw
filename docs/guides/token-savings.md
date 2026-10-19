@@ -585,11 +585,23 @@ complete for OpenAI-style clients.
 
 What changes for the client: one more chunk at the end of the stream, with an
 empty `choices` array and the `usage` object, which is how the API documents
-the option. The official OpenAI SDKs handle that chunk; a client that reads
-`choices[0]` without checking the array gets `undefined` there. That is why it
-is opt-in. No message text is touched, so the prompt cache is unaffected. Not
-verified against each SDK's stream parser; check yours with the module on
-before relying on it.
+the option. No message text is touched, so the prompt cache is unaffected.
+
+Checked on 2026-10-19 with openai-node 7.39.0 and openai-python 3.35.1 against
+a local stand-in that streams the way the API does with the option set
+(content chunks, then the usage chunk, then `[DONE]`):
+
+| Client code | openai-node | openai-python |
+| --- | --- | --- |
+| Iterating the stream, reading `choices[0]?.delta` / checking `if c.choices` | works, usage read from the last chunk | works, usage read from the last chunk |
+| The stream helper (`finalChatCompletion()` / `get_final_completion()`) | works, `usage` filled in | works, `usage` filled in |
+| Iterating and reading `choices[0].delta` unchecked | throws `TypeError` on the last chunk | raises `IndexError` on the last chunk |
+
+So the SDKs parse the chunk, but client code written for a stream that never
+carries it can crash on it, and that idiom is common. That is why it is
+opt-in: turn it on only for clients you have run with it. No agent client
+that streams chat completions was available to check; Codex CLI uses the
+Responses API, which this module does not touch.
 
 ### Prompt cache marker
 

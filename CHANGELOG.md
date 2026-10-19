@@ -232,6 +232,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The guide says what the OpenAI SDKs do with the stream usage chunk (#414).** Measured with
+  openai-node 7.39.0 and openai-python 3.35.1 against a stand-in for the API's stream: both parse
+  the extra chunk and their stream helpers report its usage, but client code that reads
+  `choices[0].delta` unchecked throws on it. The stream usage reporter stays opt-in for that
+  reason; removing the chunk for clients that did not ask for it is #421.
 - **Module savings no longer count whitespace as text.** The Modules tab and the Tokens Saved
   tile estimated 4 characters per token, so collapsing a run of spaces reported a token saved
   per four spaces where a BPE tokenizer spends one token on the whole run. Measured against
