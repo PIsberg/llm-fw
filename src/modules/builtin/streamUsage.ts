@@ -12,11 +12,13 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
  * chat completions request that does not, on any host that serves that path
  * (OpenAI, Azure OpenAI, Groq, Together and the other compatible APIs).
  *
- * The client receives one more chunk at the end of the stream, with an empty
- * `choices` array and the `usage` object, which is why it is opt-in: a client
- * that reads `chunk.choices[0]` without checking gets `undefined` there. The
- * official SDKs document that chunk. Touches no message text, so the prompt
- * cache and the request prefix are unaffected.
+ * The provider then sends one more chunk at the end of the stream, with an
+ * empty `choices` array and the `usage` object. Client code that reads
+ * `chunk.choices[0]` unchecked throws on it (openai-node and openai-python,
+ * #414), so the module flags the request and the listener drops that chunk
+ * from what the client receives once the Usage Meter has seen it (#421). A
+ * client that asked for usage itself is left as it is. Touches no message
+ * text, so the prompt cache and the request prefix are unaffected.
  */
 export class StreamUsageModule extends PayloadModule<ModuleSwitchConfig> {
   readonly id = 'stream-usage'
@@ -42,7 +44,10 @@ export class StreamUsageModule extends PayloadModule<ModuleSwitchConfig> {
     }
     payload.stream_options = { ...options, include_usage: true }
     if (ctx.dryRun) this.wouldMark++
-    else this.marked++
+    else {
+      this.marked++
+      ctx.stripStreamUsage = true
+    }
     return { changed: true, tokensOriginal: 0, tokensPruned: 0 }
   }
 

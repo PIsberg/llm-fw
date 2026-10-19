@@ -16,6 +16,12 @@ export interface GatewayModuleContext {
   headers?: Record<string, string | string[] | undefined> | undefined;
   /** The URL as the client sent it, query included: a credential can ride in `?key=`. */
   url?: string | undefined;
+  /**
+   * Set by the stream usage reporter when it asked for usage the client did
+   * not: the listener then drops the usage-only chunk from the stream the
+   * client receives, after the response tap has seen it (#421).
+   */
+  stripStreamUsage?: boolean | undefined;
 }
 
 /** A response a module serves in place of the provider's. */

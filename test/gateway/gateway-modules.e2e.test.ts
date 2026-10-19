@@ -70,6 +70,18 @@ describe('Gateway & Dashboard Modules Live Session', { timeout: 30000 }, () => {
       req.on('data', (c) => { body += c })
       req.on('end', () => {
         calls.push({ path: req.url ?? '', headers: req.headers, body })
+        // An OpenAI-style stream, with the usage chunk only when asked for (#421).
+        let streamed: { stream?: boolean; stream_options?: { include_usage?: boolean } } = {}
+        try { streamed = JSON.parse(body) } catch { /* not JSON */ }
+        if ((req.url ?? '').endsWith('/chat/completions') && streamed.stream === true) {
+          const chunk = (choices: unknown[], usage: unknown) => `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'test', choices, usage })}\n\n`
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(chunk([{ index: 0, delta: { content: 'Hello' }, finish_reason: null }], null))
+          res.write(chunk([{ index: 0, delta: {}, finish_reason: 'stop' }], null))
+          if (streamed.stream_options?.include_usage) res.write(chunk([], { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 }))
+          res.end('data: [DONE]\n\n')
+          return
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: true, received: body, usage: { prompt_tokens: 120, completion_tokens: 8, prompt_tokens_details: { cached_tokens: 100 } } }))
       })
@@ -256,6 +268,37 @@ def calculate(x):
     expect(kpi(after, 'cacheRead') - kpi(before, 'cacheRead')).toBe(100)
     expect(kpi(after, 'input') - kpi(before, 'input')).toBe(20)
     expect(kpi(after, 'output') - kpi(before, 'output')).toBe(8)
+  })
+
+  // #421: the stream usage reporter asks for a usage chunk the client did not
+  // ask for, and client code that reads choices[0] unchecked throws on it. The
+  // gateway drops the chunk from what the client receives, after the usage
+  // meter has counted it; a client that asked for usage keeps it.
+  it('drops the usage chunk the stream usage reporter asked for, and still meters it', async () => {
+    moduleManager.setModuleEnabled('stream-usage', true)
+    try {
+      const kpi = (stats: any, key: string) =>
+        stats.modules.find((m: { id: string }) => m.id === 'usage-meter').kpis.find((k: { key: string }) => k.key === key).value
+      const stream = (extra: Record<string, unknown> = {}) => reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', JSON.stringify({
+        model: 'test', stream: true, messages: [{ role: 'user', content: 'hello' }], ...extra,
+      }), { 'x-llm-fw-key': TOKEN })
+      calls = []
+      const before = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
+      const plain = await stream()
+      expect(plain.status).toBe(200)
+      expect(JSON.parse(calls[0]!.body).stream_options).toEqual({ include_usage: true })
+      expect(plain.body).toContain('Hello')
+      expect(plain.body).toContain('[DONE]')
+      expect(plain.body).not.toContain('"usage":{')
+      const after = JSON.parse((await reqHttp(dashboardPort, 'GET', '/api/modules')).body)
+      expect(kpi(after, 'responses') - kpi(before, 'responses')).toBe(1)
+      expect(kpi(after, 'output') - kpi(before, 'output')).toBe(2)
+
+      const asked = await stream({ stream_options: { include_usage: true } })
+      expect(asked.body).toContain('"usage":{"prompt_tokens":9')
+    } finally {
+      moduleManager.setModuleEnabled('stream-usage', false)
+    }
   })
 
   it('SSE endpoint /events receives replayed module events', async () => {

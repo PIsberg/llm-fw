@@ -624,9 +624,13 @@ that path (OpenAI, Azure OpenAI, Groq, Together), keeping the client's other
 stream options. Saves nothing by itself; it makes the Usage Meter's totals
 complete for OpenAI-style clients.
 
-What changes for the client: one more chunk at the end of the stream, with an
+What the provider then sends: one more chunk at the end of the stream, with an
 empty `choices` array and the `usage` object, which is how the API documents
-the option. No message text is touched, so the prompt cache is unaffected.
+the option. When the client did not ask for it, the proxy and the gateway
+drop that chunk from the stream the client receives, after the Usage Meter
+has read it, so the client gets the stream it asked for. A client that set
+`include_usage` itself gets the chunk as before. No message text is touched,
+so the prompt cache is unaffected.
 
 Checked on 2026-10-19 with openai-node 7.39.0 and openai-python 3.35.1 against
 a local stand-in that streams the way the API does with the option set
@@ -639,9 +643,11 @@ a local stand-in that streams the way the API does with the option set
 | Iterating and reading `choices[0].delta` unchecked | throws `TypeError` on the last chunk | raises `IndexError` on the last chunk |
 
 So the SDKs parse the chunk, but client code written for a stream that never
-carries it can crash on it, and that idiom is common. That is why it is
-opt-in: turn it on only for clients you have run with it. No agent client
-that streams chat completions was available to check; Codex CLI uses the
+carries it can crash on it, and that idiom is common. That is why the chunk
+is dropped for a client that did not ask for it. The filter acts only on a
+`text/event-stream` response without a content-encoding; a compressed
+stream passes through as it came, chunk included. No agent client that
+streams chat completions was available to check; Codex CLI uses the
 Responses API, which this module does not touch.
 
 ### Prompt cache marker

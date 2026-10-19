@@ -29,6 +29,7 @@ import { MetricsRegistry } from '../dashboard/metrics.js'
 import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
 import { ModuleManager } from '../modules/registry.js'
 import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../modules/responseTap.js'
+import { stripUsageChunk } from '../modules/sseUsageStrip.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
@@ -1044,6 +1045,8 @@ export class ProxyServer {
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev)
         bytesReceived = await this.replayStoredResponse(answer.response, innerReq, innerRes, hostname, mcpInspectResponse)
       } else {
+        // Before the tap, so the Usage Meter still sees the usage chunk (#421).
+        if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
         const captured = moduleCtx && this.modules.wantsResponses()
           ? tapResponse(innerRes, this.config.proxy.maxBodyBytes)
           : null

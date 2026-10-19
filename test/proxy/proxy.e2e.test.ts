@@ -225,6 +225,18 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
           body,
           headers: req.headers,
         })
+        // An OpenAI-style stream, with the usage chunk only when asked for (#421).
+        let streamed: { stream?: boolean; stream_options?: { include_usage?: boolean } } = {}
+        try { streamed = JSON.parse(body) } catch { /* not JSON */ }
+        if ((req.url || '').endsWith('/chat/completions') && streamed.stream === true) {
+          const chunk = (choices: unknown[], usage: unknown) => `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'test', choices, usage })}\n\n`
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(chunk([{ index: 0, delta: { content: 'Hello' }, finish_reason: null }], null))
+          res.write(chunk([{ index: 0, delta: {}, finish_reason: 'stop' }], null))
+          if (streamed.stream_options?.include_usage) res.write(chunk([], { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 }))
+          res.end('data: [DONE]\n\n')
+          return
+        }
         const payload = JSON.stringify({
           id: 'mock-msg-id',
           type: 'message',
@@ -756,6 +768,39 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
 
   // #411: a module may ask for a request header on the upstream call, and
   // the proxy sends it, replacing a value the client sent for that name.
+  // #421: the stream usage reporter asks for a usage chunk the client did not
+  // ask for; the proxy drops it from what the client receives, after the
+  // usage meter has counted it. A client that asked keeps it.
+  it('E2E Case 14: drops the usage chunk the stream usage reporter asked for, and still meters it', async () => {
+    const modules = (proxy as unknown as { modules: ModuleManager }).modules
+    modules.setModuleEnabled('stream-usage', true)
+    try {
+      const kpi = (stats: any, key: string): number =>
+        stats.modules.find((m: { id: string }) => m.id === 'usage-meter').kpis.find((k: { key: string }) => k.key === key).value
+      const stream = (extra: Record<string, unknown> = {}) => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/chat/completions',
+        { 'Content-Type': 'application/json' },
+        JSON.stringify({ model: 'test', stream: true, messages: [{ role: 'user', content: 'stream me' }], ...extra }),
+      )
+      receivedRequests = []
+      const before = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+      const plain = await stream()
+      expect(plain.statusCode).toBe(200)
+      expect(JSON.parse(receivedRequests[0]!.body).stream_options).toEqual({ include_usage: true })
+      expect(plain.body).toContain('Hello')
+      expect(plain.body).toContain('[DONE]')
+      expect(plain.body).not.toContain('"usage":{')
+      const after = await queryDashboard(testConfig.dashboard.port, '/api/modules')
+      expect(kpi(after, 'responses') - kpi(before, 'responses')).toBe(1)
+      expect(kpi(after, 'output') - kpi(before, 'output')).toBe(2)
+
+      const asked = await stream({ stream_options: { include_usage: true } })
+      expect(asked.body).toContain('"usage":{"prompt_tokens":9')
+    } finally {
+      modules.setModuleEnabled('stream-usage', false)
+    }
+  })
+
   it('E2E Case 13: a module can add a request header on the way upstream', async () => {
     const stub = {
       id: 'stub-header', name: 'Stub', description: '', enabled: true,

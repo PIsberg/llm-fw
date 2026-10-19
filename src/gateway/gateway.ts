@@ -17,6 +17,7 @@ import { isAuthPath } from '../detection/urlHeuristic.js';
 import { createLogger, withRequestId } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
 import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
+import { stripUsageChunk } from '../modules/sseUsageStrip.js';
 import type { GatewayModuleContext } from '../modules/types.js';
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
@@ -253,6 +254,8 @@ export class GatewayServer {
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev);
         return;
       }
+      // Before the tap, so the Usage Meter still sees the usage chunk (#421).
+      if (decision.stripStreamUsage) stripUsageChunk(res);
       const captured = moduleCtx && this.modules.wantsResponses()
         ? tapResponse(res, this.config.proxy.maxBodyBytes)
         : null;
@@ -455,7 +458,7 @@ export class GatewayServer {
     route: GatewayRoute,
     original: Buffer,
     tenant: Tenant | null,
-  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; headers?: Record<string, string> }> {
+  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; headers?: Record<string, string>; stripStreamUsage?: boolean }> {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
     const target = route.provider.host;
@@ -466,6 +469,8 @@ export class GatewayServer {
     // Request headers the modules ask for upstream (#411); an observed
     // request goes as the client sent it, headers included.
     let moduleHeaders: Record<string, string> | undefined;
+    // Set when the stream usage reporter asked for usage the client did not (#421).
+    let stripStreamUsage = false;
 
     // Whether THIS request is only being observed. The deployment-wide setting
     // is not enough: a tenant can observe while the rest of the deployment
@@ -482,6 +487,7 @@ export class GatewayServer {
         text = modRes.body;
         bodyBuf = Buffer.from(text, 'utf-8');
         if (Object.keys(modRes.headers).length > 0) moduleHeaders = modRes.headers;
+        stripStreamUsage = moduleCtx.stripStreamUsage === true;
       }
       if (modRes.events && modRes.events.length > 0) {
         for (const ev of modRes.events) {
@@ -562,7 +568,7 @@ export class GatewayServer {
         ...tenantTag,
       });
       log.error(`pipeline error on ${method} ${path}: ${message}`);
-      if (failOpen) return { blocked: false, body: bodyBuf, ...(moduleHeaders ? { headers: moduleHeaders } : {}) };
+      if (failOpen) return { blocked: false, body: bodyBuf, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
       return {
         blocked: true, status: this.config.blockStatus ?? 422,
         body: explainGate({
@@ -581,7 +587,7 @@ export class GatewayServer {
       };
     }
 
-    return { blocked: false, body: bodyBuf, ...(moduleHeaders ? { headers: moduleHeaders } : {}) };
+    return { blocked: false, body: bodyBuf, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
   }
 
   /** What the module pipeline sees of a request; null when modules do not run on it. */
