@@ -363,8 +363,10 @@ docker build \
 
 The build refuses a download whose hash disagrees, and both arguments are
 required together. The binary lands on `PATH` (`/usr/local/bin/lean-ctx`),
-where the module looks by default, so `LLM_FW_LEAN_CTX_ENABLED=true` is all
-the container then needs. The default archive is the amd64 Linux one; set
+where the module looks by default, together with Debian's CA bundle in
+`/etc/ssl/certs/`, which lean-ctx needs to start and the slim base image
+does not carry; `LLM_FW_LEAN_CTX_ENABLED=true` is then all the container
+needs. The default archive is the amd64 Linux one; set
 `LEAN_CTX_TARGET` (for example `aarch64-unknown-linux-gnu`) and that
 archive's hash for another platform. The Docker Image workflow builds the
 image both ways and checks that the module starts lean-ctx inside the

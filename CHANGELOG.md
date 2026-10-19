@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Docker image can bake in lean-ctx (#369).** `docker build --build-arg
   LEAN_CTX_VERSION=3.11.0 --build-arg LEAN_CTX_SHA256=<the archive's hash>` downloads that
   release's Linux archive, refuses it when the hash disagrees, and puts `lean-ctx` on `PATH`,
-  where the lean-ctx module looks; `LEAN_CTX_TARGET` picks another platform's archive. Without
+  where the lean-ctx module looks, with Debian's CA bundle, which lean-ctx needs to start and
+  the slim base lacks; `LEAN_CTX_TARGET` picks another platform's archive. Without
   the arguments the image is unchanged, since the archive is about 28 MB for a module that removed
   0.64% of tool-result tokens where it was measured. The Docker Image workflow now builds both
   ways and checks that the module starts lean-ctx inside the container and that the default
