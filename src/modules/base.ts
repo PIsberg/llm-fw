@@ -39,6 +39,8 @@ export interface PayloadOutcome {
   /** Prompt-text tokens examined, and what is left of them afterwards. */
   tokensOriginal: number
   tokensPruned: number
+  /** Request headers to set upstream; see ModuleTransformResult.headers. */
+  headers?: Record<string, string>
 }
 
 /**
@@ -123,7 +125,7 @@ export abstract class PayloadModule<C extends ModuleSwitch = ModuleSwitch> imple
     if (!parsed) return { body, modified: false }
     const finish = (): ModuleTransformResult => {
       const result = this.transformParsed(parsed, ctx, new Map())
-      return result.modified ? { ...result, body: JSON.stringify(parsed) } : { body, modified: false }
+      return { ...result, body: result.modified ? JSON.stringify(parsed) : body }
     }
     return this.prepare ? this.prepare(parsed, ctx).then(finish) : finish()
   }
@@ -151,17 +153,19 @@ export abstract class PayloadModule<C extends ModuleSwitch = ModuleSwitch> imple
       this.tokensSaved += tokensSaved
     }
 
+    const headers = outcome.headers ? { headers: outcome.headers } : {}
     if (!outcome.changed) {
-      return { modified: false }
+      return { modified: false, ...headers }
     }
 
     // A change to no prompt text (a cache marker) has no saving to report.
-    if (tokensOriginal === 0 && tokensPruned === 0) return { modified: true }
+    if (tokensOriginal === 0 && tokensPruned === 0) return { modified: true, ...headers }
     const percentSaved = tokensOriginal > 0 ? (tokensSaved / tokensOriginal) * 100 : 0
     const event = this.event(ctx, tokensOriginal, tokensPruned, tokensSaved, percentSaved)
 
     return {
       modified: true,
+      ...headers,
       metadata: {
         tokensOriginal,
         tokensPruned,

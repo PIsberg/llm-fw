@@ -178,7 +178,7 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
   let mockUpstream: https.Server
   let mockUpstreamPort: number
   let restoreTrust: () => void
-  let receivedRequests: { url: string; method: string; body: string }[] = []
+  let receivedRequests: { url: string; method: string; body: string; headers: http.IncomingHttpHeaders }[] = []
 
   let proxy: ProxyServer
   let dashboard: http.Server
@@ -221,7 +221,8 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
         receivedRequests.push({
           url: req.url || '',
           method: req.method || '',
-          body
+          body,
+          headers: req.headers,
         })
         const payload = JSON.stringify({
           id: 'mock-msg-id',
@@ -245,6 +246,10 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
           res.writeHead(200, { 'Content-Type': 'text/event-stream' })
           res.write('event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_e2e_read","name":"Read","input":{}}}\n\n')
           res.write('event: content_block_start\ndata: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_e2e_bash","name":"Bash","input":{}}}\n\n')
+          // A third call whose command arrives in fragments, as the API streams it.
+          res.write('event: content_block_start\ndata: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_e2e_cat","name":"Bash","input":{}}}\n\n')
+          res.write('event: content_block_delta\ndata: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\\"command\\":\\"cat "}}\n\n')
+          res.write('event: content_block_delta\ndata: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"big.log\\"}"}}\n\n')
           res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n')
           return
         }
@@ -711,6 +716,65 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
       expect(bash.content).toContain('[llm-fw: 85 lines elided]')
     } finally {
       Object.assign(truncate, saved)
+    }
+  })
+
+  // #363: a file read through a shell tool is told by its command, which a
+  // thread continuation does not carry: the module assembles it from the
+  // input_json_delta fragments of the response that made the call.
+  it('E2E Case 12: the truncator leaves a thread continuation\'s shell file read whole, by its command', async () => {
+    const truncate = testConfig.modules!.toolResultTruncate!
+    const saved = structuredClone(truncate)
+    Object.assign(truncate, { enabled: true, headLines: 10, tailLines: 5, maxChars: 0, skipTools: [], skipCommands: ['cat'] })
+    try {
+      receivedRequests = []
+      const send = (payload: unknown) => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json' }, JSON.stringify(payload),
+      )
+      const first = await send({ model: 'claude-3-opus-20240229', stream: true, thread: { type: 'create' },
+        messages: [{ role: 'user', content: 'TOOL_USE_CASE read the file, then run the tests' }] })
+      expect(first.statusCode).toBe(200)
+
+      const long = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join('\n')
+      const second = await send({ model: 'claude-3-opus-20240229', stream: true,
+        thread: { type: 'continue', previous_message_id: 'mock-msg-id' },
+        messages: [{ role: 'user', content: [
+          { type: 'tool_result', tool_use_id: 'toolu_e2e_cat', content: long },
+          { type: 'tool_result', tool_use_id: 'toolu_e2e_bash', content: long },
+        ] }] })
+      expect(second.statusCode).toBe(200)
+      expect(receivedRequests).toHaveLength(2)
+      const [cat, bash] = JSON.parse(receivedRequests[1]!.body).messages[0].content
+      expect(cat.content).toBe(long)
+      expect(bash.content).toContain('[llm-fw: 85 lines elided]')
+    } finally {
+      Object.assign(truncate, saved)
+    }
+  })
+
+  // #411: the API refuses context_management without the beta, and a plain
+  // SDK client does not send it, so the module asks for the header and the
+  // proxy adds it to the upstream request.
+  it('E2E Case 13: a module can add a request header on the way upstream', async () => {
+    const clear = testConfig.modules!.toolResultClear!
+    const saved = structuredClone(clear)
+    Object.assign(clear, { enabled: true })
+    try {
+      receivedRequests = []
+      const send = (headers: Record<string, string>) => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', ...headers },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'clear me' }] }),
+      )
+      expect((await send({})).statusCode).toBe(200)
+      expect((await send({ 'anthropic-beta': 'files-api-2025-04-14' })).statusCode).toBe(200)
+      expect(receivedRequests).toHaveLength(2)
+      expect(receivedRequests[0]!.headers['anthropic-beta']).toBe('context-management-2025-06-27')
+      expect(receivedRequests[1]!.headers['anthropic-beta']).toBe('files-api-2025-04-14,context-management-2025-06-27')
+      for (const r of receivedRequests) expect(JSON.parse(r.body).context_management.edits[0].type).toBe('clear_tool_uses_20250919')
+    } finally {
+      Object.assign(clear, saved)
     }
   })
 })

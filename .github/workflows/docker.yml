@@ -82,3 +82,42 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs llm-fw-smoke 2>&1 | tail -100 || true
+
+      # The opt-in lean-ctx build argument (#369): the same version and
+      # SHA-256 ci.yml pins. Built from the cached stages, so only the
+      # leanctx stage and the runtime copy run again.
+      - name: Build the image with lean-ctx
+        run: |
+          DOCKER_BUILDKIT=1 docker build --progress=plain -t llm-fw:ci-leanctx \
+            --build-arg LEAN_CTX_VERSION=3.11.0 \
+            --build-arg LEAN_CTX_SHA256=32004ef3e8bea38e8f9b6effcb34ace3243c35a520d39cfc7ebbfce322790c0d .
+
+      # Not just that the binary is there: the module, as the image ships it,
+      # starts lean-ctx from PATH and gets a shortened result back.
+      - name: The lean-ctx module starts lean-ctx in the container
+        run: |
+          docker run --rm --entrypoint node -e LLM_FW_DIR=/tmp/llm-fw llm-fw:ci-leanctx --input-type=module -e '
+            const { LeanCtxModule } = await import("./dist/modules/builtin/leanCtx.js");
+            const { DEFAULT_CONFIG } = await import("./dist/config/config.js");
+            const lines = ["[INFO] Scanning for projects..."];
+            for (let i = 0; i < 300; i++) lines.push(`[INFO] Downloading from central: https://repo.maven.apache.org/maven2/org/example/lib-${i}/1.0/lib-${i}-1.0.jar`);
+            lines.push("[INFO] BUILD SUCCESS");
+            const log = lines.join("\n");
+            const mod = new LeanCtxModule({ ...structuredClone(DEFAULT_CONFIG.modules.leanCtx), enabled: true, timeoutMs: 30000 });
+            const ctx = { target: "api.anthropic.com", method: "POST", path: "/v1/messages", isLlmRequest: true, parser: null };
+            const body = JSON.stringify({ messages: [
+              { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "mvn -q verify" } }] },
+              { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: log }] },
+            ] });
+            const res = await mod.transformRequest(body, ctx);
+            mod.close();
+            const out = JSON.parse(res.body).messages[1].content[0].content;
+            console.log(`lean-ctx: ${log.length} -> ${out.length} characters`);
+            if (!res.modified || out.length >= log.length / 2 || !out.includes("BUILD SUCCESS")) { console.error("the module did not get a shortened result from lean-ctx"); process.exit(1); }
+          '
+
+      - name: The default image carries no lean-ctx
+        run: |
+          if docker run --rm --entrypoint sh llm-fw:ci -c 'command -v lean-ctx'; then
+            echo "::error::lean-ctx is in the default image; it is meant to be opt-in"; exit 1
+          fi

@@ -46,6 +46,46 @@ COPY data ./data
 COPY docker/warm-models.mjs ./docker/warm-models.mjs
 RUN node docker/warm-models.mjs
 
+# ---------- lean-ctx (opt-in) ----------
+# The lean-ctx shell output compressor (modules.leanCtx) runs a lean-ctx the
+# operator installed; the image has none unless asked. Its release archive is
+# about 28 MB and the module removed 0.64% of tool-result tokens where it was
+# measured (docs/guides/token-savings.md), so it is a build argument, not a
+# default:
+#
+#   docker build --build-arg LEAN_CTX_VERSION=3.11.0 \
+#     --build-arg LEAN_CTX_SHA256=32004ef3e8bea38e8f9b6effcb34ace3243c35a520d39cfc7ebbfce322790c0d .
+#
+# The version and the SHA-256 of its archive (from the release's SHA256SUMS)
+# are both required, and the download is refused when they disagree. The
+# default target is the amd64 Linux archive; set LEAN_CTX_TARGET for another.
+# With no version the stage leaves two empty folders and the runtime image is
+# unchanged.
+#
+# lean-ctx's proxy builds an HTTPS client when it starts and exits with
+# "Proxy error: builder error" when the system has no trust store, which the
+# slim base does not (verified 2026-10-19 in node:24-bookworm-slim:
+# ca-certificates is not installed; with Debian's bundle file in place lean-ctx
+# starts, as root and as the node user). So the stage also takes that bundle
+# along, and only then.
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS leanctx
+ARG LEAN_CTX_VERSION=
+ARG LEAN_CTX_SHA256=
+ARG LEAN_CTX_TARGET=x86_64-unknown-linux-gnu
+RUN mkdir -p /opt/lean-ctx/bin /opt/lean-ctx/certs \
+ && if [ -n "$LEAN_CTX_VERSION" ]; then \
+      test -n "$LEAN_CTX_SHA256" || { echo "LEAN_CTX_SHA256 is required with LEAN_CTX_VERSION" >&2; exit 1; }; \
+      url="https://github.com/yvgude/lean-ctx/releases/download/v${LEAN_CTX_VERSION}/lean-ctx-${LEAN_CTX_TARGET}.tar.gz"; \
+      node -e "fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(r.status+' '+process.argv[1]);return r.arrayBuffer()}).then(b=>require('fs').writeFileSync('/tmp/lean-ctx.tar.gz',Buffer.from(b)))" "$url" \
+      && echo "${LEAN_CTX_SHA256}  /tmp/lean-ctx.tar.gz" | sha256sum -c - \
+      && tar -xzf /tmp/lean-ctx.tar.gz -C /opt/lean-ctx/bin \
+      && rm /tmp/lean-ctx.tar.gz \
+      && /opt/lean-ctx/bin/lean-ctx --version \
+      && apt-get update -qq \
+      && apt-get install -y -qq --no-install-recommends ca-certificates \
+      && cp /etc/ssl/certs/ca-certificates.crt /opt/lean-ctx/certs/; \
+    fi
+
 # ---------- runtime ----------
 FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
 WORKDIR /app
@@ -102,6 +142,11 @@ RUN npm ci --omit=dev \
 COPY --from=build /app/dist ./dist
 COPY --from=models /models /models
 COPY data ./data
+# lean-ctx, when the build asked for it (see the leanctx stage), on PATH where
+# the module looks by default, with the trust store it needs to start; both
+# folders are empty otherwise.
+COPY --from=leanctx /opt/lean-ctx/bin/ /usr/local/bin/
+COPY --from=leanctx /opt/lean-ctx/certs/ /etc/ssl/certs/
 
 # Fail the build if the prune above broke the semantic stage. A non-zero
 # similarity can only come from the ONNX model having loaded and run.

@@ -459,6 +459,12 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
    * in `__` and that name (`mcp__filesystem__read_file`).
    */
   skipTools: string[];
+  /**
+   * Programs that print a file. A result whose call has a `command` argument
+   * with any of these as a word (a shell tool running `cat`, `sed -n`) is
+   * never cut either; an entry with a hyphen (Get-Content) matches in any case.
+   */
+  skipCommands: string[];
 }
 
 export interface ToolFilterConfig extends ModuleSwitchConfig {
@@ -470,10 +476,26 @@ export interface ToolFilterConfig extends ModuleSwitchConfig {
   dropTools: string[];
 }
 
+export interface ToolResultClearConfig extends ModuleSwitchConfig {
+  /** Input tokens a request must pass before the server clears anything. */
+  triggerTokens: number;
+  /** The most recent tool calls whose results are kept. */
+  keepToolUses: number;
+  /**
+   * Input tokens each clearing must remove, or 0 for no minimum. Clearing
+   * rewrites the prompt cache from the first cleared result, so a small
+   * clearing on every turn costs more than it saves.
+   */
+  clearAtLeast: number;
+  /** Tools whose results are never cleared: exact names, file readers by default. */
+  excludeTools: string[];
+}
+
 export interface LeanCtxConfig extends ModuleSwitchConfig {
   /**
    * Shell tools whose results go to lean-ctx, matched like the truncator's
-   * skipTools. The call's `command` argument must be a string.
+   * skipTools. The call's `command` argument must be a string or an argv
+   * array of strings (Codex's shell).
    */
   tools: string[];
   /**
@@ -536,6 +558,9 @@ export interface ModulesConfig {
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Records which offered tools get called. On by default: it changes nothing. */
   toolUsage?: ModuleSwitchConfig;
+  toolResultClear?: ToolResultClearConfig;
+  /** Asks OpenAI chat completions streams to report usage (stream_options.include_usage). */
+  streamUsage?: ModuleSwitchConfig;
   cacheControl?: CacheControlConfig;
   responseCache?: ResponseCacheConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */

@@ -11,7 +11,7 @@ import { getLlmFwDir } from '../../config/paths.js'
 import { createLogger } from '../../logger.js'
 import { SlotModule } from '../base.js'
 import { collectTextSlots, type SlotKind, type TextSlot } from '../payload.js'
-import { RememberedCalls, toolArgs } from '../toolCalls.js'
+import { RememberedCalls, commandText, isFileRead, toolArgs } from '../toolCalls.js'
 
 const log = createLogger('lean-ctx')
 
@@ -19,21 +19,6 @@ const TOOL_OUTPUT: ReadonlySet<SlotKind> = new Set(['tool_result'])
 
 /** child_process.spawn, or a stand-in for it in tests. */
 export type LeanCtxSpawn = (command: string, args: string[], options: SpawnOptions) => ChildProcess
-
-/**
- * True when a word of `command` is one of `skipCommands`, compared by its
- * basename without `.exe`; an entry with a hyphen (a PowerShell cmdlet such
- * as Get-Content) matches in any case. Any word counts, a pipeline stage or
- * an argument alike, so a doubtful command is treated as a file read.
- */
-export function isFileRead(command: string, skipCommands: readonly string[]): boolean {
-  for (const word of command.split(/[\s;&|()<>`$"'{}]+/)) {
-    const base = (word.split(/[\\/]/).pop() ?? '').replace(/\.exe$/i, '')
-    if (!base) continue
-    if (skipCommands.some(skip => skip === base || (skip.includes('-') && skip.toLowerCase() === base.toLowerCase()))) return true
-  }
-  return false
-}
 
 // lean-ctx appends one of these to a lossy result: an instruction to fetch
 // the original through a retrieve tool or from a file on this machine. No
@@ -55,6 +40,9 @@ const PASSED_ENV = new Set(['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', '
 const CONCURRENCY = 8
 const STARTUP_MS = 10_000
 const RETRY_MS = 60_000
+// A config.json edit flips `enabled` on the module's config without telling
+// it, so a lean-ctx with nothing to do for this long is stopped (#368).
+const IDLE_MS = 10 * 60_000
 const MAX_REMEMBERED = 4096
 
 async function freePort(): Promise<number> {
@@ -213,10 +201,24 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
   // retry: without lean-ctx installed, a start is tried once a minute.
   private lastStop = ''
   private readonly launch: LeanCtxSpawn
+  private readonly idleMs: number
+  private idleTimer: NodeJS.Timeout | undefined
 
-  constructor(config?: LeanCtxConfig, launch: LeanCtxSpawn = spawn) {
+  constructor(config?: LeanCtxConfig, launch: LeanCtxSpawn = spawn, idleMs = IDLE_MS) {
     super(config ?? structuredClone(DEFAULT_CONFIG.modules!.leanCtx!))
     this.launch = launch
+    this.idleMs = idleMs
+  }
+
+  override get enabled(): boolean {
+    return this.cfg.enabled
+  }
+
+  // The dashboard toggle and POST /api/modules come through here: switching
+  // the module off stops lean-ctx at once instead of leaving it on its port.
+  override set enabled(value: boolean) {
+    this.cfg.enabled = value
+    if (!value) this.close()
   }
 
   observeResponse(_requestBody: string, _ctx: GatewayModuleContext, response: CapturedResponse): void {
@@ -230,8 +232,8 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
     const learned = slot.toolName === undefined ? this.calls.get(slot.toolCallId) : undefined
     const name = slot.toolName ?? learned?.name
     if (name === undefined || !this.cfg.tools.some(tool => name === tool || name.endsWith(`__${tool}`))) return undefined
-    const command = toolArgs(learned ? learned.input : slot.toolInput)?.command
-    if (typeof command !== 'string' || isFileRead(command, this.cfg.skipCommands)) return undefined
+    const command = commandText(toolArgs(learned ? learned.input : slot.toolInput)?.command)
+    if (command === undefined || isFileRead(command, this.cfg.skipCommands)) return undefined
     const key = createHash('sha256').update(name).update('\0').update(slot.text).digest('hex')
     return { key, name, text: slot.text }
   }
@@ -278,6 +280,7 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
     if (jobs.size === 0) return
     const deadline = Date.now() + this.cfg.timeoutMs
     const sidecar = await this.client(deadline)
+    this.touch()
     const pending = [...jobs.values()]
     const answers = new Map<string, string | null>()
     if (sidecar) {
@@ -288,6 +291,15 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
       }))
     }
     for (const key of jobs.keys()) this.remember(key, answers.get(key) ?? null)
+    this.touch()
+  }
+
+  // Restarts the idle clock: lean-ctx stops idleMs after the last request
+  // that needed it, and the next one starts it again.
+  private touch(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    this.idleTimer = setTimeout(() => this.close(), this.idleMs)
+    this.idleTimer.unref()
   }
 
   protected rewrite(text: string, slot: TextSlot): string {
@@ -297,6 +309,8 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
 
   /** Stops lean-ctx. It is started again by the next request that needs it. */
   close(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    this.idleTimer = undefined
     void this.sidecar?.then(sidecar => sidecar?.close())
     this.sidecar = null
     this.retryAt = 0

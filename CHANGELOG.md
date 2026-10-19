@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Docker image can bake in lean-ctx (#369).** `docker build --build-arg
+  LEAN_CTX_VERSION=3.11.0 --build-arg LEAN_CTX_SHA256=<the archive's hash>` downloads that
+  release's Linux archive, refuses it when the hash disagrees, and puts `lean-ctx` on `PATH`,
+  where the lean-ctx module looks, with Debian's CA bundle, which lean-ctx needs to start and
+  the slim base lacks; `LEAN_CTX_TARGET` picks another platform's archive. Without
+  the arguments the image is unchanged, since the archive is about 28 MB for a module that removed
+  0.64% of tool-result tokens where it was measured. The Docker Image workflow now builds both
+  ways and checks that the module starts lean-ctx inside the container and that the default
+  image carries none. Documented under Docker in `docs/guides/deployment-server.md`.
+- **Tool Usage offers its never-called list to the Tool Filter in one click (#407).** Once the
+  module has seen 1,000 calls, its card shows **Drop these N tools in the Tool Filter**, which
+  writes every never-called tool the filter does not already match into
+  `modules.toolFilter.dropTools`, keeping the names already there, and switches the filter on.
+  The button is armed by a first click and sent by a second, since it changes what the model can
+  call; until the threshold the card says how many calls it has seen. Any module can offer such
+  an `action` in its stats; the card posts it to `/api/modules`.
+- **Module options are editable on the dashboard (#354).** Each card on the **Modules** tab has
+  an **Options** section with one field per option (`historyWindow.maxMessages`,
+  `toolResultTruncate.skipTools`, `cacheControl.ttl` and the rest), saved together.
+  `POST /api/modules` takes `{"id", "options": {...}}`, alone or with `"enabled"`; every value
+  is checked against the option's type and bounds before anything changes (a window below 2
+  messages, a `ttl` other than `5m` or `1h`, an empty tool name all get a 400 naming the
+  option), then written onto the live config the module reads and persisted to `config.json`.
+  `GET /api/modules` lists each module's `options` with type, bounds and live value. Before,
+  options could only be changed in `config.json` or the environment.
+- **The Usage Meter shows how the token estimate compares with the bill (#356).** Two new KPIs
+  on its card: **Billed input per estimated text token**, the provider's billed input (uncached,
+  cache reads and writes) over the estimate `src/modules/tokens.ts` makes for the text of the
+  request that earned it, and **Responses compared**. The estimate was fitted to the public
+  cl100k and o200k tokenizers and Claude's is not public, so this is the one place its error on
+  real traffic is visible. Requests whose history the server holds (thread continuations,
+  `previous_response_id`) are left out, since they are billed for text they do not carry.
+- **Stream usage reporter (`modules.streamUsage`, off by default) (#357).** An OpenAI chat
+  completions stream reports its usage only when the client sends
+  `stream_options.include_usage`, and most do not, so the Usage Meter missed those streams. The
+  module sets it on every streaming `/chat/completions` request that lacks it, on any host that
+  serves that path, keeping the client's other stream options. The client receives one more
+  chunk, with an empty `choices` array and the `usage` object, as the API documents; the
+  official SDKs handle it, a client that reads `choices[0]` unchecked does not, which is why it
+  is opt-in. Not verified against each SDK's parser. `LLM_FW_STREAM_USAGE_ENABLED`.
+- **Server-side tool result clearing (`modules.toolResultClear`, off by default, lossy).** Adds
+  Anthropic's `clear_tool_uses_20250919` context edit to Messages requests whose client already
+  sends the `context-management-2025-06-27` beta (Claude Code does), so the server replaces old
+  tool results with a placeholder once a request passes 100,000 input tokens, keeping the last 10
+  tool calls and clearing at least 20,000 tokens at a time. The card shows what the server reports
+  clearing. File reads are excluded by default (`excludeTools`): in an A/B on three read-heavy
+  tasks, clearing them made the agent re-read the same files, 57 to 75 turns against 23 to 25 and up
+  to 4.4 times the cost. With them excluded those tasks cost the same as with the module off.
+  Modelled over 14 days of one developer's transcripts, the ceiling with file reads excluded is
+  10.9% of the bill net of cache rewrites; no measured saving yet, so it stays off by default.
+  Without the 20,000-token minimum the cache rewrites cost more than the clearing saves. `LLM_FW_TOOL_RESULT_CLEAR_ENABLED`.
 - **Tool Usage keeps its list across restarts.** `llm-fw start` saves the offered tools, their
   token estimates and the call counts to `<LLM_FW_DIR>/tool-usage.json` (no request content),
   at most every 5 seconds and on a graceful stop, and loads it on the next start. Before, every
@@ -210,6 +261,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The history window covers the Responses API `input` array (#355).** A client that keeps its
+  history client side sends it as `input` items, which the module left alone. It now cuts them
+  in whole steps at a user message or a `function_call_output`, never between a call and its
+  output; an output whose call was dropped becomes user text behind
+  `[llm-fw: result of an omitted tool call]`, and `reasoning` items in the kept history are
+  dropped, since their encrypted content records the conversation before them. A request with
+  `previous_response_id` is still left alone. Pinned with an out(n)-prefix-of-out(n+1) case.
+- **Server-side tool result clearing works for clients that do not send the beta (#411).** The
+  module used to skip any request without `context-management-2025-06-27` in `anthropic-beta`,
+  which only Claude Code sends, because a module could rewrite the body but not the headers. A
+  module's result can now carry request headers (`ModuleTransformResult.headers`), which the
+  proxy and the gateway put on the upstream call, never under observe mode; the clearing module
+  appends the beta to the client's own list and the card counts it under **Beta header added**.
+  Pinned by E2E Case 13 in `test/proxy/proxy.e2e.test.ts` and a gateway e2e case.
+- **The truncator leaves file reads through a shell tool whole (#363).** `skipTools` recognised
+  a file read by its tool name, so `cat src/x.ts` or `sed -n 1,400p x.ts` in Claude Code's
+  `Bash`, lean-ctx's `ctx_shell` or Codex's `shell` was cut like any command output, and the agent
+  read the elided range back. The new `modules.toolResultTruncate.skipCommands` (default: `cat`,
+  `head`, `tail`, `sed`, `awk`, `nl`, `less`, `more`, `bat`, `tac`, `type`, `gc`, `Get-Content`)
+  keeps a result whole when its call's `command` has any of them as a word, for a call in the
+  request or one learned from the response that made it (its command arrives as
+  `input_json_delta` fragments, which the module already assembles). On 30 days of one developer's
+  transcripts those commands were 19.4% of what the truncator removed, against 9.5% for all other
+  shell output. `ruleset.ts` digest re-pinned for the new default in `config.ts`; no detection
+  change.
+- **The lean-ctx module covers Codex CLI and Gemini CLI shells (#367).** `modules.leanCtx.tools`
+  now lists `shell` (Codex, whose `command` is an argv array such as
+  `["bash", "-lc", "npm test"]`, read as one line so a file read behind `bash -lc` stays whole)
+  and `run_shell_command` (Gemini CLI) next to Claude Code's `Bash` and `PowerShell`. Before,
+  an array command was treated as unknown and the result forwarded whole. Checked against the two
+  tools' documented argument shapes, not against captured traffic. `ruleset.ts` digest re-pinned
+  for the new default in `config.ts`; no detection change.
+- **Switching the lean-ctx module off now stops lean-ctx (#368).** The dashboard toggle and
+  `POST /api/modules` stop the private `lean-ctx proxy` at once, and a `config.json` edit, which
+  flips the switch without telling the module, is covered by an idle stop: lean-ctx exits 10
+  minutes after the last request that needed it, and the next one starts it again (45 to 78 ms).
+  Before, it idled on its loopback port until llm-fw exited.
 - **The history window now cuts agent conversations, and keeps the window it promises.** It used
   to move each cut forward to the next plain user turn, so a tool call was never separated from
   its result. An agent loop has no plain user turn for hundreds of turns, so over 30 days of one

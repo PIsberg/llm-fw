@@ -235,7 +235,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_103 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_105 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -327,12 +327,14 @@ _103 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_RESPONSE_SCAN_ENABLED` | `responseScan.enabled` | `true` |
 | `LLM_FW_RESPONSE_SCAN_MODE` | `responseScan.mode` | `audit` |
 | `LLM_FW_SCAN_SYSTEM_PROMPT` | `detection.scanSystemPrompt` | `false` |
+| `LLM_FW_STREAM_USAGE_ENABLED` | `modules.streamUsage.enabled` | `false` |
 | `LLM_FW_SUPPRESSIONS_ENABLED` | `detection.suppressions` | `true` |
 | `LLM_FW_TAINT_ENABLED` | `taint.enabled` | `true` |
 | `LLM_FW_TAINT_MODE` | `taint.mode` | `audit` |
 | `LLM_FW_TOKEN_PRUNER_ENABLED` | `modules.tokenPruner.enabled` | `false` |
 | `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED` | `modules.toolDefinitionPruner.enabled` | `false` |
 | `LLM_FW_TOOL_FILTER_ENABLED` | `modules.toolFilter.enabled` | `false` |
+| `LLM_FW_TOOL_RESULT_CLEAR_ENABLED` | `modules.toolResultClear.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_DEDUP_ENABLED` | `modules.toolResultDedup.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |

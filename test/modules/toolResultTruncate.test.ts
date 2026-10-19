@@ -68,7 +68,7 @@ describe('ToolResultTruncateModule skipTools', () => {
   const long = lines(100)
   const isCut = (text: string) => text.includes('lines elided]')
   const truncator = (skipTools = ['Read', 'read_file']) =>
-    new ToolResultTruncateModule({ enabled: true, headLines: 10, tailLines: 5, maxChars: 0, skipTools })
+    new ToolResultTruncateModule({ enabled: true, headLines: 10, tailLines: 5, maxChars: 0, skipTools, skipCommands: DEFAULT_CONFIG.modules!.toolResultTruncate!.skipCommands })
   const send = (mod: ToolResultTruncateModule, payload: unknown) =>
     JSON.parse(mod.transformRequest(JSON.stringify(payload), ctx).body)
   const sse = (...events: unknown[]) => ({
@@ -181,6 +181,62 @@ describe('ToolResultTruncateModule skipTools', () => {
     ] }
     expect(send(mod, payload).messages[1].content[0].content).toBe(long)
     cfg.skipTools = []
+    expect(isCut(send(mod, payload).messages[1].content[0].content)).toBe(true)
+  })
+
+  // #363: after skipTools, about half of what the truncator still cut on 30
+  // days of one developer's transcripts was file reads through a shell tool
+  // (cat, sed -n, awk in Bash: 19.4% of the removed tokens, against 9.5% for
+  // all other shell output). Those are recognised by the command now.
+  it('leaves a file read through a shell tool whole, by its command', () => {
+    const shell = (id: string, name: string, command: unknown) => ({ type: 'tool_use', id, name, input: { command } })
+    const out = send(truncator(), { messages: [
+      { role: 'assistant', content: [
+        shell('t_cat', 'Bash', 'cat src/a.ts'),
+        shell('t_cd', 'Bash', 'cd /repo && sed -n 1,400p src/a.ts'),
+        shell('t_codex', 'shell', ['bash', '-lc', 'head -100 CHANGELOG.md']),
+        shell('t_test', 'Bash', 'npm test 2>&1'),
+        shell('t_log', 'Bash', 'git log --oneline -200'),
+        shell('t_odd', 'Bash', 42),
+      ] },
+      { role: 'user', content: ['t_cat', 't_cd', 't_codex', 't_test', 't_log', 't_odd'].map(id => ({ type: 'tool_result', tool_use_id: id, content: long })) },
+    ] })
+    const results = out.messages[1].content.map((r: { content: string }) => isCut(r.content))
+    expect(results).toEqual([false, false, false, true, true, true])
+  })
+
+  it('learns the command from a streamed response for a thread continuation', () => {
+    const mod = truncator()
+    mod.observeResponse('{}', ctx, sse(
+      { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', content: [] } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_cat', name: 'Bash', input: {} } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"command":"cat ' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: 'big.log"}' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_test', name: 'Bash', input: {} } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"command":"npm test"}' } },
+      { type: 'content_block_stop', index: 1 },
+      { type: 'message_stop' },
+    ))
+    const out = send(mod, { thread: { type: 'continue', previous_message_id: 'msg_1' }, messages: [
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_cat', content: long },
+        { type: 'tool_result', tool_use_id: 'toolu_test', content: long },
+      ] },
+    ] })
+    expect(out.messages[0].content[0].content).toBe(long)
+    expect(isCut(out.messages[0].content[1].content)).toBe(true)
+  })
+
+  it('takes skipCommands live', () => {
+    const cfg = { enabled: true, headLines: 10, tailLines: 5, maxChars: 0, skipTools: [], skipCommands: ['cat'] }
+    const mod = new ToolResultTruncateModule(cfg)
+    const payload = { messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'cat a.ts' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: long }] },
+    ] }
+    expect(send(mod, payload).messages[1].content[0].content).toBe(long)
+    cfg.skipCommands = []
     expect(isCut(send(mod, payload).messages[1].content[0].content)).toBe(true)
   })
 

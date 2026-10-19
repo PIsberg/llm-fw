@@ -17,7 +17,14 @@
 
 services:
   llm-fw:
-    build: .
+    build:
+      context: .
+      # To bake lean-ctx in for the lean-ctx module (opt-in, about 28 MB; see
+      # docs/guides/deployment-server.md, "Docker"), give the version and the
+      # SHA-256 of its release archive:
+      # args:
+      #   LEAN_CTX_VERSION: "3.11.0"
+      #   LEAN_CTX_SHA256: "32004ef3e8bea38e8f9b6effcb34ace3243c35a520d39cfc7ebbfce322790c0d"
     image: llm-fw:latest
     restart: unless-stopped
     ports:
