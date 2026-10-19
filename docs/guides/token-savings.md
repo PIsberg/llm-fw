@@ -168,6 +168,61 @@ what it cut. Over 30 days of one developer's Claude Code transcripts
 skipping `ctx_read` as well keeps 29%. What that does to the bill, net of the
 turns it no longer adds, has not been measured.
 
+### Where the input bill goes
+
+Over 30 days of one developer's Claude Code transcripts (1,843 transcript
+files, 59,184 API calls, mostly Claude Opus 5.5; usage as the API reported
+it, cache reads at 0.1 and one-hour cache writes at 2 times input):
+
+| Part of the input bill | Share |
+| --- | --- |
+| Cache reads | 81.7% |
+| One-hour cache writes | 12.4% |
+| Five-minute cache writes | 5.9% |
+| Uncached input | 0.0% |
+
+The mean prompt was 271,537 tokens. Almost the whole bill is the history
+read back from the cache on every call, so what moves it is how much stays
+in the history, not how large any one result is when it arrives.
+
+### Clearing old thinking: measured, not offered
+
+Thinking is 66% of Claude Opus 5.5's output tokens (output less the visible
+text and tool calls, as characters / 4), and it is sent back: on 268 Opus
+5.5 calls that appended under 300 tokens of tool output and user text, the
+prompt grew by 104% of the previous response's whole output, thinking
+included. Claude Code asks the API to keep all of it
+(`{"type": "clear_thinking_20251015", "keep": "all"}` in every request).
+
+Replacing that with `keep: {"type": "thinking_turns", "value": 1}` was
+built, probed and measured on 2026-10-19, and is not offered:
+
+- The API counts a turn per user prompt, not per call. Over one prompt's 14
+  calls, 10 of them with thinking, the server cleared nothing; on the next
+  prompt it cleared those 10 blocks (1,750 tokens), and that call wrote
+  42,913 tokens to the cache. Thinking in the tool loop in progress always
+  stays, and each new prompt pays one cache rewrite.
+- Modelled on that basis over the transcripts above, keeping one turn would
+  save at most 4.1% of the input bill net of the rewrites (9.7% of reads
+  saved, 5.6% rewritten); keeping two or three turns is a loss. This counts
+  nothing for the model reasoning again.
+- Billed, on three conversations of three prompts each (Claude Code 2.1.303,
+  Claude Haiku 5.5 at effort `high`, two rounds, arm order swapped), it was
+  a loss:
+
+| Follow-up prompts, where clearing acts | Keep all | Keep one |
+| --- | --- | --- |
+| Cost | $0.0245 | $0.0589 |
+| Cache writes | 25,774 tokens | 171,477 tokens |
+| Output tokens | 9,352 | 16,968 |
+| Calls | 20 | 25 |
+
+Answers were correct 17 of 18 times keeping all and 18 of 18 keeping one;
+the one miss misread which files the question meant. Each follow-up paid
+for its rewrite, too few calls followed to earn it back, and output rose by
+81%, which the model above leaves out. Long interactive sessions, where the
+modelled ceiling comes from, were not measured.
+
 ## Modules
 
 In pipeline order, which is also the order of the cards:
