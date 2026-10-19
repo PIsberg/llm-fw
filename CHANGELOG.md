@@ -282,6 +282,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The proxy no longer inflates a compressed response without limit (#352).** Responses it
+  inspects were decompressed with no output cap, so a small compressed body from an upstream
+  that ignored `Accept-Encoding: identity` could expand to any size in the proxy's memory (64 MB
+  of one byte gzips to about 64 KB). Decompression now stops at `proxy.maxBodyBytes`, and a body
+  that would expand past it is forwarded as it came, uninspected, as an oversized plain body
+  already was. Pinned by an end-to-end test with a gzip bomb.
 - **DLP redaction no longer breaks the request JSON when a secret ends at an escaped quote (#374).**
   The generic-secret pattern runs on the raw body, where a quote inside a JSON string is `\"`,
   and its value could end on that backslash, so redacting `--token=<value>"` or

