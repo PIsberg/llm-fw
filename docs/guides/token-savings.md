@@ -19,6 +19,25 @@ without a restart, in any of these ways:
 - editing `config.json`, which is hot-reloaded,
 - the `LLM_FW_*_ENABLED` environment variable, at start-up.
 
+### Changing a module's options
+
+Every option listed under a module below (`historyWindow.maxMessages`,
+`toolResultTruncate.skipTools`, `cacheControl.ttl` and the rest) can be
+changed live as well:
+
+- under **Options** on the module's card in the dashboard's **Modules** tab,
+  which validates each field against the module's bounds, applies the change
+  to the next request and persists it to `~/.llm-fw/config.json`,
+- `POST /api/modules` with `{"id": "<module id>", "options": {"maxMessages": 50}}`,
+  alone or together with `"enabled"`; a bad value gets a 400 that names the
+  option and nothing is changed, and `GET /api/modules` lists each module's
+  `options` with their type, bounds and live value,
+- editing `config.json`, which is hot-reloaded.
+
+Changing an option of a rewriting module in the middle of a conversation has
+the same effect as switching the module, under
+[Changing a module in the middle of a conversation](#changing-a-module-in-the-middle-of-a-conversation).
+
 ## Token Economy, the parent switch
 
 Every module is a sub-module of **Token Economy**. Its switch is

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Module options are editable on the dashboard (#354).** Each card on the **Modules** tab has
+  an **Options** section with one field per option (`historyWindow.maxMessages`,
+  `toolResultTruncate.skipTools`, `cacheControl.ttl` and the rest), saved together.
+  `POST /api/modules` takes `{"id", "options": {...}}`, alone or with `"enabled"`; every value
+  is checked against the option's type and bounds before anything changes (a window below 2
+  messages, a `ttl` other than `5m` or `1h`, an empty tool name all get a 400 naming the
+  option), then written onto the live config the module reads and persisted to `config.json`.
+  `GET /api/modules` lists each module's `options` with type, bounds and live value. Before,
+  options could only be changed in `config.json` or the environment.
 - **The Usage Meter shows how the token estimate compares with the bill (#356).** Two new KPIs
   on its card: **Billed input per estimated text token**, the provider's billed input (uncached,
   cache reads and writes) over the estimate `src/modules/tokens.ts` makes for the text of the

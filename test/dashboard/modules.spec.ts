@@ -199,6 +199,65 @@ test.describe('Modules tab (#341)', () => {
     await expect(page.locator('.module-card[data-module="token-pruner"] .module-card-detail')).toHaveCount(0)
   })
 
+  // #354: a module's options are edited on its card and saved together; the
+  // server's validation error is shown next to the Save button.
+  test('edits a module\'s options on its card and shows the server\'s answer', async ({ page }) => {
+    const posts: unknown[] = []
+    let maxMessages = 100
+    await page.route('**/api/modules', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { id: string; options: { maxMessages: number } }
+        posts.push(body)
+        if (body.options.maxMessages < 2) {
+          await route.fulfill({ status: 400, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'maxMessages must be between 2 and 100000' }) })
+          return
+        }
+        maxMessages = body.options.maxMessages
+        await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true }) })
+        return
+      }
+      const base = JSON.parse(modulesBody({ saved: 0, original: 0, pct: 0 }))
+      base.modules.push({
+        id: 'history-window', name: 'History Window', enabled: false, description: 'Keeps the last turns',
+        totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [],
+        options: [
+          { key: 'maxMessages', type: 'number', value: maxMessages, min: 2, max: 100000 },
+          { key: 'step', type: 'number', value: 25, min: 1, max: 100000 },
+        ],
+      })
+      base.modules.push({
+        id: 'cache-control', name: 'Prompt Cache Marker', enabled: false, description: 'Caches',
+        totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [],
+        options: [{ key: 'ttl', type: 'enum', value: '5m', values: ['5m', '1h'] }, { key: 'cacheSystem', type: 'boolean', value: true }],
+      })
+      await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base) })
+    })
+    await page.goto('/')
+    await page.click('button:has-text("Modules")')
+
+    const card = page.locator('.module-card[data-module="history-window"]')
+    await card.locator('.module-options summary').click()
+    const field = card.locator('[data-option="maxMessages"]')
+    await expect(field).toHaveValue('100')
+    await field.fill('1')
+    await card.locator('.module-options-form button[type="submit"]').click()
+    await expect(card.locator('.module-options-status')).toHaveText('maxMessages must be between 2 and 100000')
+    await expect(card.locator('.module-options-status')).toHaveClass(/is-error/)
+
+    await field.fill('50')
+    await card.locator('.module-options-form button[type="submit"]').click()
+    await expect(card.locator('.module-options-status')).toHaveText('Saved')
+    expect(posts).toEqual([
+      { id: 'history-window', options: { maxMessages: 1, step: 25 } },
+      { id: 'history-window', options: { maxMessages: 50, step: 25 } },
+    ])
+    // The re-rendered card shows the live value the server now holds.
+    await expect(page.locator('.module-card[data-module="history-window"] [data-option="maxMessages"]')).toHaveValue('50')
+    // A module without options has no editor; enums render as a select.
+    await expect(page.locator('.module-card[data-module="token-pruner"] .module-options')).toHaveCount(0)
+    await expect(page.locator('.module-card[data-module="cache-control"] select[data-option="ttl"]')).toHaveValue('5m')
+  })
+
   test('marks a dry-run row as observed, not saved', async ({ page }) => {
     const server = await gatedServer(page, { saved: 0, original: 0, pct: 0 })
     await page.goto('/')
