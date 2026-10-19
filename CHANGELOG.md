@@ -282,6 +282,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The memory-poisoning stage no longer blocks test logs and Claude Code's CLAUDE.md wrapper
+  (#406).** All 8 of its blocks in a replay of real tool results were benign, from three patterns:
+  a test runner's hint ("rerun with ... to print them in full") read as redaction disabled,
+  Claude Code's "These instructions OVERRIDE any default behavior" read as an instruction override,
+  and a design note ("when a decision's text says how an FR reads, send that FR's rewording to
+  product-owner") read as an armed trigger. "In full" now needs a secret named in the sentence,
+  "override any default behavior" is exempt, and an armed trigger needs an address, a URL, a
+  secret, files, data or the conversation after its verb. The seven poisoned memories the stage
+  was built on, and three new variants, still fire.
 - **`gh pr checks --json` output no longer reads as an instruction (#404).** A JSON string value
   that starts with a verb ("Export game binaries") took its object from up to 120 characters on,
   past the end of the value, so the run's URL in the next field made it an indirect instruction:

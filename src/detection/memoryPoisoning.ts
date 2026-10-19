@@ -78,15 +78,25 @@ const SAFETY_RETIRED = [
 /** The developer's own instructions asserted to be superseded. */
 const INSTRUCTION_OVERRIDE = [
   /\b(?:the\s+)?system\s+prompt\s+(?:is\s+)?(?:outdated|obsolete|deprecated|superseded|no\s+longer\s+valid)\b/i,
-  /\b(?:these\s+|the\s+)?(?:notes?|memor(?:y|ies)|instructions?)\s+(?:override|supersede|take\s+precedence\s+over|replace)\b/i,
+  // Not "... override any default behavior": that is Claude Code's own
+  // wrapper around CLAUDE.md, in every session (#406).
+  /\b(?:these\s+|the\s+)?(?:notes?|memor(?:y|ies)|instructions?)\s+(?:override|supersede|take\s+precedence\s+over|replace)\b(?!\s+(?:any\s+)?default\s+behaviou?rs?\b)/i,
   /\bignore\s+(?:the\s+)?(?:system\s+prompt|previous\s+instructions?)\s+in\s+favou?r\s+of\b/i,
 ]
+
+/** What a poisoned memory prints or sends out: secrets, and the file that holds them. */
+const SECRET_NOUN = String.raw`\.env\b|\b(?:secrets?|api[\s_-]?keys?|keys?|tokens?|passwords?|passwd|credentials?|private\s+keys?)\b`
 
 /** Redaction or DLP asserted to be off — how a stored memory disarms the firewall. */
 const REDACTION_DISABLED = [
   /\bwithout\s+redact(?:ing|ion)\b/i,
   /\b(?:do\s+not|don't|never)\s+redact\b/i,
-  /\b(?:output|print|show|reveal|display)\s+(?:them|it|the\s+\w+)\s+in\s+full\b/i,
+  // "Print them in full" is ordinary on its own: a test runner's hint
+  // ("rerun with -Dreport.full=true to print them in full", #406). It disarms
+  // redaction when the sentence names a secret.
+  new RegExp(String.raw`(?:${SECRET_NOUN})[^.!?\n]{0,80}\b(?:output|print|show|reveal|display)\s+(?:them|it|the\s+\w+)\s+in\s+full\b`, 'i'),
+  new RegExp(String.raw`\b(?:output|print|show|reveal|display)\s+(?:them|it|the\s+\w+)\s+in\s+full\b[^.!?\n]{0,80}(?:${SECRET_NOUN})`, 'i'),
+  new RegExp(String.raw`\b(?:output|print|show|reveal|display)\s+(?:the\s+)?(?:${SECRET_NOUN})\s+in\s+full\b`, 'i'),
   /\bredaction\s+(?:is\s+)?(?:disabled|off|not\s+required)\b/i,
 ]
 
@@ -96,8 +106,16 @@ const REDACTION_DISABLED = [
  * verb is required so ordinary conditional notes ("when the build fails, check
  * the logs") do not fire.
  */
-const ARMED_TRIGGER =
-  /\b(?:whenever|any\s?time|each\s+time|next\s+time|when)\b[^.!?]{0,80}?\b(?:mentions?|says?|asks?|requests?|types?)\b[^.!?]{0,80}?\b(?:send|forward|e-?mail|upload|post|export|share|disclose|reveal|leak|transfer|wire|delete|grant|exfiltrate)\b/i
+//
+// The verb must also take something worth stealing or somewhere to send it: an
+// address, a URL, a secret or its file, data, files or the conversation. A
+// design note ("when a decision's text says how an FR reads, send that FR's
+// rewording to product-owner") has the same shape and blocked on replay (#406).
+const ARMED_TRIGGER = new RegExp(
+  String.raw`\b(?:whenever|any\s?time|each\s+time|next\s+time|when)\b[^.!?]{0,80}?\b(?:mentions?|says?|asks?|requests?|types?)\b[^.!?]{0,80}?\b(?:send|forward|e-?mail|upload|post|export|share|disclose|reveal|leak|transfer|wire|delete|grant|exfiltrate)\b` +
+  String.raw`(?=[^.!?]{0,80}?(?:[\w.+-]+@[\w-]+\.[\w.-]+|https?:\/\/|${SECRET_NOUN}|\b(?:contents?\s+of|files?|data|(?:chat|conversation)\s+history|histor(?:y|ies)|funds|money)\b|\$\d))`,
+  'i',
+)
 
 const FAMILIES: [MemoryPoisoningFinding['kind'], RegExp[]][] = [
   ['standing-permission', STANDING_PERMISSION],
