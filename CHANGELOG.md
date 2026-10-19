@@ -221,6 +221,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Server-side tool result clearing works for clients that do not send the beta (#411).** The
+  module used to skip any request without `context-management-2025-06-27` in `anthropic-beta`,
+  which only Claude Code sends, because a module could rewrite the body but not the headers. A
+  module's result can now carry request headers (`ModuleTransformResult.headers`), which the
+  proxy and the gateway put on the upstream call, never under observe mode; the clearing module
+  appends the beta to the client's own list and the card counts it under **Beta header added**.
+  Pinned by E2E Case 13 in `test/proxy/proxy.e2e.test.ts` and a gateway e2e case.
 - **The truncator leaves file reads through a shell tool whole (#363).** `skipTools` recognised
   a file read by its tool name, so `cat src/x.ts` or `sed -n 1,400p x.ts` in Claude Code's
   `Bash`, lean-ctx's `ctx_shell` or Codex's `shell` was cut like any command output, and the agent

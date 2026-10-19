@@ -461,14 +461,16 @@ the client sends itself.
 | `clearAtLeast` | `20000` | Input tokens each clearing must remove, or `0` for no minimum. |
 | `excludeTools` | the file readers, as the truncator's `skipTools` | Tools whose results are never cleared, by exact name. Add `mcp__lean-ctx__ctx_read` if you read files through lean-ctx. |
 
-It acts only when the client already sends the `context-management-2025-06-27`
-beta in `anthropic-beta`, because the API refuses the field without it (400,
-"Extra inputs are not permitted") and a module cannot add a header. Claude
-Code sends it, together with its own `clear_thinking` edit. A request that
-already carries a `clear_tool_uses` edit is left alone. The card counts what
-the server reports in `applied_edits`: responses cleared, input tokens
-cleared and tool results cleared, so the saving shown is the provider's own
-count, not an estimate.
+The API refuses the field without the `context-management-2025-06-27` beta
+in `anthropic-beta` (400, "Extra inputs are not permitted"). Claude Code
+sends it, together with its own `clear_thinking` edit; a plain SDK client
+does not, so the module appends it to whatever betas the client sent, and
+the proxy or the gateway puts the header on the upstream request. The card
+counts those under **Beta header added**. A request that already carries a
+`clear_tool_uses` edit is left alone. The card also counts what the server
+reports in `applied_edits`: responses cleared, input tokens cleared and tool
+results cleared, so the saving shown is the provider's own count, not an
+estimate.
 
 Why `clearAtLeast` matters: clearing changes the prompt from the first
 cleared result onwards, so the cache is written again from there. Clearing

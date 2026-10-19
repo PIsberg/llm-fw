@@ -29,6 +29,13 @@ export interface ModuleTransformResult {
   modified: boolean;
   metadata?: Record<string, unknown>;
   events?: ModuleEvent[];
+  /**
+   * Request headers to set on the upstream call, lower-case names, each
+   * value replacing the client's. The proxy and the gateway apply them with
+   * the body; under observe mode neither is applied. A module that appends
+   * to a header (a beta list) builds the whole value from `ctx.headers`.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface ModuleStats {

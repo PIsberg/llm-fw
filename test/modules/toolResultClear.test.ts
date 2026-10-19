@@ -67,15 +67,26 @@ describe('ToolResultClearModule', () => {
     expect(kpi(mod, 'clientManaged')).toBe(1)
   })
 
-  it('does nothing without the context-management beta, which the API needs to accept the field', () => {
-    // Verified 2026-10-18: without it the API answers 400 "context_management:
-    // Extra inputs are not permitted".
+  // Verified 2026-10-18: without the beta the API answers 400
+  // "context_management: Extra inputs are not permitted". A plain SDK client
+  // does not send it, so the module asks the caller to add it (#411).
+  it('adds the context-management beta header for a client that does not send it', () => {
     const mod = new ToolResultClearModule(cfg())
-    for (const headers of [{}, { 'anthropic-beta': 'oauth-2025-04-20' }, undefined]) {
-      expect(send(mod, request(), { ...anthropic, headers }).modified).toBe(false)
-    }
-    expect(send(mod, request(), { ...anthropic, headers: { 'anthropic-beta': ['oauth-2025-04-20', 'context-management-2025-06-27'] } }).modified).toBe(true)
-    expect(kpi(mod, 'noBeta')).toBe(3)
+    const BETA_VALUE = 'context-management-2025-06-27'
+    const none = send(mod, request(), { ...anthropic, headers: undefined })
+    expect(none.modified).toBe(true)
+    expect(none.headers).toEqual({ 'anthropic-beta': BETA_VALUE })
+    expect(send(mod, request(), { ...anthropic, headers: {} }).headers).toEqual({ 'anthropic-beta': BETA_VALUE })
+    // Appended to the betas the client already sends, never replacing them.
+    expect(send(mod, request(), { ...anthropic, headers: { 'anthropic-beta': 'oauth-2025-04-20' } }).headers).toEqual({ 'anthropic-beta': `oauth-2025-04-20,${BETA_VALUE}` })
+    expect(send(mod, request(), { ...anthropic, headers: { 'anthropic-beta': ['oauth-2025-04-20', 'files-api-2025-04-14'] } }).headers).toEqual({ 'anthropic-beta': `oauth-2025-04-20,files-api-2025-04-14,${BETA_VALUE}` })
+    expect(kpi(mod, 'betaAdded')).toBe(4)
+    // A client that sends it, in any list, needs nothing.
+    const has = send(mod, request(), { ...anthropic, headers: { 'anthropic-beta': ['oauth-2025-04-20', 'context-management-2025-06-27'] } })
+    expect(has.modified).toBe(true)
+    expect(has.headers).toBeUndefined()
+    expect(send(mod, request()).headers).toBeUndefined()
+    expect(kpi(mod, 'betaAdded')).toBe(4)
   })
 
   it('only touches Anthropic Messages requests', () => {

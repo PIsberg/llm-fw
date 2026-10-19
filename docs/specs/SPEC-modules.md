@@ -105,6 +105,8 @@ export interface ModuleTransformResult {
   modified: boolean;
   metadata?: Record<string, unknown>;
   events?: ModuleEvent[];
+  /** Request headers to set upstream (lower-case names); applied by the proxy and the gateway, never under observe mode. */
+  headers?: Record<string, string>;
 }
 
 export interface ModuleStats {

@@ -178,7 +178,7 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
   let mockUpstream: https.Server
   let mockUpstreamPort: number
   let restoreTrust: () => void
-  let receivedRequests: { url: string; method: string; body: string }[] = []
+  let receivedRequests: { url: string; method: string; body: string; headers: http.IncomingHttpHeaders }[] = []
 
   let proxy: ProxyServer
   let dashboard: http.Server
@@ -221,7 +221,8 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
         receivedRequests.push({
           url: req.url || '',
           method: req.method || '',
-          body
+          body,
+          headers: req.headers,
         })
         const payload = JSON.stringify({
           id: 'mock-msg-id',
@@ -749,6 +750,31 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
       expect(bash.content).toContain('[llm-fw: 85 lines elided]')
     } finally {
       Object.assign(truncate, saved)
+    }
+  })
+
+  // #411: the API refuses context_management without the beta, and a plain
+  // SDK client does not send it, so the module asks for the header and the
+  // proxy adds it to the upstream request.
+  it('E2E Case 13: a module can add a request header on the way upstream', async () => {
+    const clear = testConfig.modules!.toolResultClear!
+    const saved = structuredClone(clear)
+    Object.assign(clear, { enabled: true })
+    try {
+      receivedRequests = []
+      const send = (headers: Record<string, string>) => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', ...headers },
+        JSON.stringify({ model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'clear me' }] }),
+      )
+      expect((await send({})).statusCode).toBe(200)
+      expect((await send({ 'anthropic-beta': 'files-api-2025-04-14' })).statusCode).toBe(200)
+      expect(receivedRequests).toHaveLength(2)
+      expect(receivedRequests[0]!.headers['anthropic-beta']).toBe('context-management-2025-06-27')
+      expect(receivedRequests[1]!.headers['anthropic-beta']).toBe('files-api-2025-04-14,context-management-2025-06-27')
+      for (const r of receivedRequests) expect(JSON.parse(r.body).context_management.edits[0].type).toBe('clear_tool_uses_20250919')
+    } finally {
+      Object.assign(clear, saved)
     }
   })
 })

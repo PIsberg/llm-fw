@@ -55,6 +55,38 @@ describe('ModuleManager', () => {
     expect(mgr.listModules()[0]?.id).toBe('dummy-uppercase')
   })
 
+  // #411: a module can ask for a request header on the upstream call (the
+  // context-management beta). The manager merges what each module asks for
+  // and lets the modules after it see the request as it will be sent.
+  it('carries the headers modules ask for, and shows them to the next module', async () => {
+    const seen: Array<Record<string, string | string[] | undefined> | undefined> = []
+    const stub = (id: string, headers?: Record<string, string>): GatewayModule => ({
+      id, name: id, description: '', enabled: true,
+      transformRequest(body: string, ctx: GatewayModuleContext): ModuleTransformResult {
+        seen.push(ctx.headers)
+        return headers ? { body, modified: true, headers } : { body, modified: false }
+      },
+      getStats: () => ({ id, name: id, enabled: true, totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [] }),
+    })
+    const mgr = new ModuleManager(undefined, false)
+    mgr.register(stub('a', { 'anthropic-beta': 'one' }))
+    mgr.register(stub('b'))
+    mgr.register(stub('c', { 'anthropic-beta': 'one,two', 'x-extra': 'yes' }))
+    const original = { 'anthropic-version': '2023-06-01' }
+    const ctx = { ...dummyCtx, headers: original }
+    const res = await mgr.transformRequest('{}', ctx)
+    expect(res.headers).toEqual({ 'anthropic-beta': 'one,two', 'x-extra': 'yes' })
+    expect(seen[1]).toEqual({ 'anthropic-version': '2023-06-01', 'anthropic-beta': 'one' })
+    // The context carries the request as it will be sent, for respond() and
+    // the modules after; the caller's own header object is never written to.
+    expect(ctx.headers).toEqual({ 'anthropic-version': '2023-06-01', 'anthropic-beta': 'one,two', 'x-extra': 'yes' })
+    expect(original).toEqual({ 'anthropic-version': '2023-06-01' })
+
+    const none = await mgr.transformRequest('{}', dummyCtx)
+    expect(none.headers).toEqual({ 'anthropic-beta': 'one,two', 'x-extra': 'yes' })
+    await expect(new ModuleManager(undefined, false).transformRequest('{}', dummyCtx)).resolves.toMatchObject({ headers: {} })
+  })
+
   it('registers token-pruner by default', () => {
     const mgr = new ModuleManager()
     expect(mgr.getModule('token-pruner')).toBeDefined()

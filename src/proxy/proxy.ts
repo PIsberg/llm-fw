@@ -717,12 +717,16 @@ export class ProxyServer {
           headers: innerReq.headers, url: dlpPath, dryRun: this.config.enforcement === 'observe',
         }
         : null
+      // Request headers the modules ask for upstream (#411); under observe
+      // mode the request goes as the client sent it, headers included.
+      let moduleHeaders: Record<string, string> | undefined
       if (moduleCtx) {
         const dryRun = moduleCtx.dryRun
         const modRes = await this.modules.transformRequest(body, moduleCtx)
         if (modRes.modified && !dryRun) {
           body = modRes.body
           bodyBuf = Buffer.from(body, 'utf-8')
+          if (Object.keys(modRes.headers).length > 0) moduleHeaders = modRes.headers
         }
         if (modRes.events && modRes.events.length > 0) {
           for (const ev of modRes.events) {
@@ -1038,7 +1042,7 @@ export class ProxyServer {
           ? tapResponse(innerRes, this.config.proxy.maxBodyBytes)
           : null
         try {
-          bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse)
+          bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse, moduleHeaders)
         } catch (err) {
           if (loopTracked) this.loop.forget(body)
           throw err
@@ -1321,14 +1325,16 @@ export class ProxyServer {
     if (e?.stack) log.error(e.stack)
   }
 
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false): Promise<number> {
+  // `extraHeaders`: request headers a module asked for (lower-case names),
+  // each replacing the client's.
+  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false, extraHeaders?: Record<string, string>): Promise<number> {
     const ip = await this.resolver.resolve(hostname)
     return new Promise<number>((resolve, reject) => {
       const startedAt = Date.now()
       const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
         const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
-        const headers = { ...req.headers, host: hostname }
+        const headers = { ...req.headers, ...extraHeaders, host: hostname }
         for (const [k, v] of Object.entries(headers)) {
           if (v && !HOP_BY_HOP.has(k.toLowerCase())) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
         }

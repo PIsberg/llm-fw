@@ -13,12 +13,14 @@ const EDIT_TYPE = 'clear_tool_uses_20250919'
 const isClearToolUses = (edit: unknown): boolean => isObj(edit) && typeof edit.type === 'string' && edit.type.startsWith('clear_tool_uses')
 
 // The API refuses `context_management` without this beta (400 "Extra inputs
-// are not permitted"), and a module cannot add a header, so the module only
-// acts for a client that already sends it. Claude Code does.
-function hasBeta(headers: GatewayModuleContext['headers']): boolean {
+// are not permitted"). Claude Code sends it; a plain SDK client does not, so
+// the module asks for it to be appended to whatever betas the client sent.
+const BETA = 'context-management-2025-06-27'
+function betaHeader(headers: GatewayModuleContext['headers']): Record<string, string> | undefined {
   const beta = headers?.['anthropic-beta']
   const list = Array.isArray(beta) ? beta.join(',') : beta ?? ''
-  return list.split(',').some(b => b.trim().startsWith('context-management-'))
+  if (list.split(',').some(b => b.trim().startsWith('context-management-'))) return undefined
+  return { 'anthropic-beta': list.trim() ? `${list},${BETA}` : BETA }
 }
 
 /**
@@ -44,7 +46,7 @@ export class ToolResultClearModule extends PayloadModule<ToolResultClearConfig> 
   private marked = 0
   private wouldMark = 0
   private clientManaged = 0
-  private noBeta = 0
+  private betaAdded = 0
   private responsesCleared = 0
   private clearedTokens = 0
   private clearedToolUses = 0
@@ -64,10 +66,8 @@ export class ToolResultClearModule extends PayloadModule<ToolResultClearConfig> 
       this.clientManaged++
       return null
     }
-    if (!hasBeta(ctx.headers)) {
-      this.noBeta++
-      return null
-    }
+    const headers = betaHeader(ctx.headers)
+    if (headers) this.betaAdded++
     const edit: Obj = {
       type: EDIT_TYPE,
       trigger: { type: 'input_tokens', value: Math.max(1, Math.floor(this.cfg.triggerTokens)) },
@@ -79,7 +79,7 @@ export class ToolResultClearModule extends PayloadModule<ToolResultClearConfig> 
     payload.context_management = { ...current, edits: [...(edits as unknown[]), edit] }
     if (ctx.dryRun) this.wouldMark++
     else this.marked++
-    return { changed: true, tokensOriginal: 0, tokensPruned: 0 }
+    return { changed: true, tokensOriginal: 0, tokensPruned: 0, ...(headers ? { headers } : {}) }
   }
 
   // The server reports what it cleared: on the message in a JSON response,
@@ -111,7 +111,7 @@ export class ToolResultClearModule extends PayloadModule<ToolResultClearConfig> 
         { key: 'clearedTokens', label: 'Input tokens cleared, per the server', value: this.clearedTokens },
         { key: 'clearedToolUses', label: 'Tool results cleared', value: this.clearedToolUses },
         { key: 'clientManaged', label: 'Client clears its own', value: this.clientManaged },
-        { key: 'noBeta', label: 'Skipped: no context-management beta', value: this.noBeta },
+        { key: 'betaAdded', label: 'Beta header added', value: this.betaAdded },
       ],
     }
   }
@@ -121,7 +121,7 @@ export class ToolResultClearModule extends PayloadModule<ToolResultClearConfig> 
     this.marked = 0
     this.wouldMark = 0
     this.clientManaged = 0
-    this.noBeta = 0
+    this.betaAdded = 0
     this.responsesCleared = 0
     this.clearedTokens = 0
     this.clearedToolUses = 0

@@ -181,6 +181,34 @@ def calculate(x):
     expect(pruner?.enabled).toBe(true)
   })
 
+  // #411: a module may ask for a request header on the upstream call (the
+  // tool-result-clear module adds Anthropic's context-management beta).
+  it('adds the request headers a module asks for to the upstream call', async () => {
+    const stub = {
+      id: 'stub-header', name: 'Stub', description: '', enabled: true,
+      transformRequest: (body: string) => ({ body, modified: true, headers: { 'anthropic-beta': 'context-management-2025-06-27' } }),
+      getStats: () => ({ id: 'stub-header', name: 'Stub', enabled: true, totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [] }),
+    }
+    moduleManager.register(stub)
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'header me' }] })
+      const res = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(res.status).toBe(200)
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.headers['anthropic-beta']).toBe('context-management-2025-06-27')
+
+      // Observe mode forwards the request as the client sent it, headers included.
+      config.enforcement = 'observe'
+      await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(calls).toHaveLength(2)
+      expect(calls[1]!.headers['anthropic-beta']).toBeUndefined()
+    } finally {
+      config.enforcement = 'enforce'
+      stub.enabled = false
+    }
+  })
+
   it('replays a repeated request from the response cache without calling upstream', async () => {
     config.modules!.responseCache!.enabled = true
     try {

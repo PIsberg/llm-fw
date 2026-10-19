@@ -184,10 +184,15 @@ export class ModuleManager {
   async transformRequest(
     body: string,
     ctx: GatewayModuleContext
-  ): Promise<{ body: string; modified: boolean; events: ModuleEvent[] }> {
+  ): Promise<{ body: string; modified: boolean; events: ModuleEvent[]; headers: Record<string, string> }> {
     let currentBody = body
     let anyModified = false
     const allEvents: ModuleEvent[] = []
+    // Request headers the modules ask for upstream, the last word per name.
+    // ctx.headers is replaced, never written to, so the modules after (and
+    // respond) see the request as it will be sent while the caller's own
+    // header object stays as the client sent it.
+    const headers: Record<string, string> = {}
     // undefined: not parsed since the body last changed as a string; null:
     // not a JSON object, which payload modules pass through unchanged.
     let parsed: Record<string, unknown> | null | undefined
@@ -201,7 +206,7 @@ export class ModuleManager {
     for (const mod of this.modules.values()) {
       if (!mod.enabled) continue
 
-      let result: { modified: boolean; body?: string; events?: ModuleEvent[] | undefined }
+      let result: { modified: boolean; body?: string; events?: ModuleEvent[] | undefined; headers?: Record<string, string> | undefined }
       try {
         if (mod instanceof PayloadModule) {
           if (parsed === undefined) parsed = parsePayload(currentBody)
@@ -225,6 +230,11 @@ export class ModuleManager {
       if (result.events && result.events.length > 0) {
         allEvents.push(...result.events)
       }
+      if (result.headers && Object.keys(result.headers).length > 0) {
+        Object.assign(headers, result.headers)
+        ctx.headers = { ...ctx.headers, ...result.headers }
+        anyModified = true
+      }
     }
     flush()
 
@@ -232,6 +242,7 @@ export class ModuleManager {
       body: currentBody,
       modified: anyModified,
       events: allEvents,
+      headers,
     }
   }
 
