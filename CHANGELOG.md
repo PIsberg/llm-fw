@@ -291,6 +291,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The stream usage reporter no longer hands clients a chunk they did not ask for (#421).** It
+  sets `stream_options.include_usage` so the Usage Meter can count OpenAI-style streams, and the
+  provider then sends a final chunk with an empty `choices` array, on which client code that reads
+  `choices[0]` unchecked throws (openai-node and openai-python, #414). The proxy and the gateway
+  now drop that chunk from the stream the client receives, after the Usage Meter has counted it;
+  a client that asked for usage itself still gets it.
 - **Switching a module mid-conversation no longer breaks preserved thinking on enforced accounts
   (#353).** A rewriting module turned on or off changes an earlier turn, and Claude 5 models bind
   every thinking block to the turns before it: accounts the check is enforced for got a 400

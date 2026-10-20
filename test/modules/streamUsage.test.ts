@@ -19,6 +19,22 @@ describe('StreamUsageModule', () => {
     expect(kpi(mod, 'marked')).toBe(1)
   })
 
+  // #421: the chunk the option adds is dropped on the way to a client that
+  // did not ask for it; the listener reads this flag.
+  it('flags the request so the listener drops the usage chunk, only when it added the option', () => {
+    // One context per request, as the listeners build them.
+    const fresh = (): GatewayModuleContext => ({ target: 'api.openai.com', method: 'POST', path: '/v1/chat/completions', isLlmRequest: true, parser: null })
+    const ctx = fresh()
+    send(new StreamUsageModule({ enabled: true }), request(), ctx)
+    expect(ctx.stripStreamUsage).toBe(true)
+    const own = fresh()
+    send(new StreamUsageModule({ enabled: true }), request({ stream_options: { include_usage: true } }), own)
+    expect(own.stripStreamUsage).toBeUndefined()
+    const observed = { ...fresh(), dryRun: true }
+    send(new StreamUsageModule({ enabled: true }), request(), observed)
+    expect(observed.stripStreamUsage).toBeUndefined()
+  })
+
   it('keeps the client\'s other stream options', () => {
     const out = JSON.parse(send(new StreamUsageModule({ enabled: true }), request({ stream_options: { include_obfuscation: false } })).body)
     expect(out.stream_options).toEqual({ include_obfuscation: false, include_usage: true })
