@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, ToolResultClearConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -14,7 +14,6 @@ import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
 import { ToolFilterModule } from './builtin/toolFilter.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
 import { ToolUsageModule } from './builtin/toolUsage.js'
-import { ToolResultClearModule } from './builtin/toolResultClear.js'
 import { StreamUsageModule } from './builtin/streamUsage.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
@@ -49,7 +48,6 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'toolFilter', create: cfg => new ToolFilterModule(cfg as ToolFilterConfig) },
   { key: 'toolDefinitionPruner', create: cfg => new ToolDefinitionPrunerModule(cfg) },
   { key: 'toolUsage', create: (cfg, modules) => new ToolUsageModule(cfg, () => modules.toolFilter) },
-  { key: 'toolResultClear', create: cfg => new ToolResultClearModule(cfg as ToolResultClearConfig) },
   { key: 'streamUsage', create: cfg => new StreamUsageModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
@@ -79,7 +77,6 @@ const OPTION_RULES: Record<string, Pick<ModuleOption, 'min' | 'max' | 'values'>>
   'blobElide.minLength': { min: 64, max: 100_000_000 },
   'toolResultDedup.minLength': { min: 1, max: 100_000_000 },
   'leanCtx.timeoutMs': { min: 1, max: 60_000 },
-  'toolResultClear.triggerTokens': { min: 1 },
   'responseCache.ttlSeconds': { min: 1, max: 31_536_000 },
   'responseCache.maxEntries': { min: 1, max: 1_000_000 },
   'responseCache.maxEntryBytes': { min: 1, max: 1_073_741_824 },

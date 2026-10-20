@@ -235,7 +235,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_105 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_104 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -334,7 +334,6 @@ _105 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TOKEN_PRUNER_ENABLED` | `modules.tokenPruner.enabled` | `false` |
 | `LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED` | `modules.toolDefinitionPruner.enabled` | `false` |
 | `LLM_FW_TOOL_FILTER_ENABLED` | `modules.toolFilter.enabled` | `false` |
-| `LLM_FW_TOOL_RESULT_CLEAR_ENABLED` | `modules.toolResultClear.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_DEDUP_ENABLED` | `modules.toolResultDedup.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |

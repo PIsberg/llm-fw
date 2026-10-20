@@ -223,6 +223,47 @@ for its rewrite, too few calls followed to earn it back, and output rose by
 81%, which the model above leaves out. Long interactive sessions, where the
 modelled ceiling comes from, were not measured.
 
+### Clearing old tool results: measured, removed
+
+A `tool-result-clear` module once added Anthropic's server-side
+`clear_tool_uses_20250919` edit (trigger 100,000 input tokens, keep the last
+10 tool calls, clear at least 20,000 tokens, file readers excluded), so the
+server replaced old tool results with a placeholder before the model read
+them. Verified against the API on 2026-10-18: `keep: 1` on a request with
+three tool results cleared the two oldest (9,331 tokens), and the next
+identical request read the edited prompt from the cache.
+
+Modelled over 14 days of transcripts (cache read 0.1, one-hour write 2), it
+would have saved 13.1% of the bill, 10.9% with file reads left alone. Both
+billed comparisons went the other way, so the module was removed:
+
+- File reads (2026-10-18, Haiku 5.5, three read-heavy tasks, two rounds):
+  with reads cleared, the agent read the files again ("Many tool results were
+  cleared during the session, so I re-read them"), and the task across 22
+  files took 57 to 75 turns and $0.367 to 0.585 against 23 to 25 turns and
+  $0.134 to 0.143 off. With reads excluded, nothing was left to clear and
+  the cost matched off.
+- Shell and search output (2026-10-19, Haiku 5.5 at effort `high`, the
+  defaults above): two tasks each ran 16 commands with large output
+  (`git log -p -n 6` on 16 files, about 385,000 characters; `grep -rn` for
+  16 patterns, about 411,000), then asked for one fact from the top of every
+  output. Two rounds, arm order swapped:
+
+| Both tasks, both rounds | Off | On |
+| --- | --- | --- |
+| Cost | $0.62 | $2.81 |
+| The same tokens at Claude Opus 5.5 prices | $5.42 | $22.67 |
+| Turns | 76 | 169 |
+| Cache writes | 549,022 tokens | 2,447,570 tokens |
+| Output tokens | 35,310 | 105,195 |
+| Facts correct | 63 of 64 | 64 of 64 |
+
+The agent ran cleared commands again (each `git log` four or five times in
+one run). And each output, about 25,000 tokens, was larger than the 20,000
+minimum, so as the window of 10 slid one result per call, the server cleared
+again and rewrote the cache on 12 of 14 calls. A session whose old output is
+never needed again was not measured.
+
 ## Modules
 
 In pipeline order, which is also the order of the cards:
@@ -242,7 +283,6 @@ In pipeline order, which is also the order of the cards:
 | `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
-| `tool-result-clear` | `modules.toolResultClear` | asks Anthropic to clear old tool results server side (lossy) |
 | `stream-usage` | `modules.streamUsage` | asks OpenAI-style chat streams to report usage; saves nothing, makes the meter complete |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -530,108 +570,6 @@ Responses API and Gemini shapes, and in tools added mid-conversation as
 are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
 it is switched, and nothing after.
-
-### Server-side tool result clearing
-
-`modules.toolResultClear.enabled` (`LLM_FW_TOOL_RESULT_CLEAR_ENABLED`).
-**Lossy**: the model no longer sees old tool output. Anthropic's context
-editing replaces the results of old tool calls with a placeholder on the
-server, before the model reads the request. The client still sends the whole
-history, and the provider bills the edited one. For an Anthropic Messages
-request (`api.anthropic.com`, `/v1/messages`) this adds a
-`clear_tool_uses_20250919` edit to `context_management.edits`, after any edit
-the client sends itself.
-
-| Option | Default | Does |
-| --- | --- | --- |
-| `triggerTokens` | `100000` | Input tokens a request must pass before anything is cleared. |
-| `keepToolUses` | `10` | The most recent tool calls whose results stay. |
-| `clearAtLeast` | `20000` | Input tokens each clearing must remove, or `0` for no minimum. |
-| `excludeTools` | the file readers, as the truncator's `skipTools` | Tools whose results are never cleared, by exact name. Add `mcp__lean-ctx__ctx_read` if you read files through lean-ctx. |
-
-The API refuses the field without the `context-management-2025-06-27` beta
-in `anthropic-beta` (400, "Extra inputs are not permitted"). Claude Code
-sends it, together with its own `clear_thinking` edit; a plain SDK client
-does not, so the module appends it to whatever betas the client sent, and
-the proxy or the gateway puts the header on the upstream request. The card
-counts those under **Beta header added**. A request that already carries a
-`clear_tool_uses` edit is left alone. The card also counts what the server
-reports in `applied_edits`: responses cleared, input tokens cleared and tool
-results cleared, so the saving shown is the provider's own count, not an
-estimate.
-
-Why `clearAtLeast` matters: clearing changes the prompt from the first
-cleared result onwards, so the cache is written again from there. Clearing
-one result per turn as the window slides rewrites the cache every turn.
-Modelled over 14 days of one developer's Claude Code transcripts (1,333
-transcripts, 29,908 API calls, list-price weights: input 1, cache read 0.1,
-output 5, cache write 1.25 for five minutes and 2 for one hour, which is
-what Claude Code writes for 88% of its cache; tokens as characters / 4):
-
-| Trigger | Keep | Clear at least | Cache reads saved | Cache rewrites | Net, share of the bill |
-| --- | --- | --- | --- | --- | --- |
-| 100,000 | 10 | 0 | 16.7% | 23.5% | −6.8% (a loss) |
-| 100,000 | 10 | 20,000 | 14.7% | 1.6% | 13.1% |
-| 60,000 | 5 | 20,000 | 15.1% | 1.4% | 13.7% |
-| 150,000 | 20 | 40,000 | 12.0% | 1.3% | 10.7% |
-
-Setting `clearAtLeast` to `0` costs more than it saves.
-
-That is a ceiling, not a measurement: it leaves out the turns an agent spends
-calling a tool again for output that was cleared. Leaving file reads alone
-(and lean-ctx's `ctx_read`) still leaves a ceiling of 10.9% on the same
-transcripts.
-
-Measured on 2026-10-18, Claude Code with Claude Haiku 5.5 through a relay
-running this module, three read-heavy tasks on this repository, two rounds:
-
-| Task | Off | On, file reads cleared | On, file reads kept (default) |
-| --- | --- | --- | --- |
-| Read 14 module files, answer three questions | 16 to 17 turns, $0.021 to 0.026 | 17 to 18 turns, $0.023 to 0.024 | 16 turns, $0.020 |
-| Read two 700 to 1,600-line files in full | 9 to 11 turns, $0.047 to 0.070 | 8 to 9 turns, $0.062 to 0.071 | 10 turns, $0.072 |
-| Read 22 files, then answer across all of them | 23 to 25 turns, $0.134 to 0.143 | **57 to 75 turns, $0.367 to 0.585** | 24 turns, $0.134 |
-
-Clearing file reads made the agent read the files again ("Many tool results
-were cleared during the session, so I re-read them"), and the cleared re-reads
-were cleared in turn: up to 4.4 times the cost, with the same answer. That is
-why file readers are excluded by default. With them kept, these tasks cost the
-same as with the module off, because nearly all their tool output was file
-reads.
-
-Measured on 2026-10-19 with shell and search output instead, the case the
-ceiling above comes from: Claude Code 2.1.303, Claude Haiku 5.5 at effort
-`high`, the shipped defaults, file reads not involved. Two tasks on a clone
-of this repository each ran 16 commands with large output, one per call
-(`git log -p -n 6` on 16 source files, about 385,000 characters in all;
-`grep -rn` for 16 patterns, about 411,000), then asked for one fact from the
-top of every output. Two rounds, arm order swapped:
-
-| Both tasks, both rounds | Off | On |
-| --- | --- | --- |
-| Cost | $0.62 | $2.81 |
-| The same tokens at Claude Opus 5.5 prices | $5.42 | $22.67 |
-| Turns | 76 | 169 |
-| Cache writes | 549,022 tokens | 2,447,570 tokens |
-| Output tokens | 35,310 | 105,195 |
-| Facts correct | 63 of 64 | 64 of 64 |
-
-Clearing on cost 4.5 times as much. The agent ran each cleared command again:
-in one run every `git log` ran four or five times. And because each output
-(about 25,000 tokens) was larger than `clearAtLeast`, the window of 10 kept
-results slid one result per call, so the server cleared again and rewrote
-the cache on 12 of 14 calls. These tasks need every output to the end, which
-is the worst case for clearing; a session whose old output is never needed
-again was not measured. Leave the module off unless you have measured your
-own traffic.
-
-Verified against the API on 2026-10-18 through Claude Code's own
-credentials: `keep: 1` on a request with three tool results cleared the two
-oldest (9,331 input tokens), and the next identical request read the edited
-prompt from the cache with nothing written. The edit is the same on every
-request, so it never breaks the request prefix; turning the module on or off
-mid-conversation changes what the server bills from that point, which costs
-one cache write. Not verified: a Claude Code thread continuation through the
-proxy (`thread.type` is `continue`), where the server holds the history.
 
 ### Stream usage reporter
 
