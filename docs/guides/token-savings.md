@@ -596,8 +596,33 @@ were cleared during the session, so I re-read them"), and the cleared re-reads
 were cleared in turn: up to 4.4 times the cost, with the same answer. That is
 why file readers are excluded by default. With them kept, these tasks cost the
 same as with the module off, because nearly all their tool output was file
-reads. A saving on long sessions with heavy shell or search output, which is
-where the ceiling above comes from, has not been measured.
+reads.
+
+Measured on 2026-10-19 with shell and search output instead, the case the
+ceiling above comes from: Claude Code 2.1.303, Claude Haiku 5.5 at effort
+`high`, the shipped defaults, file reads not involved. Two tasks on a clone
+of this repository each ran 16 commands with large output, one per call
+(`git log -p -n 6` on 16 source files, about 385,000 characters in all;
+`grep -rn` for 16 patterns, about 411,000), then asked for one fact from the
+top of every output. Two rounds, arm order swapped:
+
+| Both tasks, both rounds | Off | On |
+| --- | --- | --- |
+| Cost | $0.62 | $2.81 |
+| The same tokens at Claude Opus 5.5 prices | $5.42 | $22.67 |
+| Turns | 76 | 169 |
+| Cache writes | 549,022 tokens | 2,447,570 tokens |
+| Output tokens | 35,310 | 105,195 |
+| Facts correct | 63 of 64 | 64 of 64 |
+
+Clearing on cost 4.5 times as much. The agent ran each cleared command again:
+in one run every `git log` ran four or five times. And because each output
+(about 25,000 tokens) was larger than `clearAtLeast`, the window of 10 kept
+results slid one result per call, so the server cleared again and rewrote
+the cache on 12 of 14 calls. These tasks need every output to the end, which
+is the worst case for clearing; a session whose old output is never needed
+again was not measured. Leave the module off unless you have measured your
+own traffic.
 
 Verified against the API on 2026-10-18 through Claude Code's own
 credentials: `keep: 1` on a request with three tool results cleared the two
