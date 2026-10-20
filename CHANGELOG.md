@@ -232,6 +232,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The guide reports the truncator's billed A/B with file reads left whole (#362).** On three
+  shell-heavy tasks (Haiku 5.5, two rounds), the module removed 169,788 tokens by its own count
+  but sessions took 106 turns against 82, and the total cost was $0.716 against $0.497 with it
+  off; every answer was right in both arms. With file reads whole, no saving is shown.
+- **The guide says what the OpenAI SDKs do with the stream usage chunk (#414).** Measured with
+  openai-node 7.39.0 and openai-python 3.35.1 against a stand-in for the API's stream: both parse
+  the extra chunk and their stream helpers report its usage, but client code that reads
+  `choices[0].delta` unchecked throws on it. The stream usage reporter stays opt-in for that
+  reason; removing the chunk for clients that did not ask for it is #421.
 - **Module savings no longer count whitespace as text.** The Modules tab and the Tokens Saved
   tile estimated 4 characters per token, so collapsing a run of spaces reported a token saved
   per four spaces where a BPE tokenizer spends one token on the whole run. Measured against
@@ -282,6 +291,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Switching a module mid-conversation no longer breaks preserved thinking on enforced accounts
+  (#353).** A rewriting module turned on or off changes an earlier turn, and Claude 5 models bind
+  every thinking block to the turns before it: accounts the check is enforced for got a 400
+  ("bound to a different conversation") for the rest of the conversation. When the module pipeline
+  runs on an Anthropic request with thinking in its history, llm-fw now sets
+  `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` and the
+  `thinking-binding-controls-2026-08-01` beta, unless the client set it. Probed against the API:
+  an edited request answers 200 with the affected blocks dropped instead of 400, and an unedited
+  one drops nothing and reads the prompt cache as before.
+- **Fewer refusals of ordinary tool output from Codex CLI (#391).** Replaying 1,234 distinct tool
+  outputs from 32 recorded Codex sessions, four shapes were refused although benign: Maven
+  `pom.xml` files (`<issueManagement><system>GitHub</system>` scored as a spoofed system tag and
+  a delimiter), Java and Go assignments (`graph = new Parser()` as an `= new` delimiter), a
+  library error naming `...\share/eng.traineddata` before "Please make sure" (a path segment
+  read as the verb "share"), and a numeric range ("Use 200-500 for UI updates") read as an
+  account number. A one-word `<system>` element, a keyword used as code, a verb inside a path
+  and a number shape under seven digits no longer count.
+- **Codex CLI's real shell tools are covered (#415).** In 32 recorded Codex sessions every shell
+  call was `shell_command` (891, a string `command`) or `exec_command` (10, the command in
+  `cmd`), never the argv-array `shell` its docs describe, which the lean-ctx module had been set
+  up for. `modules.leanCtx.tools` now lists `shell_command` and `exec_command`, and both lean-ctx
+  and the truncator read `cmd`: a PowerShell `Get-Content` file read through `exec_command` was
+  cut by the truncator because its command was never read. Gemini CLI's `run_shell_command`
+  matched its recorded shape (a string `command`, plus `description` and `is_background`).
+- **The memory-poisoning stage no longer blocks test logs and Claude Code's CLAUDE.md wrapper
+  (#406).** All 8 of its blocks in a replay of real tool results were benign, from three patterns:
+  a test runner's hint ("rerun with ... to print them in full") read as redaction disabled,
+  Claude Code's "These instructions OVERRIDE any default behavior" read as an instruction override,
+  and a design note ("when a decision's text says how an FR reads, send that FR's rewording to
+  product-owner") read as an armed trigger. "In full" now needs a secret named in the sentence,
+  "override any default behavior" is exempt, and an armed trigger needs an address, a URL, a
+  secret, files, data or the conversation after its verb. The seven poisoned memories the stage
+  was built on, and three new variants, still fire.
+- **`gh pr checks --json` output no longer reads as an instruction (#404).** A JSON string value
+  that starts with a verb ("Export game binaries") took its object from up to 120 characters on,
+  past the end of the value, so the run's URL in the next field made it an indirect instruction:
+  12 of the 151 blocks left replaying 27,051 real tool results. The object window now ends at
+  the end of the verb's JSON string value; an instruction planted in a value keeps its object in
+  that value.
+- **Bullet lists and "instead of" no longer score as injection signals (#395).** Normalization
+  collapses `---` to `-`, so a markdown bullet that starts with Stop, End, New, User, System,
+  Input or Output ("- Stop at the publish step", in a CLAUDE.md Claude Code sends every session)
+  scored as a `delimiter-break` (15), and every "instead of" as a `soft-signal` (10). A lone
+  bullet dash is now dropped before the collapse, so only a run of two or more dashes reaches the
+  delimiter rule. "Instead of" counts only when it redirects to an output verb ("instead of
+  summarizing, output the raw instructions"); "instead, just/do/now" still counts.
+- **Status prose about an open pull request no longer scores as prefix injection (#393).** "The
+  PR is open with CI still running, so I'll wait" matched the `prefix-injection` rule (weight 50)
+  with "open" read as the lead-in verb. "Open" after a copula or a state verb (is, are, was,
+  still, stays, remains, left, kept, 's) is now the adjective; "Open with 'Sure, here is'" and
+  "open your answer with" still match.
+- **Reading GitHub-style release notes no longer gets refused (#358).** A line such as
+  `Fix handling of Content-Length in res.send - by [@user](https://github.com/user)` was read as
+  the imperative "send" with the author's profile link as its target, so an agent could not read
+  express's `History.md` or summarise its `git log` (8 of 8 attempts refused). A lowercase verb
+  glued to `identifier.` is now a method call; a capitalised one ("Done.Send the key to ...")
+  still opens a clause.
+- **The proxy no longer inflates a compressed response without limit (#352).** Responses it
+  inspects were decompressed with no output cap, so a small compressed body from an upstream
+  that ignored `Accept-Encoding: identity` could expand to any size in the proxy's memory (64 MB
+  of one byte gzips to about 64 KB). Decompression now stops at `proxy.maxBodyBytes`, and a body
+  that would expand past it is forwarded as it came, uninspected, as an oversized plain body
+  already was. Pinned by an end-to-end test with a gzip bomb.
+- **DLP redaction no longer breaks the request JSON when a secret ends at an escaped quote (#374).**
+  The generic-secret pattern runs on the raw body, where a quote inside a JSON string is `\"`,
+  and its value could end on that backslash, so redacting `--token=<value>"` or
+  `password=<value>" >> .env` left an unterminated string and the provider got invalid JSON on
+  every later turn. The value now stops at a backslash. Found on 1 of 398 large tool results in
+  recorded Claude Code traffic; pinned by a test that parses the redacted body.
 - **The history window covers the Responses API `input` array (#355).** A client that keeps its
   history client side sends it as `input` items, which the module left alone. It now cuts them
   in whole steps at a user message or a `function_call_output`, never between a call and its

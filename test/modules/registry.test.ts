@@ -101,6 +101,57 @@ describe('ModuleManager', () => {
     expect(res.headers).toEqual({})
   })
 
+  // #353: a rewriting module switched on or off mid-conversation changes an
+  // earlier turn, and preserved thinking binds every later thinking block to
+  // the turns before it. Probed on 2026-10-19 with a captured Claude Code
+  // request (Haiku 5.5): an edited tool result with
+  // prefix_mismatch_behavior "error" (as an enforced account behaves) answers
+  // 400 "bound to a different conversation"; with "drop_block" it answers 200
+  // and drops the affected blocks; on an unedited request drop_block changes
+  // nothing and the cache is read as before.
+  describe('thinking blocks a module edit could invalidate (#353)', () => {
+    const anthropicCtx = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages?beta=true', isLlmRequest: true, parser: null, headers: { 'anthropic-beta': 'oauth-2025-04-20,interleaved-thinking-2025-05-14' } }
+    const history = (model: string, extra: Record<string, unknown> = {}) => JSON.stringify({
+      model,
+      thinking: { type: 'adaptive', display: 'omitted' },
+      messages: [
+        { role: 'user', content: 'read it' },
+        { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 'sig-abc' }, { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a.ts' } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+      ],
+      ...extra,
+    })
+    const mgr = () => new ModuleManager(undefined, false)
+
+    it('asks the API to drop, not refuse, a block an edit invalidated', async () => {
+      const res = await mgr().transformRequest(history('claude-haiku-5-5'), anthropicCtx)
+      expect(JSON.parse(res.body).thinking).toEqual({ type: 'adaptive', display: 'omitted', block_binding: { prefix_mismatch_behavior: 'drop_block' } })
+      expect(res.headers).toEqual({ 'anthropic-beta': 'oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-binding-controls-2026-08-01' })
+      expect(res.modified).toBe(true)
+    })
+
+    it('leaves a client that sets the binding itself, or already sends the beta, alone', async () => {
+      const own = history('claude-opus-5-5', { thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'error' } } })
+      expect(JSON.parse((await mgr().transformRequest(own, anthropicCtx)).body).thinking.block_binding).toEqual({ prefix_mismatch_behavior: 'error' })
+      const beta = await mgr().transformRequest(history('claude-opus-5-5'), { ...anthropicCtx, headers: { 'anthropic-beta': 'thinking-binding-controls-2026-08-01' } })
+      expect(beta.headers).toEqual({})
+      expect(JSON.parse(beta.body).thinking.block_binding).toEqual({ prefix_mismatch_behavior: 'drop_block' })
+    })
+
+    it('touches only Anthropic requests from a Claude 5 model with signed thinking in the history', async () => {
+      for (const [body, ctx] of [
+        [history('claude-sonnet-4-5'), anthropicCtx],
+        [JSON.stringify({ model: 'claude-haiku-5-5', messages: [{ role: 'user', content: 'hi' }] }), anthropicCtx],
+        [history('claude-haiku-5-5'), { ...anthropicCtx, target: 'api.openai.com', path: '/v1/chat/completions' }],
+        [history('claude-haiku-5-5'), { ...anthropicCtx, path: '/v1/messages/count_tokens' }],
+      ] as const) {
+        const res = await mgr().transformRequest(body, ctx)
+        expect(res.body).toBe(body)
+        expect(res.headers).toEqual({})
+      }
+    })
+  })
+
   it('registers token-pruner by default', () => {
     const mgr = new ModuleManager()
     expect(mgr.getModule('token-pruner')).toBeDefined()

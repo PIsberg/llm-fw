@@ -60,6 +60,29 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.80
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 8,927 block verdicts changed, maximum
+similarity drift 0.0623; held-out recall unchanged (heldout 23 of 31,
+InjecAgent 1,054 of 1,054, safeguard 490 of 650).** Eight false-positive
+fixes, each found on real agent traffic: a method call is not an imperative
+(#358), "open" after a copula is an adjective (#393), a markdown bullet is
+not a delimiter and a bare "instead of" not a signal (#395), an imperative's
+object stays inside its JSON value or table column (#404), the
+memory-poisoning stage no longer fires on test logs or Claude Code's
+CLAUDE.md wrapper (#406), four shapes of Codex CLI tool output (a one-word
+Maven `<system>` element, `x = new Foo()`, a verb inside a file path, a
+numeric range read as an account number, #391), DLP redaction keeps the
+body valid JSON (#374),
+and the lean-ctx module's default `tools` gained Codex's `shell_command`
+and `exec_command` (#415, a `config.ts` default). The similarity drift
+comes from normalization dropping a lone bullet dash before the embedding
+stage sees the text; no verdict moved with it. Replaying the 321 real
+Claude Code items that ruleset 2026.10.79 flagged, blocks went from 151 to
+128; replaying 1,234 distinct Codex CLI tool outputs, from 32 to 20. No item
+was newly flagged in either.
+
 ## Result, ruleset 2026.10.79
 
 **2.68% overall (9 of 336), unchanged; Dolly and oasst1 samples 0 of 2,000

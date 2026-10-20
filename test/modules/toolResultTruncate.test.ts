@@ -205,6 +205,24 @@ describe('ToolResultTruncateModule skipTools', () => {
     expect(results).toEqual([false, false, false, true, true, true])
   })
 
+  // #415: shapes from 32 recorded Codex CLI sessions on this machine. Codex
+  // shells through `shell_command` (a string `command`, 891 calls) and
+  // `exec_command`, whose command line is `cmd`; reads go through
+  // PowerShell's Get-Content. A read through exec_command was cut, because
+  // only `command` was read.
+  it('reads the command of Codex exec_command from cmd', () => {
+    const fn = (call_id: string, name: string, args: unknown) => ({ type: 'function_call', call_id, name, arguments: JSON.stringify(args) })
+    const out = send(truncator(), { input: [
+      fn('c1', 'exec_command', { cmd: 'Get-Content -LiteralPath src/a.ts', workdir: 'C:/repo', shell: 'powershell', max_output_tokens: 20000 }),
+      { type: 'function_call_output', call_id: 'c1', output: long },
+      fn('c2', 'shell_command', { command: 'Get-Content -LiteralPath README.md', workdir: 'C:\\repo', timeout_ms: 20000 }),
+      { type: 'function_call_output', call_id: 'c2', output: long },
+      fn('c3', 'exec_command', { cmd: 'mvn -q test', workdir: 'C:/repo', shell: 'powershell', yield_time_ms: 30000 }),
+      { type: 'function_call_output', call_id: 'c3', output: long },
+    ] })
+    expect([1, 3, 5].map(i => isCut(out.input[i].output))).toEqual([false, false, true])
+  })
+
   it('learns the command from a streamed response for a thread continuation', () => {
     const mod = truncator()
     mod.observeResponse('{}', ctx, sse(

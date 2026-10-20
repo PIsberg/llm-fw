@@ -63,6 +63,15 @@ export function commandText(command: unknown): string | undefined {
 }
 
 /**
+ * The command line of a shell call's arguments: `command` for Claude Code,
+ * Gemini CLI and Codex's shell_command, `cmd` for Codex's exec_command (#415,
+ * from recorded Codex sessions).
+ */
+export function shellCommand(args: Obj | undefined): string | undefined {
+  return commandText(args?.command ?? args?.cmd)
+}
+
+/**
  * True when a word of `command` is one of `skipCommands`, compared by its
  * basename without `.exe`; an entry with a hyphen (a PowerShell cmdlet such
  * as Get-Content) matches in any case. Any word counts, a pipeline stage or

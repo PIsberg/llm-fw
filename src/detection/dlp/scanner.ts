@@ -12,7 +12,10 @@ import {
 // Keywords that, when immediately preceding a high-entropy token, mark it as a
 // generic secret (Strategy 2). Matched case-insensitively. Covers assignment
 // styles (`key=value`, `key: value`) for a broad set of credential-ish names.
-const SECRET_KEYWORDS = /\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth|authorization|credentials?|key)\s*[:=]\s*["']?([^\s"',}]{20,})/gi
+// The value stops at a backslash: the scan runs on the raw JSON body, where a
+// quote or newline inside a string is an escape (\" or \n), and a match that
+// took the backslash would leave the redacted body unparseable (#374).
+const SECRET_KEYWORDS = /\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth|authorization|credentials?|key)\s*[:=]\s*["']?([^\s"',}\\]{20,})/gi
 
 // Bearer tokens appear as `Authorization: Bearer <token>` / `Bearer <token>`
 // with a SPACE separator, which the assignment pattern above does not catch.

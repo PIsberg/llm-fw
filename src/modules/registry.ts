@@ -126,6 +126,37 @@ export interface ModulesSummaryStats {
  */
 export const TOKEN_ECONOMY_ID = 'token-economy'
 
+// Preserved thinking (Claude 5 models) binds each thinking block to every turn
+// before it, and a module switched on or off mid-conversation changes an
+// earlier turn: an account the check is enforced for then gets a 400 ("The
+// block is bound to a different conversation") for the rest of that
+// conversation (#353). Asking for "drop_block" turns that into the affected
+// blocks being dropped. Probed with a captured Claude Code request on
+// 2026-10-19: edited with "error", 400; edited with "drop_block", 200 with
+// the blocks dropped; unedited with "drop_block", nothing dropped and the
+// prompt cache read as before. The field needs the beta below.
+const THINKING_BINDING_BETA = 'thinking-binding-controls-2026-08-01'
+const PRESERVED_THINKING_MODEL_RE = /^claude-(?:fable|mythos|opus|sonnet|haiku)-5(?:\b|-)/
+
+function bindThinking(body: string, ctx: GatewayModuleContext): { body: string; headers?: Record<string, string> } | null {
+  if (ctx.target !== 'api.anthropic.com' || ctx.path.split('?')[0] !== '/v1/messages' || !body.includes('"signature"')) return null
+  let payload: unknown
+  try { payload = JSON.parse(body) } catch { return null }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null
+  const p = payload as Record<string, unknown>
+  if (typeof p.model !== 'string' || !PRESERVED_THINKING_MODEL_RE.test(p.model) || !Array.isArray(p.messages)) return null
+  const signed = p.messages.some(m => typeof m === 'object' && m !== null && Array.isArray((m as { content?: unknown }).content) &&
+    ((m as { content: unknown[] }).content).some(c => typeof c === 'object' && c !== null && ((c as { type?: unknown }).type === 'thinking' || (c as { type?: unknown }).type === 'redacted_thinking')))
+  if (!signed) return null
+  const thinking = typeof p.thinking === 'object' && p.thinking !== null && !Array.isArray(p.thinking) ? p.thinking as Record<string, unknown> : {}
+  if (thinking.block_binding !== undefined) return null
+  p.thinking = { ...(p.thinking === undefined ? { type: 'adaptive' } : thinking), block_binding: { prefix_mismatch_behavior: 'drop_block' } }
+  const beta = ctx.headers?.['anthropic-beta']
+  const list = Array.isArray(beta) ? beta.join(',') : beta ?? ''
+  const has = list.split(',').some(b => b.trim() === THINKING_BINDING_BETA)
+  return { body: JSON.stringify(p), ...(has ? {} : { headers: { 'anthropic-beta': list.trim() ? `${list},${THINKING_BINDING_BETA}` : THINKING_BINDING_BETA } }) }
+}
+
 export interface TokenEconomyStatus {
   id: typeof TOKEN_ECONOMY_ID
   name: 'Token Economy'
@@ -341,6 +372,13 @@ export class ModuleManager {
       }
     }
     flush()
+
+    const bound = bindThinking(currentBody, ctx)
+    if (bound) {
+      currentBody = bound.body
+      anyModified = true
+      if (bound.headers) Object.assign(headers, bound.headers)
+    }
 
     return {
       body: currentBody,

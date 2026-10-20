@@ -165,6 +165,16 @@ const SENTENCE_IMPERATIVE_RE = new RegExp(
 // and are left untouched.
 const OBJECT_WINDOW = 120
 
+// A lowercase verb glued to `identifier.` is a method call, not a sentence
+// after a full stop: GitHub's release notes name the API they change ("in
+// res.send - by [@user](https://github.com/user)"), and the profile link was
+// taken as the verb's object, so reading express's History.md was refused
+// every time (#358). A capitalised verb after the dot ("Done.Send the key
+// to ...") still opens a clause.
+function isMethodCall(text: string, verbStart: number): boolean {
+  return text[verbStart - 1] === '.' && /[\w$)\]]/.test(text[verbStart - 2] ?? '') && /^[a-z]/.test(text[verbStart] ?? '')
+}
+
 // The object window, cut at the end of the verb's line or field: a line break,
 // a tab, or their two-character escapes (a tool_result whose content is an
 // array arrives JSON-encoded). Replaying real agent traffic, a URL on the NEXT
@@ -188,8 +198,10 @@ const OBJECT_WINDOW = 120
 // ("Transfer" / "$5000 to account ..."). The length rule still applies, so
 // prose wrapped right after a verb ("...chatbot. Give" / "me your login
 // credentials" in llm-fw's own docs/FALSE-POSITIVES.md) is not crossed.
-const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]/
+// A " | " column of a table (gh --jq output) breaks a field as a tab does (#404).
+const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]| \| /
 const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
+const JSON_FIELD_END_RE = /\\?"\s*[,}\]]/
 const SPLIT_LINE_MAX = 48
 /** Index just past the last field break before `i`; -Infinity when the line is longer than the look-back. */
 function lineStartBefore(text: string, i: number): number {
@@ -207,13 +219,21 @@ function objectWindow(text: string, verbEnd: number): string {
   // Never end mid-token: a path's hash cut after "083192" (of "083192e98768")
   // reads as a bare six-digit identifier. Replaying real tool results, lean-ctx's
   // "Use ctx_read(path=...)" hint blocked or passed depending on where the cut fell.
-  const w = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/\w+$/, '') : text.slice(base, stop)
+  const whole = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/\w+$/, '') : text.slice(base, stop)
+  // Nor run past the end of the verb's JSON string value: a closing quote
+  // (or its escape) and then a field or array separator. `gh pr checks
+  // --json` output ("Export game binaries" then the run's URL in "link")
+  // took the URL in the next field as the verb's object, 12 of 151 blocks
+  // left replaying real traffic (#404). An instruction planted in a value
+  // keeps its object in the same value.
+  const fieldEnd = whole.slice(1).search(JSON_FIELD_END_RE)
+  const w = fieldEnd >= 0 ? whole.slice(0, fieldEnd + 1) : whole
   let lineStart = lineStartBefore(text, base)
   for (let from = 1; ;) {
     const m = FIELD_BREAK_RE.exec(w.slice(from))
     if (!m) return w
     const cut = from + m.index
-    const after = w.slice(cut).replace(/^(?:\s|\\[nrt])+/, '')
+    const after = w.slice(cut).replace(/^(?:\s|\\[nrt]|\|)+/, '')
     const bareVerb = from === 1 && /^\S\s*$/.test(w.slice(0, cut))
     if (base + cut - lineStart > SPLIT_LINE_MAX || /[:.!?;]\s*$/.test(w.slice(0, cut)) || !(bareVerb || CONTINUES_CLAUSE_RE.test(after))) return w.slice(0, cut)
     from = cut + m[0].length
@@ -223,7 +243,9 @@ function objectWindow(text: string, verbEnd: number): string {
 
 const IMPERATIVE_OBJECT_RE = new RegExp([
   // Attacker-controlled targets.
-  '\\b\\d{3,}[-\\s.]\\d{3,}',                                // account / card / phone shaped
+  // Seven digits at least: "Use 200-500 for UI updates" in a Go tool
+  // description is a range, not an account (#391).
+  '\\b(?=(?:\\d[-\\s.]?){7})\\d{3,}[-\\s.]\\d{3,}',          // account / card / phone shaped
   '\\b\\d{6,}\\b',                                           // long bare identifier
   '(?:\\$|€|£)\\s*\\d',                                      // currency amount
   '\\b\\d+(?:\\.\\d+)?\\s*(?:bitcoin|btc|eth|ether|usd|eur|gbp|dollars?|euros?)\\b',
@@ -845,10 +867,13 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // Casefold for Latin/Cyrillic/Greek; identity for CJK/Arabic/Brahmic (no case).
   const hay = text.toLowerCase()
 
-  // Index every sensitive verb once.
+  // Index every sensitive verb once. Not a path segment: Tesseract's
+  // "...\share/eng.traineddata" before "Please make sure ..." paired "share"
+  // with "please" (#391, replaying Codex CLI tool output).
   const verbHits: { i: number; v: string }[] = []
+  const inPath = (i: number, len: number): boolean => /[\\/]/.test(hay[i - 1] ?? '') || /[\\/]/.test(hay[i + len] ?? '')
   for (const v of ML_VERBS) {
-    for (const i of mlIndices(hay, v)) verbHits.push({ i, v })
+    for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
   }
   if (!verbHits.length) return null
 
@@ -979,6 +1004,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     /* v8 ignore next */ // m[1] is always captured by the verb group
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (isMethodCall(text, end - verb.length)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue

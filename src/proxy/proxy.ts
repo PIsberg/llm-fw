@@ -42,15 +42,21 @@ const log = createLogger('proxy');
  * Decompress a fully-buffered response body by its Content-Encoding so the
  * inspected paths (MCP tool rewrite, response-exfil scan) see plaintext. Some
  * servers send raw (headerless) deflate, so fall back to inflateRaw. Throws on a
- * corrupt/truncated stream — the caller forwards the original bytes on failure.
+ * corrupt/truncated stream, and with a RangeError on one that would expand past
+ * `maxOutput` bytes (#352: 64 MB of one byte gzips to about 64 KB, under any
+ * wire cap); the caller forwards the original bytes on failure.
  */
-function decompressBody(buf: Buffer, encoding: string): Buffer {
+function decompressBody(buf: Buffer, encoding: string, maxOutput: number): Buffer {
   const enc = encoding.toLowerCase().trim()
   if (!enc || enc === 'identity') return buf
-  if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(buf)
-  if (enc === 'br') return zlib.brotliDecompressSync(buf)
+  const opts = { maxOutputLength: maxOutput }
+  if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(buf, opts)
+  if (enc === 'br') return zlib.brotliDecompressSync(buf, opts)
   if (enc === 'deflate') {
-    try { return zlib.inflateSync(buf) } catch { return zlib.inflateRawSync(buf) }
+    try { return zlib.inflateSync(buf, opts) } catch (err) {
+      if (err instanceof RangeError) throw err
+      return zlib.inflateRawSync(buf, opts)
+    }
   }
   return buf // unknown encoding — treat as opaque
 }
@@ -1492,9 +1498,10 @@ export class ProxyServer {
           const raw = Buffer.concat(jsonChunks)
           let text: string
           try {
-            text = decompressBody(raw, cenc).toString('utf8')
+            text = decompressBody(raw, cenc, maxResp).toString('utf8')
           } catch (err) {
-            // Corrupt/truncated compressed body — forward verbatim, uninspected.
+            // Corrupt, truncated, or expanding past maxResp: forward verbatim,
+            // uninspected, as an oversized plain body is above.
             log.warn(`could not decompress ${cenc} response from ${hostname}${req.url ?? '/'}: ${(err as Error)?.message ?? String(err)}`)
             res.writeHead(status, failoverHeaders())
             res.end(raw)
@@ -1589,7 +1596,7 @@ export class ProxyServer {
     }
     let text: string
     try {
-      text = decompressBody(stored.body, (stored.headers['content-encoding'] ?? '').toLowerCase().trim()).toString('utf8')
+      text = decompressBody(stored.body, (stored.headers['content-encoding'] ?? '').toLowerCase().trim(), this.config.proxy.maxBodyBytes).toString('utf8')
     } catch {
       writeCapturedResponse(res, stored)
       return stored.body.length

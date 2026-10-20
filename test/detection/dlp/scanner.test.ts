@@ -269,6 +269,20 @@ describe('DlpScanner.redact', () => {
     expect(scanner.redact(t2, scanner.scan(t2))).toContain('[REDACTED_SECRET]')
   })
 
+  // #374: the scan runs on the raw body, where a quote inside a JSON string
+  // is the two characters \". A value ending at that quote must not take its
+  // backslash with it, or the redacted body no longer parses.
+  it('keeps a JSON body valid when a generic secret ends at an escaped quote or newline', () => {
+    const secret = 'aZ9x7Qw2Lk8Pm3Vn6Rt1Yb4Hs0'
+    for (const content of [`run(["deploy", "--token=${secret}"])`, `password=${secret}" >> .env`, `token=${secret}\nnext line`]) {
+      const json = JSON.stringify({ messages: [{ role: 'user', content }] })
+      const redacted = scanner.redact(json, scanner.scan(json))
+      expect(() => JSON.parse(redacted), content).not.toThrow()
+      expect(redacted).not.toContain(secret)
+      expect(JSON.parse(redacted).messages[0].content).toContain('[REDACTED_SECRET]')
+    }
+  })
+
   it('handles findings with empty match gracefully', () => {
     expect(scanner.redact('text', [{ type: 'AWS_ACCESS_KEY', label: 'x', match: '', index: 0 }])).toBe('text')
   })

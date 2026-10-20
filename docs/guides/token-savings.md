@@ -97,11 +97,28 @@ see repeats within one turn.
 For a client that resends history, turning a rewriting module on or off, or
 changing one of its options, changes how the earlier turns of a running
 conversation are sent. The next request misses the prompt cache once. On
-models with preserved thinking, accounts the provider enforces the check for
-(Anthropic accounts created on or after 2026-08-31) get a 400 for that
-conversation: "The block is bound to a different conversation." Start a new
-conversation after changing a module, or change modules between sessions.
-A server-side thread is not affected: its earlier turns are never sent again.
+models with preserved thinking, every thinking block is bound to the turns
+before it, and accounts the provider enforces that check for (Anthropic
+accounts created on or after 2026-08-31) would get a 400 for the rest of the
+conversation: "The block is bound to a different conversation."
+
+So whenever the module pipeline runs on an Anthropic request from a Claude 5
+model whose history carries thinking blocks, llm-fw sets
+`thinking.block_binding.prefix_mismatch_behavior` to `"drop_block"` and adds
+the `thinking-binding-controls-2026-08-01` beta, unless the client set the
+field itself. A block an edit invalidated is then dropped instead of the
+request being refused; the model loses that reasoning for the turn. Probed
+on 2026-10-19 with a captured Claude Code request (Claude Haiku 5.5, three
+thinking turns): an earlier tool result edited with `"error"`, which is how
+an enforced account behaves, answered 400; the same edit with
+`"drop_block"` answered 200 with the later blocks dropped; an unedited
+request with `"drop_block"` dropped nothing and read the prompt cache as
+before (48,329 tokens, nothing written). On an older account, which is not
+enforced, the field opts the request into the check, so after an edit those
+blocks are dropped where the model would otherwise still have received
+them. Switching the Token Economy itself off is not covered: the pipeline,
+and so the field, stops with it. A server-side thread is not affected: its
+earlier turns are never sent again.
 
 ## How savings are counted
 
@@ -165,8 +182,32 @@ what it cut. Over 30 days of one developer's Claude Code transcripts
 (1,716 transcript files, 61,634 tool results, counted with the estimate above),
 `Read` results were 62% of the tokens the truncator would remove, lean-ctx's
 `ctx_read` 9% and `Bash` 22%. Skipping `Read` keeps 38% of the saving;
-skipping `ctx_read` as well keeps 29%. What that does to the bill, net of the
-turns it no longer adds, has not been measured.
+skipping `ctx_read` as well keeps 29%.
+
+Measured again on 2026-10-19 with file reads left whole (the default), on
+the output the truncator still cuts: Claude Code 2.1.303 with Claude Haiku
+5.5 at effort `high` through a relay running the module at its defaults,
+three tasks on a clone of this repository, two rounds, arm order swapped.
+Two tasks ran 16 commands with large output each (`git log -p -n 6`,
+`grep -rn`) and asked for a fact from the top of every output; one ran
+`git log --format='%h %s' -n 500` and asked for a commit in the elided
+middle.
+
+| Task, round | Off | Truncator on |
+| --- | --- | --- |
+| git log, 1 | $0.125, 17 turns | $0.275, 36 turns |
+| git log, 2 | $0.155, 25 turns | $0.100, 17 turns |
+| grep, 1 | $0.105, 17 turns | $0.098, 17 turns |
+| grep, 2 | $0.104, 17 turns | $0.239, 29 turns |
+| middle of a 500-line log, both | $0.006 and $0.002 | $0.003 and $0.002 |
+| **All** | **$0.497, 82 turns** | **$0.716, 106 turns** |
+
+Every answer was right in both arms. The module removed 169,788 tokens by
+its own count, but cache reads rose from 735,855 to 2,162,617 tokens with the
+extra turns, and the total cost went up 44%. The spread between rounds is
+wide (17 to 36 turns on one task), so read this as no saving shown, not as a
+measured loss of 44%. On this sample, with file reads whole, the truncator
+does not lower the bill.
 
 ### Where the input bill goes
 
@@ -360,7 +401,8 @@ tell is cut: after a restart, while the module was off, or when that response
 was larger than `proxy.maxBodyBytes`.
 
 A file read through a shell tool is recognised by its command, not its tool:
-a call whose `command` argument (a string, or Codex's argv array) has a word
+a call whose `command` argument (a string, or an argv array), or `cmd` for
+Codex's `exec_command`, has a word
 in `skipCommands` stays whole, wherever the word sits (`cd repo && sed -n
 1,400p x.ts`, `npm test | tail -30`). Over 30 days of one developer's Claude
 Code transcripts (61,639 tool results), `cat`, `sed` and `awk` in `Bash` were
@@ -397,7 +439,7 @@ missing or stops, results are forwarded whole and one warning is logged.
 
 | Option | Default | Does |
 | --- | --- | --- |
-| `tools` | `["Bash", "PowerShell", "shell", "run_shell_command"]` | Shell tools whose results are sent, matched like `skipTools` above: Claude Code's `Bash` and `PowerShell`, Codex CLI's `shell`, Gemini CLI's `run_shell_command`. The call's `command` argument must be a string, or the argv array Codex sends (`["bash", "-lc", "npm test"]`), which is read as one line, so a file read behind `bash -lc` stays whole. |
+| `tools` | `["Bash", "PowerShell", "shell", "shell_command", "exec_command", "run_shell_command"]` | Shell tools whose results are sent, matched like `skipTools` above: Claude Code's `Bash` and `PowerShell`, Codex CLI's `shell_command`, `exec_command` and `shell`, Gemini CLI's `run_shell_command`. The command is the call's `command` argument, or `cmd` for `exec_command`: a string, or an argv array (`["bash", "-lc", "npm test"]`, the `shell` shape in Codex's docs), which is read as one line, so a file read behind `bash -lc` stays whole. In 32 recorded Codex sessions every shell call was `shell_command` (891) or `exec_command` (10), and file reads went through PowerShell's `Get-Content`. |
 | `skipCommands` | file printers, below | A result whose command has any of these as a word stays whole. |
 | `timeoutMs` | `500` | How long a request waits for lean-ctx. A result it has not answered by then is forwarded whole, on that turn and every later one. |
 
@@ -584,11 +626,23 @@ complete for OpenAI-style clients.
 
 What changes for the client: one more chunk at the end of the stream, with an
 empty `choices` array and the `usage` object, which is how the API documents
-the option. The official OpenAI SDKs handle that chunk; a client that reads
-`choices[0]` without checking the array gets `undefined` there. That is why it
-is opt-in. No message text is touched, so the prompt cache is unaffected. Not
-verified against each SDK's stream parser; check yours with the module on
-before relying on it.
+the option. No message text is touched, so the prompt cache is unaffected.
+
+Checked on 2026-10-19 with openai-node 7.39.0 and openai-python 3.35.1 against
+a local stand-in that streams the way the API does with the option set
+(content chunks, then the usage chunk, then `[DONE]`):
+
+| Client code | openai-node | openai-python |
+| --- | --- | --- |
+| Iterating the stream, reading `choices[0]?.delta` / checking `if c.choices` | works, usage read from the last chunk | works, usage read from the last chunk |
+| The stream helper (`finalChatCompletion()` / `get_final_completion()`) | works, `usage` filled in | works, `usage` filled in |
+| Iterating and reading `choices[0].delta` unchecked | throws `TypeError` on the last chunk | raises `IndexError` on the last chunk |
+
+So the SDKs parse the chunk, but client code written for a stream that never
+carries it can crash on it, and that idiom is common. That is why it is
+opt-in: turn it on only for clients you have run with it. No agent client
+that streams chat completions was available to check; Codex CLI uses the
+Responses API, which this module does not touch.
 
 ### Prompt cache marker
 

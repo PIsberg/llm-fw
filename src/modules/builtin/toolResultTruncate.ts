@@ -4,7 +4,7 @@ import type { CapturedResponse } from '../responseTap.js'
 import { DEFAULT_CONFIG } from '../../config/config.js'
 import { SlotModule } from '../base.js'
 import type { SlotKind, TextSlot } from '../payload.js'
-import { RememberedCalls, commandText, isFileRead, toolArgs } from '../toolCalls.js'
+import { RememberedCalls, shellCommand, isFileRead, toolArgs } from '../toolCalls.js'
 
 type Limits = Pick<ToolResultTruncateConfig, 'headLines' | 'tailLines' | 'maxChars'>
 
@@ -76,7 +76,7 @@ export class ToolResultTruncateModule extends SlotModule<ToolResultTruncateConfi
     const learned = slot.toolName === undefined ? this.calls.get(slot.toolCallId) : undefined
     const tool = slot.toolName ?? learned?.name
     if (tool !== undefined && this.cfg.skipTools.some(skip => tool === skip || tool.endsWith(`__${skip}`))) return text
-    const command = commandText(toolArgs(learned ? learned.input : slot.toolInput)?.command)
+    const command = shellCommand(toolArgs(learned ? learned.input : slot.toolInput))
     if (command !== undefined && isFileRead(command, Array.isArray(this.cfg.skipCommands) ? this.cfg.skipCommands : [])) return text
     return truncateMiddle(text, this.cfg)
   }
