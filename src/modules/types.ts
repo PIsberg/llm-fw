@@ -87,7 +87,10 @@ export interface GatewayModule {
 
   /**
    * See the complete response to a request the pipeline forwarded, as the
-   * client received it. `requestBody` is the body that went upstream. Not
+   * client received it. `requestBody` is the body that went upstream, after
+   * every later module and DLP redaction, so it need not match what this
+   * module returned; `ctx` is the same object `transformRequest` got for this
+   * request, the key to tie the response to state the module kept. Not
    * called when the response was larger than the capture cap.
    */
   observeResponse?(requestBody: string, ctx: GatewayModuleContext, response: CapturedResponse): void;

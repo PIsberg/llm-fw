@@ -245,8 +245,9 @@ export class GatewayServer {
       // A module may answer the request itself (the response cache), after
       // every gate above has passed it. Otherwise modules that read responses
       // (the usage meter, the cache) see what the client received, captured
-      // as it streams through.
-      const moduleCtx = this.moduleContext(req, route, tenant);
+      // as it streams through. The context is the one the modules transformed
+      // the request with, so a module can tie the response to its own state.
+      const moduleCtx = decision.moduleCtx;
       const sent = decision.body.toString('utf-8');
       const answer = moduleCtx ? this.modules.respond(sent, moduleCtx) : undefined;
       if (answer) {
@@ -458,7 +459,7 @@ export class GatewayServer {
     route: GatewayRoute,
     original: Buffer,
     tenant: Tenant | null,
-  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; headers?: Record<string, string>; stripStreamUsage?: boolean }> {
+  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; moduleCtx: GatewayModuleContext | null; headers?: Record<string, string>; stripStreamUsage?: boolean }> {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
     const target = route.provider.host;
@@ -568,7 +569,7 @@ export class GatewayServer {
         ...tenantTag,
       });
       log.error(`pipeline error on ${method} ${path}: ${message}`);
-      if (failOpen) return { blocked: false, body: bodyBuf, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
+      if (failOpen) return { blocked: false, body: bodyBuf, moduleCtx, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
       return {
         blocked: true, status: this.config.blockStatus ?? 422,
         body: explainGate({
@@ -587,7 +588,7 @@ export class GatewayServer {
       };
     }
 
-    return { blocked: false, body: bodyBuf, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
+    return { blocked: false, body: bodyBuf, moduleCtx, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
   }
 
   /** What the module pipeline sees of a request; null when modules do not run on it. */

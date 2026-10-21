@@ -15,6 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plan from `transaction.completed`, issues an `ED25519_SIGN` key through Keygen's JSON:API,
   and verifies the returned key offline against `keygenPublicKey()` before returning the
   activation command.
+- **The Tool Result Pruner groups search output by file and collapses library stack
+  frames.** Two or more contiguous `file:line:content` lines for one file (`grep -rn`, `rg`,
+  `tsc`) share a single `<file>:` header, with every match kept; the prefix has to look like a
+  path, so ISO-timestamped and `gh run view --log` lines are not split as `file:line:`. Runs
+  of two or more `node_modules/` or `node:internal/` frames become one
+  `[llm-fw: N internal/library stack frames elided]` line. Over 30 days of replayed Claude
+  Code transcripts the pruner removed 0.32% of request tokens, up from 0.07%; grouping alone
+  removed 1.27% of tool-result tokens.
+- **The Tool Result Deduplicator works across server-side thread continuations and
+  collapses repeated `<system-reminder>` blocks.** A client that sends only the new messages
+  (`thread.previous_message_id`, `previous_response_id`) used to get no deduplication,
+  because each request held only its own results; the module now chains what it has seen to
+  the id each response carries, in memory, up to 256 threads, each scoped to its tenant and
+  provider host. Only a reminder already seen in a user turn is collapsed, so a copy planted
+  in tool output or echoed by the model cannot hide a genuine one. In the same replay, sent as
+  continuations, it removed 0.70% of request tokens, against 0.00% before, also when a later
+  module or DLP rewrote the request. Module authors: `observeResponse` now gets the same
+  `ctx` object `transformRequest` saw for the request, through the gateway as well as the
+  proxy, so state can be keyed on it.
 - **The token-savings guide says where Claude Code's input bill goes, and why clearing old
   thinking is not offered.** Over 30 days of one developer's transcripts, cache reads were
   81.7% of the input bill. Thinking was 66% of Opus 5.5 output and was sent back in full, but
