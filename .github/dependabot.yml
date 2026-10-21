@@ -57,11 +57,11 @@ updates:
           - patch
     # Deliberately NOT grouped, so each arrives as its own pull request:
     #
-    #   * the three runtime dependencies. @huggingface/transformers decides
+    #   * the two runtime dependencies. @huggingface/transformers decides
     #     every embedding this firewall produces, so a bump can move cosine
     #     similarities, change verdicts, invalidate the published benchmark
     #     numbers and require a RULESET_VERSION cut. That is not a bump to
-    #     skim. node-forge issues the CA. cosmiconfig reads config.
+    #     skim. cosmiconfig reads config.
     #   * every major, in either group. vitest and typescript majors change
     #     the tooling that MEASURES detection, which is the one thing here
     #     that must not drift unnoticed. The peer-locked pairs above are the

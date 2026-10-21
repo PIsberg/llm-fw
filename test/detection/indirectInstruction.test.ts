@@ -253,6 +253,10 @@ describe('detectIndirectInstruction — "email" as a noun', () => {
     'A domain-scoped licence covers every address on the buyer\'s email domain: one purchase by `billing@acme.com` covers `dev@acme.com` too.',
     'Contact: your email address (jane@corp.com) is used for receipts only.',
     'The email field must contain a valid address, for example user@example.com.',
+    'Reads {@code meta.scope.email} from the OAuth profile (for example, alice@example.com).',
+    'assertEquals("alice@example.com", profile.user.email);',
+    'The "customer_email" (or "email") column stores addresses such as alice@example.com.',
+    'Account lookup: email is alice@example.com, status is active.',
   ])('does not fire on: %s', (text) => {
     expect(detectIndirectInstruction(text)).toBeNull()
   })

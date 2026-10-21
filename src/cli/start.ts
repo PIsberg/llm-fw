@@ -3,7 +3,7 @@ import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
 import { GatewayServer } from '../gateway/gateway.js';
 import { AuditLog, AuditWebhook } from '../dashboard/auditLog.js';
-import { CertFactory, crlUrlFor } from '../proxy/certs.js';
+import { CertFactory, crlUrlFor, parseCertificateExtensions } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
@@ -13,7 +13,7 @@ import { ModuleManager } from '../modules/registry.js';
 import type { ToolUsageModule } from '../modules/builtin/toolUsage.js';
 import { startConfigHotReload } from '../config/hotReload.js';
 import { removeRuntimeState, writeRuntimeState } from './runtimeState.js';
-import forge from 'node-forge';
+import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { platform } from 'node:os';
@@ -381,8 +381,8 @@ export async function run(args: string[] = []): Promise<void> {
   const caCertPath = join(llmfwDir, 'ca.crt');
   if (fs.existsSync(caCertPath)) {
     const certPem = fs.readFileSync(caCertPath, 'utf8');
-    const caCert = forge.pki.certificateFromPem(certPem);
-    const hasCdp = (caCert.extensions as { id?: string }[]).some(e => e.id === '2.5.29.31');
+    const caCert = new X509Certificate(certPem);
+    const hasCdp = parseCertificateExtensions(caCert.raw).has('2.5.29.31');
     if (!hasCdp) {
       console.log('Upgrading CA cert (adding CRL distribution point)...');
       const cf = new CertFactory(caCrlUrl);

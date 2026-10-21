@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { X509Certificate, verify as cryptoVerify } from 'node:crypto'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import forge from 'node-forge'
 
 const OID_CDP = '2.5.29.31' // cRLDistributionPoints
 
@@ -22,9 +22,8 @@ describe('CRL distribution point follows the dashboard address', () => {
 
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-crl-'))
-    // certs.ts resolves the llm-fw dir at module load, so the env var has to be
-    // set before the import — otherwise this test would write a CA over the
-    // developer's real one.
+    // certs.ts resolves the llm-fw dir per call, and setting LLM_FW_DIR in
+    // beforeAll isolates any CA written during the suite.
     process.env.LLM_FW_DIR = tempDir
     certs = await import('../../src/proxy/certs.js')
   })
@@ -35,10 +34,10 @@ describe('CRL distribution point follows the dashboard address', () => {
   })
 
   const cdpOf = (pem: string): string => {
-    const cert = forge.pki.certificateFromPem(pem)
-    const ext = (cert.extensions as { id?: string; value?: string }[]).find(e => e.id === OID_CDP)
+    const cert = new X509Certificate(pem)
+    const ext = certs.parseCertificateExtensions(cert.raw).get(OID_CDP)
     expect(ext, 'certificate carries no cRLDistributionPoints extension').toBeDefined()
-    return Buffer.from(ext?.value ?? '', 'binary').toString('latin1')
+    return ext!.toString('latin1')
   }
 
   it('derives the URL from the configured dashboard port', () => {
@@ -73,5 +72,32 @@ describe('CRL distribution point follows the dashboard address', () => {
   it('still defaults to loopback:7731 for callers that pass nothing', () => {
     const leafPem = new certs.CertFactory().getHostCert('api.openai.com').cert
     expect(cdpOf(leafPem)).toContain('http://127.0.0.1:7731/crl')
+  })
+
+  it('writes a DER CRL whose RSA-SHA256 signature verifies under the CA public key', () => {
+    const factory = new certs.CertFactory()
+    const caPem = factory.generateCA().cert
+    factory.generateAndSaveCRL()
+
+    const crlDer = fs.readFileSync(join(tempDir, 'ca.crl'))
+    expect(crlDer[0]).toBe(0x30)
+    // CertificateList ::= SEQUENCE { tbsCertList, signatureAlgorithm, signatureValue BIT STRING }
+    // The last 256 bytes of a 2048-bit RSA CRL are the signature bytes inside the BIT STRING.
+    const sigBytes = crlDer.subarray(crlDer.length - 256)
+    // tbsCertList starts right after the outer SEQUENCE header (0x30 0x82 hi lo).
+    const outerHdr = (crlDer[1]! & 0x80) === 0 ? 2 : 2 + (crlDer[1]! & 0x7f)
+    const tbsLenByte = crlDer[outerHdr + 1]!
+    const tbsHdr = (tbsLenByte & 0x80) === 0 ? 2 : 2 + (tbsLenByte & 0x7f)
+    let tbsValueLen = 0
+    if ((tbsLenByte & 0x80) === 0) {
+      tbsValueLen = tbsLenByte
+    } else {
+      for (let i = 0; i < (tbsLenByte & 0x7f); i++) {
+        tbsValueLen = (tbsValueLen << 8) | crlDer[outerHdr + 2 + i]!
+      }
+    }
+    const tbsDer = crlDer.subarray(outerHdr, outerHdr + tbsHdr + tbsValueLen)
+    const caCert = new X509Certificate(caPem)
+    expect(cryptoVerify('sha256', tbsDer, caCert.publicKey, sigBytes)).toBe(true)
   })
 })

@@ -46,7 +46,6 @@ ecosystem watches on purpose. See `semgrep-lock-freshness.yml`.
 | --- | --- | --- |
 | `@huggingface/transformers` | **Yes, directly.** It produces every embedding. | Full detection re-measurement, below. Expect a `RULESET_VERSION` cut. |
 | `vitest`, `@vitest/coverage-v8` | **It measures the verdicts.** | Full gate. A green suite on a new runner is not automatically the same suite. |
-| `node-forge` | No, but it issues the CA. | Proxy e2e suite must pass; check certificate tests specifically. |
 | `cosmiconfig` | No, but it reads every config file. | Config tests plus one real `llm-fw start`. |
 | `tesseract.js` | Yes for image attacks. | Run `test/detection/ocr.test.ts` and `image-attacks.test.ts`. |
 | Other dev tooling (patch/minor) | No. | The gate is sufficient. |
