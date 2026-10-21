@@ -77,11 +77,11 @@ describe('third-party notices ship with the package', () => {
 describe('SECURITY.md, Chart.yaml and NOTICE.md track the current release and dependency tree', () => {
   it('SECURITY.md lists the current minor line from package.json as supported', () => {
     const [major, minor] = PKG.version.split('.')
-    expect(SECURITY_MD).toMatch(new RegExp(`\\|\\s*${major}\\.${minor}\\.x\\s*\\|\\s*yes\\s*\\|`))
+    expect(SECURITY_MD).toContain(`| ${major}.${minor}.x   | yes       |`)
   })
 
   it('Chart.yaml appVersion matches package.json version', () => {
-    expect(CHART_YAML).toMatch(new RegExp(`^appVersion:\\s*"${PKG.version.replace(/\./g, '\\.')}"\\s*$`, 'm'))
+    expect(CHART_YAML).toContain(`appVersion: "${PKG.version}"`)
   })
 
   it('neither SECURITY.md nor NOTICE.md lists removed node-forge as in the dependency tree', () => {
