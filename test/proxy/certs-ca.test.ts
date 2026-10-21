@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { X509Certificate } from 'node:crypto'
 import fs from 'node:fs'
 import tls from 'node:tls'
 import net from 'node:net'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import forge from 'node-forge'
-import { CertFactory } from '../../src/proxy/certs.js'
+import { CertFactory, parseCertificateExtensions, computeSubjectKeyIdentifier } from '../../src/proxy/certs.js'
 
 // OIDs for the identifiers the hardening adds.
 const OID_SKI = '2.5.29.14' // subjectKeyIdentifier
@@ -16,8 +16,8 @@ describe('CertFactory CA hardening', () => {
   let factory: CertFactory
   let caPem: string
   let leafPem: string
-  let caCert: forge.pki.Certificate
-  let leafCert: forge.pki.Certificate
+  let caCert: X509Certificate
+  let leafCert: X509Certificate
 
   beforeAll(() => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-ca-'))
@@ -25,8 +25,8 @@ describe('CertFactory CA hardening', () => {
     factory = new CertFactory()
     caPem = factory.generateCA().cert
     leafPem = factory.getHostCert('api.anthropic.com').cert
-    caCert = forge.pki.certificateFromPem(caPem)
-    leafCert = forge.pki.certificateFromPem(leafPem)
+    caCert = new X509Certificate(caPem)
+    leafCert = new X509Certificate(leafPem)
   })
 
   afterAll(() => {
@@ -35,27 +35,31 @@ describe('CertFactory CA hardening', () => {
   })
 
   it('gives the CA a random, positive serial (no longer hardcoded 01)', () => {
-    expect(caCert.serialNumber).not.toBe('01')
-    expect(caCert.serialNumber).toMatch(/^[0-9a-f]+$/)
-    expect(caCert.serialNumber.length).toBeGreaterThan(2)
+    const serial = caCert.serialNumber.toLowerCase()
+    expect(serial).not.toBe('01')
+    expect(serial).toMatch(/^[0-9a-f]+$/)
+    expect(serial.length).toBeGreaterThan(2)
     // High bit cleared → positive INTEGER (first byte 0x00–0x7f).
-    expect(parseInt(caCert.serialNumber.slice(0, 2), 16)).toBeLessThanOrEqual(0x7f)
+    expect(parseInt(serial.slice(0, 2), 16)).toBeLessThanOrEqual(0x7f)
   })
 
   it('two generations of the CA get distinct serials', () => {
-    const otherSerial = forge.pki.certificateFromPem(factory.generateCA().cert).serialNumber
-    expect(otherSerial).not.toBe(caCert.serialNumber)
+    const otherSerial = new X509Certificate(factory.generateCA().cert).serialNumber.toLowerCase()
+    expect(otherSerial).not.toBe(caCert.serialNumber.toLowerCase())
   })
 
   it('the CA carries a subjectKeyIdentifier and the leaf a matching authorityKeyIdentifier', () => {
-    const caSki = caCert.extensions.find(e => e.id === OID_SKI)
-    const leafAki = leafCert.extensions.find(e => e.id === OID_AKI)
+    const caExts = parseCertificateExtensions(caCert.raw)
+    const leafExts = parseCertificateExtensions(leafCert.raw)
+    const caSki = caExts.get(OID_SKI)
+    const leafAki = leafExts.get(OID_AKI)
     expect(caSki).toBeDefined()
     expect(leafAki).toBeDefined()
     // The AKI keyIdentifier must equal the CA's SKI (key id, method-1 SHA-1 of
-    // the SPKI). forge exposes the computed SKI via generateSubjectKeyIdentifier.
-    const caKeyId = caCert.generateSubjectKeyIdentifier().toHex()
-    expect(forge.util.bytesToHex(leafAki!.value)).toContain(caKeyId)
+    // the SPKI).
+    const caKeyId = computeSubjectKeyIdentifier(caCert.publicKey).toString('hex')
+    expect(caSki!.toString('hex')).toContain(caKeyId)
+    expect(leafAki!.toString('hex')).toContain(caKeyId)
   })
 
   it('a strict validator accepts the leaf chained to the CA', async () => {

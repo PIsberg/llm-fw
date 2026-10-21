@@ -29,6 +29,13 @@ Fulfilment is a person: Paddle emails you, you issue the key.
 3. Send it: `llm-fw license --activate <key>`.
 4. Log it, same convention as any other sale.
 
+[`src/license/paddleFulfillment.ts`](../src/license/paddleFulfillment.ts) and
+[`scripts/fulfill-paddle-webhook.ts`](../scripts/fulfill-paddle-webhook.ts) automate step 2:
+`verifyPaddleSignature()` checks Paddle's `Paddle-Signature` HMAC-SHA256 header and replay
+window, `parsePaddleTransactionEvent()` extracts the buyer and plan from
+`transaction.completed`, and `issueKeygenLicense()` mints the key in Keygen and verifies the
+returned Ed25519 signature offline before handing it back.
+
 `src/license/keygenKey.ts` verifies the key's signature against
 `src/license/account.ts`'s `KEYGEN_PUBLIC_KEY` — no network. `llm-fw license --verify` is the
 one opt-in exception, and exists only to catch revocation, which a signature cannot express.

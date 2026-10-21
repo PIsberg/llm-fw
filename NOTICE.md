@@ -69,12 +69,10 @@ and should pin its own copy.
 
 ## Permissive but flagged by scanners
 
-Neither of these creates an obligation beyond attribution. They are listed
-because automated tooling (Socket, and license scanners with strict allowlists)
-reports them as non-permissive or copyleft.
+This creates no obligation beyond attribution. It is listed because automated
+tooling (Socket, and license scanners with strict allowlists) reports it as
+non-standard:
 
-- `node-forge` is `(BSD-3-Clause OR GPL-2.0)`. This is a dual license and the
-  choice is the recipient's; llm-fw takes it under BSD-3-Clause.
 - `argparse@2.0.1`, reached through `cosmiconfig` and `js-yaml`, is `Python-2.0`.
   That is a permissive license, but it is absent from most allowlists.
 

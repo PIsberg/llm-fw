@@ -60,6 +60,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.81
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed; InjecAgent
+1,054 of 1,054 attacks and 0 of 17 benign, unchanged.** The remaining
+"email" noun shapes from the real-traffic replay (a dotted property access
+(`{@code meta.scope.email}`, `profile.user.email`), a quoted or backticked
+key token (`"email"`, `` `email` ``), and a copula subject (`email is
+alice@...`)) are now recognised by `isEmailNoun` across both the
+exfil-target and bare-imperative rules.
+
 ## Result, ruleset 2026.10.80
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1

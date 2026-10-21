@@ -349,10 +349,15 @@ function keyAssignedAddress(text: string, start: number, end: number): number {
 // qualifies, it names something; "Email the records to ...", "please email
 // ...", "then email it to ..." stay verbs.
 const EMAIL_NOUN_BEFORE_RE = /(?:['’]s|s['’]|\b(?:a|an|the|your|my|our|their|his|her|its|this|that|valid|primary|work|contact|billing|support|customer|user|buyer))\s+$/i
-const EMAIL_NOUN_AFTER_RE = /^\s+(?:address(?:es)?|domains?|fields?|headers?|lists?|accounts?|templates?|settings?|verification|notifications?|format|validation|scope|provider|client|server|signature)\b/i
+const EMAIL_NOUN_AFTER_RE = /^\s+(?:address(?:es)?|domains?|fields?|headers?|lists?|accounts?|templates?|settings?|verification|notifications?|format|validation|scope|provider|client|server|signature|is|was|equals|matches)\b/i
+const EMAIL_PROP_AFTER_RE = /^(?:[})\],;:'"`]|\s*(?:[=!<>]=|[=:?]|(?:is|was|equals|matches)\b))/i
 function isEmailNoun(text: string, start: number, end: number): boolean {
   if (!/^e-?mail$/i.test(text.slice(start, end))) return false
-  return EMAIL_NOUN_BEFORE_RE.test(text.slice(Math.max(0, start - 24), start)) || EMAIL_NOUN_AFTER_RE.test(text.slice(end, end + 24))
+  const before = text.slice(Math.max(0, start - 24), start)
+  const after = text.slice(end, end + 24)
+  if (/['"`]$/.test(before) && /^['"`]/.test(after)) return true
+  if (isMethodCall(text, start) && EMAIL_PROP_AFTER_RE.test(after)) return true
+  return EMAIL_NOUN_BEFORE_RE.test(before) || EMAIL_NOUN_AFTER_RE.test(after)
 }
 
 /** True when the key at [start, end) of `text` is set to `address` (case-insensitive). */
@@ -1005,6 +1010,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     const verb = m[1] ?? ''
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
     if (isMethodCall(text, end - verb.length)) continue
+    if (isEmailNoun(text, end - verb.length, end)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue

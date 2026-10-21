@@ -83,7 +83,7 @@ To guarantee E2E tests run reliably on both local developer machines and offline
 1.  **Dynamic Sandbox Directory**:
     At the start of the E2E suite (`beforeAll`), the tests generate a unique temporary operating system directory and set it as the active workspace sandbox via `process.env.LLM_FW_DIR`.
 2.  **In-Memory Root CA Generation**:
-    The suite instantiates a test-isolated Root CA inside the temp directory using `node-forge`. The proxy's certificate factory automatically loads this local CA to intercept and sign hostnames.
+    The suite instantiates a test-isolated Root CA inside the temp directory using `node:crypto`. The proxy's certificate factory automatically loads this local CA to intercept and sign hostnames.
 3.  **Mock Upstream HTTPS Server**:
     A secure local HTTPS server is started on a random port to act as the target LLM API (`api.anthropic.com`). It records incoming payloads and serves mock API JSON responses. Its certificate is issued by a throwaway CA (`test/proxy/lib/tls-trust.ts`) which the suite adds to the process trust store for the duration of the file, so the proxy's outbound leg verifies it normally.
 4.  **Network Tunnel Simulation**:

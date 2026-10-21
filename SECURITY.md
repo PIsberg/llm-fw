@@ -12,8 +12,8 @@ Fixes land on `main` and ship in the next release. Only the latest published
 
 | Version | Supported |
 | ------- | --------- |
-| 0.4.x   | yes       |
-| < 0.4   | no        |
+| 0.7.x   | yes       |
+| < 0.7   | no        |
 
 ## Reporting a vulnerability
 
@@ -66,16 +66,11 @@ Out of scope:
 
 ## Dependency advisories with no patch
 
-Assessed, not dismissed silently. Each one's "not reachable" claim is a test,
-so it stops being true only by failing CI.
-
-| Advisory | Package | Why it is not reached | Enforced by |
-| --- | --- | --- | --- |
-| RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements (Dependabot #57, high), `<= 1.4.0`, no patch | `node-forge` (direct) | llm-fw only generates and signs the CA, leaf certificates and CRL, and parses PEM. It never verifies a signature or a chain with forge; licence checks use Ed25519 via `node:crypto`. | `test/proxy/forge-advisory.test.ts`: no file importing node-forge may call a forge verification API |
-
-An enterprise SCA scan still flags the package. Replacing forge for
-certificate generation (for example with `@peculiar/x509`) would clear it, at
-the cost of changing the CA code; see #254.
+None in the direct dependency tree. Certificate and CRL generation now run on
+`node:crypto` directly (#254), removing the last direct dependency that carried
+an unpatched advisory ( pinned by `test/proxy/forge-advisory.test.ts`). See
+`NOTICE.md` for transitive advisories in `@huggingface/transformers`'s image
+subtree (`sharp`), which llm-fw never imports or executes.
 
 ## Security-relevant defaults
 
