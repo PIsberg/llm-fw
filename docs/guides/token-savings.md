@@ -378,12 +378,16 @@ Responses API's `previous_response_id`) gets the same pointers across turns:
 the module remembers what each request contained and chains it to the id the
 response carries. The chain survives the modules and the DLP redaction that run
 after it. It holds 256 threads and 512 results per thread, oldest dropped
-first, in memory only, so it starts empty after a restart.
+first, in memory only, so it starts empty after a restart. A thread belongs to
+the tenant and provider host that started it: a request naming another
+tenant's response id starts empty.
 
-A `<system-reminder>...</system-reminder>` block identical to an earlier one,
-in a prompt or a tool result, becomes
-`[llm-fw: identical system-reminder omitted]`. This applies whatever the block's
-length.
+A `<system-reminder>...</system-reminder>` block identical to one that already
+appeared in the client's own prompt text becomes
+`[llm-fw: identical system-reminder omitted]`, in a later prompt or a tool
+result, whatever its length. A reminder that first appears inside a tool
+result is never the copy that counts: tool output is untrusted, and a planted
+copy must not make the genuine one disappear when the client sends it.
 
 ### Tool result truncator
 

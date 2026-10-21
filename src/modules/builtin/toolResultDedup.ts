@@ -6,7 +6,9 @@ import { SlotModule, type PayloadOutcome } from '../base.js'
 import type { SlotKind, TextSlot } from '../payload.js'
 import { responseEvents } from '../usage.js'
 
-const REMINDER_RE = /<system-reminder>\s*([\s\S]*?)\s*<\/system-reminder>/g
+const REMINDER_OPEN = '<system-reminder>'
+const REMINDER_CLOSE = '</system-reminder>'
+const REMINDER_MARKER = '[llm-fw: identical system-reminder omitted]'
 const MAX_THREADS = 256
 const MAX_HASHES_PER_THREAD = 512
 
@@ -41,18 +43,40 @@ function parentChainId(payload: Obj): string | undefined {
 
 /**
  * Strips repeated `<system-reminder>...</system-reminder>` blocks once an
- * identical body has already appeared in `reminders`.
+ * identical body has already appeared in `reminders`. Only a trusted slot
+ * (`record`, the client's own prompt text) adds to `reminders`: tool output
+ * is untrusted, and a copy planted there must not make a later genuine
+ * reminder disappear.
+ *
+ * indexOf rather than a regex: tool output can hold thousands of unclosed
+ * openers, and a lazy `[\s\S]*?` rescans to the end of the text from each.
  */
-export function dedupReminders(text: string, reminders: Set<string>): string {
-  if (!text.includes('<system-reminder>')) return text
-  return text.replace(REMINDER_RE, (full, body: string) => {
-    const key = digest(body)
-    if (reminders.has(key)) return '[llm-fw: identical system-reminder omitted]'
-    reminders.add(key)
-    if (reminders.size > MAX_HASHES_PER_THREAD) reminders.delete(reminders.values().next().value!)
-    return full
-  })
+export function dedupReminders(text: string, reminders: Set<string>, record: boolean): string {
+  let open = text.indexOf(REMINDER_OPEN)
+  if (open < 0) return text
+  let out = ''
+  let last = 0
+  while (open >= 0) {
+    const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length)
+    if (close < 0) break
+    const end = close + REMINDER_CLOSE.length
+    const key = digest(text.slice(open + REMINDER_OPEN.length, close).trim())
+    if (reminders.has(key)) {
+      out += text.slice(last, open) + REMINDER_MARKER
+      last = end
+    } else if (record) {
+      reminders.add(key)
+      if (reminders.size > MAX_HASHES_PER_THREAD) reminders.delete(reminders.values().next().value!)
+    }
+    open = text.indexOf(REMINDER_OPEN, end)
+  }
+  return last === 0 ? text : out + text.slice(last)
 }
+
+// Thread state belongs to the tenant and provider that created it, so a
+// request naming another tenant's response id starts empty instead of
+// learning which tool output that tenant had already sent.
+const threadKey = (ctx: GatewayModuleContext, id: string): string => `${ctx.tenant ?? ''}\0${ctx.target}\0${id}`
 
 /**
  * An agent rereads the same file, reruns the same command, and every copy
@@ -89,7 +113,7 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
 
   protected override apply(payload: Obj, ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome {
     const parentId = parentChainId(payload)
-    const parent = parentId ? this.threads.get(parentId) : undefined
+    const parent = parentId ? this.threads.get(threadKey(ctx, parentId)) : undefined
     this.seen = new Map(parent?.seen)
     this.reminders = new Set(parent?.reminders)
     this.ordinal = parent ? parent.ordinal : 0
@@ -111,13 +135,14 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     if (!events) return
     const respId = extractResponseId(events)
     if (!respId) return
-    this.threads.delete(respId)
-    this.threads.set(respId, snap)
+    const key = threadKey(ctx, respId)
+    this.threads.delete(key)
+    this.threads.set(key, snap)
     if (this.threads.size > MAX_THREADS) this.threads.delete(this.threads.keys().next().value!)
   }
 
   protected rewrite(text: string, slot: TextSlot): string {
-    const cleaned = dedupReminders(text, this.reminders)
+    const cleaned = dedupReminders(text, this.reminders, slot.kind === 'prompt')
     if (slot.kind !== 'tool_result') return cleaned
     this.ordinal++
     if (cleaned.length < this.cfg.minLength) return cleaned

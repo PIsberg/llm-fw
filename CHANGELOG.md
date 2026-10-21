@@ -27,7 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collapses repeated `<system-reminder>` blocks.** A client that sends only the new messages
   (`thread.previous_message_id`, `previous_response_id`) used to get no deduplication,
   because each request held only its own results; the module now chains what it has seen to
-  the id each response carries, in memory, up to 256 threads. In the same replay, sent as
+  the id each response carries, in memory, up to 256 threads, each scoped to its tenant and
+  provider host. Only a reminder already seen in the client's own prompt text is collapsed,
+  so a copy planted in tool output cannot hide a genuine one. In the same replay, sent as
   continuations, it removed 0.70% of request tokens, against 0.00% before, also when a later
   module or DLP rewrote the request. Module authors: `observeResponse` now gets the same
   `ctx` object `transformRequest` saw for the request, through the gateway as well as the
