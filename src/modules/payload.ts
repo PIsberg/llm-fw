@@ -19,6 +19,13 @@ export interface TextSlot {
    * Anthropic tool_use, a JSON string for OpenAI chat and the Responses API.
    */
   toolInput?: unknown
+  /**
+   * Who wrote a conversation slot: the message's role as the request carries
+   * it (`user`, `assistant`, Gemini's `model`), and `user` for a bare
+   * top-level `input` or `prompt` string. Only `user` text is the client's
+   * own; an assistant turn is model output shaped by everything it read.
+   */
+  role?: string | undefined
   /** Writes `text` back into the payload in place. */
   set(text: string): void
 }
@@ -32,18 +39,18 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 // document) is left alone; a thinking block's signature binds its bytes.
 const TEXT_PARTS = new Set(['text', 'input_text', 'output_text'])
 
-type ToolRef = Pick<TextSlot, 'toolCallId' | 'toolName' | 'toolInput'>
+type SlotRef = Pick<TextSlot, 'toolCallId' | 'toolName' | 'toolInput' | 'role'>
 
 // Tool call id to tool name and arguments, for the calls seen so far in one request.
 type Calls = Map<string, { name: string; input: unknown }>
 
-const ref = (id: unknown, calls: Calls): ToolRef => {
+const ref = (id: unknown, calls: Calls): SlotRef => {
   if (typeof id !== 'string') return {}
   const call = calls.get(id)
   return { toolCallId: id, toolName: call?.name, toolInput: call?.input }
 }
 
-function fieldSlot(kind: SlotKind, holder: Obj, key: string, tool: ToolRef = {}): TextSlot {
+function fieldSlot(kind: SlotKind, holder: Obj, key: string, tool: SlotRef = {}): TextSlot {
   return {
     kind,
     text: holder[key] as string,
@@ -52,7 +59,7 @@ function fieldSlot(kind: SlotKind, holder: Obj, key: string, tool: ToolRef = {})
   }
 }
 
-function textParts(kind: SlotKind, parts: unknown[], out: TextSlot[], tool?: ToolRef): void {
+function textParts(kind: SlotKind, parts: unknown[], out: TextSlot[], tool?: SlotRef): void {
   for (const part of parts) {
     if (isObj(part) && typeof part.text === 'string' && (part.type === undefined || TEXT_PARTS.has(part.type as string))) {
       out.push(fieldSlot(kind, part, 'text', tool))
@@ -61,7 +68,7 @@ function textParts(kind: SlotKind, parts: unknown[], out: TextSlot[], tool?: Too
 }
 
 // `content` of a message or of a tool_result block: a string or text parts.
-function content(kind: SlotKind, holder: Obj, out: TextSlot[], tool?: ToolRef): void {
+function content(kind: SlotKind, holder: Obj, out: TextSlot[], tool?: SlotRef): void {
   if (typeof holder.content === 'string') out.push(fieldSlot(kind, holder, 'content', tool))
   else if (Array.isArray(holder.content)) textParts(kind, holder.content, out, tool)
 }
@@ -94,7 +101,7 @@ function message(m: unknown, out: TextSlot[], calls: Calls): void {
   }
   if (Array.isArray(m.tool_calls)) chatCalls(m.tool_calls, calls)
   const kind = roleKind(m.role)
-  const tool = kind === 'tool_result' ? ref(m.tool_call_id, calls) : {}
+  const tool = kind === 'tool_result' ? ref(m.tool_call_id, calls) : typeof m.role === 'string' ? { role: m.role } : {}
   if (typeof m.content === 'string') {
     out.push(fieldSlot(kind, m, 'content', tool))
     return
@@ -161,14 +168,15 @@ export function collectTextSlots(payload: unknown): TextSlot[] {
 
   const calls: Calls = new Map()
   if (Array.isArray(payload.messages)) for (const m of payload.messages) message(m, out, calls)
-  if (typeof payload.input === 'string') out.push(fieldSlot('prompt', payload, 'input'))
+  if (typeof payload.input === 'string') out.push(fieldSlot('prompt', payload, 'input', { role: 'user' }))
   else if (Array.isArray(payload.input)) for (const m of payload.input) message(m, out, calls)
   if (Array.isArray(payload.contents)) {
     for (const item of payload.contents) {
-      if (isObj(item) && Array.isArray(item.parts)) textParts('prompt', item.parts, out)
+      // Gemini defaults a turn without a role to the user.
+      if (isObj(item) && Array.isArray(item.parts)) textParts('prompt', item.parts, out, { role: typeof item.role === 'string' ? item.role : 'user' })
     }
   }
-  if (typeof payload.prompt === 'string') out.push(fieldSlot('prompt', payload, 'prompt'))
+  if (typeof payload.prompt === 'string') out.push(fieldSlot('prompt', payload, 'prompt', { role: 'user' }))
 
   return out
 }

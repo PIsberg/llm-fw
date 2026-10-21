@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ToolResultPrunerModule } from '../../src/modules/builtin/toolResultPruner.js'
+import { ToolResultPrunerModule, collapseLibraryStackFrames, groupFileMatches } from '../../src/modules/builtin/toolResultPruner.js'
 import { minifyJsonText } from '../../src/modules/json.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
 
@@ -9,7 +9,7 @@ const toolResult = (content: string) => JSON.stringify({
   messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }, { type: 'text', text: 'keep   this' }] }],
 })
 const run = (mod: ToolResultPrunerModule, content: string) => {
-  const parsed = JSON.parse(mod.transformRequest(toolResult(content), ctx).body)
+  const parsed = JSON.parse((mod.transformRequest(toolResult(content), ctx) as { body: string }).body)
   return { result: parsed.messages[0].content[0].content as string, prompt: parsed.messages[0].content[1].text as string }
 }
 
@@ -75,7 +75,7 @@ describe('ToolResultPrunerModule', () => {
       messages: [{ role: 'tool', tool_call_id: 'c', content: '{ "a" : 1 }' }],
       input: [{ type: 'function_call_output', call_id: 'd', output: '[ 1, 2 ]' }],
     })
-    const parsed = JSON.parse(mod.transformRequest(body, ctx).body)
+    const parsed = JSON.parse((mod.transformRequest(body, ctx) as { body: string }).body)
     expect(parsed.messages[0].content).toBe('{"a":1}')
     expect(parsed.input[0].output).toBe('[1,2]')
   })
@@ -83,8 +83,73 @@ describe('ToolResultPrunerModule', () => {
   it('reads its options live', () => {
     const cfg = on({ minifyJson: false, trimTrailing: false })
     const mod = new ToolResultPrunerModule(cfg)
-    expect(mod.transformRequest(toolResult('{ "a": 1 }'), ctx).modified).toBe(false)
+    expect((mod.transformRequest(toolResult('{ "a": 1 }'), ctx) as { modified: boolean }).modified).toBe(false)
     cfg.minifyJson = true
-    expect(mod.transformRequest(toolResult('{ "a": 1 }'), ctx).modified).toBe(true)
+    expect((mod.transformRequest(toolResult('{ "a": 1 }'), ctx) as { modified: boolean }).modified).toBe(true)
+  })
+
+  it('collapses contiguous node_modules and node:internal stack frames while keeping app frames', () => {
+    const trace = [
+      'Error: boom',
+      '    at Object.run (src/app.ts:12:5)',
+      '    at Runner.exec (/repo/node_modules/vitest/dist/chunks/runner.js:100:12)',
+      '    at processTicksAndRejections (node:internal/process/task_queues:95:5)',
+      '    at async Promise.all (index 0)',
+      '    at main (src/index.ts:4:1)',
+    ].join('\n')
+    const out = collapseLibraryStackFrames(trace)
+    expect(out).toBe([
+      'Error: boom',
+      '    at Object.run (src/app.ts:12:5)',
+      '    [llm-fw: 2 internal/library stack frames elided]',
+      '    at async Promise.all (index 0)',
+      '    at main (src/index.ts:4:1)',
+    ].join('\n'))
+  })
+
+  it('groups contiguous grep/compiler file:line:content matches under a single file header and keeps every match', () => {
+    const grepOut = [
+      'src/modules/builtin/toolResultPruner.ts:10:const a = 1',
+      'src/modules/builtin/toolResultPruner.ts:25:const b = 2',
+      'src/modules/builtin/toolResultPruner.ts:30:const c = 3',
+      'src/other.ts:5:const x = 9',
+    ].join('\n')
+    expect(groupFileMatches(grepOut)).toBe([
+      'src/modules/builtin/toolResultPruner.ts:',
+      '  10:const a = 1',
+      '  25:const b = 2',
+      '  30:const c = 3',
+      'src/other.ts:5:const x = 9',
+    ].join('\n'))
+
+    // Grouping is lossless: a match dropped here could only come back by
+    // rerunning the search.
+    const many = Array.from({ length: 55 }, (_, i) => `dist/bundle.js:${i + 1}:var x=${i}`).join('\n')
+    const grouped = groupFileMatches(many).split('\n')
+    expect(grouped[0]).toBe('dist/bundle.js:')
+    expect(grouped).toHaveLength(56)
+    expect(grouped[55]).toBe('  55:var x=54')
+  })
+
+  it('groups paths without an extension and Windows separators', () => {
+    expect(groupFileMatches('docker/Dockerfile:1:FROM node\ndocker/Dockerfile:3:RUN npm ci')).toBe('docker/Dockerfile:\n  1:FROM node\n  3:RUN npm ci')
+    expect(groupFileMatches('src\\a.ts:1:x\r\nsrc\\a.ts:2:y\r\n')).toBe('src\\a.ts:\r\n  1:x\r\n  2:y\r\n')
+  })
+
+  it('leaves log lines whose prefix is not a file path alone', () => {
+    // ISO timestamps split as `2026-10-06T16` `:57:` `25...`.
+    const stamped = [
+      '2026-10-06T16:57:25.1234567Z ##[group]Run npm ci',
+      '2026-10-06T16:57:26.0000000Z added 812 packages',
+    ].join('\n')
+    expect(groupFileMatches(stamped)).toBe(stamped)
+    // `gh run view --log`: job, step and timestamp, tab-separated.
+    const ghLog = [
+      'test (22)\tRun tests\t2026-10-06T16:57:25.1Z  ✓ test/a.test.ts',
+      'test (22)\tRun tests\t2026-10-06T16:57:25.2Z  ✓ test/b.test.ts',
+    ].join('\n')
+    expect(groupFileMatches(ghLog)).toBe(ghLog)
+    const clock = 'build 12:30:01 started\nbuild 12:30:02 done'
+    expect(groupFileMatches(clock)).toBe(clock)
   })
 })

@@ -220,6 +220,30 @@ def calculate(x):
     }
   })
 
+  // A module that ties a response to its own request state (the dedup's
+  // thread chain) keys it on the context, because the body it is handed has
+  // been rewritten by every module and DLP stage after it.
+  it('hands observeResponse the context transformRequest saw for the same request', async () => {
+    const seen: { transform: unknown[]; observe: unknown[] } = { transform: [], observe: [] }
+    const stub = {
+      id: 'stub-ctx', name: 'Stub', description: '', enabled: true,
+      transformRequest: (body: string, ctx: unknown) => { seen.transform.push(ctx); return { body, modified: false } },
+      observeResponse: (_body: string, ctx: unknown) => { seen.observe.push(ctx) },
+      getStats: () => ({ id: 'stub-ctx', name: 'Stub', enabled: true, totalInvocations: 0, tokensOriginal: 0, tokensPruned: 0, tokensSaved: 0, percentSaved: 0, recentEvents: [] }),
+    }
+    moduleManager.register(stub)
+    try {
+      const payload = JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'same context' }] })
+      const res = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(res.status).toBe(200)
+      expect(seen.transform).toHaveLength(1)
+      expect(seen.observe).toHaveLength(1)
+      expect(seen.observe[0]).toBe(seen.transform[0])
+    } finally {
+      stub.enabled = false
+    }
+  })
+
   it('replays a repeated request from the response cache without calling upstream', async () => {
     config.modules!.responseCache!.enabled = true
     try {
