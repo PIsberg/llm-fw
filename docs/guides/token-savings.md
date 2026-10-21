@@ -348,6 +348,19 @@ the file no longer matches. With `collapseSpaceRuns`, any edit of a line with
 aligned spaces misses, which is why it is off. A single tab, such as the one
 after a line number in Claude Code's file reads, is never collapsed.
 
+Two more rewrites run whenever the module is on, with no switch of their own:
+
+- A run of two or more contiguous library or runtime stack frames
+  (`node_modules/`, `node:internal/`) becomes
+  `[llm-fw: N internal/library stack frames elided]`. Application frames stay
+  whole. This one drops text: the elided frames are not recoverable.
+- Two or more contiguous `file:line:content` lines for the same file (`grep -rn`,
+  `rg`, `tsc`) are grouped under one `<file>:` header, each match kept as
+  `  line:content`. Every match stays. The prefix must look like a file path, a
+  directory separator or a file extension and no whitespace, so log lines that
+  start with an ISO timestamp (`2026-10-06T16:57:25Z`) or the tab-separated
+  lines of `gh run view --log` are left as they are.
+
 ### Tool result deduplicator
 
 `modules.toolResultDedup.enabled` (`LLM_FW_TOOL_RESULT_DEDUP_ENABLED`), option
@@ -358,6 +371,19 @@ result identical to an earlier one in the same request becomes
 by its tool call id (or `#n`, its position, when the format carries no id).
 The first copy always stays, and which copy is kept depends only on what came
 before it, so a growing conversation is rewritten the same way on every turn.
+
+A client that keeps the conversation on the server and sends only the new
+messages (`thread` with `type: "continue"` and `previous_message_id`, or the
+Responses API's `previous_response_id`) gets the same pointers across turns:
+the module remembers what each request contained and chains it to the id the
+response carries. The chain survives the modules and the DLP redaction that run
+after it. It holds 256 threads and 512 results per thread, oldest dropped
+first, in memory only, so it starts empty after a restart.
+
+A `<system-reminder>...</system-reminder>` block identical to an earlier one,
+in a prompt or a tool result, becomes
+`[llm-fw: identical system-reminder omitted]`. This applies whatever the block's
+length.
 
 ### Tool result truncator
 
