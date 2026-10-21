@@ -333,7 +333,7 @@ sequenceDiagram
 
     U->>CLI: llm-fw setup
     CLI->>FS: mkdir ~/.llm-fw/ (chmod 0700)
-    CLI->>CLI: generateCA() via node-forge
+    CLI->>CLI: generateCA() via node:crypto
     CLI->>FS: write ca.crt, ca.key
     CLI->>OS: certutil / security / update-ca-certificates
     OS-->>CLI: CA trusted

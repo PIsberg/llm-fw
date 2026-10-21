@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Paddle webhook verification and Keygen licence issuance (`src/license/paddleFulfillment.ts`,
+  `scripts/fulfill-paddle-webhook.ts`).** Verifies Paddle Billing's `Paddle-Signature`
+  HMAC-SHA256 header in constant time with a 5-minute replay window, extracts the buyer and
+  plan from `transaction.completed`, issues an `ED25519_SIGN` key through Keygen's JSON:API,
+  and verifies the returned key offline against `keygenPublicKey()` before returning the
+  activation command.
 - **The token-savings guide says where Claude Code's input bill goes, and why clearing old
   thinking is not offered.** Over 30 days of one developer's transcripts, cache reads were
   81.7% of the input bill. Thinking was 66% of Opus 5.5 output and was sent back in full, but
@@ -223,12 +229,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   traffic: of 1,382 tool outputs from 32 real Codex sessions, 31 (2.2%) are now refused, all
   benign, and each is refused by the same stage when the same text arrives as a Claude Code tool
   result. Codex now gets the scanning, and the false positives, that Claude Code already gets.
-- **The node-forge advisory's "not reachable" claim is now enforced (#254).** node-forge
-  `<= 1.4.0` (Dependabot #57, high, still no patched release) mis-verifies RSA PKCS#1 v1.5
-  signatures; llm-fw only signs and parses with forge. `test/proxy/forge-advisory.test.ts` fails
-  if a file importing node-forge calls a forge verification API, and `SECURITY.md` records the
-  assessment. The adm-zip advisory from the same issue no longer applies: it now resolves to
-  0.6.1.
+- **`node-forge` removed; CA, leaf certificate and CRL generation now use `node:crypto`
+  (#254).** `node-forge <= 1.4.0` carried five open CVEs (Dependabot #57, #66-#69) with no
+  upstream fix, and synchronous RSA-2048 prime generation in pure JavaScript took up to 30 s
+  on shared runners. `src/proxy/certs.ts` now generates and parses the Root CA, per-host SAN
+  leaf certificates and the empty v2 CRL directly with `node:crypto` and RFC 5280 ASN.1 DER
+  encoding (`npm audit` reports 0 vulnerabilities, and runtime dependencies drop from three to
+  two: `@huggingface/transformers` and `cosmiconfig`). `test/proxy/forge-advisory.test.ts` pins
+  that `node-forge` never returns to `package.json` or imports. The adm-zip advisory from the
+  same issue no longer applies: it now resolves to 0.6.1.
 
 ### Changed
 
@@ -291,6 +300,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dotted `.email` property names, quoted `"email"` keys and `email is <address>` no longer
+  fire as exfiltration or bare imperatives (ruleset 2026.10.81).** `isEmailNoun` in
+  `src/detection/indirectInstruction.ts` now recognises `email` after a method/property dot
+  (`{@code meta.scope.email}`, `profile.user.email`), inside quotes or backticks (`"email"`,
+  `` `email` ``), or before a copula (`email is alice@...`), across both the exfil-target and
+  sentence-imperative rules. Measured: 0 of 23,938 eval verdicts changed, `npm run fpr`
+  unchanged at 2.68% (9 of 336), Dolly and oasst1 samples 0 of 2,000 each.
 - **The stream usage reporter no longer hands clients a chunk they did not ask for (#421).** It
   sets `stream_options.include_usage` so the Usage Meter can count OpenAI-style streams, and the
   provider then sends a final chunk with an empty `choices` array, on which client code that reads

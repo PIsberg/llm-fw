@@ -74,8 +74,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "~4.2.0",
-    "cosmiconfig": "^10.0.0",
-    "node-forge": "^1.4.0"
+    "cosmiconfig": "^10.0.0"
   },
   "//peerDependencies": "OCR is off by default (nonText.ocr), loaded through a dynamic import in src/detection/ocr.ts, and already degrades to opaque handling when the import fails. As a hard dependency it cost every install ~50 MB and 13 packages for a feature most installs never switch on. An OPTIONAL peer is the only form npm does not install by default: optionalDependencies are installed unless the user passes --omit=optional.",
   "peerDependencies": {
@@ -91,7 +90,6 @@
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.2.0",
-    "@types/node-forge": "^1.3.14",
     "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
     "@vitest/coverage-v8": "^5.0.3",

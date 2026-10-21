@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 // back into `dependencies` and undo the whole thing.
 const ROOT = new URL('../../', import.meta.url)
 const PKG = JSON.parse(readFileSync(fileURLToPath(new URL('package.json', ROOT)), 'utf8')) as {
+  version: string
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
@@ -23,6 +24,9 @@ const PKG = JSON.parse(readFileSync(fileURLToPath(new URL('package.json', ROOT))
   files?: string[]
 }
 const OCR_SOURCE = readFileSync(fileURLToPath(new URL('src/detection/ocr.ts', ROOT)), 'utf8')
+const SECURITY_MD = readFileSync(fileURLToPath(new URL('SECURITY.md', ROOT)), 'utf8')
+const NOTICE_MD = readFileSync(fileURLToPath(new URL('NOTICE.md', ROOT)), 'utf8')
+const CHART_YAML = readFileSync(fileURLToPath(new URL('deploy/helm/llm-fw/Chart.yaml', ROOT)), 'utf8')
 
 describe('tesseract.js stays off the default install path', () => {
   it('is not a runtime dependency', () => {
@@ -67,5 +71,21 @@ describe('third-party notices ship with the package', () => {
     // npm auto-includes README and LICENSE but not NOTICE, so an unlisted
     // NOTICE.md would exist in the repo and be missing from the tarball.
     expect(PKG.files ?? []).toContain('NOTICE.md')
+  })
+})
+
+describe('SECURITY.md, Chart.yaml and NOTICE.md track the current release and dependency tree', () => {
+  it('SECURITY.md lists the current minor line from package.json as supported', () => {
+    const [major, minor] = PKG.version.split('.')
+    expect(SECURITY_MD).toMatch(new RegExp(`\\|\\s*${major}\\.${minor}\\.x\\s*\\|\\s*yes\\s*\\|`))
+  })
+
+  it('Chart.yaml appVersion matches package.json version', () => {
+    expect(CHART_YAML).toMatch(new RegExp(`^appVersion:\\s*"${PKG.version.replace(/\./g, '\\.')}"\\s*$`, 'm'))
+  })
+
+  it('neither SECURITY.md nor NOTICE.md lists removed node-forge as in the dependency tree', () => {
+    expect(SECURITY_MD).not.toMatch(/`node-forge`/)
+    expect(NOTICE_MD).not.toMatch(/`node-forge`/)
   })
 })

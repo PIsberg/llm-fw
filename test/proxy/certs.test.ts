@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import forge from 'node-forge'
+import { X509Certificate } from 'node:crypto'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,33 +7,18 @@ import { CertFactory } from '../../src/proxy/certs.js'
 
 const TEST_DIR = join(tmpdir(), 'llm-fw-certs-test-' + process.pid)
 
-function makeTestCA() {
-  const caKeys = forge.pki.rsa.generateKeyPair(2048)
-  const caCert = forge.pki.createCertificate()
-  caCert.publicKey = caKeys.publicKey
-  caCert.serialNumber = '01'
-  const now = new Date()
-  const later = new Date(); later.setFullYear(later.getFullYear() + 1)
-  caCert.validity.notBefore = now
-  caCert.validity.notAfter = later
-  const attrs = [{ name: 'commonName', value: 'test CA' }]
-  caCert.setSubject(attrs); caCert.setIssuer(attrs)
-  caCert.setExtensions([{ name: 'basicConstraints', cA: true }])
-  caCert.sign(caKeys.privateKey, forge.md.sha256.create())
-  return { cert: caCert, key: caKeys.privateKey }
-}
-
 describe('CertFactory — key reuse (FIX-2)', () => {
   let factory: CertFactory
 
   beforeAll(() => {
     fs.mkdirSync(TEST_DIR, { recursive: true })
+    process.env.LLM_FW_DIR = TEST_DIR
     factory = new CertFactory()
-    // Inject a fake CA so tests don't touch disk
-    ;(factory as any).caForge = makeTestCA()
+    factory.generateCA()
   })
 
   afterAll(() => {
+    delete process.env.LLM_FW_DIR
     fs.rmSync(TEST_DIR, { recursive: true, force: true })
   })
 
@@ -58,8 +43,9 @@ describe('CertFactory — key reuse (FIX-2)', () => {
       const creds = factory.getHostCert(hostname)
       keyPems.add(creds.key)
 
-      const parsed = forge.pki.certificateFromPem(creds.cert)
-      cns.add(parsed.subject.getField('CN')?.value)
+      const parsed = new X509Certificate(creds.cert)
+      const cnMatch = /^CN=(.+)$/m.exec(parsed.subject)
+      if (cnMatch?.[1]) cns.add(cnMatch[1])
     }
 
     // All three certs share exactly ONE private key — no per-hostname RSA generation

@@ -162,6 +162,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.81 ("email" as a dotted property, quoted key or
+  // copula subject is a noun; measured, no row moved).
   // Held at ruleset 2026.10.80 (eight false-positive fixes found on real
   // traffic, #358 #374 #391 #393 #395 #404 #406 #415; measured, no row moved).
   // Held at ruleset 2026.10.79 (module defaults in config.ts only, no
