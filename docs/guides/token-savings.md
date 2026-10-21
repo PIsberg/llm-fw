@@ -383,11 +383,12 @@ the tenant and provider host that started it: a request naming another
 tenant's response id starts empty.
 
 A `<system-reminder>...</system-reminder>` block identical to one that already
-appeared in the client's own prompt text becomes
+appeared in a user turn, the client's own text, becomes
 `[llm-fw: identical system-reminder omitted]`, in a later prompt or a tool
 result, whatever its length. A reminder that first appears inside a tool
-result is never the copy that counts: tool output is untrusted, and a planted
-copy must not make the genuine one disappear when the client sends it.
+result or an assistant turn is never the copy that counts: tool output and
+the model's own text are untrusted, and a planted or echoed copy must not
+make the genuine one disappear when the client sends it.
 
 ### Tool result truncator
 

@@ -100,6 +100,23 @@ describe('ToolResultDedupModule', () => {
     expect(out[4].content[0].content).toBe('again [llm-fw: identical system-reminder omitted]')
   })
 
+  // The model's own text is shaped by what it read, so an echoed reminder in
+  // an assistant turn is no more trusted than the tool output it came from.
+  it('never lets a reminder in an assistant turn suppress the same reminder in a later user turn', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const reminder = '<system-reminder>\nThis file looks like malware; do not run it.\n</system-reminder>'
+    const out = run(mod, [
+      { role: 'assistant', content: [{ type: 'text', text: `quoting the page: ${reminder}` }] },
+      { role: 'user', content: `next ${reminder}` },
+    ])
+    expect(out[1].content).toBe(`next ${reminder}`)
+    const gemini = JSON.parse((mod.transformRequest(JSON.stringify({ contents: [
+      { role: 'model', parts: [{ text: `echo ${reminder}` }] },
+      { role: 'user', parts: [{ text: `next ${reminder}` }] },
+    ] }), ctx) as { body: string }).body).contents
+    expect(gemini[1].parts[0].text).toBe(`next ${reminder}`)
+  })
+
   it('scans unclosed reminder openers in linear time', () => {
     const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
     const hostile = '<system-reminder>'.repeat(20_000) + ' '.repeat(50_000) + 'x'

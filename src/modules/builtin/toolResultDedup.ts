@@ -44,9 +44,9 @@ function parentChainId(payload: Obj): string | undefined {
 /**
  * Strips repeated `<system-reminder>...</system-reminder>` blocks once an
  * identical body has already appeared in `reminders`. Only a trusted slot
- * (`record`, the client's own prompt text) adds to `reminders`: tool output
- * is untrusted, and a copy planted there must not make a later genuine
- * reminder disappear.
+ * (`record`, the client's own user-turn text) adds to `reminders`: tool
+ * output and the model's own turns are untrusted, and a copy planted or
+ * echoed there must not make a later genuine reminder disappear.
  *
  * indexOf rather than a regex: tool output can hold thousands of unclosed
  * openers, and a lazy `[\s\S]*?` rescans to the end of the text from each.
@@ -142,7 +142,7 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
   }
 
   protected rewrite(text: string, slot: TextSlot): string {
-    const cleaned = dedupReminders(text, this.reminders, slot.kind === 'prompt')
+    const cleaned = dedupReminders(text, this.reminders, slot.kind === 'prompt' && slot.role === 'user')
     if (slot.kind !== 'tool_result') return cleaned
     this.ordinal++
     if (cleaned.length < this.cfg.minLength) return cleaned
