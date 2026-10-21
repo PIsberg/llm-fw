@@ -185,6 +185,22 @@ Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format 
 
 ## Installation
 
+**One-step install, setup, and start:**
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/PIsberg/llm-fw/main/scripts/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell — run as Administrator to also enable the sinkhole)
+irm https://raw.githubusercontent.com/PIsberg/llm-fw/main/scripts/install.ps1 | iex
+```
+
+The install script verifies Node.js 22+, runs `npm install -g --ignore-scripts llm-fw`, runs `llm-fw setup` (preserving your user `PATH` and `HOME` across `sudo` when `node` comes from `nvm`/`fnm`/`volta`/Homebrew), and starts the proxy.
+
+**Or install via npm directly:**
+
 ```bash
 npm install -g llm-fw
 # or run without installing:
