@@ -66,7 +66,10 @@ describe('scripts/install.ps1', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     },
-    20_000,
+    // Spawning a real pwsh costs several seconds before the first assertion
+    // runs, and a loaded machine can spend more than the old 20 s budget on
+    // start-up alone (#449). The case itself is a few tens of seconds.
+    60_000,
   );
 
   it.runIf(Boolean(pwsh) && os.platform() === 'win32')(
