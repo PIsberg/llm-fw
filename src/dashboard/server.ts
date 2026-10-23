@@ -2623,7 +2623,23 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     }
 
     if (req.method === 'GET' && path === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      // The page ships every style and script inline and talks only to this
+      // origin (fetch to /api/*, the /events stream), so the policy says
+      // exactly that: nothing external can load even if markup ever slipped
+      // past esc(), no site can frame the dashboard to click-jack its live
+      // switches, and the favicon and SVG backgrounds stay data: URIs.
+      // 'unsafe-inline' is the price of inline on* handlers; 'unsafe-eval' is
+      // not granted. Pinned by dashboard.integration.test.ts (the header) and
+      // csp.spec.ts (the real page running under it).
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy':
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+          "img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      })
       res.end(HTML)
       return
     }

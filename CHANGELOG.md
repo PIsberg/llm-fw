@@ -264,6 +264,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The dashboard page carries a Content-Security-Policy.** `GET /` on the dashboard now
+  answers with `default-src 'none'`, inline-only scripts and styles, `img-src 'self' data:`,
+  `connect-src 'self'`, `form-action 'self'`, `base-uri 'none'` and `frame-ancestors 'none'`,
+  plus `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+  `Referrer-Policy: no-referrer`. The page already shipped every byte inline and only talked
+  to its own origin; the header makes the browser enforce it, so markup that ever slipped
+  past the page's escaping could not load an external script or image, and no other site
+  can frame the dashboard to click-jack its live switches. Found by a security review of the
+  dashboard redesign, which turned up no injection but no headers either. Pinned by
+  `test/dashboard/dashboard.integration.test.ts` (the header) and
+  `test/dashboard/csp.spec.ts` (the real page running under it with zero violations).
+
 - **Tool output sent through the OpenAI Responses API is now scanned for prompt injection
   (GHSA-83jp-cppw-c3v6).** OpenAI Codex CLI sends each tool result as a `function_call_output`
   item in `input` (or `custom_tool_call_output`, `local_shell_call_output`), and the detection
