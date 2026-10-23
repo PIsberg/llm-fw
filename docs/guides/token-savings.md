@@ -388,6 +388,17 @@ result or an assistant turn is never the copy that counts: tool output and
 the model's own text are untrusted, and a planted or echoed copy must not
 make the genuine one disappear when the client sends it.
 
+Measured live on 2026-10-23, together with the pruner: Claude Code with
+Sonnet through a spare-port instance, both modules off then on, 3 runs per arm
+on each of two tasks against a small Node fixture, $0.46 in all, every run
+fixing the bug. Compared between runs with the same number of turns, billed
+prompt tokens (uncached input, cache reads and cache writes) fell by 0.55%
+(70,854 to 70,464) on a find-and-fix task with grep output, and by 0.11% to
+0.57% on a task that rereads files and reruns commands. On that second task
+the deduplicator removed 3.2% of tool-result tokens and the pruner 6.2%. The
+ceiling is low because most of each request is the system prompt, the tool
+definitions and the model's own turns, which neither module touches.
+
 ### Tool result truncator
 
 `modules.toolResultTruncate.enabled` (`LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED`).
