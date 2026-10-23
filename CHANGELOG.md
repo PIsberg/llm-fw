@@ -37,9 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gc` or `type` of one file, with only its line-selecting options, and the path is absolute or
   relative to a `workdir` the call names (not on Claude Code's `Bash`, which runs where the
   call does not say). Anything a shell could expand or chain (a pipe, redirection, `;`, `&&`,
-  `$`, `%`, backtick, parentheses, glob, comma list, `~`, a second line, a backslash under a
-  POSIX shell, where `.\.` reads as `..`) keeps the output untrusted, and so do `git show`,
-  `rg`, `curl` and every other command.
+  `$`, `%`, backtick, parentheses, glob, comma list, `~`, a second line) keeps the output
+  untrusted, and so do `git show`, `rg`, `curl` and every other command. A backslash counts
+  only when the file stays under the root read both as a PowerShell separator and as a bash
+  escape, where `.\.` is `..`, unless a `pwsh` wrapper names the shell.
   Replaying the 872 distinct shell outputs from the 32 Codex sessions with `C:\dev\private`
   trusted: 17 refused by default, the 5 that were plain reads under the root now warn, the other
   12 stay refused. Still empty by default: 0 of 23,938 eval verdicts changed, `fpr` identical

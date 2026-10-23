@@ -116,12 +116,23 @@ describe('trustedReadPath on shell reads', () => {
     // backslash-to-slash read stays under the root.
     expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a/.\\./.\\./.\\./etc/passwd' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Bash', { command: 'cat C:\\dev\\private\\x.md' }, ROOTS)).toBeNull()
-    expect(trustedReadPath('exec_command', { command: 'cat src\\x.ts', workdir: '/home/dev/projects/a' }, ROOTS)).toBeNull()
+    // Under bash this reads `srcx.ts`, under PowerShell `src/x.ts`: both under the root, so it is trusted either way.
+    expect(trustedReadPath('exec_command', { command: 'cat src\\x.ts', workdir: '/home/dev/projects/a' }, ROOTS)).toBe('/home/dev/projects/a/src/x.ts')
     expect(trustedReadPath('local_shell_call', { command: ['bash', '-lc', 'cat /home/dev/projects/a/.\\./x'] }, ROOTS)).toBeNull()
-    expect(trustedReadPath('local_shell_call', { command: ['cat', '/home/dev/projects/a/.\\./x'] }, ROOTS)).toBeNull()
-    // PowerShell, by wrapper or by drive path, keeps the separator.
+    expect(trustedReadPath('local_shell_call', { command: ['cat', '/home/dev/projects/a/.\\./.\\./.\\./x'] }, ROOTS)).toBeNull()
+    // A pwsh wrapper keeps the separator.
     expect(trustedReadPath('local_shell_call', { command: ['pwsh', '-Command', 'Get-Content C:\\dev\\private\\x.md'] }, ROOTS)).toBe('C:/dev/private/x.md')
-    expect(trustedReadPath('shell_command', { command: 'cat C:\\dev\\private\\x.md' }, ROOTS)).toBe('C:/dev/private/x.md')
+    // A bare string from Codex may have run under bash as well as PowerShell,
+    // so the file must stay under the root read either way.
+    // An absolute Windows path spelt with backslashes reads under bash as `C:devprivatex.md`, a
+    // drive-relative name with a colon the path rules fail closed on, so it is not trusted from a
+    // bare string; Codex reads relatively (`Get-Content src\x.py`), which is.
+    expect(trustedReadPath('shell_command', { command: 'cat C:\\dev\\private\\x.md', workdir: WIN }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell_command', { command: 'cat C:\\dev\\private\\x.md' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell_command', { command: 'Get-Content .\\src\\x.py', workdir: WIN }, ROOTS)).toBe('c:/dev/private/claude_light/src/x.py')
+    expect(trustedReadPath('shell_command', { command: 'cat .\\./.\\./.\\./.\\./x', workdir: WIN }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell_command', { command: 'cat C:\\dev\\private\\.\\./.\\./.\\./.\\./Users\\me\\.ssh\\id', workdir: WIN }, ROOTS)).toBeNull()
+    expect(trustedReadPath('local_shell_call', { command: ['pwsh', '-Command', 'cat .\\./.\\./.\\./.\\./x'] }, ROOTS)).toBeNull()
   })
 
   it('rejects cmd variable expansion and does not read cmd as a wrapper (security review)', () => {

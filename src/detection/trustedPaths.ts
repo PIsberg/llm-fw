@@ -95,8 +95,7 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
     // POSIX shell on every platform, so a `workdir` field on it is not honoured
     // and only an absolute path counts.
     const bash = toolName === 'Bash'
-    const file = shellReadPath(args.command, !bash && typeof args.workdir === 'string' ? args.workdir : undefined, bash)
-    return file && underTrustedRoot(file, roots) ? file : null
+    return shellReadPath(args.command, !bash && typeof args.workdir === 'string' ? args.workdir : undefined, bash, roots)
   }
   if (!READ_TOOLS.has(toolName)) return null
   const paths = PATH_KEYS.filter(k => k in args).map(k => args[k])
@@ -135,9 +134,10 @@ function underTrustedRoot(raw: string, roots: readonly string[]): boolean {
  * what follows on a wrapped line), `@` (PowerShell splatting), `^` (cmd's
  * escape), `!` (history or delayed expansion), `%` (cmd's variable
  * expansion), a newline. A comma, which makes a PowerShell list, is allowed
- * only inside a sed line range. A backslash is a path separator only under
- * PowerShell; a POSIX shell reads it as an escape, so `.\.` is `..` there
- * while it would normalise here as `./.`, and the whole command is rejected.
+ * only inside a sed line range. A backslash is a path separator under
+ * PowerShell and an escape under a POSIX shell, where `.\.` is `..`; unless a
+ * pwsh wrapper says which shell ran, the path has to stay under the root
+ * read both ways.
  */
 const SHELL_META = /[|;&<>$`(){}*?[\]~#@^!%\n\r]/
 
@@ -187,17 +187,18 @@ function tokenise(script: string): string[] | null {
 }
 
 /**
- * The one file a shell command reads, resolved against `workdir` when the
- * command names it relatively; null for anything that is not exactly one
- * plain read command with one path and only its line-selecting options.
- * `command` is a string, or the argv array Codex and `local_shell_call` send,
- * either `[shell, -c|-lc, script]` or the read command's own argv. `posix`
- * says the command runs in a POSIX shell whatever its paths look like;
- * otherwise a PowerShell wrapper or a Windows drive path says it does not.
+ * The one file a shell command reads under one of `roots`, resolved against
+ * `workdir` when the command names it relatively; null for anything that is
+ * not exactly one plain read command with one path and only its
+ * line-selecting options, or whose file is not under a root. `command` is a
+ * string, or the argv array Codex and `local_shell_call` send, either
+ * `[shell, -c|-lc, script]` or the read command's own argv. `posix` says the
+ * command runs in a POSIX shell whatever its paths look like.
  */
-function shellReadPath(command: unknown, workdir: string | undefined, posix: boolean): string | null {
+function shellReadPath(command: unknown, workdir: string | undefined, posix: boolean, roots: readonly string[]): string | null {
   let tokens: string[] | null
   let backslash: boolean
+  let powershell = false
   if (typeof command === 'string') {
     if (SHELL_META.test(command)) return null
     backslash = command.includes('\\')
@@ -207,7 +208,8 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
     const exe = path.posix.basename(argv[0]!.replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase()
     if (SHELLS.has(exe)) {
       if (argv.length !== 3 || !SHELL_SCRIPT_FLAGS.has(argv[1]!.toLowerCase()) || SHELL_META.test(argv[2]!)) return null
-      if (!WINDOWS_SHELLS.has(exe)) posix = true
+      if (WINDOWS_SHELLS.has(exe)) powershell = true
+      else posix = true
       backslash = argv[2]!.includes('\\')
       tokens = tokenise(argv[2]!)
     } else {
@@ -252,14 +254,28 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
   if (file === null || file.length === 0) return null
   if (verb === 'sed' && sedScript === null) return null
 
-  const slashed = file.replace(/\\/g, '/')
-  const windows = !posix && (DRIVE_RE.test(slashed) || (workdir !== undefined && DRIVE_RE.test(workdir.replace(/\\/g, '/'))))
-  if (backslash && !windows) return null
-  if (normalise(slashed)) return slashed
-  if (slashed.startsWith('/') || DRIVE_RE.test(slashed)) return null // absolute but unresolvable: fail closed
+  if (backslash && posix) return null
+  const resolved = resolveRead(file.replace(/\\/g, '/'), workdir)
+  if (!resolved || !underTrustedRoot(resolved, roots)) return null
+  // Without a wrapper naming the shell, a string with a backslash may have
+  // run under bash as well as PowerShell (Codex lets the user pick), and bash
+  // drops the backslashes: `.\.` is `..`. The file has to be under the root
+  // read that way too, or the command could climb out while reading as if
+  // it stayed under.
+  if (backslash && !powershell) {
+    const asPosix = resolveRead(file.replace(/\\/g, ''), workdir)
+    if (!asPosix || !underTrustedRoot(asPosix, roots)) return null
+  }
+  return resolved
+}
+
+/** `file` (forward slashes) made absolute: as is, or joined to `workdir` when relative; null when neither resolves. */
+function resolveRead(file: string, workdir: string | undefined): string | null {
+  if (normalise(file)) return file
+  if (file.startsWith('/') || DRIVE_RE.test(file)) return null // absolute but unresolvable: fail closed
   if (!workdir) return null
   const base = normalise(workdir)
   if (!base) return null
-  const joined = path.posix.join(base, slashed)
+  const joined = path.posix.join(base, file)
   return normalise(joined) ? joined : null
 }
