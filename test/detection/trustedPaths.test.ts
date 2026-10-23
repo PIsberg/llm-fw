@@ -91,8 +91,8 @@ describe('trustedReadPath', () => {
     ]) expect(trustedReadPath('Read', { file_path: p }, ROOTS), p).toBeNull()
   })
 
-  it('trusts only file-read tools: shell, fetch and write output stay untrusted', () => {
-    expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a.md' }, ROOTS)).toBeNull()
+  it('trusts only file-read tools: fetch, write and non-read shell output stay untrusted', () => {
+    expect(trustedReadPath('Bash', { command: 'git show HEAD:a.md' }, ROOTS)).toBeNull()
     expect(trustedReadPath('WebFetch', { url: 'https://example.com', path: '/home/dev/projects/a' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Write', { file_path: '/home/dev/projects/a.md' }, ROOTS)).toBeNull()
     expect(trustedReadPath(undefined, { file_path: '/home/dev/projects/a.md' }, ROOTS)).toBeNull()
@@ -140,10 +140,15 @@ describe('trusted paths through the real pipeline', () => {
     expect((await trusted.run('/v1/messages', body, META)).action).toBe('warn')
   }, 60_000)
 
-  it('still blocks the same text read from outside the root, or printed by a shell', async () => {
+  it('still blocks the same text read from outside the root, or printed by a shell command that is not a plain read', async () => {
     const outside = readOf('Read', { file_path: '/tmp/detection-stages.md' }, guide)
-    const shell = readOf('Bash', { command: 'cat /home/dev/projects/llm-fw/docs/guides/detection-stages.md' }, guide)
+    const shell = readOf('Bash', { command: 'git show HEAD:docs/guides/detection-stages.md' }, guide)
     expect((await trusted.run('/v1/messages', outside, META)).action).toBe('block')
     expect((await trusted.run('/v1/messages', shell, META)).action).toBe('block')
+  }, 60_000)
+
+  it('warns instead when a plain cat printed the guide from under the root (#437)', async () => {
+    const shell = readOf('Bash', { command: 'cat /home/dev/projects/llm-fw/docs/guides/detection-stages.md' }, guide)
+    expect((await trusted.run('/v1/messages', shell, META)).action).toBe('warn')
   }, 60_000)
 })

@@ -70,9 +70,11 @@ on benign tool output. Measured numbers for both settings are in
 
 **Trusted project roots.** `detection.surfaces.tool_result.trustedPaths` (also
 `LLM_FW_TRUSTED_PATHS`, comma-separated) lists absolute directories whose files
-you vouch for. A file-read tool result from under one of them warns instead of
-blocking when only a wording stage objects; shell output, fetches and anything
-under `node_modules` or `vendor` there do not count. Empty by default, applied
+you vouch for. A file-read tool result from under one of them, or a shell tool
+result whose command was one plain `cat`, `head`, `tail`, `sed -n` or
+`Get-Content` of one file there, warns instead of blocking when only a wording
+stage objects; other shell output, fetches and anything under `node_modules` or
+`vendor` there do not count. Empty by default, applied
 live. See [Tuning: trust file reads from your own projects](tuning.md#trust-file-reads-from-your-own-projects).
 
 **Model cache and first start.** The first run downloads the ONNX weights from

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI runs the suite on Node 26.** `Build & Test` now covers Node 22, 24 and 26, so a
+  change that only breaks on the current Node line fails in CI instead of on a user's
+  machine. The supported floor is unchanged (`engines.node >=22`), and the container
+  image stays on `node:24`, the newest LTS line, until 26 enters LTS;
+  `test/ci/dockerPinning.test.ts` keeps the image on a major the matrix tests.
+
 - **Trusted project roots for file reads (`detection.surfaces.tool_result.trustedPaths`,
   `LLM_FW_TRUSTED_PATHS`; ruleset 2026.10.82).** A local file-read tool result (Claude Code's
   `Read`, `read_file`, `read_text_file`, and the lean-ctx and MCP filesystem servers' read tools;
@@ -29,6 +35,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads from 30 days of one developer's Claude Code transcripts, 156 refusals under the trusted
   root fell to 0 and all 86 outside it stayed refused. An injection planted in a file under a
   trusted root only warns.
+- **Trusted paths now cover a file printed by a plain shell read (#437; ruleset 2026.10.83).**
+  Codex CLI reads every file through its shell tool (`Get-Content claude_light\main.py` with a
+  `workdir`: 311 of the 901 shell calls in 32 local sessions), and Claude Code sometimes `cat`s
+  one, so a file under a trusted root printed that way was still refused. A shell tool result
+  (Claude Code's `Bash`, Codex's `shell`, `shell_command` and `exec_command`, the Responses
+  API's built-in `local_shell_call`, which detection now pairs with its output) is trusted when
+  the command is exactly one `cat`, `head`, `tail`, `sed -n` with a line range, `Get-Content`,
+  `gc` or `type` of one file, with only its line-selecting options, and the path is absolute or
+  relative to a `workdir` the call names (not on Claude Code's `Bash`, which runs where the
+  call does not say). Anything a shell could expand or chain (a pipe, redirection, `;`, `&&`,
+  `$`, `%`, backtick, parentheses, glob, comma list, `~`, a second line) keeps the output
+  untrusted, and so do `git show`, `rg`, `curl` and every other command. A backslash counts
+  only when the file stays under the root read both as a PowerShell separator and as a bash
+  escape, where `.\.` is `..`, unless a `pwsh` wrapper names the shell.
+  Replaying the 872 distinct shell outputs from the 32 Codex sessions with `C:\dev\private`
+  trusted: 17 refused by default, the 5 that were plain reads under the root now warn, the other
+  12 stay refused. Still empty by default: 0 of 23,938 eval verdicts changed, `fpr` identical
+  in every category, held-out recall unchanged (heldout 23/31, InjecAgent 1,054/1,054,
+  safeguard 490/650).
 
 - **Paddle webhook verification and Keygen licence issuance (`src/license/paddleFulfillment.ts`,
   `scripts/fulfill-paddle-webhook.ts`).** Verifies Paddle Billing's `Paddle-Signature`

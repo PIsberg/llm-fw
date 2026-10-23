@@ -272,6 +272,10 @@ Load Tests — Performance & Accuracy (Node 22)         dependency-review
 accuracy-under-load gate, the deterministic scorecard sweep and the
 false-positive SLO.
 
+`Build & Test (Node 26)` also runs on every PR, on the current (not yet LTS)
+Node line, so a runtime change lands here before it reaches an LTS release. It
+is not in the required list above until branch protection adds it.
+
 `CLI on Windows (Node 22)` also runs on every PR: the CLI suite on
 `windows-latest`, where the `it.runIf(win32)` cases execute, plus an
 unelevated `install-service` / `uninstall-service` round trip. It is not in
