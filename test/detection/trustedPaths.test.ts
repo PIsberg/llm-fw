@@ -18,6 +18,16 @@ describe('trustedReadPath', () => {
     expect(trustedReadPath('Read', { file_path: 'c:/Dev/Private/llm-fw/CHANGELOG.md' }, ROOTS)).not.toBeNull()
   })
 
+  it('does not read a Git-Bash /c/... path as a drive path (#439)', () => {
+    // Whether /c/dev/x means C:\dev\x depends on the client: Claude Code
+    // translates it, but Node's own fs on Windows resolves it to C:\c\dev\x,
+    // a different file. Trusting it would vouch for whichever one was read.
+    expect(trustedReadPath('Read', { file_path: '/c/dev/private/llm-fw/README.md' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Read', { file_path: '/C/Dev/Private/a.md' }, ROOTS)).toBeNull()
+    // Against a POSIX root it is the POSIX path it reads as.
+    expect(trustedReadPath('Read', { file_path: '/c/dev/private/a.md' }, ['/c/dev'])).not.toBeNull()
+  })
+
   it('reads a known MCP file server and arguments sent as a JSON string', () => {
     expect(trustedReadPath('mcp__lean-ctx__ctx_read', { path: '/home/dev/projects/a.ts' }, ROOTS)).not.toBeNull()
     expect(trustedReadPath('mcp__filesystem__read_text_file', { path: '/home/dev/projects/a.ts' }, ROOTS)).not.toBeNull()

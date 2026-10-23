@@ -84,6 +84,10 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
   return paths[0] as string
 }
 
+// A Git Bash path such as /c/dev/x is not read as C:\dev\x (#439): Claude
+// Code translates it, but Node's own fs on Windows resolves it to C:\c\dev\x,
+// so what it names depends on the client. It stays the POSIX path it reads
+// as, which no drive root matches.
 function underTrustedRoot(raw: string, roots: readonly string[]): boolean {
   const file = normalise(raw)
   if (!file) return false

@@ -1377,6 +1377,20 @@ describe('trusted paths on the tool_result surface (#391, #349, #405)', () => {
     expect((await pipeline.run('/v1/messages', anthropicRead(`${ROOT}/a.md`, TEXT, 'Bash'), META)).action).toBe('block')
   })
 
+  it('pairs Gemini function calls and Bedrock Converse tool uses (#438)', async () => {
+    mockScore.mockImplementation(heuristicOf(380))
+    const gemini = JSON.stringify({ contents: [
+      { role: 'model', parts: [{ functionCall: { name: 'read_file', args: { absolute_path: `${ROOT}/a.md` } } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: TEXT } } }] },
+    ] })
+    const converse = JSON.stringify({ messages: [
+      { role: 'assistant', content: [{ toolUse: { toolUseId: 'tu_1', name: 'read_file', input: { path: `${ROOT}/a.md` } } }] },
+      { role: 'user', content: [{ toolResult: { toolUseId: 'tu_1', content: [{ text: TEXT }] } }] },
+    ] })
+    expect((await new Pipeline(trusting()).run('/v1beta/models/gemini-2.5-pro:generateContent', gemini, META)).action).toBe('warn')
+    expect((await new Pipeline(trusting()).run('/model/anthropic.claude-x/converse', converse, META)).action).toBe('warn')
+  })
+
   it('pairs OpenAI chat tool calls and Responses function calls by id', async () => {
     mockScore.mockImplementation(heuristicOf(380))
     const chat = JSON.stringify({
