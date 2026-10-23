@@ -839,3 +839,63 @@ describe('getParser – Gemini path', () => {
     expect(getParser('/unknown/path')).toBeNull()
   })
 })
+
+// Trusted paths (#436) need the call that produced a tool result. #438: the
+// formats beyond Anthropic, OpenAI chat and Responses.
+describe('tool results paired with their call (#438)', () => {
+  const READ = { file_path: '/home/dev/projects/a.md' }
+  const OTHER = { file_path: '/tmp/b.md' }
+
+  it('Bedrock Converse: pairs toolResult with toolUse by toolUseId', () => {
+    const body = JSON.stringify({ messages: [
+      { role: 'assistant', content: [{ toolUse: { toolUseId: 'tu_1', name: 'read_file', input: READ } }, { toolUse: { toolUseId: 'tu_2', name: 'read_file', input: OTHER } }] },
+      { role: 'user', content: [{ toolResult: { toolUseId: 'tu_2', content: [{ text: 'b' }] } }, { toolResult: { toolUseId: 'tu_1', content: [{ text: 'a' }] } }] },
+    ] })
+    const results = new BedrockParser().extractToolResults(body)
+    expect(results.map(r => [r.result, r.toolName, r.toolInput])).toEqual([['b', 'read_file', OTHER], ['a', 'read_file', READ]])
+  })
+
+  it('Cohere v2: pairs role:tool messages with assistant tool_calls by id', () => {
+    const body = JSON.stringify({ messages: [
+      { role: 'assistant', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify(READ) } }] },
+      { role: 'tool', tool_call_id: 'c1', content: 'a' },
+    ] })
+    expect(c.extractToolResults(body)[0]).toMatchObject({ toolName: 'read_file', toolInput: JSON.stringify(READ) })
+  })
+
+  it('Cohere v1: takes the call embedded in each tool_results entry', () => {
+    const body = JSON.stringify({ message: 'hi', tool_results: [{ call: { name: 'read_file', parameters: READ }, outputs: [{ text: 'a' }] }] })
+    expect(c.extractToolResults(body)[0]).toMatchObject({ toolName: 'read_file', toolInput: READ })
+  })
+
+  it('Gemini: pairs by id when both sides carry one', () => {
+    const body = JSON.stringify({ contents: [
+      { role: 'model', parts: [{ functionCall: { id: 'f1', name: 'read_file', args: READ } }, { functionCall: { id: 'f2', name: 'read_file', args: OTHER } }] },
+      { role: 'user', parts: [{ functionResponse: { id: 'f2', name: 'read_file', response: { output: 'b' } } }, { functionResponse: { id: 'f1', name: 'read_file', response: { output: 'a' } } }] },
+    ] })
+    expect(g.extractToolResults(body).map(r => r.toolInput)).toEqual([OTHER, READ])
+  })
+
+  it('Gemini without ids: pairs only a name called once in the preceding model turn', () => {
+    const single = JSON.stringify({ contents: [
+      { role: 'model', parts: [{ functionCall: { name: 'read_file', args: READ } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'a' } } }] },
+    ] })
+    expect(g.extractToolResults(single)[0]).toMatchObject({ toolName: 'read_file', toolInput: READ })
+    // Two read_file calls and no ids: which response answers which is a
+    // guess, and a wrong guess would vouch for the untrusted file's text.
+    const twice = JSON.stringify({ contents: [
+      { role: 'model', parts: [{ functionCall: { name: 'read_file', args: READ } }, { functionCall: { name: 'read_file', args: OTHER } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'b' } } }, { functionResponse: { name: 'read_file', response: { output: 'a' } } }] },
+    ] })
+    for (const r of g.extractToolResults(twice)) expect(r.toolInput).toBeUndefined()
+    // A call from an earlier turn does not answer a later response.
+    const stale = JSON.stringify({ contents: [
+      { role: 'model', parts: [{ functionCall: { name: 'read_file', args: READ } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'a' } } }] },
+      { role: 'model', parts: [{ text: 'done' }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'x' } } }] },
+    ] })
+    expect(g.extractToolResults(stale).map(r => r.toolInput)).toEqual([READ, undefined])
+  })
+})
