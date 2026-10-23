@@ -133,9 +133,25 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
   // Compile it here (compile-only, never executed) so such breakage fails fast.
   it('GET / inline <script> compiles without a syntax error', async () => {
     const res = await req(server, 'GET', '/')
-    const match = res.body.match(/<script>([\s\S]*?)<\/script>/)
-    expect(match).not.toBeNull()
-    expect(() => new vm.Script(match![1])).not.toThrow()
+    // Every block, not just the first: the head carries a one-line theme script
+    // ahead of the main one, and matching only the first would compile that
+    // and silently stop checking the 1,300 lines that matter.
+    // Split on the literal tags the page emits rather than a tag regex: the
+    // page is ours, so there are no case or attribute variants to match, and a
+    // regex here reads as a (bad) HTML filter to CodeQL's js/bad-tag-filter.
+    const scripts = res.body.split('<script>').slice(1).map((s) => s.slice(0, s.indexOf('</script>')))
+    expect(scripts.length).toBeGreaterThanOrEqual(2)
+    for (const src of scripts) expect(() => new vm.Script(src)).not.toThrow()
+  })
+
+  // The README promises no telemetry, and the dashboard keeps that true by
+  // shipping every byte of its page inline. A stylesheet, web font or script
+  // pulled from a CDN would be a request to a third party on every open, so the
+  // design uses system font stacks and inline SVG instead.
+  it('GET / references no external stylesheet, font, image or script', async () => {
+    const res = await req(server, 'GET', '/')
+    expect(res.body).not.toMatch(/<(link|script|img|iframe)[^>]*(href|src)=["']?(https?:)?\/\//i)
+    expect(res.body).not.toMatch(/@import|url\(\s*["']?(https?:)?\/\//i)
   })
 
   it('GET /api/events returns 200 JSON array', async () => {
