@@ -71,6 +71,10 @@
 
 ## Dashboard Screenshots
 
+The dashboard follows your OS light or dark scheme; the sun/moon button in the header overrides it. It loads nothing from a third party: fonts are system stacks and every style and script ships inline.
+
+![Dashboard in the dark theme](docs/images/ss-07-dashboard-dark.png)
+
 ### Events tab — live blocked request feed
 
 All intercepted requests appear instantly with detection stage, score, and payload preview. Every stage type (`heuristic`, `embedding`, `dos`, `rag`, `dlp`) has its own colour-coded chip.
