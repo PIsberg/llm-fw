@@ -91,7 +91,11 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
   const args = readArgs(input)
   if (!args) return null
   if (SHELL_TOOLS.has(toolName)) {
-    const file = shellReadPath(args.command, typeof args.workdir === 'string' ? args.workdir : undefined)
+    // Claude Code's Bash runs in a directory the call does not name and is a
+    // POSIX shell on every platform, so a `workdir` field on it is not honoured
+    // and only an absolute path counts.
+    const bash = toolName === 'Bash'
+    const file = shellReadPath(args.command, !bash && typeof args.workdir === 'string' ? args.workdir : undefined, bash)
     return file && underTrustedRoot(file, roots) ? file : null
   }
   if (!READ_TOOLS.has(toolName)) return null
@@ -129,13 +133,18 @@ function underTrustedRoot(raw: string, roots: readonly string[]): boolean {
  * (substitution, grouping, PowerShell expressions), `*`, `?`, `[` (globs),
  * `~` (a home directory the proxy cannot resolve), `#` (a comment can hide
  * what follows on a wrapped line), `@` (PowerShell splatting), `^` (cmd's
- * escape), `!` (history or delayed expansion), a newline. A comma, which
- * makes a PowerShell list, is allowed only inside a sed line range.
+ * escape), `!` (history or delayed expansion), `%` (cmd's variable
+ * expansion), a newline. A comma, which makes a PowerShell list, is allowed
+ * only inside a sed line range. A backslash is a path separator only under
+ * PowerShell; a POSIX shell reads it as an escape, so `.\.` is `..` there
+ * while it would normalise here as `./.`, and the whole command is rejected.
  */
-const SHELL_META = /[|;&<>$`(){}*?[\]~#@^!\n\r]/
+const SHELL_META = /[|;&<>$`(){}*?[\]~#@^!%\n\r]/
 
-const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell', 'cmd'])
-const SHELL_SCRIPT_FLAGS: ReadonlySet<string> = new Set(['-c', '-lc', '-command', '/c'])
+const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell'])
+/** Wrappers that read a backslash as a path separator. `cmd` is not a wrapper here: its quoting and expansion rules are its own. */
+const WINDOWS_SHELLS: ReadonlySet<string> = new Set(['pwsh', 'powershell'])
+const SHELL_SCRIPT_FLAGS: ReadonlySet<string> = new Set(['-c', '-lc', '-command'])
 
 /** Options a read command may carry: `true` takes a number, `'path'` names the file, `'script'` a sed range, `'encoding'` a name, `false` stands alone. */
 type OptionKind = true | false | 'path' | 'encoding' | 'script'
@@ -182,21 +191,28 @@ function tokenise(script: string): string[] | null {
  * command names it relatively; null for anything that is not exactly one
  * plain read command with one path and only its line-selecting options.
  * `command` is a string, or the argv array Codex and `local_shell_call` send,
- * either `[shell, -c|-lc, script]` or the read command's own argv.
+ * either `[shell, -c|-lc, script]` or the read command's own argv. `posix`
+ * says the command runs in a POSIX shell whatever its paths look like;
+ * otherwise a PowerShell wrapper or a Windows drive path says it does not.
  */
-function shellReadPath(command: unknown, workdir: string | undefined): string | null {
+function shellReadPath(command: unknown, workdir: string | undefined, posix: boolean): string | null {
   let tokens: string[] | null
+  let backslash: boolean
   if (typeof command === 'string') {
     if (SHELL_META.test(command)) return null
+    backslash = command.includes('\\')
     tokens = tokenise(command)
   } else if (Array.isArray(command) && command.length > 0 && command.every((a): a is string => typeof a === 'string')) {
     const argv: string[] = command
     const exe = path.posix.basename(argv[0]!.replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase()
     if (SHELLS.has(exe)) {
       if (argv.length !== 3 || !SHELL_SCRIPT_FLAGS.has(argv[1]!.toLowerCase()) || SHELL_META.test(argv[2]!)) return null
+      if (!WINDOWS_SHELLS.has(exe)) posix = true
+      backslash = argv[2]!.includes('\\')
       tokens = tokenise(argv[2]!)
     } else {
       if (argv.some(a => SHELL_META.test(a))) return null
+      backslash = argv.some(a => a.includes('\\'))
       tokens = argv
     }
   } else {
@@ -228,12 +244,17 @@ function shellReadPath(command: unknown, workdir: string | undefined): string | 
       continue
     }
     if (file !== null) return null
+    // sed takes its script from the first operand, so a path there is a script
+    // and whatever follows is the file: the range has to come first.
+    if (verb === 'sed' && sedScript === null) return null
     file = tok
   }
   if (file === null || file.length === 0) return null
   if (verb === 'sed' && sedScript === null) return null
 
   const slashed = file.replace(/\\/g, '/')
+  const windows = !posix && (DRIVE_RE.test(slashed) || (workdir !== undefined && DRIVE_RE.test(workdir.replace(/\\/g, '/'))))
+  if (backslash && !windows) return null
   if (normalise(slashed)) return slashed
   if (slashed.startsWith('/') || DRIVE_RE.test(slashed)) return null // absolute but unresolvable: fail closed
   if (!workdir) return null

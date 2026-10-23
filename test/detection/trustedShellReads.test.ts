@@ -111,6 +111,33 @@ describe('trustedReadPath on shell reads', () => {
     expect(trustedReadPath('local_shell_call', { command: [] }, ROOTS)).toBeNull()
   })
 
+  it('rejects a backslash under a POSIX shell, where it escapes rather than separates (security review)', () => {
+    // bash reads `.\.` as `..`, so this climbs to /etc/passwd while a naive
+    // backslash-to-slash read stays under the root.
+    expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a/.\\./.\\./.\\./etc/passwd' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Bash', { command: 'cat C:\\dev\\private\\x.md' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('exec_command', { command: 'cat src\\x.ts', workdir: '/home/dev/projects/a' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('local_shell_call', { command: ['bash', '-lc', 'cat /home/dev/projects/a/.\\./x'] }, ROOTS)).toBeNull()
+    expect(trustedReadPath('local_shell_call', { command: ['cat', '/home/dev/projects/a/.\\./x'] }, ROOTS)).toBeNull()
+    // PowerShell, by wrapper or by drive path, keeps the separator.
+    expect(trustedReadPath('local_shell_call', { command: ['pwsh', '-Command', 'Get-Content C:\\dev\\private\\x.md'] }, ROOTS)).toBe('C:/dev/private/x.md')
+    expect(trustedReadPath('shell_command', { command: 'cat C:\\dev\\private\\x.md' }, ROOTS)).toBe('C:/dev/private/x.md')
+  })
+
+  it('rejects cmd variable expansion and does not read cmd as a wrapper (security review)', () => {
+    expect(trustedReadPath('shell_command', { command: 'type %USERPROFILE%\\x.md', workdir: WIN }, ROOTS)).toBeNull()
+    expect(trustedReadPath('local_shell_call', { command: ['cmd', '/c', 'type C:\\dev\\private\\x.md'] }, ROOTS)).toBeNull()
+  })
+
+  it('takes the sed range before the file only, as sed does (security review)', () => {
+    expect(trustedReadPath('Bash', { command: 'sed -n /home/dev/projects/a/x.ts 12,40p' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Bash', { command: 'sed -n -e 12,40p /home/dev/projects/a/x.ts' }, ROOTS)).toBe('/home/dev/projects/a/x.ts')
+  })
+
+  it("ignores a workdir on Claude Code's Bash, which runs where the call does not say (security review)", () => {
+    expect(trustedReadPath('Bash', { command: 'cat README.md', workdir: '/home/dev/projects/a' }, ROOTS)).toBeNull()
+  })
+
   it('keeps third-party directories under a root untrusted through a shell as well', () => {
     expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a/node_modules/x/index.js' }, ROOTS)).toBeNull()
     expect(trustedReadPath('shell_command', { command: 'Get-Content .git\\config', workdir: WIN }, ROOTS)).toBeNull()
