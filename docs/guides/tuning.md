@@ -80,6 +80,7 @@ Environment overrides:
 |----------|--------|
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | integer — overrides `detection.surfaces.tool_result.heuristicBlockThreshold` only; the rest of the per-surface config is file-only |
 | `LLM_FW_PROMPT_WORDING_ACTION` | `block` or `warn` — sets `detection.surfaces.prompt.wordingAction`; any other value is ignored |
+| `LLM_FW_TRUSTED_PATHS` | comma-separated project roots — sets `detection.surfaces.tool_result.trustedPaths` |
 
 ### Warn instead of block on the user's own prompt
 
@@ -88,7 +89,7 @@ Prompt injection does its damage when untrusted content (a web page, an email, a
 - `highConfidenceHeuristic` — heuristic score at or above which the prompt still blocks. Default `60`; most single rules score `50`, so this asks for more than one.
 - `highConfidenceSimilarity` and `highConfidenceMargin` — an embedding match at or above both still blocks. Defaults `0.88` and `0.05`; the normal block point is `0.86` and `0.02`.
 
-Unaffected: `tool_result`, `document`, recalled memory and a scanned system prompt keep blocking, and so do the stages on the prompt that are not wording matches (harmful-request, RAG data blocks, ASCII smuggling, many-shot, crescendo, the classifier and the judge). A request let through this way still shows in Live Traffic as a warn.
+Unaffected: `tool_result`, `document`, recalled memory and a scanned system prompt keep blocking (file reads from a trusted root are a separate setting, [below](#trust-file-reads-from-your-own-projects)), and so do the stages on the prompt that are not wording matches (harmful-request, RAG data blocks, ASCII smuggling, many-shot, crescendo, the classifier and the judge). A request let through this way still shows in Live Traffic as a warn.
 
 ```json
 {
@@ -109,3 +110,29 @@ It is off by default because the trade is steep. Measured on 2026-10-10 over eve
 | `benign-realistic` blocked | 9 / 336 | 1 / 336 |
 
 The heuristic score counts rules rather than measuring confidence: "Ignore all previous instructions" matches one rule and scores 50, so gandalf's textbook overrides fall from 97 to 50 blocked. Turn it on when a user jailbreaking their own assistant is not a threat you need the firewall to stop, for example an internal tool whose model provider already enforces its own policy, and when agent traffic (tool results, documents) is the exposure you care about. See [False positives: deciding by surface](../FALSE-POSITIVES.md#deciding-by-surface-instead-of-by-wording) for the full sweep.
+
+### Trust file reads from your own projects
+
+An agent working in a security project, a game about rogue AIs, or llm-fw itself reads files that are full of injection-shaped text, and each read is a `tool_result`, the surface llm-fw guards hardest. `detection.surfaces.tool_result.trustedPaths` lists project roots whose files you vouch for:
+
+```json
+{
+  "detection": {
+    "surfaces": {
+      "tool_result": { "trustedPaths": ["C:\dev\private", "/home/me/src"] }
+    }
+  }
+}
+```
+
+A tool result is trusted only when all of these hold:
+
+- the call that produced it is a file read: Claude Code's `Read`, or a tool named `read_file`, `read_text_file` or `ctx_read` (an `mcp__<server>__` prefix is ignored), paired by id in Anthropic, OpenAI chat and Responses API requests;
+- its path is absolute and, after `..` is resolved, lies under a listed root (Windows paths match case-insensitively, with either separator);
+- no directory between the root and the file is `node_modules`, `bower_components`, `vendor`, `third_party`, `site-packages`, `.venv` or `venv`.
+
+On a trusted read, the wording stages (heuristic, embedding, indirect-instruction, memory-poisoning and the RAG structural signal) warn instead of block, with no high-confidence tier, and the warn event names the file (`[trusted-path] <path>:`). ASCII smuggling, many-shot, the classifier and the judge still block. Shell output (`cat`, `git diff`), fetched pages and search results are never trusted, whatever path they mention, and neither is a relative path, since the proxy cannot see the working directory it is relative to. The embedding stage is skipped on a trusted read unless the judge is on, because there it can only warn: running it took 117 s on the first read of the 30 KB `docs/guides/detection-stages.md`, against 1.7 s without it.
+
+The cost is the obvious one: an injection planted in a file under a trusted root, by a cloned repository or a merged pull request, only warns. List the directories you write yourself, not a folder you clone other people's code into. The check is lexical, so a symlink under a root that points elsewhere is trusted as if it were under the root. An MCP tool is trusted by its name, so any installed MCP server that exposes `read_file` or `ctx_read` is taken at its word about which file it read; installing a server is already trusting its code.
+
+Measured 2026-10-23 on the 2,994 distinct file reads (`Read` and lean-ctx `ctx_read`) in 30 days of one developer's Claude Code transcripts, with `trustedPaths: ["C:\dev\private"]`: the default pipeline refused 242 (8.1%), 156 of them under the root, 131 of those in llm-fw's own source and docs. With the setting, 0 of the 156 are refused (155 warn, 1 passes) and all 86 reads from outside the root are still refused. Re-scanning a demoted read took 26 ms at the median and 1.2 s at most. The eval corpora carry no file paths, so their verdicts cannot move: 0 of 23,938 changed.

@@ -168,6 +168,20 @@ describe('loadConfig env overrides', () => {
     delete process.env.LLM_FW_PROMPT_WORDING_ACTION
   })
 
+  it('LLM_FW_TRUSTED_PATHS sets the trusted roots for file reads, keeping other tool_result overrides', async () => {
+    process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD = '70'
+    process.env.LLM_FW_TRUSTED_PATHS = 'C:\dev\private, /home/dev/projects ,'
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.tool_result).toEqual({ heuristicBlockThreshold: 70, trustedPaths: ['C:\dev\private', '/home/dev/projects'] })
+    delete process.env.LLM_FW_TRUSTED_PATHS
+    delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
+  })
+
+  it('trusts no path by default', async () => {
+    const cfg = await loadConfig()
+    expect(cfg.detection.surfaces?.tool_result?.trustedPaths ?? []).toEqual([])
+  })
+
   it('defaults classifier.surfaces to everything except the trusted system/tool_definition surfaces', async () => {
     const cfg = await loadConfig()
     expect(cfg.detection.classifier?.surfaces).toEqual(['prompt', 'memory', 'tool_result', 'document'])

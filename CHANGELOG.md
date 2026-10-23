@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Trusted project roots for file reads (`detection.surfaces.tool_result.trustedPaths`,
+  `LLM_FW_TRUSTED_PATHS`; ruleset 2026.10.82).** A file-read tool result (Claude Code's `Read`,
+  `read_file`, `read_text_file`, lean-ctx's `ctx_read`) whose absolute path lies under a listed
+  root warns instead of being refused when only a wording stage (heuristic, embedding,
+  indirect-instruction, memory-poisoning, RAG structural) objects, so an agent can read a security
+  project's docs, a game about rogue AIs, or llm-fw's own detection code (#349, #405, the
+  file-read part of #391). Shell output, fetches, search results, relative paths and
+  `node_modules`/`vendor`/`.venv` under a root stay untrusted; ASCII smuggling, many-shot, the
+  classifier and the judge still block. Detection now pairs each tool result with the call that
+  produced it, by id, in Anthropic, OpenAI chat and Responses API requests. Empty by default, so
+  0 of 23,938 eval verdicts changed and `fpr` is identical in every category. On 2,994 file
+  reads from 30 days of one developer's Claude Code transcripts, 156 refusals under the trusted
+  root fell to 0 and all 86 outside it stayed refused. An injection planted in a file under a
+  trusted root only warns.
+
 - **Paddle webhook verification and Keygen licence issuance (`src/license/paddleFulfillment.ts`,
   `scripts/fulfill-paddle-webhook.ts`).** Verifies Paddle Billing's `Paddle-Signature`
   HMAC-SHA256 header in constant time with a 5-minute replay window, extracts the buyer and

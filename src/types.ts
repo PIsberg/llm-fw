@@ -1,6 +1,8 @@
 // Where a scanned text candidate came from. Declared here (not in
 // pipeline.ts, its historical home, which now re-exports it) so config types
 // below can reference it without importing the pipeline module.
+export interface ToolResultItem { toolUseId: string; result: string; toolName?: string; toolInput?: unknown }
+
 export type ScanSource = 'prompt' | 'system' | 'tool_result' | 'tool_definition' | 'document' | 'memory';
 
 export interface UrlFilterConfig {
@@ -137,7 +139,7 @@ export interface DetectionConfig {
     heuristicBlockThreshold?: number;
     embeddingMarginThreshold?: number;
     classifierBlockThreshold?: number;
-  } } & { prompt?: PromptSurfaceConfig };
+  } } & { prompt?: PromptSurfaceConfig; tool_result?: ToolResultSurfaceConfig };
   // What happens to a request when Pipeline.run() itself THROWS (a bug in a
   // parser/normalizer/stage, not a detected injection) — Task C2. Before this
   // setting existed the behavior was IMPLICIT: the throw propagated out of
@@ -186,6 +188,22 @@ export interface PromptSurfaceConfig {
   highConfidenceSimilarity?: number;
   /** Under 'warn', contrastive margin the high-confidence embedding block also needs. Default 0.05. */
   highConfidenceMargin?: number;
+}
+
+// Trusted paths (issues #391, #349, #405). Absolute project roots whose files
+// the operator vouches for: a file-read tool result (Claude Code's Read,
+// read_file, read_text_file, ctx_read) whose path lies under one of them, and
+// outside node_modules, vendor and the like, has its WORDING matches
+// (heuristic, embedding, indirect-instruction, memory-poisoning, RAG
+// structural and embedding)
+// demoted from block to warn, with no high-confidence tier. Shell output,
+// fetches, search results and every other surface keep blocking, and so do
+// the non-wording stages (ASCII smuggling, many-shot, classifier, judge).
+// The cost: an injection planted in a file under a trusted root (a cloned
+// repository, a merged pull request) only warns. Empty by default. Also
+// LLM_FW_TRUSTED_PATHS, comma-separated.
+export interface ToolResultSurfaceConfig {
+  trustedPaths?: string[];
 }
 
 export interface ClassifierConfig {
@@ -837,7 +855,10 @@ export interface PayloadParser {
   // behaviour where `extractPrompts` already includes the system content.
   extractSystem?(body: string): string[];
   extractTools(body: string): unknown[];
-  extractToolResults(body: string): { toolUseId: string; result: string }[];
+  // toolName/toolInput: the call that produced the result, paired by id where
+  // the format carries one (Anthropic, OpenAI chat, Responses). Absent when the
+  // call is not in the body or the format pairs by name only.
+  extractToolResults(body: string): ToolResultItem[];
   extractToolUses(body: string): { toolName: string; args: unknown }[];
   // Non-text content blocks (images, documents, audio). Optional — parsers
   // without media support simply leave non-text content unreported.

@@ -686,6 +686,12 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     c.detection.surfaces = c.detection.surfaces ?? {};
     c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, heuristicBlockThreshold: n };
   },
+  // Trusted project roots for file-read tool results (#391, #349, #405);
+  // comma-separated, since a Windows path already contains a colon.
+  LLM_FW_TRUSTED_PATHS: (c, v) => {
+    c.detection.surfaces = c.detection.surfaces ?? {};
+    c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, trustedPaths: splitList(v) };
+  },
   // Issue #287: 'warn' demotes prompt-surface heuristic/embedding matches
   // below the high-confidence tier to warn events. Any other value is ignored
   // rather than trusted, so a typo cannot silently stop blocking.

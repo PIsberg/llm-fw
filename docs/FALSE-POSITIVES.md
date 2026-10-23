@@ -60,6 +60,18 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.82
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed.** This ruleset adds
+`detection.surfaces.tool_result.trustedPaths`, empty by default, which demotes
+wording matches on file reads from listed project roots to warns (see
+[Tuning: trust file reads from your own projects](guides/tuning.md#trust-file-reads-from-your-own-projects)).
+No eval row carries a file path, so none can move. Replaying the 2,994
+distinct file reads in 30 days of Claude Code transcripts with
+`C:\dev\private` trusted: 242 refused by default, 156 under the root, 0 of
+those refused with the setting, and all 86 outside it still refused.
+
 ## Result, ruleset 2026.10.81
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
