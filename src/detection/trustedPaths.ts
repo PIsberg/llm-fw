@@ -259,9 +259,13 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
   if (!resolved || !underTrustedRoot(resolved, roots)) return null
   // Without a wrapper naming the shell, a string with a backslash may have
   // run under bash as well as PowerShell (Codex lets the user pick), and bash
-  // drops the backslashes: `.\.` is `..`. The file has to be under the root
-  // read that way too, or the command could climb out while reading as if
-  // it stayed under.
+  // drops an unquoted backslash: `.\.` is `..`. The file has to be under the
+  // root read that way too, or the command could climb out while reading as
+  // if it stayed under. The two readings cover what any shell does with the
+  // token: an unquoted `\\` or a quoted backslash survives as a literal one,
+  // which Windows then reads as a separator, giving the first reading again,
+  // and which Linux reads as a character in a name under the same directory,
+  // which climbs no further than the first reading either.
   if (backslash && !powershell) {
     const asPosix = resolveRead(file.replace(/\\/g, ''), workdir)
     if (!asPosix || !underTrustedRoot(asPosix, roots)) return null

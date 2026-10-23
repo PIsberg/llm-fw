@@ -133,6 +133,13 @@ describe('trustedReadPath on shell reads', () => {
     expect(trustedReadPath('shell_command', { command: 'cat .\\./.\\./.\\./.\\./x', workdir: WIN }, ROOTS)).toBeNull()
     expect(trustedReadPath('shell_command', { command: 'cat C:\\dev\\private\\.\\./.\\./.\\./.\\./Users\\me\\.ssh\\id', workdir: WIN }, ROOTS)).toBeNull()
     expect(trustedReadPath('local_shell_call', { command: ['pwsh', '-Command', 'cat .\\./.\\./.\\./.\\./x'] }, ROOTS)).toBeNull()
+    // A doubled backslash survives bash as a literal one, which Windows reads
+    // as a separator: the first reading, which climbs out here and fails.
+    expect(trustedReadPath('shell_command', { command: 'cat a\\\\..\\\\..\\\\..\\\\x', workdir: WIN }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell_command', { command: 'cat src\\\\x.py', workdir: WIN }, ROOTS)).toBe('c:/dev/private/claude_light/src/x.py')
+    // Quoted, bash keeps the backslash too; both readings stay under the root.
+    expect(trustedReadPath('shell_command', { command: 'cat "src\\x.py"', workdir: WIN }, ROOTS)).toBe('c:/dev/private/claude_light/src/x.py')
+    expect(trustedReadPath('shell_command', { command: 'cat "..\\..\\..\\x"', workdir: WIN }, ROOTS)).toBeNull()
   })
 
   it('rejects cmd variable expansion and does not read cmd as a wrapper (security review)', () => {
