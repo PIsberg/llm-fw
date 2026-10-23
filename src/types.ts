@@ -191,9 +191,9 @@ export interface PromptSurfaceConfig {
 }
 
 // Trusted paths (issues #391, #349, #405). Absolute project roots whose files
-// the operator vouches for: a file-read tool result (Claude Code's Read,
-// read_file, read_text_file, ctx_read) whose path lies under one of them, and
-// outside node_modules, vendor and the like, has its WORDING matches
+// the operator vouches for: a local file-read tool result (READ_TOOLS in
+// src/detection/trustedPaths.ts) whose path arguments all lie under one of
+// them, outside node_modules, vendor, .git and the like, has its WORDING matches
 // (heuristic, embedding, indirect-instruction, memory-poisoning, RAG
 // structural and embedding)
 // demoted from block to warn, with no high-confidence tier. Shell output,

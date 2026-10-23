@@ -18,9 +18,23 @@ describe('trustedReadPath', () => {
     expect(trustedReadPath('Read', { file_path: 'c:/Dev/Private/llm-fw/CHANGELOG.md' }, ROOTS)).not.toBeNull()
   })
 
-  it('reads an MCP-prefixed tool name and arguments sent as a JSON string', () => {
+  it('reads a known MCP file server and arguments sent as a JSON string', () => {
     expect(trustedReadPath('mcp__lean-ctx__ctx_read', { path: '/home/dev/projects/a.ts' }, ROOTS)).not.toBeNull()
+    expect(trustedReadPath('mcp__filesystem__read_text_file', { path: '/home/dev/projects/a.ts' }, ROOTS)).not.toBeNull()
     expect(trustedReadPath('read_file', JSON.stringify({ path: '/home/dev/projects/a.ts' }), ROOTS)).not.toBeNull()
+  })
+
+  it('does not trust a read tool on any other MCP server: it may be serving fetched content', () => {
+    expect(trustedReadPath('mcp__web__read_file', { path: '/home/dev/projects/a.ts' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('mcp__evil__lean-ctx__ctx_read', { path: '/home/dev/projects/a.ts' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('mcp__a__b__read_file', { path: '/home/dev/projects/a.ts' }, ROOTS)).toBeNull()
+  })
+
+  it('trusts a call only when every path argument it carries is under a root', () => {
+    expect(trustedReadPath('Read', { file_path: '/home/dev/projects/a.md', path: '/tmp/evil.md' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Read', { path: '/tmp/evil.md', file_path: '/home/dev/projects/a.md' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Read', { file_path: '/home/dev/projects/a.md', path: '' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Read', { file_path: '/home/dev/projects/a.md', path: '/home/dev/projects/b.md' }, ROOTS)).not.toBeNull()
   })
 
   it('does not trust a path outside every root, or one that only shares a prefix', () => {
@@ -43,6 +57,13 @@ describe('trustedReadPath', () => {
       '/home/dev/projects/app/vendor/lib/x.go',
       '/home/dev/projects/app/.venv/lib/python3.12/site-packages/x/README.md',
       'C:\\dev\\private\\app\\third_party\\x.h',
+      '/home/dev/projects/app/.git/COMMIT_EDITMSG',
+      // Case-insensitive file systems (Windows, macOS) and Windows dropping
+      // a trailing dot or space resolve these to the same directories.
+      '/home/dev/projects/app/Node_Modules/pkg/README.md',
+      'C:\\dev\\private\\app\\VENDOR\\x.go',
+      'C:\\dev\\private\\app\\node_modules.\\pkg\\README.md',
+      'C:\\dev\\private\\app\\vendor \\x.go',
     ]) expect(trustedReadPath('Read', { file_path: p }, ROOTS), p).toBeNull()
   })
 
