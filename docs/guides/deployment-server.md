@@ -60,7 +60,12 @@ everything else uses `base_url`.
 
 ## Host requirements
 
-- **Node.js 22 or newer.** Enforced by `engines` in `package.json`.
+- **Node.js 22 or newer.** Enforced by `engines` in `package.json`. Run a patch that
+  carries the October 2026 Node.js security release (22.23.4, 24.22.1 or 26.12.1 and
+  newer): the proxy brotli-decompresses and TLS-verifies upstream responses on Node's
+  own code, so CVE-2026-111497 is reachable from a provider response. `llm-fw start`
+  warns and `llm-fw doctor` reports it. The container image pins a patched Node by
+  digest, so it is only the npm install where the runtime is yours.
 - **Memory.** The Helm chart requests 1Gi and limits 2Gi, which is a sound
   starting point. `llm-fw start` loads the always-on embedding model **eagerly,
   before any listener binds**, and then keeps it resident, so the process takes
