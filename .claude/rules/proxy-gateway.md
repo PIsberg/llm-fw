@@ -33,6 +33,11 @@ Rules that must not regress:
   a token before it trusts the CA.
 - `/healthz`, `/livez` and `/readyz` answer before auth. A kubelet cannot
   present a token.
+- The dashboard page (`GET /`) carries `Content-Security-Policy: default-src
+  'none'` with inline-only scripts and styles, `connect-src 'self'` and
+  `frame-ancestors 'none'`. A new asset or fetch target on the page has to fit
+  that policy, not loosen it: pinned by
+  `test/dashboard/dashboard.integration.test.ts` and `test/dashboard/csp.spec.ts`.
 - State-changing dashboard routes keep the JSON content-type plus same-origin
   check.
 - A refusal written before the request body has finished uploading (413, the
