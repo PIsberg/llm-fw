@@ -26,6 +26,7 @@ If traffic isn't being intercepted, run `llm-fw doctor` to check the whole setup
 
 What it verifies:
 
+- **Node.js runtime** — the Node running llm-fw carries the October 2026 Node.js security release (22.23.4, 24.22.1 or 26.12.1 and newer). The proxy decompresses and TLS-verifies upstream responses on Node's own code, so an older Node is exposed to CVE-2026-111497 (Brotli decoder) from a provider response; `start` prints the same warning. An end-of-life line (23, 25) gets no fix at all.
 - **Process & listeners** — `llm-fw` running, proxy + dashboard ports accepting connections, and (in sinkhole mode) the sinkhole TLS server on its HTTPS port.
 - **CA** — `~/.llm-fw/ca.crt` exists and is present in the OS trust store.
 - **Environment** — `HTTPS_PROXY` points at the proxy and `NODE_EXTRA_CA_CERTS` points at the llm-fw CA (required by Node.js clients like Claude Code and the SDKs). `setup` sets both persistently, but `doctor` inspects the **current shell**. When they are persisted but missing from this shell (it was opened before setup), it warns "set for new terminals, but not in this one" instead of failing: open a new terminal, or run the per-session command it prints.

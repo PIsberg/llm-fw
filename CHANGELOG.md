@@ -258,6 +258,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **October 2026 Node.js security release: the container image runs Node 24.22.1, and an
+  unpatched runtime is reported.** The proxy brotli-decompresses every upstream response it
+  inspects (`decompressBody` in `src/proxy/proxy.ts`) and verifies upstream certificates with
+  Node's TLS, so CVE-2026-111497 (an out-of-bounds write in Node's Brotli decoder, reachable
+  from malformed input and rated High) and the certificate hostname checks fixed in the same
+  release (CVE-2026-105483, CVE-2026-106069) are reachable from a provider response. The
+  Dockerfile's `node:24-bookworm-slim` digest moves to the image published on 2026-10-21
+  (verified by reading `NODE_VERSION=24.22.1` from the image config on Docker Hub); Dependabot
+  would have proposed it after its 7-day cooldown. For the npm install, where the runtime is the
+  user's, `llm-fw start` now prints one warning line and `llm-fw doctor` adds a check when the
+  Node it runs on predates 22.23.4, 24.22.1 or 26.12.1, or is an end-of-life line (23, 25) that
+  gets no fix. `engines.node` stays `>=22`: a patch floor cannot be expressed per line, and npm
+  only warns about engines anyway. No detection change.
+
 - **Tool output sent through the OpenAI Responses API is now scanned for prompt injection
   (GHSA-83jp-cppw-c3v6).** OpenAI Codex CLI sends each tool result as a `function_call_output`
   item in `input` (or `custom_tool_call_output`, `local_shell_call_output`), and the detection
