@@ -333,7 +333,7 @@ In pipeline order, which is also the order of the cards:
 
 `modules.toolResultPruner.enabled` (`LLM_FW_TOOL_RESULT_PRUNER_ENABLED`).
 Tool output (Anthropic `tool_result` blocks, OpenAI `tool` messages, Responses
-API `function_call_output`) is usually most of an agent's input. Three
+API `function_call_output`) is usually most of an agent's input. Four
 techniques, each with its own switch:
 
 | Option | Default | Does |
@@ -341,25 +341,23 @@ techniques, each with its own switch:
 | `minifyJson` | `true` | A tool result that is a JSON object or array loses the whitespace outside its strings. Lexical, not parse-and-print: every number and string stays byte for byte, so `12345678901234567890` is not rounded. |
 | `trimTrailing` | `true` | Spaces and tabs at the end of each line go. |
 | `collapseSpaceRuns` | `false` | Runs of two or more spaces after a line's indentation become one. Saves the most on column-aligned command output (`ls -l`, `kubectl get`, `docker ps`). |
+| `collapseStackFrames` | `false` | A run of two or more contiguous library or runtime stack frames (`node_modules/`, `node:internal/`) becomes `[llm-fw: N internal/library stack frames elided]`. Application frames stay whole. Lossy: the agent gets the elided frames back only by rerunning the command. 0.06% of tool-result tokens over a 30-day replay of Claude Code transcripts. |
 
 What to watch for: an agent quotes a file read verbatim in its next edit. With
 `trimTrailing`, an edit whose quoted text spans a line that ends in spaces in
 the file no longer matches. With `collapseSpaceRuns`, any edit of a line with
 aligned spaces misses, which is why it is off. A single tab, such as the one
-after a line number in Claude Code's file reads, is never collapsed.
+after a line number in Claude Code's file reads, is never collapsed. With
+`collapseStackFrames`, a failure inside a dependency loses the frames that
+locate it, which is why it is off too.
 
-Two more rewrites run whenever the module is on, with no switch of their own:
-
-- A run of two or more contiguous library or runtime stack frames
-  (`node_modules/`, `node:internal/`) becomes
-  `[llm-fw: N internal/library stack frames elided]`. Application frames stay
-  whole. This one drops text: the elided frames are not recoverable.
-- Two or more contiguous `file:line:content` lines for the same file (`grep -rn`,
-  `rg`, `tsc`) are grouped under one `<file>:` header, each match kept as
-  `  line:content`. Every match stays. The prefix must look like a file path, a
-  directory separator or a file extension and no whitespace, so log lines that
-  start with an ISO timestamp (`2026-10-06T16:57:25Z`) or the tab-separated
-  lines of `gh run view --log` are left as they are.
+One more rewrite runs whenever the module is on, with no switch of its own,
+because it drops nothing: two or more contiguous `file:line:content` lines for
+the same file (`grep -rn`, `rg`, `tsc`) are grouped under one `<file>:` header,
+each match kept as `  line:content`. Every match stays. The prefix must look
+like a file path, a directory separator or a file extension and no whitespace,
+so log lines that start with an ISO timestamp (`2026-10-06T16:57:25Z`) or the
+tab-separated lines of `gh run view --log` are left as they are.
 
 ### Tool result deduplicator
 

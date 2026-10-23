@@ -381,6 +381,7 @@ export const DEFAULT_CONFIG: Config = {
       minifyJson: true,
       trimTrailing: true,
       collapseSpaceRuns: false,
+      collapseStackFrames: false,
     },
     toolResultDedup: {
       enabled: false,
