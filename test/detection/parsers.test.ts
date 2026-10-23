@@ -204,6 +204,8 @@ describe('OpenAIParser', () => {
         { type: 'function_call_output', call_id: 'c2', output: [{ type: 'input_text', text: 'line one' }, { type: 'input_text', text: 'line two' }] },
         { type: 'custom_tool_call_output', call_id: 'c3', output: 'patch applied' },
         { type: 'local_shell_call_output', id: 'c4', output: 'shell output' },
+        { type: 'local_shell_call', call_id: 'c5', action: { type: 'exec', command: ['cat', '/home/dev/a.md'], working_directory: '/home/dev' } },
+        { type: 'local_shell_call_output', call_id: 'c5', output: 'file text' },
       ],
     })
     expect(o.extractToolResults(body)).toEqual([
@@ -212,6 +214,8 @@ describe('OpenAIParser', () => {
       { toolUseId: 'c2', result: 'line one\nline two' },
       { toolUseId: 'c3', result: 'patch applied' },
       { toolUseId: 'c4', result: 'shell output' },
+      // A built-in local_shell_call carries its command in `action` (#437).
+      { toolUseId: 'c5', result: 'file text', toolName: 'local_shell_call', toolInput: { command: ['cat', '/home/dev/a.md'], workdir: '/home/dev' } },
     ])
   })
 
