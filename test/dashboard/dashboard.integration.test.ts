@@ -154,6 +154,40 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.body).not.toMatch(/@import|url\(\s*["']?(https?:)?\/\//i)
   })
 
+  // The page is self-contained (see above), and the policy tells the browser
+  // so: default-src 'none' means an injected <script src>, <img src=//...> or
+  // <iframe> that ever slipped past esc() would not load, frame-ancestors
+  // 'none' means no site can frame the dashboard to click-jack its live
+  // switches, and connect-src 'self' keeps the page's fetches and the /events
+  // stream same-origin. 'unsafe-inline' is required: every script and style
+  // ships inline, and the handlers are on* attributes. 'unsafe-eval' is not.
+  // test/dashboard/csp.spec.ts drives the real page under this policy and
+  // fails on the first violation, so a directive the page needs cannot be
+  // dropped here without that going red.
+  it('GET / carries a Content-Security-Policy that keeps the page self-contained', async () => {
+    const res = await req(server, 'GET', '/')
+    const csp = res.headers['content-security-policy']
+    expect(typeof csp).toBe('string')
+    const directives = new Map(
+      String(csp).split(';').map((d) => d.trim()).filter(Boolean).map((d) => {
+        const [name, ...values] = d.split(/\s+/)
+        return [name, values]
+      }),
+    )
+    expect(directives.get('default-src')).toEqual(["'none'"])
+    expect(directives.get('frame-ancestors')).toEqual(["'none'"])
+    expect(directives.get('base-uri')).toEqual(["'none'"])
+    expect(directives.get('connect-src')).toEqual(["'self'"])
+    expect(directives.get('script-src')).toEqual(["'unsafe-inline'"])
+    expect(directives.get('style-src')).toEqual(["'unsafe-inline'"])
+    expect(directives.get('img-src')).toEqual(["'self'", 'data:'])
+    expect(directives.get('form-action')).toEqual(["'self'"])
+    expect(String(csp)).not.toMatch(/unsafe-eval|https?:|\*/)
+    expect(res.headers['x-content-type-options']).toBe('nosniff')
+    expect(res.headers['x-frame-options']).toBe('DENY')
+    expect(res.headers['referrer-policy']).toBe('no-referrer')
+  })
+
   it('GET /api/events returns 200 JSON array', async () => {
     const res = await req(server, 'GET', '/api/events')
     expect(res.status).toBe(200)
