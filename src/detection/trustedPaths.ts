@@ -43,11 +43,19 @@ const dirName = (seg: string) => seg.replace(/[. ]+$/, '').toLowerCase()
 
 const DRIVE_RE = /^[a-z]:\//i
 
-/** Forward slashes, `..` resolved; lower-cased when it is a Windows drive path. Null if not absolute. */
+/**
+ * Forward slashes, `..` resolved; lower-cased when it is a Windows drive path.
+ * Null if not absolute, or if it is a Windows spelling that names a different
+ * directory than it reads as: an 8.3 short name (`NODE_M~1` is node_modules),
+ * an alternate data stream (`node_modules::$INDEX_ALLOCATION`), or a device or
+ * UNC prefix (`\\?\`, `\\.\`). Resolving them would need the client's file
+ * system, which a gateway on another host does not have, so they fail closed.
+ */
 function normalise(p: string): string | null {
   const slashed = p.replace(/\\/g, '/')
   const drive = DRIVE_RE.test(slashed)
-  if (!drive && !slashed.startsWith('/')) return null
+  if (!drive && (!slashed.startsWith('/') || slashed.startsWith('//'))) return null
+  if (drive && (slashed.slice(2).includes(':') || /~\d/.test(slashed))) return null
   const norm = path.posix.normalize(slashed).replace(/\/+$/, '')
   return drive ? norm.toLowerCase() : norm
 }

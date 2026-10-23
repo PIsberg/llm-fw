@@ -47,6 +47,20 @@ describe('trustedReadPath', () => {
     expect(trustedReadPath('Read', { file_path: 'C:\\dev\\private\\..\\Users\\me\\Downloads\\a.md' }, ROOTS)).toBeNull()
   })
 
+  it('does not trust Windows path spellings it cannot resolve lexically', () => {
+    for (const p of [
+      // 8.3 short names: NODE_M~1 is node_modules on disk.
+      'C:\\dev\\private\\app\\NODE_M~1\\pkg\\README.md',
+      'C:\\dev\\PRIVAT~1\\app\\README.md',
+      // Alternate data streams name the same directory or file.
+      'C:\\dev\\private\\app\\node_modules::$INDEX_ALLOCATION\\pkg\\README.md',
+      'C:\\dev\\private\\app\\README.md:hidden',
+      // Device and long-path prefixes.
+      '\\\\?\\C:\\dev\\private\\app\\README.md',
+      '\\\\.\\C:\\dev\\private\\app\\README.md',
+    ]) expect(trustedReadPath('Read', { file_path: p }, ROOTS), p).toBeNull()
+  })
+
   it('does not trust a relative path: the proxy cannot know what it is relative to', () => {
     expect(trustedReadPath('Read', { file_path: 'src/a.ts' }, ROOTS)).toBeNull()
   })
