@@ -372,6 +372,11 @@ class OpenAIParser implements PayloadParser {
         for (const item of data.input) {
           if (item?.type === 'function_call' && typeof item.call_id === 'string' && typeof item.name === 'string') {
             calls.set(item.call_id, { toolName: item.name, toolInput: item.arguments })
+          } else if (item?.type === 'local_shell_call' && typeof item.call_id === 'string' && item.action && typeof item.action === 'object') {
+            // The built-in shell tool: its command and working directory sit in
+            // `action`, flattened to the shape Codex's own shell tools send so
+            // trusted paths (#437) read both the same way.
+            calls.set(item.call_id, { toolName: 'local_shell_call', toolInput: { command: item.action.command, workdir: item.action.working_directory } })
           }
         }
         for (const item of data.input) {
