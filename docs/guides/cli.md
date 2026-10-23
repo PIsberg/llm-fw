@@ -46,6 +46,12 @@ $ llm-fw doctor
 
 Open [http://localhost:7731](http://localhost:7731) while the proxy is running.
 
+The page follows the OS light or dark scheme. The sun/moon button in the header
+overrides it, and the choice is stored in the browser (localStorage), not in
+`config.json`. The header also carries the mode chips (`--observe`, sinkhole,
+gateway) and a live indicator for the event stream. The page loads nothing from a
+third party: fonts are system stacks and every style and script is inline.
+
 - **Events tab** — live feed of every blocked or warned request: timestamp, detection stage, risk score, cosine similarity, target API, payload preview. A filter box finds an event by id, endpoint, target or payload, and `/#event=<id>` (the link a blocked client is given) opens one directly. Expand any event to see its id, the full payload, **Record as false positive (audit only)** (audit trail, persisted to `~/.llm-fw/whitelist.json`; it does not unblock anything), and — on blocked `prompt`/`system` events — **Mark false positive (suppress future matches)**, which actually changes future behavior (see [False-Positive Suppression List](tuning.md#false-positive-suppression-list)).
 - **Live Traffic tab** — throughput, service utilization and recent connections. Each connection is labelled **Inspected** (a target host: TLS-intercepted and scanned) or **Not inspected** (any other host: an end-to-end tunnel whose contents llm-fw never sees), with a count of each.
 - **MCP Traffic tab** — MCP and tool-use requests that passed every check (the tools each request exposed to the model). They used to share the Events feed, where they arrived on every agent request and buried the findings; the tab label counts them.

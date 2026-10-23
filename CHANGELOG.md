@@ -280,6 +280,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dashboard redesign.** The dashboard on port 7731 has a new visual design built on a
+  design-token stylesheet: light and dark themes (the page follows the OS scheme; the
+  sun/moon button in the header overrides it and the choice is remembered in the browser),
+  a sticky header carrying the mode chips and the live indicator, headline stat tiles for
+  totals and tokens saved, underline tabs, tinted action badges and stage chips, and one
+  set of cards, tables, drawers and form controls across every tab, down to phone width.
+  Fonts are system stacks and every byte of the page stays inline, so the dashboard still
+  loads nothing from a third party; `test/dashboard/dashboard.integration.test.ts` now
+  pins that. No element id, class name or API route changed, so `/#event=<id>` links and
+  the Playwright suite are unaffected.
+
 - **The Tool Result Deduplicator and Pruner have a live measurement after their fixes (#430).**
   `docs/guides/token-savings.md` now quotes a billed A/B (Claude Code with Sonnet, 12 runs, $0.46,
   every run completed): 0.11% to 0.57% fewer billed prompt tokens, against 1.9% and 1.3% for the
