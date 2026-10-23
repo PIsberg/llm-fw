@@ -15,14 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plan from `transaction.completed`, issues an `ED25519_SIGN` key through Keygen's JSON:API,
   and verifies the returned key offline against `keygenPublicKey()` before returning the
   activation command.
-- **The Tool Result Pruner groups search output by file and collapses library stack
+- **The Tool Result Pruner groups search output by file and can collapse library stack
   frames.** Two or more contiguous `file:line:content` lines for one file (`grep -rn`, `rg`,
   `tsc`) share a single `<file>:` header, with every match kept; the prefix has to look like a
-  path, so ISO-timestamped and `gh run view --log` lines are not split as `file:line:`. Runs
-  of two or more `node_modules/` or `node:internal/` frames become one
-  `[llm-fw: N internal/library stack frames elided]` line. Over 30 days of replayed Claude
-  Code transcripts the pruner removed 0.32% of request tokens, up from 0.07%; grouping alone
-  removed 1.27% of tool-result tokens.
+  path, so ISO-timestamped and `gh run view --log` lines are not split as `file:line:`. With
+  the new `collapseStackFrames` option, off by default because the agent cannot get the
+  frames back without rerunning the command, runs of two or more `node_modules/` or
+  `node:internal/` frames become one `[llm-fw: N internal/library stack frames elided]`
+  line (0.06% of tool-result tokens). Over 30 days of replayed Claude Code transcripts the
+  pruner, stack collapse included, removed 0.32% of request tokens, up from 0.07%; grouping alone
+  removed 1.27% of tool-result tokens. `ruleset.ts` digest re-pinned for the new default in
+  `config.ts`; no detection change.
 - **The Tool Result Deduplicator works across server-side thread continuations and
   collapses repeated `<system-reminder>` blocks.** A client that sends only the new messages
   (`thread.previous_message_id`, `previous_response_id`) used to get no deduplication,

@@ -523,6 +523,8 @@ export interface ToolResultPrunerConfig extends ModuleSwitchConfig {
   trimTrailing: boolean;
   /** Collapse interior runs of two or more spaces; can make an agent's edit miss. */
   collapseSpaceRuns: boolean;
+  /** Replace runs of library/runtime stack frames with a marker; the frames are not recoverable. */
+  collapseStackFrames: boolean;
 }
 
 // Keys after tokenPruner are optional so a config object written before they

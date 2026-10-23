@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { ToolResultPrunerModule, collapseLibraryStackFrames, groupFileMatches } from '../../src/modules/builtin/toolResultPruner.js'
 import { minifyJsonText } from '../../src/modules/json.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
+import { DEFAULT_CONFIG } from '../../src/config/config.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
-const on = (extra: Record<string, boolean> = {}) => ({ enabled: true, minifyJson: true, trimTrailing: true, collapseSpaceRuns: false, ...extra })
+const on = (extra: Record<string, boolean> = {}) => ({ enabled: true, minifyJson: true, trimTrailing: true, collapseSpaceRuns: false, collapseStackFrames: false, ...extra })
 const toolResult = (content: string) => JSON.stringify({
   messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }, { type: 'text', text: 'keep   this' }] }],
 })
@@ -105,6 +106,23 @@ describe('ToolResultPrunerModule', () => {
       '    at async Promise.all (index 0)',
       '    at main (src/index.ts:4:1)',
     ].join('\n'))
+  })
+
+  it('elides library stack frames only when collapseStackFrames is on', () => {
+    // The elided frames cannot be recovered without rerunning the command, so
+    // the module's default, and its constructor's, keeps them.
+    const trace = [
+      'Error: boom',
+      '    at Runner.exec (/repo/node_modules/vitest/dist/chunks/runner.js:100:12)',
+      '    at processTicksAndRejections (node:internal/process/task_queues:95:5)',
+    ].join('\n')
+    expect(run(new ToolResultPrunerModule(on()), trace).result).toBe(trace)
+    const bare = new ToolResultPrunerModule()
+    bare.enabled = true
+    expect(run(bare, trace).result).toBe(trace)
+    expect(run(new ToolResultPrunerModule({ ...DEFAULT_CONFIG.modules!.toolResultPruner!, enabled: true }), trace).result).toBe(trace)
+    expect(run(new ToolResultPrunerModule(on({ collapseStackFrames: true })), trace).result)
+      .toBe('Error: boom\n    [llm-fw: 2 internal/library stack frames elided]')
   })
 
   it('groups contiguous grep/compiler file:line:content matches under a single file header and keeps every match', () => {
