@@ -68,6 +68,13 @@ that surface only; the second line is optional and trades recall for precision
 on benign tool output. Measured numbers for both settings are in
 [BENCHMARK.md](../BENCHMARK.md).
 
+**Trusted project roots.** `detection.surfaces.tool_result.trustedPaths` (also
+`LLM_FW_TRUSTED_PATHS`, comma-separated) lists absolute directories whose files
+you vouch for. A file-read tool result from under one of them warns instead of
+blocking when only a wording stage objects; shell output, fetches and anything
+under `node_modules` or `vendor` there do not count. Empty by default, applied
+live. See [Tuning: trust file reads from your own projects](tuning.md#trust-file-reads-from-your-own-projects).
+
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
 while. Point `LLM_FW_MODEL_DIR` at a persistent path to download once and reuse
@@ -235,7 +242,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_104 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_105 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -341,6 +348,7 @@ _104 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TOOL_USAGE_ENABLED` | `modules.toolUsage.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
+| `LLM_FW_TRUSTED_PATHS` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |
 | `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `false` |
 

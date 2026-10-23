@@ -102,11 +102,11 @@ export function groupFileMatches(text: string): string {
 export class ToolResultPrunerModule extends SlotModule<ToolResultPrunerConfig> {
   readonly id = 'tool-result-pruner'
   readonly name = 'Tool Result Pruner'
-  readonly description = 'Minifies tool output that is JSON, trims trailing whitespace, collapses internal stack frames, and groups repeated file-path prefixes in grep/search output'
+  readonly description = 'Minifies tool output that is JSON, trims trailing whitespace, groups repeated file-path prefixes in grep/search output, and can collapse library stack frames'
   protected readonly kinds = TOOL_OUTPUT
 
   constructor(config?: ToolResultPrunerConfig) {
-    super(config ?? { enabled: false, minifyJson: true, trimTrailing: true, collapseSpaceRuns: false })
+    super(config ?? { enabled: false, minifyJson: true, trimTrailing: true, collapseSpaceRuns: false, collapseStackFrames: false })
   }
 
   protected rewrite(text: string): string {
@@ -116,7 +116,7 @@ export class ToolResultPrunerModule extends SlotModule<ToolResultPrunerConfig> {
     }
     let out = text
     if (this.cfg.trimTrailing) out = trimSpacesAtLineEnds(out)
-    out = collapseLibraryStackFrames(out)
+    if (this.cfg.collapseStackFrames) out = collapseLibraryStackFrames(out)
     out = groupFileMatches(out)
     // Runs of two or more only, after the indentation: a single tab after a
     // line number stays, and so does the indentation that carries structure.

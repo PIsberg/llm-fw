@@ -207,7 +207,8 @@ describe('OpenAIParser', () => {
       ],
     })
     expect(o.extractToolResults(body)).toEqual([
-      { toolUseId: 'c1', result: 'plain output' },
+      // Paired with its function_call by call_id.
+      { toolUseId: 'c1', result: 'plain output', toolName: 'shell', toolInput: '{}' },
       { toolUseId: 'c2', result: 'line one\nline two' },
       { toolUseId: 'c3', result: 'patch applied' },
       { toolUseId: 'c4', result: 'shell output' },

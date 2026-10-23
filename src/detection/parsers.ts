@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-import { PayloadParser, MediaBlock, ConversationTurn } from '../types.js'
+import { PayloadParser, MediaBlock, ConversationTurn, ToolResultItem } from '../types.js'
 import { mediaBlockFromBase64, parseDataUrl } from './media.js'
 
 /** Map a mime type onto the coarse MediaBlock kind. */
@@ -113,18 +113,32 @@ class AnthropicParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+  extractToolResults(body: string): ToolResultItem[] {
     try {
       const data = JSON.parse(body)
-      const results: { toolUseId: string; result: string }[] = []
+      const results: ToolResultItem[] = []
       if (Array.isArray(data.messages)) {
+        // A tool_result block carries only the tool_use_id; the name and input
+        // are on the assistant's tool_use block earlier in the history.
+        const calls = new Map<string, { name: unknown; input: unknown }>()
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+            for (const block of msg.content) {
+              if (block?.type === 'tool_use' && typeof block.id === 'string') calls.set(block.id, { name: block.name, input: block.input })
+            }
+          }
+        }
         for (const msg of data.messages) {
           if (msg.role === 'user' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
               if (block.type === 'tool_result') {
                 const resText = toolResultText(block.content)
-                // Anthropic tool_result blocks only carry the tool_use_id, not the tool name.
-                results.push({ toolUseId: block.tool_use_id || 'unknown', result: resText })
+                const call = calls.get(block.tool_use_id)
+                results.push({
+                  toolUseId: block.tool_use_id || 'unknown',
+                  result: resText,
+                  ...(call && typeof call.name === 'string' ? { toolName: call.name, toolInput: call.input } : {}),
+                })
               }
             }
           }
@@ -323,15 +337,29 @@ class OpenAIParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+  extractToolResults(body: string): ToolResultItem[] {
     try {
       const data = JSON.parse(body)
-      const results: { toolUseId: string; result: string }[] = []
+      const results: ToolResultItem[] = []
+      // The call that produced each result, by id: assistant tool_calls in
+      // chat, function_call items in the Responses API. Arguments stay the
+      // JSON string the client sent.
+      const calls = new Map<string, { toolName: string; toolInput: unknown }>()
+      const withCall = (id: unknown) => {
+        const call = typeof id === 'string' ? calls.get(id) : undefined
+        return call ? { toolName: call.toolName, toolInput: call.toolInput } : {}
+      }
       if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (msg.role !== 'assistant' || !Array.isArray(msg.tool_calls)) continue
+          for (const tc of msg.tool_calls) {
+            if (typeof tc?.id === 'string' && typeof tc.function?.name === 'string') calls.set(tc.id, { toolName: tc.function.name, toolInput: tc.function.arguments })
+          }
+        }
         for (const msg of data.messages) {
           if (msg.role === 'tool') {
             const resText = toolResultText(msg.content)
-            results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
+            results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText, ...withCall(msg.tool_call_id) })
           }
         }
       }
@@ -342,9 +370,14 @@ class OpenAIParser implements PayloadParser {
       // object) carries nothing to scan and is skipped.
       if (Array.isArray(data.input)) {
         for (const item of data.input) {
+          if (item?.type === 'function_call' && typeof item.call_id === 'string' && typeof item.name === 'string') {
+            calls.set(item.call_id, { toolName: item.name, toolInput: item.arguments })
+          }
+        }
+        for (const item of data.input) {
           if (typeof item?.type !== 'string' || !item.type.endsWith('_call_output')) continue
           if (typeof item.output !== 'string' && !Array.isArray(item.output)) continue
-          results.push({ toolUseId: item.call_id || item.id || 'unknown', result: toolResultText(item.output) })
+          results.push({ toolUseId: item.call_id || item.id || 'unknown', result: toolResultText(item.output), ...withCall(item.call_id) })
         }
       }
       return results
@@ -563,10 +596,10 @@ class CohereParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+  extractToolResults(body: string): ToolResultItem[] {
     try {
       const data = JSON.parse(body)
-      const results: { toolUseId: string; result: string }[] = []
+      const results: ToolResultItem[] = []
 
       // v1: tool_results:[{call:{name,…}, outputs:[…]}] — keyed by tool name
       // (v1 has no call id).
@@ -724,10 +757,10 @@ class GeminiParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+  extractToolResults(body: string): ToolResultItem[] {
     try {
       const data = JSON.parse(body)
-      const results: { toolUseId: string; result: string }[] = []
+      const results: ToolResultItem[] = []
       if (Array.isArray(data.contents)) {
         for (const content of data.contents) {
           if (!Array.isArray(content.parts)) continue
@@ -886,7 +919,7 @@ class BedrockParser implements PayloadParser {
     } catch { return [] }
   }
 
-  extractToolResults(body: string): { toolUseId: string; result: string }[] {
+  extractToolResults(body: string): ToolResultItem[] {
     const results = this.anthropic.extractToolResults(body)
     try {
       const data = JSON.parse(body)
