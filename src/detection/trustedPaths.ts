@@ -84,19 +84,16 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
   return paths[0] as string
 }
 
-// Git Bash and MSYS spell C:\dev as /c/dev (#439). That reading applies only
-// against a drive root: on Linux and macOS /c is a real directory.
-const MSYS_RE = /^[/\\]([a-z])(?=[/\\])/i
-
+// A Git Bash path such as /c/dev/x is not read as C:\dev\x (#439): Claude
+// Code translates it, but Node's own fs on Windows resolves it to C:\c\dev\x,
+// so what it names depends on the client. It stays the POSIX path it reads
+// as, which no drive root matches.
 function underTrustedRoot(raw: string, roots: readonly string[]): boolean {
-  const msys = MSYS_RE.test(raw)
-  const asPosix = normalise(raw)
-  const asDrive = msys ? normalise(raw.replace(MSYS_RE, '$1:')) : null
+  const file = normalise(raw)
+  if (!file) return false
   for (const r of roots) {
     const root = normalise(r)
-    if (!root) continue
-    const file = msys && DRIVE_RE.test(root) ? asDrive : asPosix
-    if (!file || !file.startsWith(root + '/')) continue
+    if (!root || !file.startsWith(root + '/')) continue
     const below = file.slice(root.length + 1).split('/')
     if (below.slice(0, -1).some(seg => THIRD_PARTY_DIRS.has(dirName(seg)))) continue
     return true

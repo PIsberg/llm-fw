@@ -18,16 +18,14 @@ describe('trustedReadPath', () => {
     expect(trustedReadPath('Read', { file_path: 'c:/Dev/Private/llm-fw/CHANGELOG.md' }, ROOTS)).not.toBeNull()
   })
 
-  it('matches a Git-Bash /c/... path against a drive root, and only against a drive root (#439)', () => {
-    expect(trustedReadPath('Read', { file_path: '/c/dev/private/llm-fw/README.md' }, ROOTS)).toBe('/c/dev/private/llm-fw/README.md')
-    expect(trustedReadPath('Read', { file_path: '/C/Dev/Private/a.md' }, ROOTS)).not.toBeNull()
-    // On Linux and macOS /c is a real directory: a POSIX root never trusts it
-    // as C:, and a drive root does not trust another drive.
-    expect(trustedReadPath('Read', { file_path: '/c/dev/private/a.md' }, ['/home/dev/projects'])).toBeNull()
-    expect(trustedReadPath('Read', { file_path: '/d/dev/private/a.md' }, ROOTS)).toBeNull()
-    // The fail-closed spellings still fail closed in this form.
-    expect(trustedReadPath('Read', { file_path: '/c/dev/private/app/NODE_M~1/x.md' }, ROOTS)).toBeNull()
-    expect(trustedReadPath('Read', { file_path: '/c/dev/private/app/node_modules/x.md' }, ROOTS)).toBeNull()
+  it('does not read a Git-Bash /c/... path as a drive path (#439)', () => {
+    // Whether /c/dev/x means C:\dev\x depends on the client: Claude Code
+    // translates it, but Node's own fs on Windows resolves it to C:\c\dev\x,
+    // a different file. Trusting it would vouch for whichever one was read.
+    expect(trustedReadPath('Read', { file_path: '/c/dev/private/llm-fw/README.md' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Read', { file_path: '/C/Dev/Private/a.md' }, ROOTS)).toBeNull()
+    // Against a POSIX root it is the POSIX path it reads as.
+    expect(trustedReadPath('Read', { file_path: '/c/dev/private/a.md' }, ['/c/dev'])).not.toBeNull()
   })
 
   it('reads a known MCP file server and arguments sent as a JSON string', () => {

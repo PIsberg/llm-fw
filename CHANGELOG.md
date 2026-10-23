@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indirect-instruction, memory-poisoning, RAG structural) objects, so an agent can read a security
   project's docs, a game about rogue AIs, or llm-fw's own detection code (#349, #405, the
   file-read part of #391). Shell output, fetches, search results, relative paths and
-  `node_modules`/`vendor`/`.venv`/`.git` under a root stay untrusted; a Git Bash `/c/...` path
-  matches a `C:\` root (#439); ASCII smuggling, many-shot, the
+  `node_modules`/`vendor`/`.venv`/`.git` under a root stay untrusted, and so does a Git Bash
+  `/c/...` path, which names a different file depending on the client (#439); ASCII smuggling, many-shot, the
   classifier and the judge still block. Detection now pairs each tool result with the call that
   produced it, by id, in Anthropic, OpenAI chat and Responses API requests. Empty by default, so
   0 of 23,938 eval verdicts changed and `fpr` is identical in every category. On 2,994 file
