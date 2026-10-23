@@ -94,6 +94,18 @@ describe('applyHotReload (pure diff/apply, no fs)', () => {
     expect(live.detection.surfaces?.prompt).toEqual({ wordingAction: 'warn', highConfidenceHeuristic: 100 })
   })
 
+  it('applies tool_result trusted paths live', () => {
+    const live: Config = structuredClone(DEFAULT_CONFIG)
+    const incoming: Config = structuredClone(DEFAULT_CONFIG)
+    incoming.detection.surfaces = { tool_result: { trustedPaths: ['/home/dev/projects'] } }
+
+    const { applied, restartRequired } = applyHotReload(live, incoming, () => {})
+
+    expect(applied).toContain('detection.surfaces.tool_result.trustedPaths')
+    expect(restartRequired).toEqual([])
+    expect(live.detection.surfaces?.tool_result?.trustedPaths).toEqual(['/home/dev/projects'])
+  })
+
   it('does not apply a cold key (proxy.port) and reports it as restart-required', () => {
     const live: Config = structuredClone(DEFAULT_CONFIG)
     const incoming: Config = structuredClone(DEFAULT_CONFIG)

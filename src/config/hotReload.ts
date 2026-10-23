@@ -113,6 +113,7 @@ const HOT_PATHS: Path[] = [
   ['detection', 'surfaces', 'tool_result', 'heuristicBlockThreshold'],
   ['detection', 'surfaces', 'tool_result', 'embeddingMarginThreshold'],
   ['detection', 'surfaces', 'tool_result', 'classifierBlockThreshold'],
+  ['detection', 'surfaces', 'tool_result', 'trustedPaths'],
   ['detection', 'surfaces', 'document', 'heuristicBlockThreshold'],
   ['detection', 'surfaces', 'document', 'embeddingMarginThreshold'],
   ['detection', 'surfaces', 'document', 'classifierBlockThreshold'],
