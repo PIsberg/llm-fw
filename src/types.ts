@@ -856,8 +856,9 @@ export interface PayloadParser {
   extractSystem?(body: string): string[];
   extractTools(body: string): unknown[];
   // toolName/toolInput: the call that produced the result, paired by id where
-  // the format carries one (Anthropic, OpenAI chat, Responses). Absent when the
-  // call is not in the body or the format pairs by name only.
+  // the format carries one (Anthropic, OpenAI chat, Responses, Bedrock Converse,
+  // Cohere; Gemini by id or a single same-named call). Absent when the
+  // call is not in the body or which call it answers is ambiguous.
   extractToolResults(body: string): ToolResultItem[];
   extractToolUses(body: string): { toolName: string; args: unknown }[];
   // Non-text content blocks (images, documents, audio). Optional — parsers

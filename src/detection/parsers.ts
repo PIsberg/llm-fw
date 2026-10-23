@@ -602,7 +602,7 @@ class CohereParser implements PayloadParser {
       const results: ToolResultItem[] = []
 
       // v1: tool_results:[{call:{name,…}, outputs:[…]}] — keyed by tool name
-      // (v1 has no call id).
+      // (v1 has no call id). The call travels with its result.
       if (Array.isArray(data.tool_results)) {
         for (const tr of data.tool_results) {
           if (!tr || typeof tr !== 'object') continue
@@ -610,16 +610,26 @@ class CohereParser implements PayloadParser {
           results.push({
             toolUseId: typeof name === 'string' ? name : 'unknown',
             result: toolResultText(tr.outputs ?? tr),
+            ...(typeof name === 'string' ? { toolName: name, toolInput: tr.call.parameters } : {}),
           })
         }
       }
 
-      // v2: OpenAI-like role:'tool' messages with tool_call_id + content.
+      // v2: OpenAI-like role:'tool' messages with tool_call_id + content,
+      // paired with the assistant's tool_calls by id.
       if (Array.isArray(data.messages)) {
+        const calls = new Map<string, { toolName: string; toolInput: unknown }>()
+        for (const msg of data.messages) {
+          if (msg.role !== 'assistant' || !Array.isArray(msg.tool_calls)) continue
+          for (const tc of msg.tool_calls) {
+            if (typeof tc?.id === 'string' && typeof tc.function?.name === 'string') calls.set(tc.id, { toolName: tc.function.name, toolInput: tc.function.arguments })
+          }
+        }
         for (const msg of data.messages) {
           if (msg.role !== 'tool') continue
           const resText = toolResultText(msg.content)
-          results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText })
+          const call = typeof msg.tool_call_id === 'string' ? calls.get(msg.tool_call_id) : undefined
+          results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText, ...(call ?? {}) })
         }
       }
 
@@ -762,13 +772,32 @@ class GeminiParser implements PayloadParser {
       const data = JSON.parse(body)
       const results: ToolResultItem[] = []
       if (Array.isArray(data.contents)) {
+        // A functionResponse answers a functionCall in the nearest preceding
+        // model turn: by id when both carry one, otherwise only when that turn
+        // called the name once. Two same-named calls without ids leave the
+        // pairing a guess, and a wrong guess would vouch for the other file.
+        let calls: { id?: unknown; name: string; args: unknown }[] = []
         for (const content of data.contents) {
           if (!Array.isArray(content.parts)) continue
+          if (content.role === 'model') {
+            calls = content.parts
+              .map((part: any) => part?.functionCall)
+              .filter((fc: any) => fc && typeof fc.name === 'string')
+              .map((fc: any) => ({ id: fc.id, name: fc.name, args: fc.args }))
+            continue
+          }
           for (const part of content.parts) {
             const fr = part?.functionResponse
             if (fr && typeof fr === 'object') {
               const resText = toolResultText(fr.response ?? fr)
-              results.push({ toolUseId: typeof fr.name === 'string' ? fr.name : 'unknown', result: resText })
+              const byId = typeof fr.id === 'string' ? calls.filter(c => c.id === fr.id) : []
+              const byName = calls.filter(c => c.name === fr.name)
+              const call = byId.length === 1 ? byId[0] : typeof fr.id !== 'string' && byName.length === 1 ? byName[0] : undefined
+              results.push({
+                toolUseId: typeof fr.name === 'string' ? fr.name : 'unknown',
+                result: resText,
+                ...(call ? { toolName: call.name, toolInput: call.args } : {}),
+              })
             }
           }
         }
@@ -924,14 +953,26 @@ class BedrockParser implements PayloadParser {
     try {
       const data = JSON.parse(body)
       if (Array.isArray(data.messages)) {
+        // Converse toolResult blocks carry only the toolUseId; the name and
+        // input are on the assistant's toolUse block.
+        const calls = new Map<string, { toolName: string; toolInput: unknown }>()
+        for (const msg of data.messages) {
+          if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
+          for (const block of msg.content) {
+            const tu = block?.toolUse
+            if (typeof tu?.toolUseId === 'string' && typeof tu.name === 'string') calls.set(tu.toolUseId, { toolName: tu.name, toolInput: tu.input })
+          }
+        }
         for (const msg of data.messages) {
           if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
           for (const block of msg.content) {
             const tr = block?.toolResult
             if (tr && typeof tr === 'object') {
+              const call = typeof tr.toolUseId === 'string' ? calls.get(tr.toolUseId) : undefined
               results.push({
                 toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
                 result: toolResultText(tr.content ?? tr),
+                ...(call ?? {}),
               })
             }
           }
