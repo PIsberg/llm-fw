@@ -103,7 +103,7 @@ To guarantee E2E tests run reliably on both local developer machines and offline
 Every pull request and merge to `main`, `feat/**`, `fix/**`, and `chore/**` automatically triggers our GitHub Actions pipeline defined in **[.github/workflows/ci.yml](../.github/workflows/ci.yml)**.
 
 *   **Offline Guarantee**: Our E2E tests do not access the public internet, meaning they run safely and deterministically inside GitHub runners.
-*   **Node.js Matrix**: Tests are verified across active LTS Node.js releases (**Node 22** and **Node 24**).
+*   **Node.js Matrix**: Tests are verified across the active LTS Node.js releases (**Node 22** and **Node 24**) and the current line (**Node 26**), so a release that breaks on the next LTS fails here first. The container image stays on the newest LTS line.
 *   **Code Coverage**: Coverage is measured automatically on Node 22 via Vitest and V8 coverage reporters, publishing the artifact for build review.
 *   **Docker image**: **[.github/workflows/docker.yml](../.github/workflows/docker.yml)** builds the `Dockerfile`, checks the Node major inside the image is one the matrix above tests, starts the container and waits for the gateway's `/readyz`. It runs on pull requests that touch an input to the image (`Dockerfile`, `docker/**`, `package*.json`, `data/**`), which includes Dependabot's base-image and lockfile bumps. Being path-filtered, it is not a required check.
 *   **Stage 3 judge**: **[.github/workflows/judge.yml](../.github/workflows/judge.yml)** runs `npm run test:judge` against a pinned Ollama container with the default judge model, nightly and on pull requests that touch the judge or its suite.
