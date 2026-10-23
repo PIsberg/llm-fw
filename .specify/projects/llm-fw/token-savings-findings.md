@@ -98,6 +98,19 @@ tool-result tokens by `estimateTokens`), harness `scratch/replay-savings.mjs`,
   dedup saved 705 tokens alongside the pruner, 1.3% of billed prompt tokens.
   The ceiling is low because about 30k tokens per turn are system prompt and
   tool definitions, which neither module touches. Every run completed its task.
+- Rerun after the fixes (#430), 2026-10-23: same harness (`scratch/live-ab.mjs`,
+  Claude Code with Sonnet, spare ports 18190-18193, scratch `LLM_FW_DIR`),
+  3 runs per arm, $0.46 in all, 12 of 12 runs fixed the bug. Find-and-fix
+  (the harness's default prompt): 4 turns in every run, billed prompt tokens
+  70,854 off and 70,464 on in every run, -0.55%; pruner 12.2% of tool-result
+  tokens, dedup 0 (no repeated result). Re-read and re-run (read every file,
+  fix, reread two files, grep, run twice): 16 or 17 turns, so compared by turn
+  count: 16 turns 122,815 (mean of 2) to 122,678, -0.11%; 17 turns 149,741 to
+  148,883 (mean of 2), -0.57%; dedup 3.2% and pruner 6.2% of tool-result
+  tokens. Lower than the first version's 1.9% and 1.3%, in line with the
+  offline replay (pruner 0.32%, dedup 0.70% of request tokens). Cost per run
+  tracks cache warmth (the first run of an arm writes the cache), not the
+  modules.
 - Thread shape re-checked live the same day: one `claude -p` session
   (Claude Code 2.1.306, Sonnet, $0.08) through a spare-port proxy in observe
   mode, request shapes logged by a preload. The first request was

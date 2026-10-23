@@ -279,6 +279,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Tool Result Deduplicator and Pruner have a live measurement after their fixes (#430).**
+  `docs/guides/token-savings.md` now quotes a billed A/B (Claude Code with Sonnet, 12 runs, $0.46,
+  every run completed): 0.11% to 0.57% fewer billed prompt tokens, against 1.9% and 1.3% for the
+  first version, in line with the offline replay. No run lost the task with the modules on.
+
 - **The guide reports the truncator's billed A/B with file reads left whole (#362).** On three
   shell-heavy tasks (Haiku 5.5, two rounds), the module removed 169,788 tokens by its own count
   but sessions took 106 turns against 82, and the total cost was $0.716 against $0.497 with it
