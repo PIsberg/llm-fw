@@ -190,13 +190,14 @@ export interface PromptSurfaceConfig {
   highConfidenceMargin?: number;
 }
 
-// Trusted paths (issues #391, #349, #405). Absolute project roots whose files
-// the operator vouches for: a local file-read tool result (READ_TOOLS in
-// src/detection/trustedPaths.ts) whose path arguments all lie under one of
+// Trusted paths (issues #391, #349, #405, #437). Absolute project roots whose
+// files the operator vouches for: a local file-read tool result (READ_TOOLS in
+// src/detection/trustedPaths.ts), or a shell tool result whose command was one
+// plain read of one file (SHELL_TOOLS there), whose path arguments all lie under one of
 // them, outside node_modules, vendor, .git and the like, has its WORDING matches
 // (heuristic, embedding, indirect-instruction, memory-poisoning, RAG
 // structural and embedding)
-// demoted from block to warn, with no high-confidence tier. Shell output,
+// demoted from block to warn, with no high-confidence tier. Other shell output,
 // fetches, search results and every other surface keep blocking, and so do
 // the non-wording stages (ASCII smuggling, many-shot, classifier, judge).
 // The cost: an injection planted in a file under a trusted root (a cloned

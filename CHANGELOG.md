@@ -27,6 +27,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads from 30 days of one developer's Claude Code transcripts, 156 refusals under the trusted
   root fell to 0 and all 86 outside it stayed refused. An injection planted in a file under a
   trusted root only warns.
+- **Trusted paths now cover a file printed by a plain shell read (#437; ruleset 2026.10.83).**
+  Codex CLI reads every file through its shell tool (`Get-Content claude_light\main.py` with a
+  `workdir`: 311 of the 901 shell calls in 32 local sessions), and Claude Code sometimes `cat`s
+  one, so a file under a trusted root printed that way was still refused. A shell tool result
+  (Claude Code's `Bash`, Codex's `shell`, `shell_command` and `exec_command`, the Responses
+  API's built-in `local_shell_call`, which detection now pairs with its output) is trusted when
+  the command is exactly one `cat`, `head`, `tail`, `sed -n` with a line range, `Get-Content`,
+  `gc` or `type` of one file, with only its line-selecting options, and the path is absolute or
+  relative to a `workdir` the call names (not on Claude Code's `Bash`, which runs where the
+  call does not say). Anything a shell could expand or chain (a pipe, redirection, `;`, `&&`,
+  `$`, `%`, backtick, parentheses, glob, comma list, `~`, a second line) keeps the output
+  untrusted, and so do `git show`, `rg`, `curl` and every other command. A backslash counts
+  only when the file stays under the root read both as a PowerShell separator and as a bash
+  escape, where `.\.` is `..`, unless a `pwsh` wrapper names the shell.
+  Replaying the 872 distinct shell outputs from the 32 Codex sessions with `C:\dev\private`
+  trusted: 17 refused by default, the 5 that were plain reads under the root now warn, the other
+  12 stay refused. Still empty by default: 0 of 23,938 eval verdicts changed, `fpr` identical
+  in every category, held-out recall unchanged (heldout 23/31, InjecAgent 1,054/1,054,
+  safeguard 490/650).
 
 - **Paddle webhook verification and Keygen licence issuance (`src/license/paddleFulfillment.ts`,
   `scripts/fulfill-paddle-webhook.ts`).** Verifies Paddle Billing's `Paddle-Signature`
@@ -258,6 +277,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **October 2026 Node.js security release: the container image runs Node 24.22.1, and an
+  unpatched runtime is reported.** The proxy brotli-decompresses every upstream response it
+  inspects (`decompressBody` in `src/proxy/proxy.ts`) and verifies upstream certificates with
+  Node's TLS, so CVE-2026-111497 (an out-of-bounds write in Node's Brotli decoder, reachable
+  from malformed input and rated High) and the certificate hostname checks fixed in the same
+  release (CVE-2026-105483, CVE-2026-106069) are reachable from a provider response. The
+  Dockerfile's `node:24-bookworm-slim` digest moves to the image published on 2026-10-21
+  (verified by reading `NODE_VERSION=24.22.1` from the image config on Docker Hub); Dependabot
+  would have proposed it after its 7-day cooldown. For the npm install, where the runtime is the
+  user's, `llm-fw start` now prints one warning line and `llm-fw doctor` adds a check when the
+  Node it runs on predates 22.23.4, 24.22.1 or 26.12.1, or is an end-of-life line (23, 25) that
+  gets no fix. `engines.node` stays `>=22`: a patch floor cannot be expressed per line, and npm
+  only warns about engines anyway. No detection change.
 - **The dashboard page carries a Content-Security-Policy.** `GET /` on the dashboard now
   answers with `default-src 'none'`, inline-only scripts and styles, `img-src 'self' data:`,
   `connect-src 'self'`, `form-action 'self'`, `base-uri 'none'` and `frame-ancestors 'none'`,

@@ -181,7 +181,7 @@ Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format 
 
 ## Prerequisites
 
-- **Node.js 22+**
+- **Node.js 22+**, at a patch that carries the October 2026 security release: 22.23.4, 24.22.1 or 26.12.1 and newer. `llm-fw start` and `llm-fw doctor` warn on an older one.
 - A terminal with permission to install a root CA certificate (one-time, for TLS interception)
 - _Optional for Stage 3:_ [Ollama](https://ollama.com) with `phi3` or `llama3.2:3b` pulled
 

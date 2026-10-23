@@ -38,6 +38,7 @@ function probe(overrides: Partial<DoctorProbe> = {}): DoctorProbe {
     nodeExtraCaCertsPersisted: 'C:\\Users\\me\\.llm-fw\\ca.crt',
     missingHostsTargets: [],
     hostsTargetCount: 12,
+    nodeVersion: 'v24.22.1',
     portRedirectPresent: true,
     iphlpsvcRunning: true,
     runtime: { pid: 4242, startedAt: '2026-10-15T20:00:00.000Z', enforcement: 'enforce', proxyUrl: 'http://127.0.0.1:8080', dashboardUrl: 'http://127.0.0.1:7731', gatewayUrl: null, sinkhole: true },
@@ -51,6 +52,21 @@ const find = (p: DoctorProbe, substr: string) =>
   evaluateProbe(p).find(c => c.title.includes(substr))
 
 describe('evaluateProbe', () => {
+  describe('Node.js runtime', () => {
+    it('is ok on a Node line that carries the October 2026 security release', () => {
+      const c = find(probe({ nodeVersion: 'v24.22.1' }), 'Node.js runtime')
+      expect(c?.level).toBe('ok')
+      expect(c?.title).toContain('v24.22.1')
+    })
+
+    it('warns, naming the patched version, when the runtime is behind', () => {
+      const c = find(probe({ nodeVersion: 'v26.8.2' }), 'Node.js runtime')
+      expect(c?.level).toBe('warn')
+      expect(c?.title).toContain('26.12.1')
+      expect(c?.fix?.[0]).toContain('26.12.1')
+    })
+  })
+
   it('reports a fully healthy sinkhole setup with no failures', () => {
     const checks = evaluateProbe(probe())
     const s = summarize(checks)
