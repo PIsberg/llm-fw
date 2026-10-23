@@ -1,21 +1,26 @@
 import path from 'node:path'
 
 // Trusted paths (detection.surfaces.tool_result.trustedPaths, issues #391,
-// #349, #405). A file the agent read from the developer's own project is
+// #349, #405, #437). A file the agent read from the developer's own project is
 // demoted from block to warn when only a wording stage objects to it: game
 // code about rogue AIs, a security tool's docs quoting attacks, a README that
 // tells a person what to do. Everything else a tool returns stays untrusted.
 //
 // Deliberately narrow, because a trusted read is exactly where a planted
 // injection would hide:
-// - only file-read tools, matched by their full name, never shell output,
-//   fetches or search results, whose text may come from anywhere. An MCP
-//   tool counts only on a server known to read local files: a `read_file`
-//   on any other server may be serving fetched content;
+// - file-read tools, matched by their full name, and shell tools whose command
+//   is one plain read of one file (`cat`, `head`, `tail`, `sed -n N,Mp`,
+//   `Get-Content`) with nothing a shell could expand or chain: no pipe,
+//   redirection, substitution, separator, glob or variable. Fetches, search
+//   results and every other command keep their output untrusted, since it may
+//   come from anywhere. An MCP tool counts only on a server known to read
+//   local files: a `read_file` on any other server may be serving fetched
+//   content;
 // - every path argument the call carries, not just the first one found,
 //   since which one the tool honours is the tool's business;
-// - only absolute paths, since a relative one is relative to a working
-//   directory the proxy cannot see;
+// - only absolute paths, or a relative one when the call itself names the
+//   working directory it is relative to (Codex sends `workdir`); otherwise the
+//   proxy cannot know what the path means;
 // - never third-party code vendored inside a trusted root.
 
 /** Full tool names that read one local file. */
@@ -27,6 +32,15 @@ const READ_TOOLS: ReadonlySet<string> = new Set([
   'mcp__filesystem__read_file', // the reference MCP filesystem server
   'mcp__filesystem__read_text_file',
 ])
+
+/**
+ * Tool names that run a shell command and return its output. `Bash` is
+ * Claude Code's, which carries no working directory; `shell`, `shell_command`
+ * and `exec_command` are Codex CLI's, which carry `workdir`; `local_shell_call`
+ * is the Responses API built-in, whose `action` the parser flattens to the
+ * same shape. lean-ctx's `ctx_shell` is not here: it rewrites the output.
+ */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'shell', 'shell_command', 'exec_command', 'local_shell_call'])
 
 const PATH_KEYS = ['file_path', 'absolute_path', 'path', 'filePath'] as const
 
@@ -73,9 +87,14 @@ function readArgs(input: unknown): Record<string, unknown> | null {
  * `input` is the call's arguments, as an object or a JSON string.
  */
 export function trustedReadPath(toolName: string | undefined, input: unknown, roots: readonly string[]): string | null {
-  if (!toolName || roots.length === 0 || !READ_TOOLS.has(toolName)) return null
+  if (!toolName || roots.length === 0) return null
   const args = readArgs(input)
   if (!args) return null
+  if (SHELL_TOOLS.has(toolName)) {
+    const file = shellReadPath(args.command, typeof args.workdir === 'string' ? args.workdir : undefined)
+    return file && underTrustedRoot(file, roots) ? file : null
+  }
+  if (!READ_TOOLS.has(toolName)) return null
   const paths = PATH_KEYS.filter(k => k in args).map(k => args[k])
   if (paths.length === 0) return null
   for (const p of paths) {
@@ -99,4 +118,127 @@ function underTrustedRoot(raw: string, roots: readonly string[]): boolean {
     return true
   }
   return false
+}
+
+// ── shell reads (#437) ──────────────────────────────────────────────────────
+
+/**
+ * Anything that lets a shell run a second command, expand a word, or send the
+ * output somewhere else. One of these anywhere in the script and it is not a
+ * plain read: `|`, `;`, `&`, `<`, `>`, `$`, backticks, parentheses and braces
+ * (substitution, grouping, PowerShell expressions), `*`, `?`, `[` (globs),
+ * `~` (a home directory the proxy cannot resolve), `#` (a comment can hide
+ * what follows on a wrapped line), `@` (PowerShell splatting), `^` (cmd's
+ * escape), `!` (history or delayed expansion), a newline. A comma, which
+ * makes a PowerShell list, is allowed only inside a sed line range.
+ */
+const SHELL_META = /[|;&<>$`(){}*?[\]~#@^!\n\r]/
+
+const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell', 'cmd'])
+const SHELL_SCRIPT_FLAGS: ReadonlySet<string> = new Set(['-c', '-lc', '-command', '/c'])
+
+/** Options a read command may carry: `true` takes a number, `'path'` names the file, `'script'` a sed range, `'encoding'` a name, `false` stands alone. */
+type OptionKind = true | false | 'path' | 'encoding' | 'script'
+const OPTIONS: Readonly<Record<string, Readonly<Record<string, OptionKind>>>> = {
+  cat: { '-n': false, '-b': false, '-s': false, '-a': false, '-e': false, '-t': false, '-v': false },
+  head: { '-n': true, '-c': true, '-q': false },
+  tail: { '-n': true, '-c': true, '-q': false },
+  sed: { '-n': false, '-e': 'script', '--quiet': false, '--silent': false },
+  'get-content': {
+    '-totalcount': true, '-tail': true, '-head': true, '-first': true, '-last': true, '-readcount': true,
+    '-raw': false, '-encoding': 'encoding', '-path': 'path', '-literalpath': 'path',
+  },
+  type: {},
+}
+const ALIASES: Readonly<Record<string, string>> = { gc: 'get-content', 'get-content': 'get-content', type: 'type', cat: 'cat', head: 'head', tail: 'tail', sed: 'sed' }
+
+/** `12p`, `12,40p`: print a line range, nothing else. */
+const SED_RANGE = /^\d+(,\d+)?p$/
+const COUNT = /^\d+$/
+const ENCODING = /^[a-z0-9-]+$/i
+
+/**
+ * Split a script on whitespace, keeping a single- or double-quoted word as
+ * one token without its quotes. Null on an unterminated quote. Expansions are
+ * already excluded by SHELL_META, so quoting only has to carry spaces.
+ */
+function tokenise(script: string): string[] | null {
+  const tokens: string[] = []
+  const re = /\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+))(?=\s|$)/y
+  let i = 0
+  while (i < script.length) {
+    if (/\s/.test(script[i]!)) { i++; continue }
+    re.lastIndex = i
+    const m = re.exec(script)
+    if (!m) return null
+    tokens.push(m[1] ?? m[2] ?? m[3] ?? '')
+    i = re.lastIndex
+  }
+  return tokens
+}
+
+/**
+ * The one file a shell command reads, resolved against `workdir` when the
+ * command names it relatively; null for anything that is not exactly one
+ * plain read command with one path and only its line-selecting options.
+ * `command` is a string, or the argv array Codex and `local_shell_call` send,
+ * either `[shell, -c|-lc, script]` or the read command's own argv.
+ */
+function shellReadPath(command: unknown, workdir: string | undefined): string | null {
+  let tokens: string[] | null
+  if (typeof command === 'string') {
+    if (SHELL_META.test(command)) return null
+    tokens = tokenise(command)
+  } else if (Array.isArray(command) && command.length > 0 && command.every((a): a is string => typeof a === 'string')) {
+    const argv: string[] = command
+    const exe = path.posix.basename(argv[0]!.replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase()
+    if (SHELLS.has(exe)) {
+      if (argv.length !== 3 || !SHELL_SCRIPT_FLAGS.has(argv[1]!.toLowerCase()) || SHELL_META.test(argv[2]!)) return null
+      tokens = tokenise(argv[2]!)
+    } else {
+      if (argv.some(a => SHELL_META.test(a))) return null
+      tokens = argv
+    }
+  } else {
+    return null
+  }
+  if (!tokens || tokens.length < 2) return null
+
+  const verb = ALIASES[tokens[0]!.toLowerCase()]
+  if (!verb) return null
+  const options = OPTIONS[verb]!
+  let file: string | null = null
+  let sedScript: string | null = null
+  for (let i = 1; i < tokens.length; i++) {
+    const tok = tokens[i]!
+    if (verb === 'sed' && SED_RANGE.test(tok) && sedScript === null) { sedScript = tok; continue }
+    if (tok.includes(',')) return null
+    if (tok.startsWith('-')) {
+      // `tail -20`, `head -5`
+      if ((verb === 'head' || verb === 'tail') && COUNT.test(tok.slice(1))) continue
+      const kind = options[tok.toLowerCase()]
+      if (kind === undefined) return null
+      if (kind === false) continue
+      const value = tokens[++i]
+      if (value === undefined) return null
+      if (kind === true && !COUNT.test(value)) return null
+      if (kind === 'encoding' && !ENCODING.test(value)) return null
+      if (kind === 'script') { if (verb !== 'sed' || !SED_RANGE.test(value) || sedScript !== null) return null; sedScript = value; continue }
+      if (kind === 'path') { if (file !== null) return null; file = value; continue }
+      continue
+    }
+    if (file !== null) return null
+    file = tok
+  }
+  if (file === null || file.length === 0) return null
+  if (verb === 'sed' && sedScript === null) return null
+
+  const slashed = file.replace(/\\/g, '/')
+  if (normalise(slashed)) return slashed
+  if (slashed.startsWith('/') || DRIVE_RE.test(slashed)) return null // absolute but unresolvable: fail closed
+  if (!workdir) return null
+  const base = normalise(workdir)
+  if (!base) return null
+  const joined = path.posix.join(base, slashed)
+  return normalise(joined) ? joined : null
 }

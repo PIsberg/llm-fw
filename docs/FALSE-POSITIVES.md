@@ -60,6 +60,21 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.83
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed.** This ruleset
+extends `trustedPaths` (still empty by default) to a shell tool result whose
+command was exactly one plain read of one file (`cat`, `head`, `tail`,
+`sed -n` with a line range, `Get-Content`), resolved against the `workdir`
+Codex CLI sends (#437). No eval row carries a tool call, so none can move.
+Replaying the 872 distinct shell outputs from 32 local Codex CLI sessions as
+Responses API requests with `C:\dev\private` trusted: 183 commands match the
+read grammar, 17 outputs are refused by default, 5 of those are plain reads
+under the root and all 5 warn with the setting (re-scan 120 ms at the median,
+503 ms at most); the 12 refused through a pipe, a glob, an `if`, `rg`,
+`git diff` or a path outside the root stay refused.
+
 ## Result, ruleset 2026.10.82
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
