@@ -136,9 +136,12 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     // Every block, not just the first: the head carries a one-line theme script
     // ahead of the main one, and matching only the first would compile that
     // and silently stop checking the 1,300 lines that matter.
-    const scripts = [...res.body.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    // Split on the literal tags the page emits rather than a tag regex: the
+    // page is ours, so there are no case or attribute variants to match, and a
+    // regex here reads as a (bad) HTML filter to CodeQL's js/bad-tag-filter.
+    const scripts = res.body.split('<script>').slice(1).map((s) => s.slice(0, s.indexOf('</script>')))
     expect(scripts.length).toBeGreaterThanOrEqual(2)
-    for (const m of scripts) expect(() => new vm.Script(m[1])).not.toThrow()
+    for (const src of scripts) expect(() => new vm.Script(src)).not.toThrow()
   })
 
   // The README promises no telemetry, and the dashboard keeps that true by
