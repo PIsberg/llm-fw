@@ -10,6 +10,7 @@ import { licenseStatus, type LicenseStatus } from '../license/status.js'
 import { isKeygenConfigured, isOfflineLicenseConfigured } from '../license/account.js'
 import { statusLine, UNLICENSED_NOTICE, COMMERCIAL_URL, CONTACT_EMAIL } from './license.js'
 import { enforcementLine, readRuntimeState, type RuntimeState } from './runtimeState.js'
+import { nodeRuntimeAdvisory, PATCHED_NODE } from './nodeAdvisory.js'
 
 /**
  * `llm-fw doctor` — diagnose whether the interception environment is set up
@@ -73,6 +74,8 @@ export interface DoctorProbe {
   iphlpsvcRunning: boolean | null
   /** What the running process recorded at startup (`--observe`, `--gateway`); null if none. */
   runtime: RuntimeState | null
+  /** `process.version` of the Node.js running doctor, which is also the one `start` would use. */
+  nodeVersion: string
 }
 
 // ── pure helpers ────────────────────────────────────────────────────────────
@@ -143,6 +146,15 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
       : { level: 'ok', title: `Enforcement: ${enforcementLine(p.runtime)}` })
     if (p.runtime.gatewayUrl) checks.push({ level: 'info', title: `Gateway listening at ${p.runtime.gatewayUrl}` })
   }
+
+  // The runtime itself: the proxy decompresses and TLS-verifies upstream
+  // responses on Node's own code, so a Node behind a security release is a
+  // hole no llm-fw setting closes.
+  const advisory = nodeRuntimeAdvisory(p.nodeVersion)
+  const wanted = PATCHED_NODE[parseInt(p.nodeVersion.replace(/^v/, ''), 10)] ?? Object.values(PATCHED_NODE).join(' / ')
+  checks.push(advisory
+    ? { level: 'warn', title: `Node.js runtime ${p.nodeVersion} predates the October 2026 security release (needs ${wanted})`, detail: advisory, fix: [`Install Node.js ${wanted} or newer, then restart llm-fw`] }
+    : { level: 'ok', title: `Node.js runtime ${p.nodeVersion} carries the October 2026 security release` })
 
   // CA certificate file
   checks.push(p.caCertExists
@@ -584,6 +596,7 @@ async function probe(): Promise<DoctorProbe> {
     }
   } catch { /* no pid file */ }
   const runtime = running && pid !== null ? readRuntimeState(llmfwDir, pid) : null
+  const nodeVersion = process.version
 
   // Sinkhole is active if config says so OR the hosts file carries the marker
   // (covers an elevated setup whose user config.json wasn't written).
@@ -639,6 +652,7 @@ async function probe(): Promise<DoctorProbe> {
     portRedirectPresent: sinkholeActive ? detectPortRedirect(os, config.proxy.httpsPort) : null,
     iphlpsvcRunning: sinkholeActive && os === 'win32' ? detectIphlpsvc() : null,
     runtime,
+    nodeVersion,
   }
 }
 

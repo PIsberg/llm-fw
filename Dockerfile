@@ -22,7 +22,7 @@
 # already past end-of-life that no CI job had ever run.
 
 # ---------- build ----------
-FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -35,7 +35,7 @@ RUN npm run build
 # ---------- model warm ----------
 # Separate stage so the (large) model cache is copied into the runtime image
 # without dragging in dev dependencies or the TypeScript sources.
-FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS models
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS models
 WORKDIR /app
 ENV LLM_FW_MODEL_DIR=/models
 
@@ -68,7 +68,7 @@ RUN node docker/warm-models.mjs
 # ca-certificates is not installed; with Debian's bundle file in place lean-ctx
 # starts, as root and as the node user). So the stage also takes that bundle
 # along, and only then.
-FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS leanctx
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS leanctx
 ARG LEAN_CTX_VERSION=
 ARG LEAN_CTX_SHA256=
 ARG LEAN_CTX_TARGET=x86_64-unknown-linux-gnu
@@ -87,7 +87,7 @@ RUN mkdir -p /opt/lean-ctx/bin /opt/lean-ctx/certs \
     fi
 
 # ---------- runtime ----------
-FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

@@ -21,6 +21,7 @@ import { getLlmFwDir } from '../config/paths.js';
 import { lanIPv4 } from '../config/net.js';
 import { watchForStopRequest } from './stopRequest.js';
 import { killPreviousInstance } from './stop.js';
+import { nodeRuntimeAdvisory } from './nodeAdvisory.js';
 import { execSync, execFileSync } from 'node:child_process';
 
 /**
@@ -123,6 +124,10 @@ function killPortOwner(port: number): void {
 
 export async function run(args: string[] = []): Promise<void> {
   const standalone = isStandalone(args);
+  // Said before anything binds: the proxy decompresses and TLS-verifies
+  // upstream responses on Node's own code (see nodeAdvisory.ts).
+  const nodeAdvisory = nodeRuntimeAdvisory();
+  if (nodeAdvisory) console.warn(`⚠ ${nodeAdvisory}`);
   const config = await loadConfig();
 
   // Standalone server mode: expose the proxy (and dashboard/CA download) on all
