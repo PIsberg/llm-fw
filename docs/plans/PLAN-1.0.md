@@ -136,10 +136,9 @@ Findings so far:
   verify keys (documented in `docs/LICENSING.md` for staging), so a user can
   make their own install report itself licensed, which in an open-source
   package is no more than editing the code. Paddle: `Paddle-Signature` is an
-  HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Accepted:
-  `scripts/fulfill-paddle-webhook.ts` is run by hand and does not look up an
-  existing licence for the transaction, so running it twice issues a second
-  key for the same purchase (#466).
+  HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Fixed:
+  `scripts/fulfill-paddle-webhook.ts` issued a second key when run twice for
+  one transaction; it now returns the existing one (#466).
 - [x] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
   WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
   embedding passes have a per-request budget (64 dense 40 KB messages: 391 s

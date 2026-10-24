@@ -34,7 +34,9 @@ Fulfilment is a person: Paddle emails you, you issue the key.
 `verifyPaddleSignature()` checks Paddle's `Paddle-Signature` HMAC-SHA256 header and replay
 window, `parsePaddleTransactionEvent()` extracts the buyer and plan from
 `transaction.completed`, and `issueKeygenLicense()` mints the key in Keygen and verifies the
-returned Ed25519 signature offline before handing it back.
+returned Ed25519 signature offline before handing it back. It first looks for a licence whose
+metadata already carries the transaction's `paddleTransactionId` and returns that one instead,
+so running the script twice for one purchase does not issue a second key.
 
 `src/license/keygenKey.ts` verifies the key's signature against
 `src/license/account.ts`'s `KEYGEN_PUBLIC_KEY` — no network. `llm-fw license --verify` is the

@@ -50,7 +50,7 @@ async function main(): Promise<void> {
       holderName: opts['holder'] ?? opts['email'],
       plan: opts['plan'],
     })
-    console.log(`Issued Keygen license ${issued.licenseId}`)
+    console.log(`${issued.reused ? 'Already issued for this transaction:' : 'Issued'} Keygen license ${issued.licenseId}`)
     console.log(`  activate: ${issued.activationCommand}`)
     return
   }

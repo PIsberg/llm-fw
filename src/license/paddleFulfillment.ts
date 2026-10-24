@@ -161,6 +161,8 @@ export interface IssuedKeygenLicense {
   plan?: string | undefined
   expiry?: string | undefined
   activationCommand: string
+  /** True when this transaction already had a licence and that one is returned. */
+  reused?: true
 }
 
 /**
@@ -180,7 +182,27 @@ export async function issueKeygenLicense(options: IssueKeygenLicenseOptions): Pr
   if (options.customerEmail) metadata['email'] = options.customerEmail
   if (options.plan) metadata['plan'] = options.plan
 
-  const res = await fetchFn(`${baseUrl}/v1/accounts/${encodeURIComponent(accountId)}/licenses`, {
+  // A licence already issued for this transaction is returned rather than a
+  // second one minted (#466): the operator tool runs by hand, and running it
+  // twice for one purchase issued two valid keys. A failed lookup stops here,
+  // since minting blind is exactly what the lookup exists to prevent.
+  const licensesUrl = `${baseUrl}/v1/accounts/${encodeURIComponent(accountId)}/licenses`
+  const lookup = await fetchFn(
+    `${licensesUrl}?metadata[paddleTransactionId]=${encodeURIComponent(options.transactionId)}&limit=1`,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${options.apiToken}`, Accept: 'application/vnd.api+json' },
+    },
+  )
+  if (!lookup.ok) {
+    throw new Error(`Keygen lookup for an existing licence on ${options.transactionId} failed with HTTP ${lookup.status}`)
+  }
+  const found = ((await lookup.json()) as Record<string, unknown>)['data']
+  if (Array.isArray(found) && found.length > 0) {
+    return { ...verifiedLicense(found[0] as Record<string, unknown>, publicKeyHex, options), reused: true }
+  }
+
+  const res = await fetchFn(licensesUrl, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${options.apiToken}`,
@@ -208,7 +230,15 @@ export async function issueKeygenLicense(options: IssueKeygenLicenseOptions): Pr
   }
 
   const body = (await res.json()) as Record<string, unknown>
-  const data = (body['data'] ?? {}) as Record<string, unknown>
+  return verifiedLicense((body['data'] ?? {}) as Record<string, unknown>, publicKeyHex, options)
+}
+
+/** A Keygen licence resource as an issued licence, after verifying its key offline. */
+function verifiedLicense(
+  data: Record<string, unknown>,
+  publicKeyHex: string,
+  options: Pick<IssueKeygenLicenseOptions, 'holderName' | 'plan' | 'now'>,
+): IssuedKeygenLicense {
   const attrs = (data['attributes'] ?? {}) as Record<string, unknown>
   const licenseId = pickStr(data['id'])
   const licenseKey = pickStr(attrs['key'])
