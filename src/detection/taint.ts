@@ -53,7 +53,11 @@ const FILE_EXT_TLDS = new Set([
 ])
 
 const URL_HOST_RE = /https?:\/\/([a-z0-9.-]+)/gi
-const BARE_DOMAIN_RE = /\b((?:[a-z0-9-]+\.)+[a-z][a-z0-9-]{1,23})\b/gi
+// Starts only at the beginning of a run of label characters (leading dashes
+// skipped outside the capture). A bare \b also restarted after every dash of a
+// long "1-1-1-" run and rescanned the rest of it, quadratic on the event loop
+// (GHSA-gm3q-2gwx-gppq); the run's first start already finds any domain in it.
+const BARE_DOMAIN_RE = /(?<![a-z0-9-])-*\b((?:[a-z0-9-]+\.)+[a-z][a-z0-9-]{1,23})\b/gi
 const SECRET_TOKEN_RE = /[A-Za-z0-9_-]{20,}/g
 
 function hasLetter(s: string): boolean { return /[A-Za-z]/.test(s) }

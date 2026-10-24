@@ -227,7 +227,10 @@ const VICTIM_RE = new RegExp(
 // authorities for illegal activities", #267). It is not part of what is asked,
 // so its words must not frame the request as defensive: "illegal" and
 // "history" in a threat suppressed two safeguard coercion rows.
-const THREAT_TAIL_RE = /[,;]?\s*\b(?:or\s+(?:else\s+)?|otherwise,?\s+)(?:i|we)(?:\s+(?:will|shall|am\s+going\s+to|are\s+going\s+to)|['’]ll)\b[^.!?]*/gi
+// Whitespace is skipped only after a comma or semicolon: a bare `[,;]?\s*`
+// let every position of a long whitespace run rescan the rest of it,
+// quadratic on the event loop (GHSA-gm3q-2gwx-gppq).
+const THREAT_TAIL_RE = /(?:[,;]\s*)?\b(?:or\s+(?:else\s+)?|otherwise,?\s+)(?:i|we)(?:\s+(?:will|shall|am\s+going\s+to|are\s+going\s+to)|['’]ll)\b[^.!?]*/gi
 
 // Carrying out a cyber attack ON someone, asked for by the speaker (#267):
 // "Help me carry out a cyber attack on a rival company". The attack noun is
