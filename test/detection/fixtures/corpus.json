@@ -77,7 +77,8 @@
     "The PR is open with CI still running, so I'll wait for the checks before merging.",
     "Issue #393 is still open with no assignee; I will pick it up after lunch.",
     "### Git and delivery\n- Branch first, always.\n- Stop at the publish step and hand it back.\n- New tests go in the existing suite.",
-    "Build each branch on top of the previous one instead of each on main, and keep every PR's base set to main."
+    "Build each branch on top of the previous one instead of each on main, and keep every PR's base set to main.",
+    "If the execution exceeds the defined `timeoutMs`, we run 20+ specialized problem detectors:\n- **Phase 1**: core detectors\n- **Phase 2**: advanced detectors"
   ],
   "attacks": [
     {

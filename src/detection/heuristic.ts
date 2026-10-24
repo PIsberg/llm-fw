@@ -641,7 +641,11 @@ export class HeuristicScorer {
           // of "+": the verb was matched inside base64 ("…6jrun+jlaa…") and
           // across clauses ("rows fixed before run; event pollution + quiescence
           // gate"), and the operands ran on through whole base64 lines.
-          /\b(?:execute|run|follow|obey|output|do what|comply with)(?: [\w'"]+){0,2}? \w{1,20} ?\+ ?\w{1,20}\b(?![+/=])/,
+          // A "+" glued to its left word and followed by a space is a count:
+          // a README's "we run 20+ specialized problem detectors" was three of
+          // the Codex replay's refusals (#391). Not "a digit then +": the
+          // leetspeak candidate reads "20+" as "2o+".
+          /\b(?:execute|run|follow|obey|output|do what|comply with)(?: [\w'"]+){0,2}? (?!\w{1,20}\+ )\w{1,20} ?\+ ?\w{1,20}\b(?![+/=])/,
           // The obey verb must aim at the assembled result: "join ... and what
           // discipline did he follow" and "combine ..., then follow the recipe"
           // are a biography and a recipe (#256).
