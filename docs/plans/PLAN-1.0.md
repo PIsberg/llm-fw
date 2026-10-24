@@ -69,10 +69,11 @@ Findings so far:
   it and passes the rest of chatgpt.com through. Not yet verified against a live
   Codex session.
 
-- [ ] `docs/THREAT-MODEL.md`: assets (CA key, provider keys, prompts, audit
+- [x] `docs/THREAT-MODEL.md`: assets (CA key, provider keys, prompts, audit
   log, licence), attackers (remote network client, local process, malicious web
   page, malicious upstream response, malicious tool output or MCP server,
-  malicious repository in cwd), one trust boundary per listener.
+  malicious repository in cwd), one trust boundary per listener. Status:
+  written 2026-10-24; every mitigation names the code that enforces it.
 - [x] Proxy: CONNECT target validation on a standalone bind (internal hosts,
   `169.254.169.254`), header and target parsing, request smuggling,
   Content-Encoding handling and decompression bombs. Status: a remote client
