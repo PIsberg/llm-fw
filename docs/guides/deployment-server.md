@@ -656,6 +656,17 @@ wildcard bind resolves to this host's LAN address rather than `0.0.0.0`. A CA
 generated before you moved the dashboard still carries the old URL; see the note
 under [Ports and firewall rules](#ports-and-firewall-rules).
 
+**A remote client cannot tunnel back into this host.** A `CONNECT` from a client
+that is not on loopback to a loopback, unspecified or link-local address
+(`127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, `169.254.0.0/16`, which holds the AWS,
+GCP and Azure metadata endpoint, `fe80::/10`, and AWS's `fd00:ec2::254`) is
+refused with `403`, checked on the address the name resolves to. Metadata
+services elsewhere, such as Alibaba Cloud's `100.100.100.200`, are not covered;
+firewall them at the host if the proxy runs there. Private ranges stay reachable, because clients send all their HTTPS
+traffic through the proxy. A remote client that reaches the proxy through a TLS
+terminator on the same host arrives from loopback and is not restricted, so
+terminate on a different host or not at all.
+
 **Quotas and stateful detection are per-process.** DoS quotas, per-tenant quotas
 and cross-request crescendo tracking are in-memory. They do not aggregate across
 replicas.

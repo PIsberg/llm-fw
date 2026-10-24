@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The forward proxy no longer tunnels a remote client into this host (GHSA-q53q-qg98-p9jf).**
+  On a proxy exposed to the network (`--standalone` or a non-loopback `proxy.bindHost`), a client
+  holding the proxy token could `CONNECT` to `127.0.0.1` and reach the dashboard, which exempts
+  loopback callers from its token, a loopback-bound gateway and the provider keys it holds, and
+  link-local services such as the cloud metadata endpoint. A `CONNECT` from a non-loopback client
+  to a loopback, unspecified or link-local address is now refused with `403`, checked on the
+  resolved address, so a name pointing at `127.0.0.1` is refused too. Loopback clients and
+  private (RFC 1918) destinations are unaffected.
+
 - **Config is no longer read from the working directory (GHSA-4578-7p8f-hc8r).** Every command,
   and the library's `createFirewall()`, loaded `.llm-fw.json`, `.llm-fwrc*`, `llm-fw.config.js` or
   a `"llm-fw"` key in `package.json` from the directory llm-fw was started in. Run inside a cloned
