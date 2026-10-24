@@ -66,9 +66,8 @@ describe('scripts/install.ps1', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     },
-    // Spawning a real pwsh costs several seconds before the first assertion
-    // runs, and a loaded machine can spend more than the old 20 s budget on
-    // start-up alone (#449). The case itself is a few tens of seconds.
+    // Each pwsh case takes about 1 s idle, but a contended full-suite run on
+    // Windows has spent more than 20 s on pwsh start-up alone (#449).
     60_000,
   );
 
@@ -95,7 +94,8 @@ describe('scripts/install.ps1', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     },
-    20_000,
+    // Same pwsh start-up cost as the case above (#449).
+    60_000,
   );
 });
 
