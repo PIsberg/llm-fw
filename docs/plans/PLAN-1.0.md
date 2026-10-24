@@ -16,12 +16,16 @@ action (a merge, a publish, a setting, a purchase).
 
 - [~] **GHSA-83jp-cppw-c3v6** (Responses API tool output never scanned).
   Status: the fix (6841cd4) is on `main` and in the v0.8.0 tag, which is the
-  published npm `latest`. The advisory is still a draft. Waiting on: publish the
-  advisory with patched version `0.8.0`. Then rebase the parked draft PR #392
+  published npm `latest`. The advisory is still a draft, with its patched
+  version set to `0.8.0` (vulnerable `<= 0.7.0`). Waiting on: publish it. Then rebase the parked draft PR #392
   per its HANDOVER (#377).
-- [ ] **#391** benign tool output refused (2.2% of 1,382 real Codex outputs).
-  Fix additively with synthetic benign corpus rows, measured `fpr` and
-  `verdicts:diff` before and after, or scope it out of 1.0 in writing.
+- [x] **#391** benign tool output refused (2.2% of 1,382 real Codex outputs).
+  Status: five wording fixes, ruleset 2026.10.84. Codex replay 17 refusals to
+  6; 0 of 23,938 eval verdicts changed; `fpr` unchanged (2.68%, Dolly and
+  oasst1 0 of 2,000). The 6 left (a `.bat` echo, a workflow comment, an
+  AI-guidelines file, a Go source file, a QUICK_REFERENCE, an `rg` hit) stay
+  in #391; plain reads of them are covered by opt-in `trustedPaths`. Not a
+  1.0 blocker.
 - [ ] **#452 and #432** (Semgrep lock pins, lock freshness workflow). Close, or
   record as accepted risk in `SECURITY.md`.
 

@@ -295,6 +295,38 @@ const POLITE_OBJECT_GATED_VERBS = new Set([
 // scripts/run-benchmark.ts cheap --only=injecagent.
 const POLITE_SENTENCE_GATED_VERBS = new Set(['add'])
 const SENTENCE_END_RE = /[.!?]\s+(?=[A-Z])/
+// Mockito's full warning ends "...as described in Mockito's documentation:
+// https://javadoc.io/...", and that link is where to read, not what to add
+// (3 of the 17 Codex replay refusals left, #391).
+const DOCS_LINK_RE = /\b(?:as\s+described\s+in|see)\b[^.!?:]{0,60}:\s*https?:\/\/\S*/gi
+
+// Two more shapes a polite verb takes in UI copy and tool warnings when the
+// object window names nothing an attacker would choose (#391): the request
+// ends by asking the reader to retry ("Please enable location in your browser
+// and try again"), or its object is an environment variable name ("Please set
+// a HF_TOKEN to enable higher rate limits", Hugging Face's hub client). The
+// variable must lead the object, in upper snake case, so "Please set the
+// thermostat" still fires, and a URL beside it ("set OPENAI_BASE_URL to
+// https://...") is an object and still fires.
+const RETRY_PROMPT_RE = /^[^.!?\n]{0,80}\band\s+(?:try|retry)\s+again\b/i
+const ENV_VAR_OBJECT_RE = /^\s+(?:(?:a|an|the|your)\s+)?[`'"]?[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/
+function benignPoliteObject(text: string, end: number): boolean {
+  const w = objectWindow(text, end)
+  if (IMPERATIVE_OBJECT_RE.test(w)) return false
+  return RETRY_PROMPT_RE.test(text.slice(end)) || ENV_VAR_OBJECT_RE.test(text.slice(end))
+}
+
+// "You must be a tribe member to upload images", "You need to be signed in
+// to delete this comment": the verb after a modal is "be", and the action is
+// a purpose clause naming what the role allows. An access check, not an
+// order (#391). The proximity fallback paired the modal with the later verb.
+const PURPOSE_CLAUSE_RE = /^\s+be\b[^.!?\n]{0,40}\bto\s+$/i
+const ENGLISH_MODAL_MARKERS = new Set(['you must', 'you should', 'you need to'])
+// "Please set a HF_TOKEN to enable higher rate limits": when "please" leads
+// straight into an action verb, the anchored polite rule has already judged
+// that verb, and a later "to <verb>" is its purpose, not a second request.
+const ENGLISH_POLITE_MARKERS = new Set(['please', 'kindly'])
+const LEADING_ACTION_VERB_RE = new RegExp(`^\\s+(?:${VERB_ALT})\\b`, 'i')
 
 // A quoted example in a template placeholder: Spec Kit's spec template reads
 // `[key interaction, e.g., "reset their password"]`, and every spec drafted
@@ -905,6 +937,10 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
           if (POLITE_OBJECT_GATED_VERBS.has(v) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, i + v.length))) continue
+          // The polite path's exemptions hold here too, for the same reason.
+          if (ML_ENGLISH_VERB_SET.has(v) && benignPoliteObject(text, i + v.length)) continue
+          if (ENGLISH_MODAL_MARKERS.has(marker) && i > mi && PURPOSE_CLAUSE_RE.test(hay.slice(mi + marker.length, i))) continue
+          if (ENGLISH_POLITE_MARKERS.has(marker) && i > mi + marker.length && hay.slice(i - 3, i) === 'to ' && LEADING_ACTION_VERB_RE.test(hay.slice(mi + marker.length, i))) continue
           if (onlyTrustedObject(i + v.length)) continue
           return { verb: v, reason: 'imperative', snippet: snippetAround(text, Math.min(mi, i), marker.length) }
         }
@@ -987,8 +1023,9 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     }
     if (POLITE_SENTENCE_GATED_VERBS.has(verb)) {
       const end = m.index + m[0].length
-      if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end).split(SENTENCE_END_RE)[0] ?? '')) continue
+      if (!IMPERATIVE_OBJECT_RE.test((objectWindow(text, end).split(SENTENCE_END_RE)[0] ?? '').replace(DOCS_LINK_RE, ''))) continue
     }
+    if (benignPoliteObject(text, m.index + m[0].length)) continue
     if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }

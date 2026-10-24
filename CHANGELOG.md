@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Fewer benign tool outputs refused (#391; ruleset 2026.10.84).** Replaying 872 real Codex CLI
+  shell outputs, 17 were refused by default and 6 still are. Five shapes are no longer read as
+  injections: a count after a run verb ("we run 20+ detectors"), Mockito's JDK warning ending on
+  a link to its documentation, an access check ("You must be a member to upload images"), UI copy
+  that asks the user to retry ("Please enable location ... and try again"), and Hugging Face's
+  "Please set a HF_TOKEN" hint. Each still blocks when the instruction names an address, an
+  account, a URL or credentials. Measured: 0 of 23,938 eval verdicts changed, false-positive rate
+  unchanged (2.68%, 9 of 336; Dolly and oasst1 0 of 2,000 each).
+
 ### Documentation
 
 - **Road to 1.0.0.** [docs/plans/PLAN-1.0.md](docs/plans/PLAN-1.0.md) lists what

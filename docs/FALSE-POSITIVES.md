@@ -60,6 +60,21 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.84
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed, InjecAgent's
+1,071 rows among them.** Five wording fixes from the Codex CLI replay
+(#391), each found on a benign tool output: "we run 20+ detectors" is a
+count, not "execute a + b" (also in its leetspeak candidate, "2o+");
+Mockito's "Please add ... as described in Mockito's documentation: <URL>"
+names a link to read, not an object; "You must be a member to upload" is an
+access check; "Please enable location ... and try again" is UI copy; and
+"Please set a HF_TOKEN to enable ..." names an environment variable. Each
+exemption still fires when the object window holds an attacker's object
+(an address, an account, a URL, "my", credentials). Replaying the 872
+distinct Codex shell outputs, the 17 refused by default fall to 6.
+
 ## Result, ruleset 2026.10.83
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
