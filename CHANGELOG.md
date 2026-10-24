@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-23
+
 ### Added
+
+- **CI runs the suite on Node 26.** `Build & Test` now covers Node 22, 24 and 26, so a
+  change that only breaks on the current Node line fails in CI instead of on a user's
+  machine. The supported floor is unchanged (`engines.node >=22`), and the container
+  image stays on `node:24`, the newest LTS line, until 26 enters LTS;
+  `test/ci/dockerPinning.test.ts` keeps the image on a major the matrix tests.
 
 - **Trusted project roots for file reads (`detection.surfaces.tool_result.trustedPaths`,
   `LLM_FW_TRUSTED_PATHS`; ruleset 2026.10.82).** A local file-read tool result (Claude Code's
@@ -2752,7 +2760,11 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/PIsberg/llm-fw/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/PIsberg/llm-fw/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/PIsberg/llm-fw/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/PIsberg/llm-fw/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/PIsberg/llm-fw/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/PIsberg/llm-fw/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PIsberg/llm-fw/compare/v0.2.0...v0.3.0
