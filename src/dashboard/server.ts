@@ -2870,7 +2870,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             })
             // Task C4 — timed at this call boundary (mirrors proxy.ts) to
             // feed llmfw_requests_total{surface="playground"} + the overall
-            // llmfw_scan_duration_ms histogram.
+            // llmfw_scan_duration_seconds histogram.
             const imageScanStart = Date.now()
             const imageResult = await pipeline.run(
               '/v1/messages',

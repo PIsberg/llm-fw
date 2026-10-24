@@ -216,7 +216,7 @@ export class ProxyServer {
   private eventBus: EventBus
   private config: Config
   // Task C4 — optional shared metrics registry (see cli/start.ts). Records
-  // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_ms at the
+  // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_seconds at the
   // pipeline.run() call boundary below; block/warn/event counters are
   // recorded centrally by EventBus.emit() instead.
   private metrics?: MetricsRegistry | undefined
@@ -896,7 +896,7 @@ export class ProxyServer {
       let scanEventId = 'unknown'
       // Task C4 — timed at this call boundary (non-invasive: Pipeline.run()
       // itself is untouched) to feed llmfw_requests_total{surface="proxy"} +
-      // the overall llmfw_scan_duration_ms histogram.
+      // the overall llmfw_scan_duration_seconds histogram.
       const scanStart = Date.now()
       try {
         result = await this.pipeline.run(

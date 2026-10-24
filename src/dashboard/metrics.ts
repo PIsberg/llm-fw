@@ -4,7 +4,7 @@ import { BlockEvent } from '../types.js'
  * Task C4 — hand-rolled Prometheus text-exposition registry (no new runtime
  * dependency; no `prom-client`). Three kinds of series:
  *
- *  - `llmfw_requests_total{surface}` / `llmfw_scan_duration_ms` (histogram) —
+ *  - `llmfw_requests_total{surface}` / `llmfw_scan_duration_seconds` (histogram) —
  *    fed by `recordScan()`, called once per `Pipeline.run()` invocation from
  *    the call boundary in proxy.ts (surface="proxy", live MITM traffic) and
  *    server.ts (surface="playground", the dashboard's Prompt Testing tab).
@@ -27,6 +27,9 @@ import { BlockEvent } from '../types.js'
  */
 
 // Prometheus histogram buckets are cumulative ("le" = less-than-or-equal).
+// Callers time in milliseconds; the series is exposed in seconds, Prometheus's
+// base unit, so `rate(..._sum) / rate(..._count)` reads as seconds like every
+// other exporter. It was `llmfw_scan_duration_ms` before 1.0 (docs/STABILITY.md).
 const DURATION_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500] as const
 
 export interface ModelStatus {
@@ -109,14 +112,14 @@ export class MetricsRegistry {
       lines.push(`llmfw_events_total{kind="${escapeLabel(kind)}"} ${count}`)
     }
 
-    lines.push('# HELP llmfw_scan_duration_ms Pipeline scan duration in milliseconds (overall — see source comment for why there is no per-stage breakdown).')
-    lines.push('# TYPE llmfw_scan_duration_ms histogram')
+    lines.push('# HELP llmfw_scan_duration_seconds Pipeline scan duration in seconds (overall — see source comment for why there is no per-stage breakdown).')
+    lines.push('# TYPE llmfw_scan_duration_seconds histogram')
     for (let i = 0; i < DURATION_BUCKETS_MS.length; i++) {
-      lines.push(`llmfw_scan_duration_ms_bucket{le="${DURATION_BUCKETS_MS[i]}"} ${this.durationBucketCounts[i]}`)
+      lines.push(`llmfw_scan_duration_seconds_bucket{le="${(DURATION_BUCKETS_MS[i] ?? 0) / 1000}"} ${this.durationBucketCounts[i]}`)
     }
-    lines.push(`llmfw_scan_duration_ms_bucket{le="+Inf"} ${this.durationCount}`)
-    lines.push(`llmfw_scan_duration_ms_sum ${this.durationSum}`)
-    lines.push(`llmfw_scan_duration_ms_count ${this.durationCount}`)
+    lines.push(`llmfw_scan_duration_seconds_bucket{le="+Inf"} ${this.durationCount}`)
+    lines.push(`llmfw_scan_duration_seconds_sum ${this.durationSum / 1000}`)
+    lines.push(`llmfw_scan_duration_seconds_count ${this.durationCount}`)
 
     lines.push('# HELP llmfw_model_loaded Whether a detection model is loaded and ready (1) or not (0).')
     lines.push('# TYPE llmfw_model_loaded gauge')

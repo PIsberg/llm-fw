@@ -6,18 +6,20 @@ describe('MetricsRegistry — Prometheus text exposition', () => {
     const registry = new MetricsRegistry()
     const text = registry.render({ embedding: false, classifier: false })
 
-    for (const name of ['llmfw_requests_total', 'llmfw_blocks_total', 'llmfw_would_block_total', 'llmfw_warns_total', 'llmfw_events_total', 'llmfw_scan_duration_ms', 'llmfw_model_loaded']) {
+    for (const name of ['llmfw_requests_total', 'llmfw_blocks_total', 'llmfw_would_block_total', 'llmfw_warns_total', 'llmfw_events_total', 'llmfw_scan_duration_seconds', 'llmfw_model_loaded']) {
       expect(text).toContain(`# HELP ${name} `)
       expect(text).toMatch(new RegExp(`# TYPE ${name} (counter|histogram|gauge)`))
     }
     // Histogram scaffolding is always present (even with zero observations):
     // one _bucket line per configured boundary plus the mandatory +Inf bucket.
-    for (const le of [5, 10, 25, 50, 100, 250, 500, 1000, 2500]) {
-      expect(text).toContain(`llmfw_scan_duration_ms_bucket{le="${le}"} 0`)
+    for (const le of ['0.005', '0.01', '0.025', '0.05', '0.1', '0.25', '0.5', '1', '2.5']) {
+      expect(text).toContain(`llmfw_scan_duration_seconds_bucket{le="${le}"} 0`)
     }
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="+Inf"} 0')
-    expect(text).toContain('llmfw_scan_duration_ms_sum 0')
-    expect(text).toContain('llmfw_scan_duration_ms_count 0')
+    // Prometheus base units (docs/STABILITY.md): no millisecond series.
+    expect(text).not.toContain('llmfw_scan_duration_ms')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="+Inf"} 0')
+    expect(text).toContain('llmfw_scan_duration_seconds_sum 0')
+    expect(text).toContain('llmfw_scan_duration_seconds_count 0')
   })
 
   it('counts blocks/warns by stage and events by kind from recordEvent()', () => {
@@ -77,14 +79,14 @@ describe('MetricsRegistry — Prometheus text exposition', () => {
     expect(text).toContain('llmfw_requests_total{surface="proxy"} 2')
     expect(text).toContain('llmfw_requests_total{surface="playground"} 1')
 
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="5"} 1')
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="10"} 1')
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="25"} 1')
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="50"} 2')
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="2500"} 2')
-    expect(text).toContain('llmfw_scan_duration_ms_bucket{le="+Inf"} 3')
-    expect(text).toContain('llmfw_scan_duration_ms_sum 9043')
-    expect(text).toContain('llmfw_scan_duration_ms_count 3')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="0.005"} 1')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="0.01"} 1')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="0.025"} 1')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="0.05"} 2')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="2.5"} 2')
+    expect(text).toContain('llmfw_scan_duration_seconds_bucket{le="+Inf"} 3')
+    expect(text).toContain('llmfw_scan_duration_seconds_sum 9.043')
+    expect(text).toContain('llmfw_scan_duration_seconds_count 3')
   })
 
   it('reflects model-loaded gauges passed in at scrape time (not cached)', () => {

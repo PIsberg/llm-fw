@@ -513,11 +513,17 @@ release can move a threshold and a feature release can leave detection untouched
 A CI gate hashes every file that can change a verdict and fails until the version
 is cut, so the identifier cannot drift from the rules it names.
 
+Every record also carries `"schema": 1`, the version of the record shape. A new
+field leaves it at 1; renaming or removing a field raises it, so a parser can
+branch on it. The shape is covered by semver from 1.0 (see
+[Stability](../STABILITY.md)).
+
 Prompt text is **not** written unless you ask for it. Payloads carry customer
 data and secrets, so `LLM_FW_AUDIT_PAYLOADS=true` is a deliberate opt-in, and
 turning it on changes what your retention policy has to cover.
 
-`LLM_FW_AUDIT_WEBHOOK=<url>` additionally POSTs batches to a collector. The file
+`LLM_FW_AUDIT_WEBHOOK=<url>` additionally POSTs batches to a collector, each a
+JSON object `{ "schema": 1, "ruleset": "...", "events": [...] }`. The file
 stays the durable record, and the shipper drops rather than backlogs when the
 collector is down. `LLM_FW_AUDIT_FILE` relocates the file.
 
@@ -547,14 +553,14 @@ tenant, go to `llmfw_would_block_total` instead, because those requests were
 forwarded; it counts distinct would-be blocks, not the requests that carried
 them. `llmfw_warns_total` counts warn events, and a warning history item that
 an agent resends on every request raises one, not one per request. A histogram
-`llmfw_scan_duration_ms` (buckets 5 to 2500 ms) tracks pipeline scan latency.
+`llmfw_scan_duration_seconds` (buckets 0.005 to 2.5 s) tracks pipeline scan latency.
 Gauges `llmfw_model_loaded{model="embedding"|"classifier"}` report whether each
 model has finished initialising. On by default; disable with
 `dashboard.metrics: false` or `LLM_FW_METRICS_ENABLED=false`.
 
 Four alerts worth having: `llmfw_model_loaded` stuck at 0, a `llmfw_blocks_total`
 rate that jumps after a deploy (usually a new false positive, not an attack),
-`llmfw_scan_duration_ms` p99 climbing, and the process restarting, which
+`llmfw_scan_duration_seconds` p99 climbing, and the process restarting, which
 regenerates any unpinned token.
 
 ---
