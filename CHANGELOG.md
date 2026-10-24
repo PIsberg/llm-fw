@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`proxy.inspectChatgptBackend` (`LLM_FW_INSPECT_CHATGPT_BACKEND`) inspects Codex CLI signed in
+  with ChatGPT.** That route goes to `chatgpt.com/backend-api/codex/responses`, which llm-fw
+  tunnelled uninspected; only API-key Codex (`api.openai.com`) was scanned. The switch intercepts
+  `chatgpt.com`, inspects `/backend-api/codex/*` as the Responses API and forwards every other
+  path untouched. Off by default, because interception is per host and covers the ChatGPT web
+  app too. Restart-required. The client-setup guide has a Codex CLI recipe.
+
 - **Audit records carry `"schema": 1`.** Every `audit.jsonl` line, every webhook batch and every
   event in it now names the version of the record shape, so a SIEM parser can branch on it if the
   shape ever changes. Adding a field keeps the version; renaming or removing one raises it.

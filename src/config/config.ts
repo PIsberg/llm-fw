@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG: Config = {
     // Tenant/regional API domain suffixes the proxy TLS-intercepts in
     // addition to `targets`. Sourced from the provider registry.
     interceptDomains: AI_PROVIDER_INTERCEPT_DOMAINS,
+    inspectChatgptBackend: false,
     urlFilter: {
       enabled: true,
       entropyThreshold: 4.8,
@@ -774,6 +775,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_WORKER_INFERENCE: (c, v) => { c.detection.workerInference = v === 'true'; },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
+  LLM_FW_INSPECT_CHATGPT_BACKEND: (c, v) => { c.proxy.inspectChatgptBackend = v === 'true'; },
   LLM_FW_BLOCK_STATUS: (c, v) => { if (v === '403' || v === '422') c.blockStatus = v === '403' ? 403 : 422; },
   LLM_FW_MODULES_ENABLED: (c, v) => { if (c.modules) c.modules.enabled = v === 'true'; },
   LLM_FW_TOKEN_PRUNER_ENABLED: (c, v) => { if (c.modules) c.modules.tokenPruner.enabled = v === 'true'; },

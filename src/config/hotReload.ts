@@ -214,6 +214,7 @@ const COLD_PATHS: Path[] = [
   ['targets'],
   ['extraTargets'],
   ['proxy', 'interceptDomains'],
+  ['proxy', 'inspectChatgptBackend'],
 ]
 
 /**
