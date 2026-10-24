@@ -89,3 +89,41 @@ jobs:
 
       - name: Publish to npmjs.com
         run: npm publish --provenance --access public
+
+  # A CycloneDX SBOM of the production dependencies, attached to the release,
+  # so what a version ships can be audited without installing it. Generated
+  # from the lockfile at the tag (npm sbom needs no install). A separate job
+  # because uploading a release asset needs contents: write, and the publish
+  # job, which can mint an npm OIDC token, should not also hold a write token.
+  sbom:
+    name: Attach the SBOM to the release
+    needs: publish
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # upload the SBOM as a release asset
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Generate the CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx --omit dev --package-lock-only > "llm-fw-${GITHUB_REF_NAME}.cdx.json"
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "llm-fw-${GITHUB_REF_NAME}.cdx.json" --clobber

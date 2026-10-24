@@ -107,16 +107,18 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
   const reader = new FrameReader(config.proxy.maxBodyBytes > 0 ? config.proxy.maxBodyBytes : undefined)
   let audio = new RealtimeAudioBuffer(MAX_TRANSCRIBE_SECONDS)
   let fragments: Frame[] = []
+  let fragmentBytes = 0
+  const maxMessage = config.proxy.maxBodyBytes
   let refused = false
   let queue: Promise<void> = Promise.resolve()
 
-  const endSession = (message: string, eventId: string): void => {
+  const endSession = (message: string, eventId: string, code?: number): void => {
     if (refused) return
     refused = true
     const errorEvent = protocol.errorEvent(message, eventId)
     // The close reason is all a Gemini Live client sees, and it is capped at
     // 123 bytes, so it carries the event id rather than the explanation.
-    refuseRealtime(client, errorEvent, `${message.split(':')[0]} (event ${eventId})`)
+    refuseRealtime(client, errorEvent, `${message.split(':')[0]} (event ${eventId})`, code)
     try { upstream.end(encodeFrame(OPCODE.close, Buffer.from([0x03, 0xf0]), true)) } catch { upstream.destroy() }
   }
   const refuse = (result: PipelineResult, eventId: string, what: string): void => {
@@ -173,7 +175,24 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
       // Control frames go straight through; close ends our side too.
       if (frame.opcode >= OPCODE.close) { upstream.write(frame.raw); continue }
       fragments.push(frame)
+      fragmentBytes += frame.payload.length
+      // A whole message is held to the same limit as an HTTP body: each frame
+      // was capped, but continuation frames sent without FIN grew this buffer
+      // until the process ran out of memory, taking every client down.
+      if (maxMessage > 0 && fragmentBytes > maxMessage) {
+        fragments = []
+        fragmentBytes = 0
+        const id = emit({
+          stage: 'dos', score: 100, similarity: 0, target, method: 'WS', path,
+          payload_preview: `${protocol.label} message larger than proxy.maxBodyBytes (${maxMessage} bytes): refused`,
+          payload_full: `${protocol.label} fragmented message over ${maxMessage} bytes`,
+          action: 'blocked', kind: 'dos',
+        })
+        endSession(`llm-fw refused this session: a message larger than ${maxMessage} bytes cannot be inspected (event ${id}).`, id, 1009)
+        return
+      }
       if (!frame.fin) continue
+      fragmentBytes = 0
       const message = fragments
       fragments = []
       let raw: Buffer = Buffer.concat(message.map(m => m.raw))

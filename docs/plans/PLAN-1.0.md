@@ -69,51 +69,112 @@ Findings so far:
   it and passes the rest of chatgpt.com through. Not yet verified against a live
   Codex session.
 
-- [ ] `docs/THREAT-MODEL.md`: assets (CA key, provider keys, prompts, audit
+- [x] `docs/THREAT-MODEL.md`: assets (CA key, provider keys, prompts, audit
   log, licence), attackers (remote network client, local process, malicious web
   page, malicious upstream response, malicious tool output or MCP server,
-  malicious repository in cwd), one trust boundary per listener.
+  malicious repository in cwd), one trust boundary per listener. Status:
+  written 2026-10-24; every mitigation names the code that enforces it.
 - [x] Proxy: CONNECT target validation on a standalone bind (internal hosts,
   `169.254.169.254`), header and target parsing, request smuggling,
   Content-Encoding handling and decompression bombs. Status: a remote client
   could tunnel into the host's loopback and link-local addresses
   (GHSA-q53q-qg98-p9jf), fixed in 0.9.0; compressed bodies passed unscanned,
   now decoded and capped at `proxy.maxBodyBytes` (#458).
-- [ ] Gateway: tenant isolation, SSRF through routing, provider keys in errors,
-  logs or the dashboard, quota bypass.
+- [x] Gateway: tenant isolation, SSRF through routing, provider keys in errors,
+  logs or the dashboard, quota bypass. Status: reviewed 2026-10-24. Routing
+  maps each slug to a fixed or operator-configured host, so a caller picks
+  only the path. Order is auth, route, tenant provider allowlist, quota, body,
+  screen, then cache or forward; a refused provider costs no quota. The
+  response cache keys on tenant, session, every credential header and the
+  URL, stores only 200s and answers nothing without a credential. Fixed: three
+  error logs printed the query string, where Google and Azure put the key;
+  the auth-path exemption from key custody now uses the canonical path.
+  Accepted: an upstream error body reaches the client unchanged, so OpenAI's
+  "Incorrect API key provided: sk-...abcd" shows the last four characters of
+  an operator key.
 - [x] Dashboard: the loopback exemption behind a same-host reverse proxy, DNS
   rebinding against `127.0.0.1:7731`, the Origin check, SSE. Status: DNS
   rebinding reached the dashboard and a loopback gateway on a default install
   (GHSA-c725-vwcm-h8rr), fixed in 0.9.0: loopback trust now needs a loopback
   `Host`.
-- [ ] Detection bypass: parser differentials against the providers (duplicate
+- [x] Detection bypass: parser differentials against the providers (duplicate
   JSON keys, encodings, alternative content shapes), normalization
   differentials, a per-provider sweep for text-bearing fields that are not
-  scanned.
+  scanned. Status: invalid JSON and repeated keys are refused (stage
+  `malformed-body`); Content-Encoding is decoded (#458). Per-provider
+  sweep: server and hosted-tool results (Anthropic, OpenAI Responses,
+  Gemini), Anthropic `search_result` blocks and Cohere `documents` were not
+  read and now are. Normalization: 15 invisible-character variants of one
+  injection probed as tool output; the 3 that passed (U+034F, U+3164,
+  U+FFF9/U+FFFB) are refused now, pinned by three corpus rows. Request paths
+  are matched canonically.
 - [x] Config: cosmiconfig searches upward from cwd and evaluates
   `llm-fw.config.js`; can a cloned repository run code or disable detection?
   Hot-reload races. Status: it could (GHSA-4578-7p8f-hc8r), fixed in 0.9.0:
   config is read only from `LLM_FW_DIR`, `LLM_FW_*` variables and a JSON file
   named by `LLM_FW_CONFIG`; cosmiconfig is gone.
-- [ ] CA and files: key permissions on Windows and Linux, `LLM_FW_DIR`, CRL.
-- [ ] CLI and service: systemd unit, Task Scheduler entry, `setup` editing the
-  environment, uninstall leftovers.
-- [ ] Licence: offline licence forgery, Paddle fulfilment trust.
-- [~] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
-  WebSocket relay. Status: quadratic regexes and a quadratic tokenizer
-  (GHSA-gm3q-2gwx-gppq) fixed in 0.9.0. Left: embedding forward passes on
-  dense user text still cost 4-8 s per request, bounded at 24 chunks per
-  candidate; tracked as a follow-up issue.
-- [ ] Fail-open versus fail-closed, written down per path.
-- [ ] Fuzzers for the provider parsers and the normalizer, in the suite.
-- [ ] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to
-  releases.
+- [x] CA and files: key permissions on Windows and Linux, `LLM_FW_DIR`, CRL.
+  Status: reviewed 2026-10-24. Windows: icacls drops inheritance and grants
+  the user and SYSTEM only (verified on a fresh directory: `ca.key` lists
+  exactly those two); the user is now domain-qualified. POSIX: directory 0700,
+  `ca.key` now 0600 in its own right. `LLM_FW_DIR` is read from the process
+  environment only. The CRL and `ca.crt` are public by design. Accepted: with
+  no `USERNAME` in the environment the ACL is left as inherited.
+- [x] CLI and service: systemd unit, Task Scheduler entry, `setup` editing the
+  environment, uninstall leftovers. Status: reviewed 2026-10-24. The Task
+  Scheduler XML is written under the per-user %TEMP% and removed after
+  `schtasks /Create`; the systemd unit and launchd plist live in the user's
+  home; `setup` writes HKCU via `setx` or appends a marked block to the shell
+  profile, which uninstall strips by marker. Fixed: uninstall edited or
+  deleted a `.llm-fw.json` in the working directory. Accepted: the systemd
+  `ExecStart` quotes each argument but does not escape `%` or `$`, which only
+  matters for an install path containing them (#465).
+- [x] Licence: offline licence forgery, Paddle fulfilment trust. Status:
+  reviewed 2026-10-24. Keys and licence files are Ed25519-verified offline
+  against compiled-in keys. The licence gates nothing functional: it feeds
+  `doctor`, the status line and the unlicensed banner only. Accepted:
+  `LLM_FW_KEYGEN_PUBLIC_KEY` and `LLM_FW_OFFLINE_LICENSE_KEY` override the
+  verify keys (documented in `docs/LICENSING.md` for staging), so a user can
+  make their own install report itself licensed, which in an open-source
+  package is no more than editing the code. Paddle: `Paddle-Signature` is an
+  HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Accepted:
+  `scripts/fulfill-paddle-webhook.ts` is run by hand and does not look up an
+  existing licence for the transaction, so running it twice issues a second
+  key for the same purchase (#466).
+- [x] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
+  WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
+  embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
+  to 48 s); a fragmented WebSocket message is now held to
+  `proxy.maxBodyBytes` (it grew without limit). Accepted: the heuristic
+  stage reads every byte at about 0.25 s per 40 KB message, linear up to
+  the 10 MiB body limit, on the request thread; an attacker needs a token
+  on any non-loopback bind, and `dos` rate limits apply (#464).
+- [x] Fail-open versus fail-closed, written down per path.
+  Status: a table of 18 paths under "Failure Semantics" in
+  `docs/guides/configuration.md`, each read from the code it names.
+- [x] Fuzzers for the provider parsers and the normalizer, in the suite.
+  Status: `test/fuzz/parsers.fuzz.test.ts` already held never-throws
+  properties for every parser method and normalizer; `body-and-path.fuzz.test.ts`
+  adds agreement properties for the repeated-key check and the canonical path
+  (300 runs each). Mutating either implementation fails 3 of its 4 properties.
+- [x] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to
+  releases. Status: 2026-10-24, no open CodeQL, Semgrep, Dependabot or
+  secret-scanning alerts; 7 Scorecard findings. Vulnerabilities: the npm
+  package audits clean (`npm audit --omit=dev`, 0); dev-only zod moved to
+  4.6.7; dev-only fast-uri 3.1.8 waits for 3.1.9 to clear the 7-day cooldown
+  on 2026-10-26. Pinned-Dependencies, Code-Review and CII-Best-Practices are
+  accepted as before. The release workflow now attaches a CycloneDX SBOM.
 - [ ] External pentest: decide yes or no.
 
 ## Phase 3: remote server testing
 
 - [ ] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
-  signed. The Helm chart's `image.repository` points at it.
+  signed. The Helm chart's `image.repository` points at it. Not started:
+  publishing only happens on a release, so the workflow can be checked end to
+  end only then. Decide how to validate it first, for example a build-only
+  multi-arch job on PRs that touch the Dockerfile, or native arm64 runners.
+- [ ] Verify `proxy.inspectChatgptBackend` against a live Codex CLI session
+  signed in with ChatGPT (#459).
 - [ ] Follow `docs/guides/deployment-server.md` literally on a Linux VM; every
   failing step is a doc bug.
 - [ ] Install paths: npm global plus systemd, Docker, Helm on k3s.
@@ -135,11 +196,18 @@ Findings so far:
 - [ ] Install matrix: Windows, macOS, Linux on Node 22, 24, 26; setup, uninstall,
   setup again leaves the machine clean.
 - [ ] Commercial licence purchase tested end to end.
-- [ ] Docs claim audit of the README and guides against the code.
+- [~] Docs claim audit of the README and guides against the code. Status:
+  started 2026-10-24 on the hardening branch: the README quoted a stale
+  13.38% false-positive rate (now 2.68%) and the client-setup uninstall steps
+  described removed behaviour; both fixed. Left: the rest of the guides.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release
 
+- [ ] At the first release after the hardening branch: confirm the new `sbom`
+  job attached `llm-fw-vX.Y.Z.cdx.json` to the GitHub Release (it cannot run
+  before one), and that dev-only fast-uri has moved to 3.1.9 or later (its
+  fix clears the 7-day cooldown on 2026-10-26).
 - [ ] `1.0.0-rc.1` on the `next` dist-tag, about two weeks of daily use, fixes
   as `rc.N`.
 - [ ] 1.0.0 cut with the `release` skill; tag and publish are the maintainer's.

@@ -20,7 +20,9 @@ import { run as stopFirewall } from './stop.js';
  *   2. The OS trust store          — the root CA was added so leaf certs verify.
  *   3. The hosts file + a port      — the sinkhole redirect (elevated installs).
  *      redirect rule
- *   4. The project .llm-fw.json     — judge settings written by setup-judge.
+ *   4. A .llm-fw.json in the cwd    — judge settings setup-judge wrote before
+ *                                     0.9.0. Reported, never edited: it may
+ *                                     belong to a cloned repository.
  *   5. IDE proxy settings           — http.proxy / http.proxyStrictSSL written
  *                                     to VS Code / Antigravity settings.json.
  *   6. Env vars                     — HTTPS_PROXY / NODE_EXTRA_CA_CERTS removed
@@ -41,28 +43,6 @@ import { run as stopFirewall } from './stop.js';
 // importers/tests keep working.
 import { stripSinkholeBlock } from './hosts.js';
 export { stripSinkholeBlock };
-
-/**
- * Strip the judge keys setup-judge wrote into a parsed project config. Returns
- * the cleaned object, or `null` when nothing meaningful is left (so the caller
- * deletes the now-empty file rather than leaving `{ "detection": {} }` behind).
- * Any keys the user added themselves are preserved untouched.
- */
-export function stripJudgeConfig(parsed: Record<string, unknown>): Record<string, unknown> | null {
-  const next: Record<string, unknown> = { ...parsed };
-  const detection = next.detection as Record<string, unknown> | undefined;
-
-  if (detection && typeof detection === 'object') {
-    const cleaned = { ...detection };
-    delete cleaned.judgeEnabled;
-    delete cleaned.judgeModel;
-    delete cleaned.judgeBlock;
-    if (Object.keys(cleaned).length === 0) delete next.detection;
-    else next.detection = cleaned;
-  }
-
-  return Object.keys(next).length === 0 ? null : next;
-}
 
 /**
  * Strip the env-var exports `setup` (`addProfileEnvVars`) wrote into a shell
@@ -231,20 +211,19 @@ function removePortRedirect(httpsPort: number): void {
   }
 }
 
-/** Strip judge settings older setup-judge versions wrote into the project's
- *  .llm-fw.json (current versions persist to ~/.llm-fw/config.json, which is
- *  removed wholesale by removeLlmfwFiles). */
-function cleanProjectConfig(): void {
-  const configPath = join(process.cwd(), '.llm-fw.json');
-  if (!fs.existsSync(configPath)) return;
-  try {
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
-    const cleaned = stripJudgeConfig(parsed);
-    if (cleaned === null) { fs.unlinkSync(configPath); ok('Removed project .llm-fw.json (judge settings only)'); }
-    else { fs.writeFileSync(configPath, JSON.stringify(cleaned, null, 2) + '\n', 'utf8'); ok('Removed judge settings from .llm-fw.json'); }
-  } catch {
-    warn('Could not parse .llm-fw.json — left it untouched');
-  }
+/**
+ * A note about a `.llm-fw.json` in `dir`, or undefined when there is none.
+ *
+ * Older setup-judge versions wrote judge settings there, and uninstall used to
+ * strip or delete it. llm-fw has not read a config file from the working
+ * directory since 0.9.0, so it has no claim on one: run inside a cloned
+ * repository, that cleanup edited the repository's own file. Now it is only
+ * reported.
+ */
+export function noteProjectConfig(dir: string): string | undefined {
+  const configPath = join(dir, '.llm-fw.json');
+  if (!fs.existsSync(configPath)) return undefined;
+  return `${configPath} is not read by llm-fw (since 0.9.0) and was left as it is; delete it if llm-fw wrote it`;
 }
 
 // What uninstall deletes from ~/.llm-fw (#322), with what each file means to
@@ -440,7 +419,8 @@ export async function run(args: string[]): Promise<void> {
   removePortRedirect(config.proxy.httpsPort);
 
   // 3. Local files.
-  cleanProjectConfig();
+  const projectNote = noteProjectConfig(process.cwd());
+  if (projectNote) skip(projectNote);
   removeLlmfwFiles(llmfwDir, { keepModel, purge });
   removeEnvVars();
   removeIdeProxySettings();

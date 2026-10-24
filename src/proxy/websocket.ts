@@ -370,11 +370,11 @@ export function audioScanBody(wav: Buffer): string {
  * and a close frame whose reason is capped at the 123 bytes RFC 6455 allows,
  * then end the socket.
  */
-export function refuseRealtime(client: Duplex, errorEvent: Record<string, unknown> | null, reason: string): void {
+export function refuseRealtime(client: Duplex, errorEvent: Record<string, unknown> | null, reason: string, code = 1008): void {
   try {
     if (errorEvent) client.write(encodeFrame(OPCODE.text, Buffer.from(JSON.stringify(errorEvent)), false))
     const close = Buffer.alloc(2 + Buffer.byteLength(reason.slice(0, 120)))
-    close.writeUInt16BE(1008, 0) // policy violation
+    close.writeUInt16BE(code, 0) // 1008 policy violation, 1009 message too big
     close.write(reason.slice(0, 120), 2)
     client.write(encodeFrame(OPCODE.close, close, false))
   } catch { /* client already gone */ }

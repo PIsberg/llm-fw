@@ -35,9 +35,12 @@ describe('node-forge removal (#254)', () => {
     expect(PKG.devDependencies ?? {}).not.toHaveProperty('@types/node-forge')
   })
 
+  // Reads every .ts file in the tree synchronously: 0.7 s alone, but 6 s while
+  // the rest of the suite runs in parallel on Windows, which overran the 5 s
+  // default (#457). Disk-bound, not hung, so it gets room rather than a skip.
   it('no file under src/ or test/ imports node-forge', () => {
     const allFiles = [...tsFiles(SRC), ...tsFiles(TEST)]
     const offenders = allFiles.filter(f => /from ['"]node-forge['"]/.test(fs.readFileSync(f, 'utf8')))
     expect(offenders.map(f => path.relative(ROOT, f).split(path.sep).join('/'))).toEqual([])
-  })
+  }, 30_000)
 })

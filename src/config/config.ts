@@ -83,6 +83,10 @@ export const DEFAULT_CONFIG: Config = {
     // stage still reads every byte. 0 restores the old unbounded behaviour.
     // Also LLM_FW_EMBEDDING_MAX_CHUNKS.
     embeddingMaxChunks: 24,
+    // Forward passes one request may spend in the embedding stage across all
+    // of its texts, read newest first. See the type for the measurement.
+    // 0 disables. Also LLM_FW_EMBEDDING_MAX_PASSES.
+    embeddingMaxPassesPerRequest: 128,
     chunkSize: 200,
     chunkOverlap: 50,
     judgeEnabled: false,
@@ -742,6 +746,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     c.detection.surfaces.prompt = { ...c.detection.surfaces.prompt, wordingAction: v };
   },
   LLM_FW_EMBEDDING_MAX_CHUNKS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && n >= 0) c.detection.embeddingMaxChunks = n; },
+  LLM_FW_EMBEDDING_MAX_PASSES: (c, v) => { c.detection.embeddingMaxPassesPerRequest = envInt('LLM_FW_EMBEDDING_MAX_PASSES', v, { min: 0 }); },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = envFloat('LLM_FW_EMBEDDING_BLOCK_THRESHOLD', v, { min: 0, max: 1 }); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = envFloat('LLM_FW_EMBEDDING_WARN_THRESHOLD', v, { min: 0, max: 1 }); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },

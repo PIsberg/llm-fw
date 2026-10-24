@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { removeLlmfwFiles } from '../../src/cli/uninstall.js'
+import { removeLlmfwFiles, noteProjectConfig } from '../../src/cli/uninstall.js'
 
 /**
  * What `uninstall` deletes from ~/.llm-fw (#322).
@@ -96,5 +96,28 @@ describe('removeLlmfwFiles', () => {
     removeLlmfwFiles(dir, { keepModel: false, purge: false })
     expect(fs.existsSync(dir)).toBe(false)
     expect(logged.join('\n')).not.toContain('Left in')
+  })
+})
+
+describe('a .llm-fw.json in the working directory', () => {
+  // Since 0.9.0 llm-fw never reads a config file from the working directory,
+  // so it has no claim on one. uninstall used to rewrite or delete it, which,
+  // run inside a cloned repository, edited that repository's file.
+  let dir: string
+  beforeEach(() => { dir = fs.mkdtempSync(join(tmpdir(), 'llmfw-cwd-')) })
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  it('is left untouched, with a note on what to do about it', () => {
+    const file = join(dir, '.llm-fw.json')
+    const content = JSON.stringify({ detection: { judgeEnabled: true, judgeModel: 'qwen2.5:3b' } }, null, 2)
+    fs.writeFileSync(file, content)
+    const note = noteProjectConfig(dir)
+    expect(fs.readFileSync(file, 'utf8')).toBe(content)
+    expect(note).toMatch(/not read/i)
+    expect(note).toContain(file)
+  })
+
+  it('says nothing when there is none', () => {
+    expect(noteProjectConfig(dir)).toBeUndefined()
   })
 })

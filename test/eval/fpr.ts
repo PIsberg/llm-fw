@@ -162,6 +162,10 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.85 (a per-request embedding budget, texts read
+  // newest first, malformed JSON bodies refused, hosted-tool output, search
+  // results and Cohere documents scanned as tool output, default-ignorable
+  // characters dropped in normalization; measured, no row moved).
   // Held at ruleset 2026.10.84 (five tool-output wording fixes from the
   // Codex replay, #391; measured, no row moved).
   // Held at ruleset 2026.10.83 (trusted paths extended to one-file shell

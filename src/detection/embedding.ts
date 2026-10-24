@@ -1,5 +1,5 @@
 import { pipeline, env } from '@huggingface/transformers'
-import { EmbeddingResult, DetectionConfig } from '../types.js'
+import { EmbeddingResult, EmbeddingBudget, DetectionConfig } from '../types.js'
 import { normalizeSemantic } from './normalize.js'
 import { createHash } from 'node:crypto'
 import { getLlmFwDir } from '../config/paths.js'
@@ -302,13 +302,21 @@ export class EmbeddingChecker {
     return embedRaw(this.extractor, text)
   }
 
-  private async embedChunk(chunk: string): Promise<Float32Array> {
+  /**
+   * The chunk's vector, from the cache or a forward pass. A forward pass is
+   * charged to `budget`; with the budget spent, an uncached chunk returns null.
+   */
+  private async embedChunk(chunk: string, budget?: EmbeddingBudget): Promise<Float32Array | null> {
     const key = createHash('sha256').update(chunk).digest('base64')
     const hit = this.chunkCache.get(key)
     if (hit) {
       this.chunkCache.delete(key)
       this.chunkCache.set(key, hit)
       return hit
+    }
+    if (budget) {
+      if (budget.remaining <= 0) return null
+      budget.remaining--
     }
     const emb = await this.embed(chunk)
     this.chunkCache.set(key, emb)
@@ -420,7 +428,13 @@ export class EmbeddingChecker {
     return sampled
   }
 
-  async check(input: string): Promise<EmbeddingResult> {
+  /**
+   * `budget`, when given, is the request's remaining forward passes, shared by
+   * every check in it (see embeddingMaxPassesPerRequest). A check that runs
+   * out still scores the chunks it could read, and the cached ones after them,
+   * and reports budgetExhausted; that partial result is never cached.
+   */
+  async check(input: string, budget?: EmbeddingBudget): Promise<EmbeddingResult> {
     // Semantic normalization PRESERVES diacritics/script (see normalizeSemantic):
     // the multilingual encoder needs natural text. Note the pipeline already
     // passes a heuristic-normalized candidate here, but for prompt text that
@@ -452,9 +466,14 @@ export class EmbeddingChecker {
     let maxSim = 0
     let nearestIdx = 0
     let benignAtMax = 0 // nearest-benign cosine for the chunk that maximised maxSim
+    let exhausted = false
 
     for (const chunk of chunks) {
-      const emb = await this.embedChunk(chunk)
+      const emb = await this.embedChunk(chunk, budget)
+      if (!emb) {
+        exhausted = true
+        continue
+      }
       let injSim = 0
       let injIdx = 0
       for (let i = 0; i < this.templateEmbeddings.length; i++) {
@@ -488,6 +507,7 @@ export class EmbeddingChecker {
       chunkCount: chunks.length,
       ...(allChunks.length !== chunks.length ? { chunksTotal: allChunks.length } : {}),
     }
+    if (exhausted) return { ...result, budgetExhausted: true }
     this.cache.set(key, result)
     if (this.cache.size > CACHE_MAX_ENTRIES) {
       this.cache.delete(this.cache.keys().next().value as string)

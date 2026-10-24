@@ -55,3 +55,36 @@ describe('release workflow — npm Trusted Publishing', () => {
     expect(WORKFLOW).not.toMatch(/secrets\.NPM_TOKEN/)
   })
 })
+
+// An SBOM on every release, so a customer can audit what a version ships
+// without installing it. Its own job: uploading a release asset needs
+// contents: write, and the publish job (which can mint an npm OIDC token)
+// must not hold a write token as well.
+describe('release workflow: SBOM', () => {
+  /** The text of one job, from its key to the next top-level job key, without comments. */
+  function job(name: string): string {
+    const start = WORKFLOW.search(new RegExp(`^  ${name}:\\s*$`, 'm'))
+    if (start === -1) return ''
+    const rest = WORKFLOW.slice(start + 1)
+    const next = rest.search(/^  [a-z][\w-]*:\s*$/m)
+    const text = next === -1 ? WORKFLOW.slice(start) : WORKFLOW.slice(start, start + 1 + next)
+    return text.split(/\r?\n/).filter(line => !line.trim().startsWith('#')).join('\n')
+  }
+
+  it('generates a CycloneDX SBOM of the production dependencies from the lockfile', () => {
+    expect(job('sbom')).toMatch(/npm sbom --sbom-format cyclonedx --omit dev --package-lock-only/)
+  })
+
+  it('attaches it to the release that triggered the run, and only on a release', () => {
+    const sbom = job('sbom')
+    expect(sbom).toMatch(/gh release upload "\$GITHUB_REF_NAME"/)
+    expect(sbom).toMatch(/if: github\.event_name == 'release'/)
+    expect(sbom).toMatch(/needs: publish/)
+  })
+
+  it('is the only job with write access to the repository', () => {
+    expect(job('sbom')).toMatch(/contents: write/)
+    expect(job('publish')).not.toMatch(/contents: write/)
+    expect(job('publish')).toMatch(/contents: read/)
+  })
+})

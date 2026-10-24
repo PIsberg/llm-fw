@@ -85,6 +85,18 @@ export interface DetectionConfig {
    * Also LLM_FW_EMBEDDING_MAX_CHUNKS.
    */
   embeddingMaxChunks?: number;
+  /**
+   * Forward passes one request may spend in the embedding stage, across every
+   * text it carries. embeddingMaxChunks bounds one text, not a request: 16
+   * distinct 40 KB messages in one body took 26 s to scan, so a body near the
+   * 10 MiB limit held one scan for minutes. Texts are read newest first (the
+   * latest user prompt, then the latest tool results), so a spent budget skips
+   * old history, which earlier requests already scanned. A chunk served from
+   * the chunk cache costs nothing. The heuristic stage still reads every byte.
+   * When the budget runs out the request is not refused: it warns with stage
+   * `scan-budget`. 0 disables the budget. Also LLM_FW_EMBEDDING_MAX_PASSES.
+   */
+  embeddingMaxPassesPerRequest?: number;
   chunkSize: number;
   chunkOverlap: number;
   judgeEnabled: boolean;
@@ -768,6 +780,13 @@ export interface EmbeddingResult {
   // intent they are closer to. Optional/defaulted so legacy callers and test
   // mocks (which only set `similarity`) behave as a zero-benign baseline.
   benignSimilarity?: number;
+  /** Set when the request's forward-pass budget ran out before every sampled chunk was encoded. */
+  budgetExhausted?: true;
+}
+
+/** Forward passes left for one request; shared by every embedding check in it. */
+export interface EmbeddingBudget {
+  remaining: number;
 }
 
 export interface JudgeResult {
@@ -779,7 +798,7 @@ export interface PipelineResult {
   action: 'block' | 'pass' | 'warn';
   /** false when observe mode downgraded a block to warn; absent otherwise. */
   enforced?: false;
-  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'indirect-instruction' | 'harmful-request' | 'memory-poisoning' | 'none';
+  stage: 'heuristic' | 'embedding' | 'classifier' | 'judge' | 'rag' | 'ascii-smuggling' | 'non-text' | 'many-shot' | 'crescendo' | 'indirect-instruction' | 'harmful-request' | 'memory-poisoning' | 'scan-budget' | 'malformed-body' | 'none';
   score: number;
   similarity: number;
   verdict?: string;

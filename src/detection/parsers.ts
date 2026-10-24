@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
 import { PayloadParser, MediaBlock, ConversationTurn, ToolResultItem } from '../types.js'
 import { mediaBlockFromBase64, parseDataUrl } from './media.js'
+import { canonicalPath } from './canonicalPath.js'
 
 /** Map a mime type onto the coarse MediaBlock kind. */
 function kindFromMime(mime: string | undefined): MediaBlock['kind'] {
@@ -39,6 +40,22 @@ function toolResultText(content: unknown): string {
     if (Array.isArray(b?.content)) return toolResultText(b.content)
     return JSON.stringify(b)
   }).join('\n')
+}
+
+// Keys whose string values are text a model reads, in Anthropic's server-tool
+// and search-result blocks. Everything else (ids, urls, media types, and
+// encrypted_content, which llm-fw cannot read) is left out rather than
+// stringified, so opaque base64 never reaches the entropy and decoding checks.
+const THIRD_PARTY_TEXT_KEYS = new Set(['text', 'title', 'data', 'stdout', 'stderr', 'content'])
+
+/** The readable text inside a server-tool result or search result, in document order. */
+function thirdPartyText(value: unknown, key = 'content'): string[] {
+  if (typeof value === 'string') return THIRD_PARTY_TEXT_KEYS.has(key) ? [value] : []
+  if (Array.isArray(value)) return value.flatMap(v => thirdPartyText(v, key))
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([k, v]) => thirdPartyText(v, k))
+  }
+  return []
 }
 
 class AnthropicParser implements PayloadParser {
@@ -124,13 +141,36 @@ class AnthropicParser implements PayloadParser {
         for (const msg of data.messages) {
           if (msg.role === 'assistant' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
-              if (block?.type === 'tool_use' && typeof block.id === 'string') calls.set(block.id, { name: block.name, input: block.input })
+              if ((block?.type === 'tool_use' || block?.type === 'server_tool_use' || block?.type === 'mcp_tool_use') && typeof block.id === 'string') {
+                calls.set(block.id, { name: block.name, input: block.input })
+              }
             }
           }
         }
         for (const msg of data.messages) {
+          // Server tools (web fetch, web search, code execution, the MCP
+          // connector) run at the provider; the client resends their results
+          // in the assistant turn of every later request. A fetched page or an
+          // MCP server's reply is third-party text like any tool_result.
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+            for (const block of msg.content) {
+              if (typeof block?.type !== 'string' || !block.type.endsWith('_tool_result')) continue
+              const call = calls.get(block.tool_use_id)
+              results.push({
+                toolUseId: block.tool_use_id || 'unknown',
+                result: thirdPartyText(block.content).join('\n'),
+                toolName: call && typeof call.name === 'string' ? call.name : block.type,
+                ...(call ? { toolInput: call.input } : {}),
+              })
+            }
+          }
           if (msg.role === 'user' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
+              // Retrieved text the client hands over as search results.
+              if (block?.type === 'search_result') {
+                results.push({ toolUseId: 'search_result', result: thirdPartyText([block.title, block.content]).join('\n'), toolName: 'search_result' })
+                continue
+              }
               if (block.type === 'tool_result') {
                 const resText = toolResultText(block.content)
                 const call = calls.get(block.tool_use_id)
@@ -380,7 +420,20 @@ class OpenAIParser implements PayloadParser {
           }
         }
         for (const item of data.input) {
-          if (typeof item?.type !== 'string' || !item.type.endsWith('_call_output')) continue
+          if (typeof item?.type !== 'string') continue
+          // Hosted tools run at the provider and put their output on the call
+          // item itself: an MCP server's reply, retrieved file text, sandbox
+          // logs. Resent as input on later requests, they are third-party text.
+          const hosted = item.type === 'mcp_call' ? (typeof item.output === 'string' ? [item.output] : [])
+            : item.type === 'file_search_call' ? (Array.isArray(item.results) ? item.results.map((r: any) => r?.text) : [])
+            : item.type === 'code_interpreter_call' ? (Array.isArray(item.outputs) ? item.outputs.map((o: any) => o?.logs) : [])
+            : null
+          if (hosted) {
+            const text = hosted.filter((t: unknown): t is string => typeof t === 'string').join('\n')
+            if (text) results.push({ toolUseId: item.id || 'unknown', result: text, toolName: typeof item.name === 'string' ? item.name : item.type })
+            continue
+          }
+          if (!item.type.endsWith('_call_output')) continue
           if (typeof item.output !== 'string' && !Array.isArray(item.output)) continue
           results.push({ toolUseId: item.call_id || item.id || 'unknown', result: toolResultText(item.output), ...withCall(item.call_id) })
         }
@@ -606,6 +659,19 @@ class CohereParser implements PayloadParser {
       const data = JSON.parse(body)
       const results: ToolResultItem[] = []
 
+      // Grounding documents (both API versions): retrieved text the model is
+      // told to answer from. v2 takes strings or {id, data:{...}}, v1 objects
+      // of string fields such as title and snippet.
+      if (Array.isArray(data.documents)) {
+        for (const doc of data.documents) {
+          const fields = typeof doc === 'string' ? [doc]
+            : doc && typeof doc === 'object' ? Object.values((doc as { data?: unknown }).data ?? doc)
+            : []
+          const text = fields.filter((v): v is string => typeof v === 'string').join('\n')
+          if (text) results.push({ toolUseId: typeof doc?.id === 'string' ? doc.id : 'document', result: text, toolName: 'documents' })
+        }
+      }
+
       // v1: tool_results:[{call:{name,…}, outputs:[…]}] — keyed by tool name
       // (v1 has no call id). The call travels with its result.
       if (Array.isArray(data.tool_results)) {
@@ -789,6 +855,12 @@ class GeminiParser implements PayloadParser {
               .map((part: any) => part?.functionCall)
               .filter((fc: any) => fc && typeof fc.name === 'string')
               .map((fc: any) => ({ id: fc.id, name: fc.name, args: fc.args }))
+            // Code execution runs at the provider, and its output is resent in
+            // the model turn: whatever the code read is third-party text.
+            for (const part of content.parts) {
+              const output = part?.codeExecutionResult?.output
+              if (typeof output === 'string' && output) results.push({ toolUseId: 'codeExecutionResult', result: output, toolName: 'codeExecution' })
+            }
             continue
           }
           for (const part of content.parts) {
@@ -1061,8 +1133,23 @@ export const parsers: PayloadParser[] = [
   new BedrockParser(),
 ]
 
+/**
+ * The parser for a request path, matched on the path as sent and then on its
+ * canonical form (see canonicalPath). Without the second step a body sent to
+ * `/v1//messages` was forwarded with only an "unrecognized endpoint" warning.
+ * Erring towards a match is safe: scanning a request the provider would have
+ * rejected costs nothing.
+ */
 export function getParser(path: string): PayloadParser | null {
-  return parsers.find(p => p.supports(path)) ?? null
+  const canonical = canonicalPath(path)
+  // As sent first, so a parser's own matching is unchanged for every path it
+  // already recognised; then canonical, then canonical in lower case (Gemini's
+  // `:generateContent` suffixes are camelCase, so case is not folded first).
+  for (const candidate of [path, canonical, canonical.toLowerCase()]) {
+    const parser = parsers.find(p => p.supports(candidate))
+    if (parser) return parser
+  }
+  return null
 }
 
 /**

@@ -13,6 +13,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
+import { canonicalPath } from '../detection/canonicalPath.js'
 import { TaintTracker, maskToken } from '../detection/taint.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
@@ -38,7 +39,7 @@ import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { constants as bufferConstants } from 'node:buffer'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
-import { createLogger } from '../logger.js';
+import { createLogger, urlForLog } from '../logger.js';
 
 const log = createLogger('proxy');
 
@@ -164,7 +165,9 @@ const CHATGPT_HOST = 'chatgpt.com'
 const CODEX_BACKEND_PREFIX = '/backend-api/codex/'
 
 function isCodexBackendPath(path: string): boolean {
-  return (path.split('?')[0] ?? '').startsWith(CODEX_BACKEND_PREFIX)
+  // Canonical: chatgpt.com may serve /backend-api//codex/responses as the
+  // Codex path, and a variant that missed this check went through unscanned.
+  return (canonicalPath(path) + '/').startsWith(CODEX_BACKEND_PREFIX)
 }
 
 /** Whether CONNECTs to `hostname` are TLS-intercepted rather than tunnelled. */
@@ -1592,7 +1595,7 @@ export class ProxyServer {
           } catch (err) {
             // Corrupt, truncated, or expanding past maxResp: forward verbatim,
             // uninspected, as an oversized plain body is above.
-            log.warn(`could not decompress ${cenc} response from ${hostname}${req.url ?? '/'}: ${(err as Error)?.message ?? String(err)}`)
+            log.warn(`could not decompress ${cenc} response from ${hostname}${urlForLog(req.url)}: ${(err as Error)?.message ?? String(err)}`)
             res.writeHead(status, failoverHeaders())
             res.end(raw)
             respBodyBytes = raw.length

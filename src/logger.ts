@@ -50,6 +50,20 @@ export function currentRequestId(): string | undefined {
   return store.getStore()?.requestId;
 }
 
+/**
+ * A request URL fit for a log line: the path and the query's parameter names,
+ * every value replaced by `…`. Providers take credentials in the query
+ * (Google's `?key=`, Azure's `?api-key=`, `?access_token=`), so logging
+ * `req.url` whole put a key in the log whenever a request failed.
+ */
+export function urlForLog(url: string | undefined): string {
+  if (!url) return '/';
+  const q = url.indexOf('?');
+  if (q === -1) return url;
+  const names = url.slice(q + 1).split('&').filter(Boolean).map(p => `${p.split('=')[0] ?? ''}=…`);
+  return names.length ? `${url.slice(0, q)}?${names.join('&')}` : url.slice(0, q);
+}
+
 function configuredLevel(): LogLevel {
   const raw = (process.env['LLM_FW_LOG_LEVEL'] ?? '').toLowerCase();
   return raw in ORDER ? (raw as LogLevel) : 'info';

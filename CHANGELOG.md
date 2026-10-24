@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every GitHub Release carries an SBOM.** `llm-fw-vX.Y.Z.cdx.json` is a CycloneDX 1.5 list of the
+  production dependencies the version ships (60 components for 0.9.0), generated from the lockfile
+  at the tag, so a version can be audited without installing it.
+
+### Fixed
+
+- **A Realtime or Gemini Live session can no longer exhaust the firewall's memory.** Each WebSocket
+  frame was capped at `proxy.maxBodyBytes`, but a message's fragments were collected without a
+  total, so a client sending continuation frames without ever finishing the message grew one buffer
+  until the process ran out of memory, for every client. A message over `proxy.maxBodyBytes` now
+  ends the session with close code 1009 and a `dos` event, before the upstream sees it.
+
+- **Three invisible characters no longer hide an injection from the heuristics.** An injection
+  with the combining grapheme joiner (`U+034F`) between its letters, the Hangul filler (`U+3164`)
+  between its words, or interlinear annotation anchors (`U+FFF9`, `U+FFFB`) around them passed as
+  tool output, while 12 other invisible-character variants were refused. Both normalizers now drop
+  every Unicode default-ignorable character and the annotation anchors, and read a Hangul filler as
+  a space. Three corpus rows pin it: on the old normalizer `encoding` recall is 5 of 8, now 8 of 8.
+
+- **`llm-fw uninstall` no longer edits a `.llm-fw.json` in the directory it is run from.** It used
+  to strip the judge settings older versions wrote there, or delete the file, which inside a cloned
+  repository meant editing that repository's file. llm-fw has not read such a file since 0.9.0;
+  uninstall now names it and leaves it alone.
+
+- **The CA key's permissions no longer depend on account naming.** On Windows the data directory's
+  ACL named the account as a bare `USERNAME`, which icacls resolves against local accounts before
+  the domain: a domain user with a same-named local account on the machine handed that account the
+  CA key. It is now `USERDOMAIN\USERNAME`. On Linux and macOS `ca.key` was written at the umask
+  default (usually 0644) and private only through its 0700 directory; it is now written 0600.
+
+- **Error logs no longer print query-string values.** Three log lines (a failed gateway request, a
+  failed gateway WebSocket upgrade, an undecodable proxied response) printed the request URL whole,
+  and providers take credentials in the query: Google's `?key=`, Azure's `?api-key=`,
+  `?access_token=`. They now print the path and the parameter names only.
+
+- **A path spelled differently no longer skips the scan.** Parsers matched the request path exactly,
+  so a body sent to `/v1//messages`, `/v1/messages/`, `/v1/%6Dessages` or `/v1/x/../messages` (all
+  served as the Messages API by a server that normalizes paths) was forwarded with only an
+  "unrecognized endpoint" warning. Parser matching, the auth-path exemption (which skips gateway key
+  custody, so `/v1/oauth/../messages` counted as an auth path) and the Codex route check on
+  `chatgpt.com` now use the path with those spellings undone.
+
+- **Hosted-tool output and grounding documents are scanned on OpenAI, Gemini and Cohere too.**
+  The Responses API's `mcp_call` output, `file_search_call` result text and `code_interpreter_call`
+  logs, Gemini's `codeExecutionResult` output and Cohere's `documents` parameter all carried
+  third-party text to the model without being read. They are now scanned as tool output.
+
+- **Server-tool results and search results are scanned as tool output.** On the Anthropic Messages
+  API only `tool_result` blocks were, so a page fetched with the `web_fetch` server tool, an MCP
+  connector reply, code-execution output and `search_result` blocks stayed in the conversation
+  unscanned on every later request. They are now read on the tool-output surface, named after the
+  tool that produced it; `web_search` results contribute their titles, since their
+  `encrypted_content` is opaque.
+
+- **A request body that is not exactly readable JSON is refused instead of forwarded unscanned.**
+  A body `JSON.parse` rejected produced no text to scan and passed, which is only safe if every
+  provider is at least as strict; and a key repeated inside one object (`"content"` twice) was
+  scanned last-wins while a provider may read it first-wins. Both are now refused with stage
+  `malformed-body` on every parsed endpoint, before any detector runs. An empty body still passes.
+
+- **One request can no longer hold the scan for minutes.** The embedding stage capped how much of
+  each text it read, but not how many texts one request carried: 16 distinct 40 KB messages in one
+  body took 26 s to scan, about 1.6 s each, and 64 took 391 s; with the budget the 64 take 48 s.
+  `detection.embeddingMaxPassesPerRequest` (default 128, `LLM_FW_EMBEDDING_MAX_PASSES`, 0 disables)
+  now bounds the forward passes per request. Prompts and tool results are read newest first, so a
+  spent budget skips old history that earlier requests already scanned; the request then warns with
+  stage `scan-budget` instead of being refused, and the heuristic stage still reads every byte. Ruleset
+  2026.10.85; measured, 0 of 23,938 eval verdicts changed and the false-positive rate is unchanged
+  (2.68%, 9 of 336; Dolly and oasst1 0 of 2,000 each).
+
 ## [0.9.0] - 2026-10-24
 
 ### Security

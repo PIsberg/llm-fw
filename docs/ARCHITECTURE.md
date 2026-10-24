@@ -524,7 +524,7 @@ Mode A (proxy) needs none of these — it relies on the client honouring
 | Setting | What it is | Why it's needed | Reversal |
 | --- | --- | --- | --- |
 | Ollama model pull | e.g. `ollama pull phi3` | Stage 3 runs a local LLM to reason about intent that regex/similarity miss. | **left in place** — the model is shared and reusable; `uninstall` prints `ollama rm <model>` |
-| `.llm-fw.json` judge keys | `detection.judgeEnabled / judgeModel / judgeBlock` written to the project config | Persists that the judge is enabled and which model/blocking mode to use. | strip only those keys (`stripJudgeConfig`); delete the file if nothing user-authored remains |
+| `.llm-fw.json` judge keys (setup-judge before 0.9.0) | `detection.judgeEnabled / judgeModel / judgeBlock` written to a config file in the working directory | Persisted that the judge is enabled. llm-fw no longer reads that file, and current setup-judge writes `~/.llm-fw/config.json` instead. | **left in place** and reported, since the file may belong to a cloned repository; `uninstall` names it so the user can delete it |
 
 ### 12.5 IDE proxy settings (auto-configured)
 
@@ -574,8 +574,8 @@ trust anchor, undo the sinkhole, delete local files, then strip the IDE proxy
 settings and the persisted env vars. Every OS-touching step is best-effort — a
 step that fails (rule already gone, or not elevated) prints a warning and the
 manual command rather than aborting the rest. The pure transforms
-(`stripSinkholeBlock`, `stripJudgeConfig`, `stripProfileEnvVars`,
-`stripIdeProxyConfig`) are unit-tested in `test/cli/uninstall.test.ts`.
+(`stripSinkholeBlock`, `stripProfileEnvVars`, `stripIdeProxyConfig`) are
+unit-tested in `test/cli/uninstall.test.ts`.
 
 ```mermaid
 sequenceDiagram
@@ -600,7 +600,7 @@ sequenceDiagram
         CLI->>Net: delete :443 → httpsPort redirect
     end
 
-    CLI->>FS: stripJudgeConfig(.llm-fw.json)
+    CLI->>FS: report a .llm-fw.json in the working directory (left untouched)
     CLI->>FS: delete ca.key/ca.crt/ca.crl/config.json/pid/whitelist.json (+ models unless --keep-model)
     CLI->>FS: rmdir ~/.llm-fw if empty
 

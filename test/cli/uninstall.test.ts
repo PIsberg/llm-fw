@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripSinkholeBlock, stripJudgeConfig, stripProfileEnvVars, stripIdeProxyConfig } from '../../src/cli/uninstall.js'
+import { stripSinkholeBlock, stripProfileEnvVars, stripIdeProxyConfig } from '../../src/cli/uninstall.js'
 
 const TARGETS = ['api.anthropic.com', 'generativelanguage.googleapis.com']
 
@@ -68,28 +68,6 @@ describe('stripSinkholeBlock', () => {
     const out = stripSinkholeBlock(hosts, TARGETS)
     expect(out).toContain('127.0.0.1 my-app.local')
     expect(out).not.toContain('api.anthropic.com')
-  })
-})
-
-describe('stripJudgeConfig', () => {
-  it('deletes the file (returns null) when only judge keys were present', () => {
-    const parsed = { detection: { judgeEnabled: true, judgeModel: 'phi3:latest', judgeBlock: false } }
-    expect(stripJudgeConfig(parsed)).toBeNull()
-  })
-
-  it('preserves user-authored detection keys', () => {
-    const parsed = { detection: { judgeEnabled: true, judgeModel: 'phi3', embeddingBlockThreshold: 0.9 } }
-    expect(stripJudgeConfig(parsed)).toEqual({ detection: { embeddingBlockThreshold: 0.9 } })
-  })
-
-  it('preserves unrelated top-level keys', () => {
-    const parsed = { targets: ['api.anthropic.com'], detection: { judgeBlock: true } }
-    expect(stripJudgeConfig(parsed)).toEqual({ targets: ['api.anthropic.com'] })
-  })
-
-  it('returns the object unchanged when there is no judge config', () => {
-    const parsed = { targets: ['api.anthropic.com'] }
-    expect(stripJudgeConfig(parsed)).toEqual({ targets: ['api.anthropic.com'] })
   })
 })
 

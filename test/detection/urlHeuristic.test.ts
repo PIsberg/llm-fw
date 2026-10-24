@@ -203,6 +203,21 @@ describe('UrlClassifier — classifyPath (host-independent path screening)', () 
   })
 })
 
+describe('isAuthPath on a path a server would normalize', () => {
+  // An auth path is exempt from gateway key custody and from the URL-exfil
+  // check, so the exemption must follow the path the provider will serve,
+  // not the spelling: /v1/oauth/../messages is the Messages API.
+  it('does not exempt a model endpoint dressed up as an auth path', () => {
+    expect(isAuthPath('/v1/oauth/../messages')).toBe(false)
+    expect(isAuthPath('/v1/oauth/%2e%2e/messages')).toBe(false)
+  })
+
+  it('still recognises an auth path spelled with extra slashes or encoding', () => {
+    expect(isAuthPath('//v1/oauth/token')).toBe(true)
+    expect(isAuthPath('/v1/%6Fauth/token')).toBe(true)
+  })
+})
+
 describe('isAuthPath', () => {
   it('recognizes standard OAuth, login and CLI management paths', () => {
     expect(isAuthPath('/oauth/authorize')).toBe(true)

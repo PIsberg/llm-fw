@@ -60,6 +60,22 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.85
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed.** The embedding
+stage gets a per-request budget of forward passes
+(`detection.embeddingMaxPassesPerRequest`, default 128), and prompts and tool
+results are now scanned newest first. No eval row comes near the budget, so
+no verdict moved; the change only bounds how long one large request can scan.
+A body that is not valid JSON, or repeats a key in one object, is refused
+with stage `malformed-body`; every eval row is well-formed JSON. Anthropic
+server-tool results and `search_result` blocks, OpenAI and Gemini hosted-tool
+output and Cohere documents are now scanned as tool output; no eval row
+carries one. The normalizers drop every default-ignorable character and read a
+Hangul filler as a space: one benign row, a Hebrew shop sign with two
+right-to-left marks, moved from similarity 0.8262 to 0.8352 and still passes.
+
 ## Result, ruleset 2026.10.84
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1

@@ -72,8 +72,13 @@ export function restrictDirPermissions(dir: string): void {
     fs.chmodSync(dir, 0o700);
     return;
   }
-  const user = process.env.USERNAME;
-  if (!user) return; // can't identify the owner; leave default ACLs
+  const name = process.env.USERNAME;
+  if (!name) return; // can't identify the owner; leave default ACLs
+  // Qualified with the domain: icacls resolves a bare name against local
+  // accounts first, so a domain user CORP\alice on a machine that also has a
+  // local "alice" would hand the local account the CA key.
+  const domain = process.env.USERDOMAIN;
+  const user = domain ? `${domain}\\${name}` : name;
   // /inheritance:r  → drop inherited ACEs
   // /grant:r        → replace, granting full control to the named principals only
   execFileSync(
@@ -548,7 +553,8 @@ export class CertFactory {
     const creds = issueInMemoryCA('llm-fw Local CA', this.crlUrl);
 
     fs.writeFileSync(caCertPath(), creds.cert, { encoding: 'utf8' });
-    fs.writeFileSync(caKeyPath(), creds.key, { encoding: 'utf8' });
+    // Owner-only on POSIX in its own right, not only through the 0700 directory.
+    fs.writeFileSync(caKeyPath(), creds.key, { encoding: 'utf8', mode: 0o600 });
 
     this.caState = parseLoadedCa(creds.cert, creds.key);
     this.warmHostKey();

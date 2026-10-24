@@ -369,6 +369,25 @@ function decodeReversedCandidates(text: string): { text: string; source: string 
   return results
 }
 
+// Hangul fillers render blank and are used as word gaps, so they become a
+// space rather than vanishing (which would glue the words together).
+const HANGUL_FILLER_RE = /[ᅟᅠㅤﾠ]/g
+// Every other character Unicode marks default-ignorable (rendered as nothing:
+// the combining grapheme joiner, LRM/RLM, Mongolian variation selectors, the
+// Arabic letter mark, and the ranges HIDDEN_CHAR_STRIP_RE already names), plus
+// the interlinear annotation anchors, which are format characters.
+const DEFAULT_IGNORABLE_RE = /[\p{Default_Ignorable_Code_Point}\u{FFF9}-\u{FFFB}]/gu
+
+/**
+ * Characters a model reads past, removed so they cannot split an injection
+ * into pieces no pattern matches. Probed as tool output: U+034F between the
+ * letters, U+3164 between the words or U+FFF9/U+FFFB around them each let an
+ * otherwise refused injection through.
+ */
+function dropInvisibles(text: string): string {
+  return text.replace(HANGUL_FILLER_RE, ' ').replace(DEFAULT_IGNORABLE_RE, '')
+}
+
 export function normalize(text: string): string {
   // Strips diacritics / accents
   let result = text.normalize('NFD').replace(/\p{Diacritic}/gu, '')
@@ -377,6 +396,8 @@ export function normalize(text: string): string {
   result = translateHomoglyphs(result);
 
   result = result.normalize('NFKC');
+
+  result = dropInvisibles(result);
 
   // Prevents zero-width character injection to split tokens invisibly
   result = result.replace(/[​‌‍﻿­]/g, '');
@@ -426,7 +447,7 @@ export function normalize(text: string): string {
  * intact and only removes the invisible smuggling channels + obvious padding.
  */
 export function normalizeSemantic(text: string): string {
-  let result = text.normalize('NFKC')
+  let result = dropInvisibles(text.normalize('NFKC'))
   // Zero-width characters and invisible smuggling channels (Tags, bidi,
   // variation selectors) — never legitimate, safe to drop for any language.
   result = result.replace(/[​‌‍﻿­]/g, '')
