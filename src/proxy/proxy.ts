@@ -26,7 +26,8 @@ import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, scanToolCallsForMemoryPoisoning, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
 import { MetricsRegistry } from '../dashboard/metrics.js'
-import { resolveAuthPolicy, authorizeClient, presentedProxyToken, type AuthPolicy } from '../auth.js'
+import { resolveAuthPolicy, authorizeClient, presentedProxyToken, isLoopbackAddr, type AuthPolicy } from '../auth.js'
+import { isPrivilegedTunnelAddress, privilegedAddressGuard, TunnelRefused } from './tunnelGuard.js'
 import { ModuleManager } from '../modules/registry.js'
 import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../modules/responseTap.js'
 import { stripUsageChunk } from '../modules/sseUsageStrip.js'
@@ -486,8 +487,24 @@ export class ProxyServer {
         }
       }
 
-      // Direct tunnel — no inspection
-      const upstream = net.createConnection({ host: hostname, port })
+      // Direct tunnel — no inspection. A client that is not on this host must
+      // not reach this host's own loopback or link-local services through it
+      // (the dashboard, a loopback gateway, cloud metadata): the tunnel would
+      // arrive from 127.0.0.1 (GHSA-q53q-qg98-p9jf). IP literals skip DNS, so
+      // they are checked here; names are checked on what they resolve to.
+      const remoteClient = !isLoopbackAddr(clientSocket.remoteAddress)
+      const refuseTunnel = (address: string): void => {
+        console.warn(`llm-fw: refused CONNECT ${hostname}:${port} from ${normalizeIp(clientSocket.remoteAddress)}: ${address} is a loopback, unspecified or link-local address`)
+        const body = JSON.stringify({ error: 'destination not allowed through the proxy' })
+        clientSocket.end(
+          'HTTP/1.1 403 Forbidden\r\n' +
+          'Content-Type: application/json\r\n' +
+          `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+          'Connection: close\r\n\r\n' + body
+        )
+      }
+      if (remoteClient && isPrivilegedTunnelAddress(hostname)) { refuseTunnel(hostname); return }
+      const upstream = net.createConnection({ host: hostname, port, ...(remoteClient ? { lookup: privilegedAddressGuard } : {}) })
 
       let trafficEmitted = false
       const emitTunnelTraffic = () => {
@@ -507,7 +524,10 @@ export class ProxyServer {
       upstream.on('close', emitTunnelTraffic)
 
       clientSocket.on('error', () => upstream.destroy())
-      upstream.on('error', () => clientSocket.destroy())
+      upstream.on('error', (err) => {
+        if (err instanceof TunnelRefused) refuseTunnel(err.address)
+        else clientSocket.destroy()
+      })
       upstream.once('connect', () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
         upstream.pipe(clientSocket)
