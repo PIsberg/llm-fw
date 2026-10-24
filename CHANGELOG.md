@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw uninstall` no longer edits a `.llm-fw.json` in the directory it is run from.** It used
+  to strip the judge settings older versions wrote there, or delete the file, which inside a cloned
+  repository meant editing that repository's file. llm-fw has not read such a file since 0.9.0;
+  uninstall now names it and leaves it alone.
+
 - **The CA key's permissions no longer depend on account naming.** On Windows the data directory's
   ACL named the account as a bare `USERNAME`, which icacls resolves against local accounts before
   the domain: a domain user with a same-named local account on the machine handed that account the
