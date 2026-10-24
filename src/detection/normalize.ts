@@ -223,17 +223,36 @@ function decodeROT13(text: string): string {
   })
 }
 
-function decodeCaesarCandidates(text: string): { text: string; source: string }[] {
+const CAESAR_KEYWORDS = ['ignore', 'system', 'prompt', 'rules', 'forget', 'override', 'instruction']
+
+function caesarShift(text: string, shift: number): string {
+  return text.replace(/[a-zA-Z]/g, (c) => {
+    const base = c <= 'Z' ? 65 : 97
+    return String.fromCharCode(((c.charCodeAt(0) - base + shift) % 26) + base)
+  })
+}
+
+/**
+ * Every Caesar shift of `text` that contains one of the keywords, in shift
+ * order. A shift holds a keyword exactly when the lowercased text holds that
+ * keyword shifted back, so the test runs on the text as it is and only the
+ * shifts that match are built. It used to build all 25 shifted copies, with a
+ * callback per character, to find out: 2.3 s of a 13 s scan of one 2.5 MB
+ * text, on the event loop (#464).
+ *
+ * Lowercasing and shifting commute on ASCII letters. The two characters
+ * outside ASCII that lowercase into one cannot complete a keyword: U+212A
+ * becomes "k", which no keyword contains, and U+0130 becomes "i" followed by
+ * U+0307, so its "i" could only end a keyword and none ends in "i". The result
+ * is therefore the original's for every input (caesar-equivalence.test.ts
+ * compares the two on random text that includes both characters).
+ */
+export function decodeCaesarCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
-  const keywords = ['ignore', 'system', 'prompt', 'rules', 'forget', 'override', 'instruction']
+  const lower = text.toLowerCase()
   for (let shift = 1; shift < 26; shift++) {
-    const shifted = text.replace(/[a-zA-Z]/g, (c) => {
-      const base = c <= 'Z' ? 65 : 97
-      return String.fromCharCode(((c.charCodeAt(0) - base + shift) % 26) + base)
-    })
-    const normalized = shifted.toLowerCase()
-    if (keywords.some(kw => normalized.includes(kw))) {
-      results.push({ text: shifted, source: 'caesar' })
+    if (CAESAR_KEYWORDS.some(kw => lower.includes(caesarShift(kw, 26 - shift)))) {
+      results.push({ text: caesarShift(text, shift), source: 'caesar' })
     }
   }
   return results

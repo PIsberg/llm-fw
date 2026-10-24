@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A large text holds the event loop for less than half as long (#464).** The Caesar decoder
+  built 25 shifted copies of every text, with a callback per character, only to test 7 keywords.
+  It now tests the keywords shifted back against the text and builds only the shifts that match,
+  with the same result for every input. One 2.5 MB text: scan 16.6 s to 11.3 s, longest
+  event-loop stall 10.6 s to 4.7 s; 64 messages of 40 KB: 15.0 s to 10.7 s.
+
 - **Re-running the Paddle fulfilment tool no longer issues a second licence (#466).**
   `scripts/fulfill-paddle-webhook.ts` now looks up a Keygen licence carrying the same
   `paddleTransactionId` and returns it; only when there is none does it create one, and it stops if
