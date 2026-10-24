@@ -223,17 +223,36 @@ function decodeROT13(text: string): string {
   })
 }
 
-function decodeCaesarCandidates(text: string): { text: string; source: string }[] {
+const CAESAR_KEYWORDS = ['ignore', 'system', 'prompt', 'rules', 'forget', 'override', 'instruction']
+
+function caesarShift(text: string, shift: number): string {
+  return text.replace(/[a-zA-Z]/g, (c) => {
+    const base = c <= 'Z' ? 65 : 97
+    return String.fromCharCode(((c.charCodeAt(0) - base + shift) % 26) + base)
+  })
+}
+
+/**
+ * Every Caesar shift of `text` that contains one of the keywords, in shift
+ * order. A shift holds a keyword exactly when the lowercased text holds that
+ * keyword shifted back, so the test runs on the text as it is and only the
+ * shifts that match are built. It used to build all 25 shifted copies, with a
+ * callback per character, to find out: 2.3 s of a 13 s scan of one 2.5 MB
+ * text, on the event loop (#464).
+ *
+ * Lowercasing and shifting commute on ASCII letters. The two characters
+ * outside ASCII that lowercase into one cannot complete a keyword: U+212A
+ * becomes "k", which no keyword contains, and U+0130 becomes "i" followed by
+ * U+0307, so its "i" could only end a keyword and none ends in "i". The result
+ * is therefore the original's for every input (caesar-equivalence.test.ts
+ * compares the two on random text that includes both characters).
+ */
+export function decodeCaesarCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
-  const keywords = ['ignore', 'system', 'prompt', 'rules', 'forget', 'override', 'instruction']
+  const lower = text.toLowerCase()
   for (let shift = 1; shift < 26; shift++) {
-    const shifted = text.replace(/[a-zA-Z]/g, (c) => {
-      const base = c <= 'Z' ? 65 : 97
-      return String.fromCharCode(((c.charCodeAt(0) - base + shift) % 26) + base)
-    })
-    const normalized = shifted.toLowerCase()
-    if (keywords.some(kw => normalized.includes(kw))) {
-      results.push({ text: shifted, source: 'caesar' })
+    if (CAESAR_KEYWORDS.some(kw => lower.includes(caesarShift(kw, 26 - shift)))) {
+      results.push({ text: caesarShift(text, shift), source: 'caesar' })
     }
   }
   return results
@@ -461,11 +480,19 @@ export function normalizeSemantic(text: string): string {
 const NON_ASCII_LETTER_RE = /[^\x00-\x7F\P{L}]/u
 const wordsOf = (s: string): string => s.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
-export function extractCandidates(text: string): { text: string; source: string }[] {
+/**
+ * The candidate list, built one step at a time: each `yield` follows a step
+ * that reads the whole text. extractCandidates runs it straight through;
+ * extractCandidatesYielding hands the event loop back at each yield, so one
+ * large text no longer holds every other request for the whole of it (#464).
+ * Both return the same list.
+ */
+function* candidateSteps(text: string): Generator<void, { text: string; source: string }[], undefined> {
   const candidates: { text: string; source: string }[] = []
 
   const originalNormalized = normalize(text)
   candidates.push({ text: originalNormalized, source: 'original' })
+  yield
 
   // Diacritic/script-preserving form for the multilingual embedding stage. The
   // 'original' candidate above strips diacritics for the regex heuristics,
@@ -483,6 +510,7 @@ export function extractCandidates(text: string): { text: string; source: string 
   if (semantic !== originalNormalized && (NON_ASCII_LETTER_RE.test(semantic) || wordsOf(semantic) !== wordsOf(originalNormalized))) {
     candidates.push({ text: semantic, source: 'semantic' })
   }
+  yield
 
   // Decoded across the whole text, as before, once any word carries
   // leetspeak: '4ll' and '4nd' only decode because pr3v10us beside them did.
@@ -491,6 +519,7 @@ export function extractCandidates(text: string): { text: string; source: string 
     if (decodedLeet !== originalNormalized) {
       candidates.push({ text: decodedLeet, source: 'leetspeak' })
     }
+    yield
   }
 
   const decoders = [
@@ -520,6 +549,7 @@ export function extractCandidates(text: string): { text: string; source: string 
         }
       }
     } catch {}
+    yield
   }
 
   try {
@@ -529,6 +559,7 @@ export function extractCandidates(text: string): { text: string; source: string 
       candidates.push({ text: normRot, source: 'rot13' })
     }
   } catch {}
+  yield
 
   if (looksLikePigLatin(text)) try {
     const plList = decodePigLatin(text)
@@ -550,6 +581,37 @@ export function extractCandidates(text: string): { text: string; source: string 
   }
 
   return uniqueCandidates;
+}
+
+export function extractCandidates(text: string): { text: string; source: string }[] {
+  const steps = candidateSteps(text)
+  let step = steps.next()
+  while (!step.done) step = steps.next()
+  return step.value
+}
+
+/** Texts at least this long hand the event loop back between scan steps. */
+export const YIELD_ABOVE_CHARS = 64 * 1024
+
+/** Resolves on the next turn of the event loop, after pending I/O callbacks. */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
+}
+
+/**
+ * extractCandidates, handing the event loop back after each step that reads
+ * the whole text when the text is at least YIELD_ABOVE_CHARS long (#464).
+ * Same list as extractCandidates; shorter texts run straight through.
+ */
+export async function extractCandidatesYielding(text: string): Promise<{ text: string; source: string }[]> {
+  if (text.length < YIELD_ABOVE_CHARS) return extractCandidates(text)
+  const steps = candidateSteps(text)
+  let step = steps.next()
+  while (!step.done) {
+    await yieldToEventLoop()
+    step = steps.next()
+  }
+  return step.value
 }
 
 export function calculateEntropy(text: string): number {

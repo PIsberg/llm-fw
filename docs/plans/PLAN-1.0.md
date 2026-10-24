@@ -143,10 +143,17 @@ Findings so far:
   WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
   embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
   to 48 s); a fragmented WebSocket message is now held to
-  `proxy.maxBodyBytes` (it grew without limit). Accepted: the heuristic
-  stage reads every byte at about 0.25 s per 40 KB message, linear up to
-  the 10 MiB body limit, on the request thread; an attacker needs a token
-  on any non-loopback bind, and `dos` rate limits apply (#464).
+  `proxy.maxBodyBytes` (it grew without limit). The scan now hands the
+  event loop back between steps and every 50 ms, and the Caesar decoder no
+  longer builds 25 copies: the longest stall for one 2.5 MB text fell from
+  10.6 s to 1.7 s, for 64 messages of 40 KB from 3.9 s to 0.15 s; live
+  through the gateway, another client's worst wait during a 2.5 MB request
+  fell from 11.1 s (with dropped connections) to 3.1 s. Accepted by the
+  maintainer on 2026-10-24 (#464 closed): one heuristic pass over one whole
+  text cannot pause, about 0.4 s per MB, so a 10 MiB text still stalls
+  other requests for several seconds. An attacker needs a token on any
+  non-loopback bind, and `dos` rate limits apply; worker-thread scanning
+  and a per-request text cap were considered and not taken.
 - [x] Fail-open versus fail-closed, written down per path.
   Status: a table of 18 paths under "Failure Semantics" in
   `docs/guides/configuration.md`, each read from the code it names.
@@ -166,11 +173,14 @@ Findings so far:
 
 ## Phase 3: remote server testing
 
-- [ ] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
-  signed. The Helm chart's `image.repository` points at it. Not started:
-  publishing only happens on a release, so the workflow can be checked end to
-  end only then. Decide how to validate it first, for example a build-only
-  multi-arch job on PRs that touch the Dockerfile, or native arm64 runners.
+- [~] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
+  signed. The Helm chart's `image.repository` points at it. Status: prepared
+  2026-10-24 (`.github/workflows/image.yml`, chart 0.2.4): a build-only
+  amd64+arm64 job on PRs that touch the image inputs (the maintainer's choice),
+  and on a release a push of `ghcr.io/pisberg/llm-fw:<version>` and `:latest`
+  with provenance (`mode=max`) and an SBOM. Waiting on: the first release, then
+  making the GHCR package public. Not done: signing beyond the provenance
+  attestation (cosign).
 - [ ] Verify `proxy.inspectChatgptBackend` against a live Codex CLI session
   signed in with ChatGPT (#459).
 - [ ] Follow `docs/guides/deployment-server.md` literally on a Linux VM; every
@@ -200,8 +210,17 @@ Findings so far:
   described removed behaviour; both fixed. Checked mechanically across the
   README and every guide, all clean: each documented llm-fw flag exists in
   `src/cli`, each `LLM_FW_*` variable is read by the code, and each dotted
-  config key names a field in `src/types.ts`. Left: reading the guides'
-  prose claims (behaviour, numbers outside generated blocks) against the code.
+  config key names a field in `src/types.ts`. Prose read against the code
+  on 2026-10-24, all matching: `deployment-server.md` (generated token
+  length, the auth header and rejection status per surface, unauthenticated
+  `/ca.crt`, `/ca.pem`, `/crl`, health endpoints only on the gateway,
+  `/metrics` behind dashboard auth, the image `HEALTHCHECK`) and
+  `gateway-mode.md` (routing table, key custody of headers and query
+  parameters, tenant tokens beside the deployment token, quota 429 with
+  `Retry-After`, the Helm `replicaCount` note); metric names match in both
+  directions; `cli.md` lists every dispatched subcommand except `license`,
+  now added. Gaps fixed: the Realtime section did not mention the new
+  message size cap. Left: the remaining guides.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release

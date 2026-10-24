@@ -3,7 +3,7 @@ name: llm-fw
 description: Prompt-injection firewall for LLM traffic, deployed as a gateway clients point base_url at
 type: application
 # Chart version, bumped for chart changes. appVersion tracks the llm-fw release.
-version: 0.2.3
+version: 0.2.4
 appVersion: "0.9.0"
 keywords:
   - llm

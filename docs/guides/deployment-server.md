@@ -321,6 +321,11 @@ The image bakes the embedding model in at build time, so the first request after
 a rollout is not a 30 MB download and the container works on an air-gapped
 network.
 
+Every release from the next one on also publishes the image to
+`ghcr.io/pisberg/llm-fw:<version>` (and `:latest`) for `linux/amd64` and
+`linux/arm64`, with a provenance attestation and an SBOM in the registry
+(`.github/workflows/image.yml`); `docker compose` builds it locally instead.
+
 The image already sets `LLM_FW_GATEWAY_ENABLED=true` and binds all three
 listeners to `0.0.0.0`, which means all three demand a token. It exposes `8081`,
 `8080` and `7731`, runs as the unprivileged `node` user, and its `CMD` is
@@ -398,7 +403,9 @@ Four things to set deliberately:
 1. **`secrets.gatewayToken`.** Without one, every pod generates its own at
    startup and every rollout invalidates your clients' token.
 2. **`image.tag`.** `Chart.yaml`'s `appVersion` tracks the released package, so
-   a default install pulls the matching image. Pin it anyway if you want a
+   a default install pulls the matching image from `ghcr.io/pisberg/llm-fw`
+   (`image.repository`; published from the next release on, so until then
+   build the image and point `image.repository` at your own registry). Pin it anyway if you want a
    rollout to be reproducible rather than following the chart.
 3. **Keep `gateway.enabled: true`** unless you are replacing the probes.
    `/healthz`, `/livez` and `/readyz` exist **only** on the gateway listener.

@@ -1,5 +1,5 @@
 image:
-  repository: llm-fw
+  repository: ghcr.io/pisberg/llm-fw   # published by .github/workflows/image.yml on each release
   tag: ""            # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 

@@ -9,11 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The container image is published to GHCR on each release.** `ghcr.io/pisberg/llm-fw:<version>`
+  and `:latest`, for `linux/amd64` and `linux/arm64`, with a provenance attestation and an SBOM in
+  the registry; the Helm chart (0.2.4) installs it by default. Pull requests that touch the image
+  build both architectures without pushing, so a change that breaks arm64 fails before a release.
+
 - **Every GitHub Release carries an SBOM.** `llm-fw-vX.Y.Z.cdx.json` is a CycloneDX 1.5 list of the
   production dependencies the version ships (60 components for 0.9.0), generated from the lockfile
   at the tag, so a version can be audited without installing it.
 
 ### Fixed
+
+- **A large request no longer holds every other request for its whole scan (#464).** The
+  synchronous stages (candidate extraction, one heuristic pass per candidate, and every item after
+  the embedding budget is spent) ran without a pause, so other clients waited for all of it. The
+  scan now hands the event loop back between steps on a text of 64 KB or more, and whenever it has
+  run 50 ms without a pause. Nothing it computes changes. Longest stall: 64 messages of 40 KB,
+  3.9 s to 0.15 s; one 2.5 MB text, 10.6 s to 1.7 s (with the Caesar change above), the rest
+  being one heuristic pass over the whole text.
+
+- **A large text holds the event loop for less than half as long (#464).** The Caesar decoder
+  built 25 shifted copies of every text, with a callback per character, only to test 7 keywords.
+  It now tests the keywords shifted back against the text and builds only the shifts that match,
+  with the same result for every input. One 2.5 MB text: scan 16.6 s to 11.3 s, longest
+  event-loop stall 10.6 s to 4.7 s; 64 messages of 40 KB: 15.0 s to 10.7 s.
 
 - **Re-running the Paddle fulfilment tool no longer issues a second licence (#466).**
   `scripts/fulfill-paddle-webhook.ts` now looks up a Keygen licence carrying the same
