@@ -35,6 +35,8 @@ import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
+import { constants as bufferConstants } from 'node:buffer'
+import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('proxy');
@@ -698,7 +700,7 @@ export class ProxyServer {
       // ONLY for text-based detection. Decoding binary payloads (e.g. image
       // uploads) to a string and back would replace invalid byte sequences
       // with U+FFFD, corrupting the request and changing its length.
-      let bodyBuf = Buffer.concat(chunks)
+      let bodyBuf: Buffer = Buffer.concat(chunks)
       let body = bodyBuf.toString('utf-8')
 
       // Stage 0 — Data Loss Prevention. Only LLM JSON requests (those with a
@@ -707,6 +709,30 @@ export class ProxyServer {
       const dlpPath = innerReq.url ?? '/'
       const parser = getParser(dlpPath)
       const isLlmRequest = parser !== null
+
+      // A compressed LLM request is decoded before anything reads it, and the
+      // decoded body is what goes upstream. Scanning the compressed bytes as
+      // text found nothing, so an injection in a gzip or zstd body (Codex CLI
+      // on ChatGPT sign-in compresses with zstd by default) reached the
+      // provider unscanned. What cannot be decoded is refused, never forwarded.
+      const requestEncoding = innerReq.headers['content-encoding']
+      if (isLlmRequest && requestEncoding && !/^\s*identity\s*$/i.test(requestEncoding)) {
+        const refuse = (status: number, error: string): void => {
+          log.warn(`refused ${method} ${hostname}${dlpPath}: ${error}`)
+          innerRes.writeHead(status, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error }))
+        }
+        try {
+          bodyBuf = decodeContentEncoding(bodyBuf, requestEncoding, maxBodyBytes > 0 ? maxBodyBytes : bufferConstants.MAX_LENGTH)
+        } catch (err) {
+          if (err instanceof UnsupportedEncoding) refuse(415, `${err.message}; llm-fw cannot inspect it`)
+          else if (err instanceof RangeError) refuse(413, 'request body too large once decompressed')
+          else refuse(400, `request body is not valid ${requestEncoding}`)
+          return
+        }
+        body = bodyBuf.toString('utf-8')
+        delete innerReq.headers['content-encoding']
+      }
 
       // Session identity shared across the proxy's per-client state (taint
       // tracking below, and — opt-in — the pipeline's cross-request crescendo

@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Compressed request bodies are scanned.** The proxy and the gateway read a request body
+  sent with `Content-Encoding` as raw bytes, so a prompt in a gzip, Brotli, deflate or zstd
+  body passed every detector unread. Codex CLI signed in with ChatGPT compresses its requests
+  with zstd by default. Bodies are now decoded before scanning, capped at `proxy.maxBodyBytes`,
+  and forwarded decoded; an encoding llm-fw cannot decode is refused with `415`, a corrupt body
+  with `400`, and one that expands past the limit with `413`, rather than forwarded unscanned.
+  zstd needs Node 22.15 or later; on an older Node a zstd body is refused.
+
 - **The audit webhook no longer ships prompt text unless payloads are enabled.** The file sink
   dropped `payload_full` and `payload_preview` unless `audit.includePayloads` (or
   `LLM_FW_AUDIT_PAYLOADS=true`) was set, but the webhook posted the raw event, so pointing
