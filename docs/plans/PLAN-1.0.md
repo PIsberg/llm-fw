@@ -146,11 +146,14 @@ Findings so far:
   `proxy.maxBodyBytes` (it grew without limit). The scan now hands the
   event loop back between steps and every 50 ms, and the Caesar decoder no
   longer builds 25 copies: the longest stall for one 2.5 MB text fell from
-  10.6 s to 1.7 s, for 64 messages of 40 KB from 3.9 s to 0.15 s. Left
-  (#464): one heuristic pass over one whole text cannot pause, about 0.4 s
-  per MB, so a 10 MiB text still stalls other requests for several seconds;
-  an attacker needs a token on any non-loopback bind, and `dos` rate limits
-  apply.
+  10.6 s to 1.7 s, for 64 messages of 40 KB from 3.9 s to 0.15 s; live
+  through the gateway, another client's worst wait during a 2.5 MB request
+  fell from 11.1 s (with dropped connections) to 3.1 s. Accepted by the
+  maintainer on 2026-10-24 (#464 closed): one heuristic pass over one whole
+  text cannot pause, about 0.4 s per MB, so a 10 MiB text still stalls
+  other requests for several seconds. An attacker needs a token on any
+  non-loopback bind, and `dos` rate limits apply; worker-thread scanning
+  and a per-request text cap were considered and not taken.
 - [x] Fail-open versus fail-closed, written down per path.
   Status: a table of 18 paths under "Failure Semantics" in
   `docs/guides/configuration.md`, each read from the code it names.

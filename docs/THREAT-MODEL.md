@@ -119,7 +119,7 @@ first, so the boundary is the set of fields llm-fw extracts:
   every regex runs in linear time (`.claude/rules/detection.md`), and a scan
   hands the event loop back between steps so one large request does not
   hold the others for all of it (one heuristic pass over one whole text
-  still cannot pause: #464).
+  still cannot pause; see accepted risks).
 
 Surfaces carry different trust. The system prompt and tool definitions are
 developer-authored: the system prompt is not scanned unless
@@ -147,6 +147,14 @@ named root to warn.
 ## Accepted risks
 
 Each is a decision, with the reason, rather than an oversight:
+
+- **A very large request still delays others.** A scan hands the event
+  loop back between steps, but one heuristic pass over one whole text cannot
+  pause, about 0.4 s per MB: a 10 MiB text holds other requests for several
+  seconds (measured 3.1 s worst case for 2.5 MB through the gateway). An
+  attacker needs a token on any non-loopback bind, and `dos` rate limits
+  apply. Worker-thread scanning and a per-request text cap were considered
+  and not taken (#464).
 
 - **Response-side inspection fails open** on a response too large or
   undecodable to read: it is defence in depth behind the request side.
