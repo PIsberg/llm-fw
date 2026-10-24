@@ -16,7 +16,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
-import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, tokenMatches as matchesToken, generateToken } from '../auth.js'
+import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, isLoopbackHostHeader, tokenMatches as matchesToken, generateToken } from '../auth.js'
 import { ModuleManager, TOKEN_ECONOMY_ID } from '../modules/registry.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
@@ -2579,7 +2579,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   }
 
   const isAuthorized = (req: http.IncomingMessage, url: URL, path: string): boolean => {
-    if (isLoopback(req.socket.remoteAddress)) return true
+    // Loopback trust needs a Host that names loopback: a page that rebinds
+    // its own domain to 127.0.0.1 arrives from loopback too (GHSA-c725-vwcm-h8rr).
+    if (isLoopback(req.socket.remoteAddress) && isLoopbackHostHeader(req.headers.host)) return true
     if (AUTH_EXEMPT_PATHS.has(path)) return true
     return matchesToken(presentedToken(req, url), authToken)
   }

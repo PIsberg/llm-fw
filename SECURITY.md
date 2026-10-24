@@ -82,7 +82,9 @@ Worth knowing before reporting, and worth checking in your own deployment:
 - The CA private key lives under the llm-fw data directory (`~/.llm-fw` unless
   `LLM_FW_DIR` says otherwise). Anything that can read it can impersonate every
   host the proxy intercepts.
-- A loopback caller bypasses the dashboard's token auth entirely. Mutating
-  endpoints are protected only by a same-origin check, so any local process, and
-  any page that can forge an acceptable `Origin`, is inside that boundary. The
-  token gate applies to non-loopback callers.
+- A loopback caller whose `Host` header names loopback bypasses the dashboard's
+  token auth. Mutating endpoints are additionally protected by a same-origin
+  check, so any local process is inside that boundary, but a web page that
+  rebinds its own domain to `127.0.0.1` is not: its `Host` names its domain, and
+  such requests must present the token. The token gate applies to non-loopback
+  callers.

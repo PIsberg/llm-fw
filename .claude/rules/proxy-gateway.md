@@ -67,7 +67,12 @@ that needs a changelog entry, not a cleanup.
   the client. Pinned by Cases 9 and 10 in `test/proxy/proxy.e2e.test.ts`.
 - **Health endpoints exist only on the gateway.** Nothing answers on the proxy
   or the dashboard.
-- **The dashboard exempts loopback unconditionally** and has no `requireAuth`.
+- **The dashboard exempts loopback only when `Host` names loopback**
+  (`isLoopbackHostHeader` in `src/auth.ts`), and has no `requireAuth`. The
+  gateway's loopback trust follows the same rule. Without it, any web page
+  that rebinds its domain to 127.0.0.1 drove both. Pinned by
+  `test/dashboard/host-rebinding.test.ts` and
+  `test/gateway/gateway-host-rebinding.e2e.test.ts`.
 - **The proxy forwards CONNECT only.** Its `request` handler exists solely to
   answer `501` with an explanation, so a client that set `HTTP_PROXY` fails fast
   instead of hanging. Do not grow it into a plain-HTTP forward path without

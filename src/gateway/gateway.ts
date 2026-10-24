@@ -290,10 +290,13 @@ export class GatewayServer {
     // the caller's own provider key (OpenAI-style APIs, Claude Code's OAuth
     // login), which custody-off passthrough must forward: stripping it on a
     // local gateway that asks for no token left upstream with no key at all.
+    // A configured token counts even when the bind needs none: a caller whose
+    // Host does not name loopback (a rebinding page, a reverse proxy on this
+    // host) must present it, and it must then be stripped like any other.
     const authIsInternal = !dedicated && (tenant !== null
-      || (this.authPolicy.required && tokenMatches(presented, this.authPolicy.token)));
+      || (this.authPolicy.token !== '' && tokenMatches(presented, this.authPolicy.token)));
     const authorised = tenant !== null
-      || authorizeClient(this.authPolicy, req.socket.remoteAddress, presented);
+      || authorizeClient(this.authPolicy, req.socket.remoteAddress, presented, req.headers.host);
     return { tenant, authIsInternal, authorised };
   }
 

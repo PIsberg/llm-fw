@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The dashboard and a loopback gateway no longer trust a rebound web page (GHSA-c725-vwcm-h8rr).**
+  Both trusted every request from loopback without looking at its `Host` header, so a website
+  using DNS rebinding (its own domain re-pointed at `127.0.0.1`) could, on a default install, read
+  the dashboard's event stream, change settings and add whitelist entries, and with the gateway
+  enabled use the provider keys it holds. Loopback trust now needs a `Host` that names loopback
+  (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`); any other loopback request must present
+  the token. **Changed:** a reverse proxy on the same host must now forward the dashboard or
+  gateway token, and a gateway bound to loopback accepts its configured `gateway.authToken` from
+  such a caller.
+
 ## [0.8.0] - 2026-10-23
 
 ### Added

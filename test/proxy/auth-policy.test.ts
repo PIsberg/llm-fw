@@ -4,6 +4,7 @@ import {
   credentialFromAuthHeader,
   isLocalBind,
   isLoopbackAddr,
+  isLoopbackHostHeader,
   presentedProxyToken,
   resolveAuthPolicy,
   tokenMatches,
@@ -118,5 +119,46 @@ describe('isLoopbackAddr', () => {
   it('covers the IPv4-mapped IPv6 form', () => {
     expect(isLoopbackAddr('::ffff:127.0.0.1')).toBe(true)
     expect(isLoopbackAddr('10.0.0.5')).toBe(false)
+  })
+})
+
+// GHSA-c725-vwcm-h8rr: a rebinding page reaches loopback with its own domain
+// in Host. Only names that cannot be anyone else's count as local.
+describe('isLoopbackHostHeader', () => {
+  it.each(['localhost', 'localhost:7731', 'LOCALHOST:7731', 'llm-fw.localhost:8081', '127.0.0.1', '127.0.0.1:7731', '127.9.9.9:1', '[::1]', '[::1]:8081', '', undefined])(
+    'treats %s as loopback', (host) => { expect(isLoopbackHostHeader(host)).toBe(true) })
+
+  it.each(['evil.example', 'evil.example:7731', 'localhost.evil.example', '127.0.0.1.nip.io:7731', '127.x.attacker.example:7731', 'localhostx:7731', '[::2]:8081', '10.0.0.5:7731', '0.0.0.0:7731'])(
+    'treats %s as foreign', (host) => { expect(isLoopbackHostHeader(host)).toBe(false) })
+})
+
+describe('authorizeClient with a Host header', () => {
+  const local = resolveAuthPolicy({ bindHost: '127.0.0.1', authToken: 'tok' })
+  const localNoToken = resolveAuthPolicy({ bindHost: '127.0.0.1' })
+
+  it('trusts a loopback bind only for a loopback Host', () => {
+    expect(authorizeClient(local, '127.0.0.1', '', 'localhost:8081')).toBe(true)
+    expect(authorizeClient(local, '127.0.0.1', '', 'evil.example:8081')).toBe(false)
+    expect(authorizeClient(localNoToken, '127.0.0.1', '', 'evil.example:8081')).toBe(false)
+  })
+
+  it('lets a foreign Host in with the configured token', () => {
+    expect(authorizeClient(local, '127.0.0.1', 'tok', 'llmfw.example.com')).toBe(true)
+    expect(authorizeClient(local, '127.0.0.1', 'nope', 'llmfw.example.com')).toBe(false)
+  })
+
+  it('applies the same rule to the inferred loopback exemption of an exposed bind', () => {
+    const exposed = resolveAuthPolicy({ bindHost: '0.0.0.0', authToken: 'tok' })
+    expect(authorizeClient(exposed, '127.0.0.1', '', '127.0.0.1:8081')).toBe(true)
+    expect(authorizeClient(exposed, '127.0.0.1', '', 'evil.example:8081')).toBe(false)
+  })
+
+  it('leaves the explicit requireAuth: false escape hatch open', () => {
+    const open = resolveAuthPolicy({ bindHost: '127.0.0.1', requireAuth: false })
+    expect(authorizeClient(open, '127.0.0.1', '', 'evil.example:8081')).toBe(true)
+  })
+
+  it('changes nothing for the proxy, which passes no Host', () => {
+    expect(authorizeClient(localNoToken, '127.0.0.1', '')).toBe(true)
   })
 })
