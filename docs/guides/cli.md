@@ -18,6 +18,7 @@ Every command and flag, the built-in diagnostics, and the dashboard.
 | `llm-fw install-service` | Register llm-fw to auto-start at login (Task Scheduler / launchd / systemd --user), for your user only and without admin rights |
 | `llm-fw uninstall-service` | Reverse `install-service` |
 | `llm-fw uninstall` | Reverse `setup`: trust store, hosts file, port redirect, env vars, IDE settings and the CA. Keeps your settings, false-positive lists, audit log and licence; `--purge` deletes all but the licence, `--keep-model` keeps the model cache. See [Uninstall](client-setup.md#uninstall) |
+| `llm-fw license` | Print the licence terms and this machine's licence state. `--activate <key>` / `--deactivate` store or remove a key bought at deversity.se/llmfw, `--activate-file <path>` / `--deactivate-file` an offline licence file, `--status` prints the state only, and `--verify` checks the key with Keygen, the only licensing call that uses the network. See [LICENSING.md](../LICENSING.md) |
 | `llm-fw --version` | Print the installed version (`-v` and `version` work too) |
 
 ## Diagnostics (`llm-fw doctor`)

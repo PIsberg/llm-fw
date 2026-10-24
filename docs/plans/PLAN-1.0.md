@@ -212,7 +212,8 @@ Findings so far:
   `gateway-mode.md` (routing table, key custody of headers and query
   parameters, tenant tokens beside the deployment token, quota 429 with
   `Retry-After`, the Helm `replicaCount` note); metric names match in both
-  directions. One gap fixed: the Realtime section did not mention the new
+  directions; `cli.md` lists every dispatched subcommand except `license`,
+  now added. Gaps fixed: the Realtime section did not mention the new
   message size cap. Left: the remaining guides.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
