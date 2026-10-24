@@ -80,6 +80,7 @@ Stage 1 is an ultra-fast (< 1ms), high-throughput detection engine that uses reg
 Before evaluating patterns, the incoming prompt undergoes extensive decoding and translation preprocessing:
 *   **Unicode Decomposition (`NFD`)**: Accent characters and diacritics are automatically stripped.
 *   **Homoglyph Mapping**: Cyrillic, Greek, and other mathematical lookalike characters are translated to standard Latin equivalents.
+*   **Invisible characters**: every character Unicode marks default-ignorable is dropped (zero-width characters, the combining grapheme joiner `U+034F`, LRM/RLM, bidi controls, variation selectors, Mongolian selectors, the Arabic letter mark, the tag block), and so are the interlinear annotation anchors `U+FFF9` to `U+FFFB`. Hangul fillers (`U+3164`, `U+FFA0`, `U+115F`, `U+1160`) render blank and are used as word gaps, so they become a space. Probed as tool output, an injection split by `U+034F` between its letters, by `U+3164` between its words, or by annotation anchors around them was not refused before this; 12 other invisible-character variants were. The `ascii-smuggling` stage still reads the raw text for hidden payloads before any of this.
 *   **Obfuscation Decoders**: Automatically searches for, decodes, and evaluates multiple candidate representations, including:
     *   **Base64**, **Hexadecimal**, and **Binary** ciphers.
     *   **Morse Code** (custom dot-and-dash parser).

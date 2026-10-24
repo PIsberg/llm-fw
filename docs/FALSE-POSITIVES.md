@@ -72,7 +72,9 @@ A body that is not valid JSON, or repeats a key in one object, is refused
 with stage `malformed-body`; every eval row is well-formed JSON. Anthropic
 server-tool results and `search_result` blocks, OpenAI and Gemini hosted-tool
 output and Cohere documents are now scanned as tool output; no eval row
-carries one.
+carries one. The normalizers drop every default-ignorable character and read a
+Hangul filler as a space: one benign row, a Hebrew shop sign with two
+right-to-left marks, moved from similarity 0.8262 to 0.8352 and still passes.
 
 ## Result, ruleset 2026.10.84
 

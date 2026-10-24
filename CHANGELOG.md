@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three invisible characters no longer hide an injection from the heuristics.** An injection
+  with the combining grapheme joiner (`U+034F`) between its letters, the Hangul filler (`U+3164`)
+  between its words, or interlinear annotation anchors (`U+FFF9`, `U+FFFB`) around them passed as
+  tool output, while 12 other invisible-character variants were refused. Both normalizers now drop
+  every Unicode default-ignorable character and the annotation anchors, and read a Hangul filler as
+  a space. Three corpus rows pin it: on the old normalizer `encoding` recall is 5 of 8, now 8 of 8.
+
 - **`llm-fw uninstall` no longer edits a `.llm-fw.json` in the directory it is run from.** It used
   to strip the judge settings older versions wrote there, or delete the file, which inside a cloned
   repository meant editing that repository's file. llm-fw has not read such a file since 0.9.0;
