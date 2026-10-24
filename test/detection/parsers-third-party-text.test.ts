@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AnthropicParser } from '../../src/detection/parsers.js'
+import { AnthropicParser, OpenAIParser, GeminiParser, CohereParser } from '../../src/detection/parsers.js'
 
 // Text a third party wrote reaches the model through more block types than
 // tool_result. Each of these used to go upstream without being scanned.
@@ -82,5 +82,68 @@ describe('Anthropic: third-party text the model reads is scanned as tool output'
       { role: 'assistant', content: [{ type: 'text', text: 'ASSISTANT-PROSE' }, { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a' } }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'file body' }] },
     ])).not.toContain('ASSISTANT-PROSE')
+  })
+})
+
+// Responses API items for hosted tools carry their output in fields other than
+// `output` on a *_call_output item, so none of them was read.
+describe('OpenAI Responses: hosted-tool output resent as input items is scanned', () => {
+  const parser = new OpenAIParser()
+  const results = (input: unknown[]) => parser.extractToolResults(JSON.stringify({ model: 'm', input }))
+  const text = (input: unknown[]) => results(input).map(r => r.result).join('\n')
+
+  it('an MCP call\'s output, named after the tool', () => {
+    const r = results([
+      { role: 'user', content: 'ask the wiki' },
+      { type: 'mcp_call', id: 'mcp_1', server_label: 'wiki', name: 'ask_question', arguments: '{}', output: 'PAYLOAD-MCP', error: null },
+    ])
+    expect(r.find(x => x.result.includes('PAYLOAD-MCP'))?.toolName).toBe('ask_question')
+  })
+
+  it('file search results', () => {
+    expect(text([
+      { role: 'user', content: 'find it' },
+      { type: 'file_search_call', id: 'fs_1', status: 'completed', queries: ['q'], results: [{ file_id: 'file-1', filename: 'a.pdf', score: 0.9, text: 'PAYLOAD-FILE', attributes: {} }] },
+    ])).toContain('PAYLOAD-FILE')
+  })
+
+  it('code interpreter logs', () => {
+    expect(text([
+      { role: 'user', content: 'run it' },
+      { type: 'code_interpreter_call', id: 'ci_1', container_id: 'c', code: 'print(1)', status: 'completed', outputs: [{ type: 'logs', logs: 'PAYLOAD-LOGS' }] },
+    ])).toContain('PAYLOAD-LOGS')
+  })
+})
+
+describe('Cohere: grounding documents are scanned', () => {
+  const parser = new CohereParser()
+  const text = (body: unknown) => parser.extractToolResults(JSON.stringify(body)).map(r => r.result).join('\n')
+
+  it('v2 documents, as objects with data and as plain strings', () => {
+    const t = text({ model: 'command-a', messages: [{ role: 'user', content: 'answer from the docs' }], documents: [
+      { id: 'd1', data: { title: 'Doc one', text: 'PAYLOAD-V2-OBJECT' } },
+      'PAYLOAD-V2-STRING',
+    ] })
+    expect(t).toContain('PAYLOAD-V2-OBJECT')
+    expect(t).toContain('PAYLOAD-V2-STRING')
+  })
+
+  it('v1 documents with title and snippet', () => {
+    expect(text({ message: 'answer from the docs', documents: [{ title: 'Doc', snippet: 'PAYLOAD-V1' }] })).toContain('PAYLOAD-V1')
+  })
+})
+
+describe('Gemini: code execution output in a model turn is scanned', () => {
+  const parser = new GeminiParser()
+  it('codeExecutionResult output', () => {
+    const body = JSON.stringify({ contents: [
+      { role: 'user', parts: [{ text: 'run the script' }] },
+      { role: 'model', parts: [
+        { executableCode: { language: 'PYTHON', code: 'print(open("notes.txt").read())' } },
+        { codeExecutionResult: { outcome: 'OUTCOME_OK', output: 'PAYLOAD-GEMINI' } },
+      ] },
+      { role: 'user', parts: [{ text: 'and?' }] },
+    ] })
+    expect(parser.extractToolResults(body).map(r => r.result).join('\n')).toContain('PAYLOAD-GEMINI')
   })
 })

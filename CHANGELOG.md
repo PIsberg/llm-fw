@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hosted-tool output and grounding documents are scanned on OpenAI, Gemini and Cohere too.**
+  The Responses API's `mcp_call` output, `file_search_call` result text and `code_interpreter_call`
+  logs, Gemini's `codeExecutionResult` output and Cohere's `documents` parameter all carried
+  third-party text to the model without being read. They are now scanned as tool output.
+
 - **Server-tool results and search results are scanned as tool output.** On the Anthropic Messages
   API only `tool_result` blocks were, so a page fetched with the `web_fetch` server tool, an MCP
   connector reply, code-execution output and `search_result` blocks stayed in the conversation

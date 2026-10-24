@@ -419,7 +419,20 @@ class OpenAIParser implements PayloadParser {
           }
         }
         for (const item of data.input) {
-          if (typeof item?.type !== 'string' || !item.type.endsWith('_call_output')) continue
+          if (typeof item?.type !== 'string') continue
+          // Hosted tools run at the provider and put their output on the call
+          // item itself: an MCP server's reply, retrieved file text, sandbox
+          // logs. Resent as input on later requests, they are third-party text.
+          const hosted = item.type === 'mcp_call' ? (typeof item.output === 'string' ? [item.output] : [])
+            : item.type === 'file_search_call' ? (Array.isArray(item.results) ? item.results.map((r: any) => r?.text) : [])
+            : item.type === 'code_interpreter_call' ? (Array.isArray(item.outputs) ? item.outputs.map((o: any) => o?.logs) : [])
+            : null
+          if (hosted) {
+            const text = hosted.filter((t: unknown): t is string => typeof t === 'string').join('\n')
+            if (text) results.push({ toolUseId: item.id || 'unknown', result: text, toolName: typeof item.name === 'string' ? item.name : item.type })
+            continue
+          }
+          if (!item.type.endsWith('_call_output')) continue
           if (typeof item.output !== 'string' && !Array.isArray(item.output)) continue
           results.push({ toolUseId: item.call_id || item.id || 'unknown', result: toolResultText(item.output), ...withCall(item.call_id) })
         }
@@ -645,6 +658,19 @@ class CohereParser implements PayloadParser {
       const data = JSON.parse(body)
       const results: ToolResultItem[] = []
 
+      // Grounding documents (both API versions): retrieved text the model is
+      // told to answer from. v2 takes strings or {id, data:{...}}, v1 objects
+      // of string fields such as title and snippet.
+      if (Array.isArray(data.documents)) {
+        for (const doc of data.documents) {
+          const fields = typeof doc === 'string' ? [doc]
+            : doc && typeof doc === 'object' ? Object.values((doc as { data?: unknown }).data ?? doc)
+            : []
+          const text = fields.filter((v): v is string => typeof v === 'string').join('\n')
+          if (text) results.push({ toolUseId: typeof doc?.id === 'string' ? doc.id : 'document', result: text, toolName: 'documents' })
+        }
+      }
+
       // v1: tool_results:[{call:{name,…}, outputs:[…]}] — keyed by tool name
       // (v1 has no call id). The call travels with its result.
       if (Array.isArray(data.tool_results)) {
@@ -828,6 +854,12 @@ class GeminiParser implements PayloadParser {
               .map((part: any) => part?.functionCall)
               .filter((fc: any) => fc && typeof fc.name === 'string')
               .map((fc: any) => ({ id: fc.id, name: fc.name, args: fc.args }))
+            // Code execution runs at the provider, and its output is resent in
+            // the model turn: whatever the code read is third-party text.
+            for (const part of content.parts) {
+              const output = part?.codeExecutionResult?.output
+              if (typeof output === 'string' && output) results.push({ toolUseId: 'codeExecutionResult', result: output, toolName: 'codeExecution' })
+            }
             continue
           }
           for (const part of content.parts) {

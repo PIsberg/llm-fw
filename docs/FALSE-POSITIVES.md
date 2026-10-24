@@ -70,8 +70,9 @@ results are now scanned newest first. No eval row comes near the budget, so
 no verdict moved; the change only bounds how long one large request can scan.
 A body that is not valid JSON, or repeats a key in one object, is refused
 with stage `malformed-body`; every eval row is well-formed JSON. Anthropic
-server-tool results and `search_result` blocks are now scanned as tool output;
-no eval row carries one.
+server-tool results and `search_result` blocks, OpenAI and Gemini hosted-tool
+output and Cohere documents are now scanned as tool output; no eval row
+carries one.
 
 ## Result, ruleset 2026.10.84
 
