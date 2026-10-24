@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A request body that is not exactly readable JSON is refused instead of forwarded unscanned.**
+  A body `JSON.parse` rejected produced no text to scan and passed, which is only safe if every
+  provider is at least as strict; and a key repeated inside one object (`"content"` twice) was
+  scanned last-wins while a provider may read it first-wins. Both are now refused with stage
+  `malformed-body` on every parsed endpoint, before any detector runs. An empty body still passes.
+
 - **One request can no longer hold the scan for minutes.** The embedding stage capped how much of
   each text it read, but not how many texts one request carried: 16 distinct 40 KB messages in one
   body took 26 s to scan, about 1.6 s each, and 64 took 391 s; with the budget the 64 take 48 s.

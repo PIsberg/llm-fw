@@ -86,10 +86,12 @@ Findings so far:
   rebinding reached the dashboard and a loopback gateway on a default install
   (GHSA-c725-vwcm-h8rr), fixed in 0.9.0: loopback trust now needs a loopback
   `Host`.
-- [ ] Detection bypass: parser differentials against the providers (duplicate
+- [~] Detection bypass: parser differentials against the providers (duplicate
   JSON keys, encodings, alternative content shapes), normalization
   differentials, a per-provider sweep for text-bearing fields that are not
-  scanned.
+  scanned. Status: invalid JSON and repeated keys are refused (stage
+  `malformed-body`); Content-Encoding is decoded (#458). Left: the
+  per-provider field sweep.
 - [x] Config: cosmiconfig searches upward from cwd and evaluates
   `llm-fw.config.js`; can a cloned repository run code or disable detection?
   Hot-reload races. Status: it could (GHSA-4578-7p8f-hc8r), fixed in 0.9.0:

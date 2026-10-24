@@ -4,6 +4,7 @@ import { isObserving } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { EmbeddingChecker } from './embedding.js'
+import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
 import { InjectionClassifier } from './classifier.js'
 import { extractCandidates, maxWindowEntropy } from './normalize.js'
@@ -33,6 +34,18 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
 // record is shared with the item cache, so a history item an agent resends on
 // every call warns in the event log once rather than once per request (#290).
 interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean }
+/** Why a non-empty request body cannot be read exactly as JSON, or null when it can. */
+function malformedBody(body: string): string | null {
+  if (body.trim() === '') return null
+  try {
+    JSON.parse(body)
+  } catch {
+    return 'not valid JSON'
+  }
+  const key = duplicateKey(body)
+  return key === null ? null : `key ${JSON.stringify(key.slice(0, 64))} appears twice in one object`
+}
+
 /** a[0], b[0], a[1], b[1], ..., then whatever is left of the longer list. */
 function interleave<A, B>(a: A[], b: B[]): (A | B)[] {
   const out: (A | B)[] = []
@@ -290,6 +303,18 @@ export class Pipeline {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
     this.syncConfigFingerprint()
+
+    // Every parsed endpoint takes JSON. A body that is not exactly readable
+    // used to yield no scan items and pass, which is safe only if every
+    // provider is at least as strict as JSON.parse; and JSON.parse keeps the
+    // last of a repeated key where a provider may keep the first. Either way
+    // the provider could act on text nothing here scanned, so refuse it.
+    const malformed = malformedBody(body)
+    if (malformed) {
+      const result: PipelineResult = { action: 'block', stage: 'malformed-body', score: 100, similarity: 0 }
+      this.emit(result, meta, `request body refused: ${malformed}`, 'document')
+      return result
+    }
 
     // A warn is the WEAKEST positive verdict. It must never short-circuit the
     // scan: a different candidate (e.g. the base64-DECODED form of the same

@@ -65,6 +65,10 @@ Because of `llm-fw`'s multi-layered detection architecture, the firewall catches
 *   **The Attack**: A novel jailbreak slips past every input stage and the model actually produces operational harmful content.
 *   **Caught By**: the **response-harm scan** — an audit-only check that flags a harmful how-to in the model's *output* (harmful term next to procedural language, excluding refusals), so the operator sees the miss instead of it passing silently. An **opt-in trained classifier** (`responseScan.classifier`, disabled by default) adds a learned signal beside the regex scan: it detects the model *refusing* the request, which — unlike the always-audit regex scan — respects `responseScan.mode`, so it can actually block the response, not just log it.
 
+## Before the stages: the body must parse exactly
+
+Every endpoint llm-fw parses (Anthropic, OpenAI chat, completions and responses, Gemini, Cohere, Bedrock) takes a JSON body. A non-empty body that is not valid JSON, or that repeats a key inside one object, is refused with stage `malformed-body` before any stage runs. Both used to pass: invalid JSON produced nothing to scan, which is safe only if every provider is at least as strict as `JSON.parse`; and `JSON.parse` keeps the last of a repeated key, where a provider's parser may keep the first, so `{"content": "benign", "content": "<attack>"}` could be scanned as one text and acted on as the other. Keys compare after unescaping, so `"content"` and `"content"` count as the same key. An empty body (a `GET` on a parsed path) passes. Under observe mode the refusal is recorded and the request forwarded, as for any other stage.
+
 ## Stage 1: Heuristic Scoring & Evasion Normalization
 
 Stage 1 is an ultra-fast (< 1ms), high-throughput detection engine that uses regex-based heuristics combined with a sophisticated **Multi-Candidate Normalization Pipeline** to flag prompt injection attempts.
