@@ -15,7 +15,7 @@ import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuer
 import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
 import { isAuthPath } from '../detection/urlHeuristic.js';
-import { createLogger, withRequestId } from '../logger.js';
+import { createLogger, withRequestId, urlForLog } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
 import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
 import { stripUsageChunk } from '../modules/sseUsageStrip.js';
@@ -280,7 +280,7 @@ export class GatewayServer {
       const response = captured?.();
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
-      log.error(`${req.method} ${req.url} — ${(err as Error)?.message ?? String(err)}`);
+      log.error(`${req.method} ${urlForLog(req.url)} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
     }
   }
@@ -385,7 +385,7 @@ export class GatewayServer {
         { client, head, upstream, readyEvent: plain ? 'connect' : 'secureConnect', requestHead },
       );
     } catch (err) {
-      log.error(`upgrade ${req.url} — ${(err as Error)?.message ?? String(err)}`);
+      log.error(`upgrade ${urlForLog(req.url)} — ${(err as Error)?.message ?? String(err)}`);
       answer(502, 'Bad Gateway', { error: 'gateway error' });
     }
   }

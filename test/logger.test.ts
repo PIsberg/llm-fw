@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createLogger, withRequestId, currentRequestId } from '../src/logger.js'
+import { createLogger, withRequestId, currentRequestId, urlForLog } from '../src/logger.js'
 
 /**
  * The logger exists because `console.log` gives an operator no level to filter
@@ -117,5 +117,25 @@ describe('structured logger', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     createLogger('embedding').warn('embedding model unavailable — semantic similarity stage disabled')
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('embedding model unavailable'))
+  })
+})
+
+describe('urlForLog', () => {
+  // Error logs printed req.url whole. Google takes its API key as ?key=, Azure
+  // as ?api-key=, OAuth endpoints as ?access_token=, so one failed request put
+  // a provider credential in the log.
+  it('keeps the path and parameter names and drops every value', () => {
+    const line = urlForLog('/v1beta/models/gemini-2.5-pro:generateContent?key=AIzaSECRET&alt=sse')
+    expect(line).toBe('/v1beta/models/gemini-2.5-pro:generateContent?key=…&alt=…')
+    expect(line).not.toContain('AIzaSECRET')
+  })
+
+  it('leaves a path with no query alone', () => {
+    expect(urlForLog('/v1/messages')).toBe('/v1/messages')
+  })
+
+  it('handles a missing url and a bare question mark', () => {
+    expect(urlForLog(undefined)).toBe('/')
+    expect(urlForLog('/v1/messages?')).toBe('/v1/messages')
   })
 })

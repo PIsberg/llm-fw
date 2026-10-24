@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Error logs no longer print query-string values.** Three log lines (a failed gateway request, a
+  failed gateway WebSocket upgrade, an undecodable proxied response) printed the request URL whole,
+  and providers take credentials in the query: Google's `?key=`, Azure's `?api-key=`,
+  `?access_token=`. They now print the path and the parameter names only.
+
 - **A path spelled differently no longer skips the scan.** Parsers matched the request path exactly,
   so a body sent to `/v1//messages`, `/v1/messages/`, `/v1/%6Dessages` or `/v1/x/../messages` (all
   served as the Messages API by a server that normalizes paths) was forwarded with only an
