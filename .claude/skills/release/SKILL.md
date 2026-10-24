@@ -181,6 +181,7 @@ npm view llm-fw dist-tags.latest      # the number users now get
 npm view llm-fw@X.Y.Z dist.tarball
 gh run list --workflow=release.yml --limit 1
 gh release view vX.Y.Z --json assets --jq '.assets[].name'   # the SBOM, llm-fw-vX.Y.Z.cdx.json
+docker buildx imagetools inspect ghcr.io/pisberg/llm-fw:X.Y.Z  # amd64 + arm64, attestations
 ```
 
 If the workflow failed *after* the Release was published, the Release exists but

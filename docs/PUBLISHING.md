@@ -9,6 +9,7 @@ Releases are published to [npmjs.com](https://www.npmjs.com/package/llm-fw) by t
 2. Create a **GitHub Release** with tag `vX.Y.Z` (matching that version — the workflow fails on a mismatch).
 3. The workflow lints, type-checks, builds, runs the test suite, and runs `npm publish --provenance --access public`.
 4. A second job attaches `llm-fw-vX.Y.Z.cdx.json` to the Release: a CycloneDX SBOM of the production dependencies, generated from the lockfile at the tag with `npm sbom --omit dev`. It is a separate job because uploading a release asset needs `contents: write`, which the publish job, able to mint an npm OIDC token, does not hold. If only this job fails, re-run it; the package is already on npm.
+5. `.github/workflows/image.yml` builds the container image for `linux/amd64` and `linux/arm64` and pushes `ghcr.io/pisberg/llm-fw:X.Y.Z` and `:latest`, with a provenance attestation and an SBOM, after checking the tag matches `package.json`. Its `publish` job is the only one with `packages: write`. On pull requests that touch the image inputs the same build runs without pushing. The first push creates the package on GHCR as private: set it to public once in the package settings, or a Helm install cannot pull it.
 
 Only `dist/` and `data/` ship (the `files` whitelist); `npm pack --dry-run` shows the exact tarball. Publishing with provenance means the npm page links back to the exact commit and workflow run that built the release.
 

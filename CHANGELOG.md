@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The container image is published to GHCR on each release.** `ghcr.io/pisberg/llm-fw:<version>`
+  and `:latest`, for `linux/amd64` and `linux/arm64`, with a provenance attestation and an SBOM in
+  the registry; the Helm chart (0.2.4) installs it by default. Pull requests that touch the image
+  build both architectures without pushing, so a change that breaks arm64 fails before a release.
+
 - **Every GitHub Release carries an SBOM.** `llm-fw-vX.Y.Z.cdx.json` is a CycloneDX 1.5 list of the
   production dependencies the version ships (60 components for 0.9.0), generated from the lockfile
   at the tag, so a version can be audited without installing it.

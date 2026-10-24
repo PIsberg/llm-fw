@@ -173,11 +173,14 @@ Findings so far:
 
 ## Phase 3: remote server testing
 
-- [ ] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
-  signed. The Helm chart's `image.repository` points at it. Not started:
-  publishing only happens on a release, so the workflow can be checked end to
-  end only then. Decide how to validate it first, for example a build-only
-  multi-arch job on PRs that touch the Dockerfile, or native arm64 runners.
+- [~] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
+  signed. The Helm chart's `image.repository` points at it. Status: prepared
+  2026-10-24 (`.github/workflows/image.yml`, chart 0.2.4): a build-only
+  amd64+arm64 job on PRs that touch the image inputs (the maintainer's choice),
+  and on a release a push of `ghcr.io/pisberg/llm-fw:<version>` and `:latest`
+  with provenance (`mode=max`) and an SBOM. Waiting on: the first release, then
+  making the GHCR package public. Not done: signing beyond the provenance
+  attestation (cosign).
 - [ ] Verify `proxy.inspectChatgptBackend` against a live Codex CLI session
   signed in with ChatGPT (#459).
 - [ ] Follow `docs/guides/deployment-server.md` literally on a Linux VM; every
