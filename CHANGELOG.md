@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A path spelled differently no longer skips the scan.** Parsers matched the request path exactly,
+  so a body sent to `/v1//messages`, `/v1/messages/`, `/v1/%6Dessages` or `/v1/x/../messages` (all
+  served as the Messages API by a server that normalizes paths) was forwarded with only an
+  "unrecognized endpoint" warning. Parser matching, the auth-path exemption (which skips gateway key
+  custody, so `/v1/oauth/../messages` counted as an auth path) and the Codex route check on
+  `chatgpt.com` now use the path with those spellings undone.
+
 - **Hosted-tool output and grounding documents are scanned on OpenAI, Gemini and Cohere too.**
   The Responses API's `mcp_call` output, `file_search_call` result text and `code_interpreter_call`
   logs, Gemini's `codeExecutionResult` output and Cohere's `documents` parameter all carried

@@ -13,6 +13,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
+import { canonicalPath } from '../detection/canonicalPath.js'
 import { TaintTracker, maskToken } from '../detection/taint.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
@@ -164,7 +165,9 @@ const CHATGPT_HOST = 'chatgpt.com'
 const CODEX_BACKEND_PREFIX = '/backend-api/codex/'
 
 function isCodexBackendPath(path: string): boolean {
-  return (path.split('?')[0] ?? '').startsWith(CODEX_BACKEND_PREFIX)
+  // Canonical: chatgpt.com may serve /backend-api//codex/responses as the
+  // Codex path, and a variant that missed this check went through unscanned.
+  return (canonicalPath(path) + '/').startsWith(CODEX_BACKEND_PREFIX)
 }
 
 /** Whether CONNECTs to `hostname` are TLS-intercepted rather than tunnelled. */

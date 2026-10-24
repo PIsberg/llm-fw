@@ -554,6 +554,39 @@ describe('getParser', () => {
   it('returns null for unknown path', () => {
     expect(getParser('/unknown')).toBeNull()
   })
+
+  // A path the provider normalizes but the parser did not recognise went
+  // upstream unscanned with only an "unrecognized endpoint" warning. Matching
+  // is done on a canonical form instead; scanning a spelling the provider
+  // would have rejected costs nothing.
+  it.each([
+    ['/v1/messages/', 'a trailing slash'],
+    ['//v1/messages', 'a doubled leading slash'],
+    ['/v1//messages', 'a doubled inner slash'],
+    ['/v1/%6Dessages', 'a percent-encoded letter'],
+    ['/v1/./messages', 'a dot segment'],
+    ['/v1/x/../messages', 'a dot-dot segment'],
+    ['/v1/messages;jsessionid=1', 'a path parameter'],
+    ['/V1/Messages', 'other letter case'],
+    ['/v1/messages%2F', 'an encoded trailing slash'],
+    ['/v1/messages?beta=true#frag', 'a query and a fragment'],
+  ])('reads %s (%s) as the Messages API', path => {
+    expect(getParser(path)).toBeInstanceOf(AnthropicParser)
+  })
+
+  it('reads a doubled slash on the OpenAI Responses path', () => {
+    expect(getParser('/v1//responses')).toBeInstanceOf(OpenAIParser)
+  })
+
+  it('does not stretch a near miss into a match', () => {
+    expect(getParser('/v1/messagesx')).toBeNull()
+    expect(getParser('/v1/messages/batches')).toBeNull()
+  })
+
+  it('decodes the other segments when one carries a malformed escape', () => {
+    expect(() => getParser('/v1/messages%')).not.toThrow()
+    expect(getParser('/v1/%zz/../%6Dessages')).toBeInstanceOf(AnthropicParser)
+  })
 })
 
 describe('parsers', () => {

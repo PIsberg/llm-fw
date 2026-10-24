@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
 import { PayloadParser, MediaBlock, ConversationTurn, ToolResultItem } from '../types.js'
 import { mediaBlockFromBase64, parseDataUrl } from './media.js'
+import { canonicalPath } from './canonicalPath.js'
 
 /** Map a mime type onto the coarse MediaBlock kind. */
 function kindFromMime(mime: string | undefined): MediaBlock['kind'] {
@@ -1132,8 +1133,23 @@ export const parsers: PayloadParser[] = [
   new BedrockParser(),
 ]
 
+/**
+ * The parser for a request path, matched on the path as sent and then on its
+ * canonical form (see canonicalPath). Without the second step a body sent to
+ * `/v1//messages` was forwarded with only an "unrecognized endpoint" warning.
+ * Erring towards a match is safe: scanning a request the provider would have
+ * rejected costs nothing.
+ */
 export function getParser(path: string): PayloadParser | null {
-  return parsers.find(p => p.supports(path)) ?? null
+  const canonical = canonicalPath(path)
+  // As sent first, so a parser's own matching is unchanged for every path it
+  // already recognised; then canonical, then canonical in lower case (Gemini's
+  // `:generateContent` suffixes are camelCase, so case is not folded first).
+  for (const candidate of [path, canonical, canonical.toLowerCase()]) {
+    const parser = parsers.find(p => p.supports(candidate))
+    if (parser) return parser
+  }
+  return null
 }
 
 /**

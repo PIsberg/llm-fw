@@ -30,4 +30,11 @@ describe('proxy.inspectChatgptBackend', () => {
     expect(parserForRequest('chatgpt.com', '/backend-api/f/responses', on)).toBeNull()
     expect(parserForRequest('api.openai.com', '/v1/responses', on)).not.toBeNull()
   })
+
+  it('reads the Codex path however it is spelled, so a variant is not passed through unscanned', () => {
+    const on = withSwitch(true)
+    expect(parserForRequest('chatgpt.com', '/backend-api//codex/responses', on)).not.toBeNull()
+    expect(parserForRequest('chatgpt.com', '/backend-api/%63odex/responses', on)).not.toBeNull()
+    expect(parserForRequest('chatgpt.com', '/backend-api/x/../codex/responses', on)).not.toBeNull()
+  })
 })

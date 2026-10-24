@@ -1,5 +1,6 @@
 import { UrlFilterConfig } from '../types.js'
 import { calculateEntropy } from './normalize.js'
+import { canonicalPath } from './canonicalPath.js'
 
 export interface UrlClassifyResult {
   action: 'block' | 'pass';
@@ -81,8 +82,14 @@ const AUTH_EXACT_PATHS = new Set([
  * codes, PKCE verifiers, and state rather than outbound data exfiltration.
  */
 export function isAuthPath(path: string): boolean {
-  const pathname = (path.split('?')[0] ?? '').toLowerCase()
-  if (AUTH_EXACT_PATHS.has(pathname)) return true
+  // Canonical, because an auth path is exempt from key custody and the exfil
+  // check: /v1/oauth/../messages is the Messages API, not a token endpoint.
+  const canonical = canonicalPath(path).toLowerCase()
+  if (AUTH_EXACT_PATHS.has(canonical)) return true
+  // canonicalPath drops a trailing slash; put it back so `/v1/oauth/` still
+  // meets the `/v1/oauth/` prefix, as it did before.
+  const sentWithSlash = (path.split(/[?#]/, 1)[0] ?? '').endsWith('/')
+  const pathname = sentWithSlash && canonical !== '/' ? `${canonical}/` : canonical
   return AUTH_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))
 }
 
