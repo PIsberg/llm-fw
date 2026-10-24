@@ -96,6 +96,7 @@ const HOT_PATHS: Path[] = [
   ['detection', 'chunkTokenLimit'],
   ['detection', 'chunkSize'],
   ['detection', 'chunkOverlap'],
+  ['detection', 'embeddingMaxPassesPerRequest'],
   ['detection', 'judgeEnabled'],
   ['detection', 'judgeModel'],
   ['detection', 'judgeBlock'],

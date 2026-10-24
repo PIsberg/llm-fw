@@ -405,3 +405,61 @@ describe('the embedding stage caps how much of a long text it encodes', () => {
     expect(mockExtractor).toHaveBeenCalledTimes(result.chunkCount)
   })
 })
+
+describe('a shared forward-pass budget bounds what one request encodes', () => {
+  // embeddingMaxChunks bounds one text, not one request: measured, 16 distinct
+  // 40 KB messages in one body took 26 s to scan, about 1.6 s each, so a 10 MiB
+  // body could hold the scan for minutes. The pipeline hands every check in a
+  // request the same budget.
+  let mockExtractor: MockFn
+
+  beforeEach(() => {
+    mockExtractor = makeExtractor(EMBED_X)
+    ;(pipeline as unknown as MockFn).mockResolvedValue(mockExtractor)
+  })
+
+  const longText = (chunks: number) =>
+    Array.from({ length: chunks }, (_, i) => `region ${i} ` + 'the quarterly report covers revenue and headcount '.repeat(6)).join(' ')
+
+  it('stops encoding when the budget runs out, and says so', async () => {
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 8 })
+    await checker.init()
+    mockExtractor.mockClear()
+
+    const budget = { remaining: 3 }
+    const result = await checker.check(longText(60), budget)
+    expect(mockExtractor).toHaveBeenCalledTimes(3)
+    expect(budget.remaining).toBe(0)
+    expect(result.budgetExhausted).toBe(true)
+  })
+
+  it('spends nothing on a chunk it has already encoded', async () => {
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 0 })
+    await checker.init()
+    const base = longText(40)
+    await checker.check(base)
+    mockExtractor.mockClear()
+
+    // Same document with its last word changed: every chunk but the last one
+    // or two comes from the chunk cache and must not be charged.
+    const budget = { remaining: 2 }
+    const result = await checker.check(base.replace(/headcount\s*$/, 'payroll'), budget)
+    expect(budget.remaining).toBe(2 - mockExtractor.mock.calls.length)
+    expect(result.budgetExhausted).toBeUndefined()
+  })
+
+  it('does not remember a result it could not finish', async () => {
+    // A later request with budget to spare must read the whole text, not get
+    // the partial answer back from the result cache.
+    const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embeddingMaxChunks: 8 })
+    await checker.init()
+    const text = longText(60)
+    await checker.check(text, { remaining: 3 })
+    mockExtractor.mockClear()
+
+    const result = await checker.check(text, { remaining: 100 })
+    expect(result.budgetExhausted).toBeUndefined()
+    // The 3 chunks encoded first come from the chunk cache.
+    expect(mockExtractor).toHaveBeenCalledTimes(5)
+  })
+})

@@ -33,6 +33,16 @@ import { extractCandidates, maxWindowEntropy } from './normalize.js'
 // record is shared with the item cache, so a history item an agent resends on
 // every call warns in the event log once rather than once per request (#290).
 interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean }
+/** a[0], b[0], a[1], b[1], ..., then whatever is left of the longer list. */
+function interleave<A, B>(a: A[], b: B[]): (A | B)[] {
+  const out: (A | B)[] = []
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if (i < a.length) out.push(a[i]!)
+    if (i < b.length) out.push(b[i]!)
+  }
+  return out
+}
+
 // Outcome of one scan item that did not block (see Pipeline.itemCache).
 interface ItemOutcome {
   warn: PendingWarn | null
@@ -382,21 +392,28 @@ export class Pipeline {
     const memorySet = new Set(memoryTexts)
 
     const trustedRoots = this.config.detection.surfaces?.tool_result?.trustedPaths ?? []
+    const toolResults = parser.extractToolResults(body)
+      // A memory server's results are already covered as 'memory' when the
+      // harness wraps them; don't scan the same span twice and emit two
+      // events for one payload.
+      .filter(tr => !memorySet.has(tr.result))
+      .map(tr => {
+        const trustedPath = trustedReadPath(tr.toolName, tr.toolInput, trustedRoots)
+        return trustedPath ? { text: tr.result, source: 'tool_result' as const, trustedPath } : { text: tr.result, source: 'tool_result' as const }
+      })
+    // Prompts and tool results newest first, alternating, so that when the
+    // embedding budget below runs out it is old history that goes unread
+    // (the requests that first carried it already scanned it), never the
+    // newest prompt or the newest tool result.
     const scanItems: { text: string; source: ScanSource; trustedPath?: string }[] = [
-      ...userPrompts.map(text => ({ text, source: 'prompt' as const })),
+      ...interleave(
+        [...userPrompts].reverse().map(text => ({ text, source: 'prompt' as const })),
+        toolResults.reverse(),
+      ),
       ...(this.config.detection.scanSystemPrompt
         ? systemTexts.map(text => ({ text, source: 'system' as const }))
         : []),
       ...memoryTexts.map(text => ({ text, source: 'memory' as const })),
-      ...parser.extractToolResults(body)
-        // A memory server's results are already covered as 'memory' when the
-        // harness wraps them; don't scan the same span twice and emit two
-        // events for one payload.
-        .filter(tr => !memorySet.has(tr.result))
-        .map(tr => {
-          const trustedPath = trustedReadPath(tr.toolName, tr.toolInput, trustedRoots)
-          return trustedPath ? { text: tr.result, source: 'tool_result' as const, trustedPath } : { text: tr.result, source: 'tool_result' as const }
-        }),
       ...extractToolDescriptions(parser.extractTools(body)).map(text => ({ text, source: 'tool_definition' as const })),
     ].filter(item => item.text && item.text.length > 0)
 
@@ -471,6 +488,12 @@ export class Pipeline {
     // remembered as clean.
     const itemCacheOn = !judgeEnabled
 
+    // Forward passes this request may spend in the embedding stage, shared by
+    // every check below (see embeddingMaxPassesPerRequest).
+    const maxPasses = this.config.detection.embeddingMaxPassesPerRequest ?? 0
+    const budget = maxPasses > 0 ? { remaining: maxPasses } : undefined
+    let itemsCut = 0
+
     for (const { text: prompt, source, trustedPath } of scanItems) {
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks.
@@ -490,6 +513,8 @@ export class Pipeline {
       const scoreBeforeItem = lastScore
       const simBeforeItem = lastSim
       const suppressionHitsBeforeItem = this.suppressionHits
+      // Set when the budget ran out inside this item: its outcome is partial.
+      let itemCut = false
       pendingWarn = null
       lastScore = 0
       lastSim = 0
@@ -682,7 +707,8 @@ export class Pipeline {
               const text = b.block.trim()
               if (text.length < 12 || seenBlocks.has(text)) continue
               seenBlocks.add(text)
-              const e = await this.embedding.check(text)
+              const e = await this.embedding.check(text, budget)
+              if (e.budgetExhausted) itemCut = true
               const margin = referencesModelInstructions(text) ? e.similarity : e.similarity - (e.benignSimilarity ?? 0)
               if (e.similarity >= embeddingBlockThreshold && margin >= embeddingMarginThreshold) {
                 const result: PipelineResult = {
@@ -863,7 +889,8 @@ export class Pipeline {
         // cross-lingual injections (margin ≥ +0.05) the embedding stage exists for.
         let eMargin = 0
         if (this.embedding.isInitialized() && source !== 'tool_definition' && !skipsEmbedding(candidate.source) && !(trustedPath && !judgeEnabled)) {
-          const e = await this.embedding.check(candidate.text)
+          const e = await this.embedding.check(candidate.text, budget)
+          if (e.budgetExhausted) itemCut = true
           eSim = e.similarity
           // Suppress the contrastive subtraction when the text is talking
           // about the MODEL's own instructions. The benign anchors exist to
@@ -964,8 +991,10 @@ export class Pipeline {
         // evaluating other candidates, eventually passing.
       }
 
-      // This item did not block. Remember its outcome, then merge it back.
-      if (itemKey && this.suppressionHits === suppressionHitsBeforeItem) {
+      // This item did not block. Remember its outcome, then merge it back. Not
+      // when the budget cut it short: a later request must read it in full.
+      if (itemCut) itemsCut++
+      if (itemKey && !itemCut && this.suppressionHits === suppressionHitsBeforeItem) {
         this.itemCache.set(itemKey, { warn: pendingWarn, score: lastScore, sim: lastSim })
         if (this.itemCache.size > ITEM_CACHE_MAX) {
           const oldest = this.itemCache.keys().next().value
@@ -985,6 +1014,16 @@ export class Pipeline {
       if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
       pendingWarn.reported = true
       return pendingWarn.result
+    }
+
+    // Nothing matched, but the budget ran out before every text was embedded.
+    // Not refused: the heuristic stage read every byte, and refusing would turn
+    // a long session resumed after a restart into an outage. Reported, so the
+    // operator can see that part of this request was read by the heuristics only.
+    if (itemsCut > 0) {
+      const result: PipelineResult = { action: 'warn', stage: 'scan-budget', score: lastScore, similarity: lastSim }
+      this.emit(result, meta, `embedding budget of ${maxPasses} forward passes spent: ${itemsCut} of ${scanItems.length} texts read by the heuristic stage only`, 'document')
+      return result
     }
 
     return this.pass(lastScore, lastSim)

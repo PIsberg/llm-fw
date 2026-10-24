@@ -101,9 +101,11 @@ Findings so far:
 - [ ] Licence: offline licence forgery, Paddle fulfilment trust.
 - [~] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
   WebSocket relay. Status: quadratic regexes and a quadratic tokenizer
-  (GHSA-gm3q-2gwx-gppq) fixed in 0.9.0. Left: embedding forward passes on
-  dense user text still cost 4-8 s per request, bounded at 24 chunks per
-  candidate; tracked as a follow-up issue.
+  (GHSA-gm3q-2gwx-gppq) fixed in 0.9.0. Embedding forward passes now have a
+  per-request budget (`detection.embeddingMaxPassesPerRequest`, 128): 64 dense
+  40 KB messages scan in 48 s instead of 391 s. Left: the heuristic stage reads
+  every byte at about 0.25 s per 40 KB message, linear in the body up to
+  `proxy.maxBodyBytes` (10 MiB); and the WebSocket relay.
 - [ ] Fail-open versus fail-closed, written down per path.
 - [ ] Fuzzers for the provider parsers and the normalizer, in the suite.
 - [ ] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to

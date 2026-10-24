@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **One request can no longer hold the scan for minutes.** The embedding stage capped how much of
+  each text it read, but not how many texts one request carried: 16 distinct 40 KB messages in one
+  body took 26 s to scan, about 1.6 s each, and 64 took 391 s; with the budget the 64 take 48 s.
+  `detection.embeddingMaxPassesPerRequest` (default 128, `LLM_FW_EMBEDDING_MAX_PASSES`, 0 disables)
+  now bounds the forward passes per request. Prompts and tool results are read newest first, so a
+  spent budget skips old history that earlier requests already scanned; the request then warns with
+  stage `scan-budget` instead of being refused, and the heuristic stage still reads every byte. Ruleset
+  2026.10.85; measured, 0 of 23,938 eval verdicts changed and the false-positive rate is unchanged
+  (2.68%, 9 of 336; Dolly and oasst1 0 of 2,000 each).
+
 ## [0.9.0] - 2026-10-24
 
 ### Security
