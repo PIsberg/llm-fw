@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-24
+
 ### Security
 
 - **Detection no longer has quadratic worst cases (GHSA-gm3q-2gwx-gppq).** Several detector
@@ -2864,7 +2866,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/PIsberg/llm-fw/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/PIsberg/llm-fw/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/PIsberg/llm-fw/compare/v0.5.0...v0.6.0
