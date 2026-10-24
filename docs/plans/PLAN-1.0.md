@@ -125,7 +125,18 @@ Findings so far:
   deleted a `.llm-fw.json` in the working directory. Accepted: the systemd
   `ExecStart` quotes each argument but does not escape `%` or `$`, which only
   matters for an install path containing them.
-- [ ] Licence: offline licence forgery, Paddle fulfilment trust.
+- [x] Licence: offline licence forgery, Paddle fulfilment trust. Status:
+  reviewed 2026-10-24. Keys and licence files are Ed25519-verified offline
+  against compiled-in keys. The licence gates nothing functional: it feeds
+  `doctor`, the status line and the unlicensed banner only. Accepted:
+  `LLM_FW_KEYGEN_PUBLIC_KEY` and `LLM_FW_OFFLINE_LICENSE_KEY` override the
+  verify keys (documented in `docs/LICENSING.md` for staging), so a user can
+  make their own install report itself licensed, which in an open-source
+  package is no more than editing the code. Paddle: `Paddle-Signature` is an
+  HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Accepted:
+  `scripts/fulfill-paddle-webhook.ts` is run by hand and does not look up an
+  existing licence for the transaction, so running it twice issues a second
+  key for the same purchase.
 - [~] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
   WebSocket relay. Status: quadratic regexes and a quadratic tokenizer
   (GHSA-gm3q-2gwx-gppq) fixed in 0.9.0. Embedding forward passes now have a
