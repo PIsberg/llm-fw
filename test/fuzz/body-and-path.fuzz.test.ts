@@ -54,12 +54,23 @@ describe('canonicalPath', () => {
         expect(c.startsWith('/')).toBe(true)
         expect(c.includes('//')).toBe(false)
         expect(c.split('/').slice(1).some(s => s === '.' || s === '..')).toBe(false)
-        // Idempotent unless decoding exposed a new escape (%2536 -> %36 -> 6),
-        // which a second decode would undo; the matcher only ever needs one.
-        if (!/%[0-9a-fA-F]{2}/.test(c)) expect(canonicalPath(c)).toBe(c)
+        // Idempotent unless decoding exposed something a second pass reads
+        // differently: a new escape (%2536 -> %36 -> 6), or an encoded ? or #
+        // (%3F -> ?), which the first pass keeps as path text and a second
+        // pass would take for a query or fragment. The matcher only ever
+        // runs one pass. Found by CI on seed 869839893 with input "%3F".
+        if (!/%[0-9a-fA-F]{2}|[?#]/.test(c)) expect(canonicalPath(c)).toBe(c)
       }),
       { numRuns: NUM_RUNS },
     )
+  })
+
+  it('keeps an encoded ? or # as path text, which can only widen a parser match', () => {
+    expect(canonicalPath('%3F')).toBe('/?')
+    expect(canonicalPath('/v1/messages%3Fx')).toBe('/v1/messages?x')
+    // The parsers split on "?" themselves, so this is read as the Messages
+    // API: scanned rather than passed, the safe side of the ambiguity.
+    expect(getParser('/v1/messages%3Fx')).toBeInstanceOf(AnthropicParser)
   })
 
   it('reads any spelling that resolves to /v1/messages as the Messages API', () => {
