@@ -26,8 +26,14 @@ action (a merge, a publish, a setting, a purchase).
   AI-guidelines file, a Go source file, a QUICK_REFERENCE, an `rg` hit) stay
   in #391; plain reads of them are covered by opt-in `trustedPaths`. Not a
   1.0 blocker.
-- [ ] **#452 and #432** (Semgrep lock pins, lock freshness workflow). Close, or
-  record as accepted risk in `SECURITY.md`.
+- [~] **#452 and #432** (Semgrep lock pins, lock freshness workflow).
+  Status: both pins (`opentelemetry-api` 1.37.0, `mcp` 1.29.0) recorded as
+  accepted CI-only risk in `SECURITY.md`; neither ships in the package or the
+  image, and Semgrep itself pins them. #452 stays open until a Semgrep release
+  relaxes the otel pin. Waiting on: the repository setting "Allow GitHub
+  Actions to create and approve pull requests" (#432), currently off
+  (`can_approve_pull_request_reviews: false`, checked 2026-10-24), or a
+  GitHub App token in the workflow.
 
 ## Phase 1: define what 1.0 promises
 

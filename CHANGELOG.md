@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **`SECURITY.md` lists the two advisories in the Semgrep CI lock** (`opentelemetry-api` 1.37.0,
+  `mcp` 1.29.0), why each is accepted, and that neither ships in the npm package or the image.
+  Semgrep pins both versions itself, so they move only with a Semgrep release (#452, #433).
+
 - **Road to 1.0.0.** [docs/plans/PLAN-1.0.md](docs/plans/PLAN-1.0.md) lists what
   has to be true before 1.0.0 ships: the open security advisory, a stability
   contract for config keys, CLI flags and the library API, a surface-by-surface
