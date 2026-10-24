@@ -116,7 +116,10 @@ first, so the boundary is the set of fields llm-fw extracts:
   `test/detection/parsers-third-party-text.test.ts`).
 - **The cost of a scan is bounded** per text and per request
   (`detection.embeddingMaxChunks`, `detection.embeddingMaxPassesPerRequest`),
-  and every regex runs in linear time (`.claude/rules/detection.md`).
+  every regex runs in linear time (`.claude/rules/detection.md`), and a scan
+  hands the event loop back between steps so one large request does not
+  hold the others for all of it (one heuristic pass over one whole text
+  still cannot pause: #464).
 
 Surfaces carry different trust. The system prompt and tool definitions are
 developer-authored: the system prompt is not scanned unless

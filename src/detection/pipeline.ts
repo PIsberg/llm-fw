@@ -7,7 +7,10 @@ import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
 import { InjectionClassifier } from './classifier.js'
-import { extractCandidates, maxWindowEntropy } from './normalize.js'
+import { extractCandidatesYielding, maxWindowEntropy, yieldToEventLoop } from './normalize.js'
+
+/** Longest stretch a scan runs synchronously before handing the event loop back. */
+const YIELD_EVERY_MS = 50
 
 /**
  * Candidate sources the EMBEDDING stage skips.
@@ -519,7 +522,19 @@ export class Pipeline {
     const budget = maxPasses > 0 ? { remaining: maxPasses } : undefined
     let itemsCut = 0
 
+    // Hand the event loop back whenever this scan has run 50 ms without a
+    // pause, at item and candidate boundaries (#464). Embedding checks await
+    // on their own; this covers the stretches that never await, such as the
+    // items after the embedding budget is spent. Verdicts do not depend on it.
+    let lastYield = performance.now()
+    const yieldIfDue = async (): Promise<void> => {
+      if (performance.now() - lastYield < YIELD_EVERY_MS) return
+      await yieldToEventLoop()
+      lastYield = performance.now()
+    }
+
     for (const { text: prompt, source, trustedPath } of scanItems) {
+      await yieldIfDue()
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks.
       const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(prompt).digest('hex') : ''
@@ -870,10 +885,14 @@ export class Pipeline {
         }
       }
 
-      const candidates = extractCandidates(prompt)
+      // Yields between steps on a large text, so one request does not hold the
+      // event loop for its whole scan (#464); the candidates are the same.
+      const candidates = await extractCandidatesYielding(prompt)
       let plainMatches: string[] | undefined
       for (const candidate of candidates) {
-        // Stage 1: heuristic
+        // Stage 1: heuristic. A whole-text candidate of a large text is the
+        // other long synchronous block, so the loop may get a turn first.
+        await yieldIfDue()
         const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
         if (candidate.source === 'original') plainMatches = h.matches
         lastScore = Math.max(lastScore, h.score)

@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A large request no longer holds every other request for its whole scan (#464).** The
+  synchronous stages (candidate extraction, one heuristic pass per candidate, and every item after
+  the embedding budget is spent) ran without a pause, so other clients waited for all of it. The
+  scan now hands the event loop back between steps on a text of 64 KB or more, and whenever it has
+  run 50 ms without a pause. Nothing it computes changes. Longest stall: 64 messages of 40 KB,
+  3.9 s to 0.15 s; one 2.5 MB text, 10.6 s to 1.7 s (with the Caesar change above), the rest
+  being one heuristic pass over the whole text.
+
 - **A large text holds the event loop for less than half as long (#464).** The Caesar decoder
   built 25 shifted copies of every text, with a callback per character, only to test 7 keywords.
   It now tests the keywords shifted back against the text and builds only the shifts that match,

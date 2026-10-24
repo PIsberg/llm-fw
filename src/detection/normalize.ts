@@ -480,11 +480,19 @@ export function normalizeSemantic(text: string): string {
 const NON_ASCII_LETTER_RE = /[^\x00-\x7F\P{L}]/u
 const wordsOf = (s: string): string => s.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
-export function extractCandidates(text: string): { text: string; source: string }[] {
+/**
+ * The candidate list, built one step at a time: each `yield` follows a step
+ * that reads the whole text. extractCandidates runs it straight through;
+ * extractCandidatesYielding hands the event loop back at each yield, so one
+ * large text no longer holds every other request for the whole of it (#464).
+ * Both return the same list.
+ */
+function* candidateSteps(text: string): Generator<void, { text: string; source: string }[], undefined> {
   const candidates: { text: string; source: string }[] = []
 
   const originalNormalized = normalize(text)
   candidates.push({ text: originalNormalized, source: 'original' })
+  yield
 
   // Diacritic/script-preserving form for the multilingual embedding stage. The
   // 'original' candidate above strips diacritics for the regex heuristics,
@@ -502,6 +510,7 @@ export function extractCandidates(text: string): { text: string; source: string 
   if (semantic !== originalNormalized && (NON_ASCII_LETTER_RE.test(semantic) || wordsOf(semantic) !== wordsOf(originalNormalized))) {
     candidates.push({ text: semantic, source: 'semantic' })
   }
+  yield
 
   // Decoded across the whole text, as before, once any word carries
   // leetspeak: '4ll' and '4nd' only decode because pr3v10us beside them did.
@@ -510,6 +519,7 @@ export function extractCandidates(text: string): { text: string; source: string 
     if (decodedLeet !== originalNormalized) {
       candidates.push({ text: decodedLeet, source: 'leetspeak' })
     }
+    yield
   }
 
   const decoders = [
@@ -539,6 +549,7 @@ export function extractCandidates(text: string): { text: string; source: string 
         }
       }
     } catch {}
+    yield
   }
 
   try {
@@ -548,6 +559,7 @@ export function extractCandidates(text: string): { text: string; source: string 
       candidates.push({ text: normRot, source: 'rot13' })
     }
   } catch {}
+  yield
 
   if (looksLikePigLatin(text)) try {
     const plList = decodePigLatin(text)
@@ -569,6 +581,37 @@ export function extractCandidates(text: string): { text: string; source: string 
   }
 
   return uniqueCandidates;
+}
+
+export function extractCandidates(text: string): { text: string; source: string }[] {
+  const steps = candidateSteps(text)
+  let step = steps.next()
+  while (!step.done) step = steps.next()
+  return step.value
+}
+
+/** Texts at least this long hand the event loop back between scan steps. */
+export const YIELD_ABOVE_CHARS = 64 * 1024
+
+/** Resolves on the next turn of the event loop, after pending I/O callbacks. */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
+}
+
+/**
+ * extractCandidates, handing the event loop back after each step that reads
+ * the whole text when the text is at least YIELD_ABOVE_CHARS long (#464).
+ * Same list as extractCandidates; shorter texts run straight through.
+ */
+export async function extractCandidatesYielding(text: string): Promise<{ text: string; source: string }[]> {
+  if (text.length < YIELD_ABOVE_CHARS) return extractCandidates(text)
+  const steps = candidateSteps(text)
+  let step = steps.next()
+  while (!step.done) {
+    await yieldToEventLoop()
+    step = steps.next()
+  }
+  return step.value
 }
 
 export function calculateEntropy(text: string): number {

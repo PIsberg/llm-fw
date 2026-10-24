@@ -48,7 +48,7 @@ export const RULESET_VERSION = '2026.10.85';
  * sha256 over RULESET_FILES (path + content, sorted, newlines normalised).
  * Regenerate with `npm run ruleset:digest`.
  */
-export const RULESET_DIGEST = 'bd1178209acacbad60bd2608982d5986326e4e8a7df7b0d8a55d72414a0ba7d0';
+export const RULESET_DIGEST = '40a4571a61076e6f05147ed2a624d0efcc25d2b7423bb97987db8ad41e8324bf';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Repository root, from either src/detection or dist/detection. */

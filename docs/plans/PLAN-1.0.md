@@ -143,10 +143,14 @@ Findings so far:
   WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
   embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
   to 48 s); a fragmented WebSocket message is now held to
-  `proxy.maxBodyBytes` (it grew without limit). Accepted: the heuristic
-  stage reads every byte at about 0.25 s per 40 KB message, linear up to
-  the 10 MiB body limit, on the request thread; an attacker needs a token
-  on any non-loopback bind, and `dos` rate limits apply (#464).
+  `proxy.maxBodyBytes` (it grew without limit). The scan now hands the
+  event loop back between steps and every 50 ms, and the Caesar decoder no
+  longer builds 25 copies: the longest stall for one 2.5 MB text fell from
+  10.6 s to 1.7 s, for 64 messages of 40 KB from 3.9 s to 0.15 s. Left
+  (#464): one heuristic pass over one whole text cannot pause, about 0.4 s
+  per MB, so a 10 MiB text still stalls other requests for several seconds;
+  an attacker needs a token on any non-loopback bind, and `dos` rate limits
+  apply.
 - [x] Fail-open versus fail-closed, written down per path.
   Status: a table of 18 paths under "Failure Semantics" in
   `docs/guides/configuration.md`, each read from the code it names.
