@@ -116,8 +116,15 @@ Findings so far:
   `ca.key` now 0600 in its own right. `LLM_FW_DIR` is read from the process
   environment only. The CRL and `ca.crt` are public by design. Accepted: with
   no `USERNAME` in the environment the ACL is left as inherited.
-- [ ] CLI and service: systemd unit, Task Scheduler entry, `setup` editing the
-  environment, uninstall leftovers.
+- [x] CLI and service: systemd unit, Task Scheduler entry, `setup` editing the
+  environment, uninstall leftovers. Status: reviewed 2026-10-24. The Task
+  Scheduler XML is written under the per-user %TEMP% and removed after
+  `schtasks /Create`; the systemd unit and launchd plist live in the user's
+  home; `setup` writes HKCU via `setx` or appends a marked block to the shell
+  profile, which uninstall strips by marker. Fixed: uninstall edited or
+  deleted a `.llm-fw.json` in the working directory. Accepted: the systemd
+  `ExecStart` quotes each argument but does not escape `%` or `$`, which only
+  matters for an install path containing them.
 - [ ] Licence: offline licence forgery, Paddle fulfilment trust.
 - [~] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
   WebSocket relay. Status: quadratic regexes and a quadratic tokenizer
