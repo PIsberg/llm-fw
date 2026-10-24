@@ -127,7 +127,11 @@ Findings so far:
   every byte at about 0.25 s per 40 KB message, linear in the body up to
   `proxy.maxBodyBytes` (10 MiB); and the WebSocket relay.
 - [ ] Fail-open versus fail-closed, written down per path.
-- [ ] Fuzzers for the provider parsers and the normalizer, in the suite.
+- [x] Fuzzers for the provider parsers and the normalizer, in the suite.
+  Status: `test/fuzz/parsers.fuzz.test.ts` already held never-throws
+  properties for every parser method and normalizer; `body-and-path.fuzz.test.ts`
+  adds agreement properties for the repeated-key check and the canonical path
+  (300 runs each). Mutating either implementation fails 3 of its 4 properties.
 - [ ] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to
   releases.
 - [ ] External pentest: decide yes or no.
