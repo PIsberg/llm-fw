@@ -48,6 +48,13 @@ Rules that must not regress:
   over 200 seconds as a network error. Pinned by
   `test/proxy/proxy-early-block.e2e.test.ts` and
   `test/proxy/proxy-body-limit.e2e.test.ts`.
+- A compressed LLM request body (`Content-Encoding` gzip, br, deflate, zstd)
+  is decoded before DLP, modules and detection, and forwarded decoded without
+  the header (`src/proxy/contentEncoding.ts`, proxy and gateway). An encoding
+  that cannot be decoded answers 415, a corrupt one 400, one that expands past
+  `maxBodyBytes` 413: never forward a body nothing could read. Pinned by
+  `test/proxy/proxy-request-encoding.e2e.test.ts` and
+  `test/gateway/gateway-request-encoding.e2e.test.ts`.
 - Detection runs once, on the complete buffered body. Do not bring back a
   per-chunk "partial" scan: it cannot tell a user prompt from the system
   prompt or a tool result, so it refused requests the full scan passes

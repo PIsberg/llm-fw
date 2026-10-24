@@ -72,6 +72,23 @@ an unpatched advisory ( pinned by `test/proxy/forge-advisory.test.ts`). See
 `NOTICE.md` for transitive advisories in `@huggingface/transformers`'s image
 subtree (`sharp`), which llm-fw never imports or executes.
 
+### CI tooling: the Semgrep lock
+
+`.github/semgrep/requirements.txt` pins the Python environment the Semgrep CI
+job installs. It is not part of the npm package or the container image. Two
+advisories sit in it because Semgrep itself pins the vulnerable versions, so
+neither can move until a Semgrep release relaxes its pins:
+
+| Package | Advisory | Why it is accepted |
+| --- | --- | --- |
+| `opentelemetry-api` 1.37.0 | GHSA-xcq7-p3pf-p88h (slow `tracestate` parsing) | Semgrep pins `~=1.37.0`. The CLI's only `propagate.extract` call builds its carrier from environment variables, with no `tracestate`. Tracked in #452 |
+| `mcp` 1.29.0 | Dependabot alert #61 | Semgrep pins `mcp==1.29.0`. CI runs `semgrep scan` only and never starts Semgrep's MCP server (#433) |
+
+The weekly `semgrep-lock-freshness.yml` regenerates the lock and opens a pull
+request when Semgrep releases. Until the repository allows Actions to open
+pull requests (#432), its runs fail at that step and the refresh has to be
+done by hand.
+
 ## Security-relevant defaults
 
 Worth knowing before reporting, and worth checking in your own deployment:

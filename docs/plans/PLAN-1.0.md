@@ -26,24 +26,50 @@ action (a merge, a publish, a setting, a purchase).
   AI-guidelines file, a Go source file, a QUICK_REFERENCE, an `rg` hit) stay
   in #391; plain reads of them are covered by opt-in `trustedPaths`. Not a
   1.0 blocker.
-- [ ] **#452 and #432** (Semgrep lock pins, lock freshness workflow). Close, or
-  record as accepted risk in `SECURITY.md`.
+- [~] **#452 and #432** (Semgrep lock pins, lock freshness workflow).
+  Status: both pins (`opentelemetry-api` 1.37.0, `mcp` 1.29.0) recorded as
+  accepted CI-only risk in `SECURITY.md`; neither ships in the package or the
+  image, and Semgrep itself pins them. #452 stays open until a Semgrep release
+  relaxes the otel pin. Waiting on: the repository setting "Allow GitHub
+  Actions to create and approve pull requests" (#432), currently off
+  (`can_approve_pull_request_reviews: false`, checked 2026-10-24), or a
+  GitHub App token in the workflow.
 
 ## Phase 1: define what 1.0 promises
 
-- [ ] `docs/STABILITY.md`: what semver covers. Proposed: CLI subcommands and
-  flags, config keys and `LLM_FW_*` variables, the library exports in
-  `src/index.ts`, dashboard HTTP API routes, the audit log and SIEM record
-  format, Prometheus metric names, the `LLM_FW_DIR` layout.
-- [ ] State that detection verdicts are governed by `RULESET_VERSION`, not by
-  semver.
-- [ ] Naming sweep before the freeze: config keys, env vars, metric names,
-  deprecated aliases. Every rename after 1.0 is a breaking change.
-- [ ] Schema version on the audit log record and on `config.json`.
-- [ ] Mark experimental, outside the promise: token-saving modules, the judge.
-- [ ] 0.8 to 1.0 upgrade notes.
+- [x] `docs/STABILITY.md`: what semver covers. Status: written. Decided
+  2026-10-24: dashboard operations routes only (`/metrics`, `/ca.*`, `/crl`,
+  `GET /api/status`), the rest of `/api/*` serves the UI.
+- [x] State that detection verdicts are governed by `RULESET_VERSION`, not by
+  semver. Status: in `docs/STABILITY.md`.
+- [x] Naming sweep before the freeze. Status: decided 2026-10-24. Env var names
+  that differ from their config key are frozen as-is and listed in
+  `docs/STABILITY.md`; `llmfw_scan_duration_ms` renamed to
+  `llmfw_scan_duration_seconds`; no deprecated aliases found in `src/`.
+- [x] Schema version on the audit log record. Status: `"schema": 1` on every
+  record and webhook batch, tested. `config.json` stays unversioned: it is a
+  partial overlay merged onto defaults, so a missing key already means "the
+  default".
+- [x] Mark experimental, outside the promise: token-saving modules, the judge.
+  Status: in `docs/STABILITY.md`.
+- [ ] 0.8 to 1.0 upgrade notes. The breaking changes so far are listed under
+  "Changed before the freeze" in `docs/STABILITY.md`; the upgrade guide is
+  written at release time.
 
 ## Phase 2: security review
+
+Findings so far:
+
+- Fixed: the audit webhook posted `payload_full` and `payload_preview` with
+  `includePayloads` off; the file sink did not. Found while adding the audit
+  schema version. Both sinks now build one record.
+- Fixed: compressed request bodies were scanned as raw bytes, so a gzip or
+  zstd body passed unread. Now decoded first, and refused when undecodable.
+- Fixed, opt-in: Codex CLI signed in with ChatGPT talks to
+  `chatgpt.com/backend-api/codex`, which llm-fw did not intercept.
+  `proxy.inspectChatgptBackend` (off by default, decided 2026-10-24) intercepts
+  it and passes the rest of chatgpt.com through. Not yet verified against a live
+  Codex session.
 
 - [ ] `docs/THREAT-MODEL.md`: assets (CA key, provider keys, prompts, audit
   log, licence), attackers (remote network client, local process, malicious web
