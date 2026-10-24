@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The CA key's permissions no longer depend on account naming.** On Windows the data directory's
+  ACL named the account as a bare `USERNAME`, which icacls resolves against local accounts before
+  the domain: a domain user with a same-named local account on the machine handed that account the
+  CA key. It is now `USERDOMAIN\USERNAME`. On Linux and macOS `ca.key` was written at the umask
+  default (usually 0644) and private only through its 0700 directory; it is now written 0600.
+
 - **Error logs no longer print query-string values.** Three log lines (a failed gateway request, a
   failed gateway WebSocket upgrade, an undecodable proxied response) printed the request URL whole,
   and providers take credentials in the query: Google's `?key=`, Azure's `?api-key=`,

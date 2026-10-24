@@ -109,7 +109,13 @@ Findings so far:
   Hot-reload races. Status: it could (GHSA-4578-7p8f-hc8r), fixed in 0.9.0:
   config is read only from `LLM_FW_DIR`, `LLM_FW_*` variables and a JSON file
   named by `LLM_FW_CONFIG`; cosmiconfig is gone.
-- [ ] CA and files: key permissions on Windows and Linux, `LLM_FW_DIR`, CRL.
+- [x] CA and files: key permissions on Windows and Linux, `LLM_FW_DIR`, CRL.
+  Status: reviewed 2026-10-24. Windows: icacls drops inheritance and grants
+  the user and SYSTEM only (verified on a fresh directory: `ca.key` lists
+  exactly those two); the user is now domain-qualified. POSIX: directory 0700,
+  `ca.key` now 0600 in its own right. `LLM_FW_DIR` is read from the process
+  environment only. The CRL and `ca.crt` are public by design. Accepted: with
+  no `USERNAME` in the environment the ACL is left as inherited.
 - [ ] CLI and service: systemd unit, Task Scheduler entry, `setup` editing the
   environment, uninstall leftovers.
 - [ ] Licence: offline licence forgery, Paddle fulfilment trust.
