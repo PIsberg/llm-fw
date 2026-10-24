@@ -128,7 +128,7 @@ Findings so far:
   profile, which uninstall strips by marker. Fixed: uninstall edited or
   deleted a `.llm-fw.json` in the working directory. Accepted: the systemd
   `ExecStart` quotes each argument but does not escape `%` or `$`, which only
-  matters for an install path containing them.
+  matters for an install path containing them (#465).
 - [x] Licence: offline licence forgery, Paddle fulfilment trust. Status:
   reviewed 2026-10-24. Keys and licence files are Ed25519-verified offline
   against compiled-in keys. The licence gates nothing functional: it feeds
@@ -140,7 +140,7 @@ Findings so far:
   HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Accepted:
   `scripts/fulfill-paddle-webhook.ts` is run by hand and does not look up an
   existing licence for the transaction, so running it twice issues a second
-  key for the same purchase.
+  key for the same purchase (#466).
 - [x] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
   WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
   embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
@@ -148,7 +148,7 @@ Findings so far:
   `proxy.maxBodyBytes` (it grew without limit). Accepted: the heuristic
   stage reads every byte at about 0.25 s per 40 KB message, linear up to
   the 10 MiB body limit, on the request thread; an attacker needs a token
-  on any non-loopback bind, and `dos` rate limits apply.
+  on any non-loopback bind, and `dos` rate limits apply (#464).
 - [x] Fail-open versus fail-closed, written down per path.
   Status: a table of 18 paths under "Failure Semantics" in
   `docs/guides/configuration.md`, each read from the code it names.
@@ -169,7 +169,12 @@ Findings so far:
 ## Phase 3: remote server testing
 
 - [ ] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
-  signed. The Helm chart's `image.repository` points at it.
+  signed. The Helm chart's `image.repository` points at it. Not started:
+  publishing only happens on a release, so the workflow can be checked end to
+  end only then. Decide how to validate it first, for example a build-only
+  multi-arch job on PRs that touch the Dockerfile, or native arm64 runners.
+- [ ] Verify `proxy.inspectChatgptBackend` against a live Codex CLI session
+  signed in with ChatGPT (#459).
 - [ ] Follow `docs/guides/deployment-server.md` literally on a Linux VM; every
   failing step is a doc bug.
 - [ ] Install paths: npm global plus systemd, Docker, Helm on k3s.
@@ -191,11 +196,18 @@ Findings so far:
 - [ ] Install matrix: Windows, macOS, Linux on Node 22, 24, 26; setup, uninstall,
   setup again leaves the machine clean.
 - [ ] Commercial licence purchase tested end to end.
-- [ ] Docs claim audit of the README and guides against the code.
+- [~] Docs claim audit of the README and guides against the code. Status:
+  started 2026-10-24 on the hardening branch: the README quoted a stale
+  13.38% false-positive rate (now 2.68%) and the client-setup uninstall steps
+  described removed behaviour; both fixed. Left: the rest of the guides.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release
 
+- [ ] At the first release after the hardening branch: confirm the new `sbom`
+  job attached `llm-fw-vX.Y.Z.cdx.json` to the GitHub Release (it cannot run
+  before one), and that dev-only fast-uri has moved to 3.1.9 or later (its
+  fix clears the 7-day cooldown on 2026-10-26).
 - [ ] `1.0.0-rc.1` on the `next` dist-tag, about two weeks of daily use, fixes
   as `rc.N`.
 - [ ] 1.0.0 cut with the `release` skill; tag and publish are the maintainer's.
