@@ -161,7 +161,10 @@ a prompt and `function_call_output` as a tool result. `session.update` and
 and pass, like a system prompt. Every text event except audio chunks goes
 through DLP as a request body would (`redact` rewrites the event). A binary
 message, or text that is not a JSON event, ends the session: it cannot be
-inspected. With server-side voice
+inspected. So does a message larger than `proxy.maxBodyBytes`, counted across
+all of its fragments, with close code 1009 and a `dos` event: before that cap
+a client could send continuation frames without ever finishing the message
+and grow one buffer until the process ran out of memory. With server-side voice
 activity detection the client never commits, so every 15 s of buffered audio is
 also scanned while it streams; a block there ends the session, but that audio
 has already reached the provider. A block sends the client an `error` event

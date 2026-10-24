@@ -204,8 +204,16 @@ Findings so far:
   described removed behaviour; both fixed. Checked mechanically across the
   README and every guide, all clean: each documented llm-fw flag exists in
   `src/cli`, each `LLM_FW_*` variable is read by the code, and each dotted
-  config key names a field in `src/types.ts`. Left: reading the guides'
-  prose claims (behaviour, numbers outside generated blocks) against the code.
+  config key names a field in `src/types.ts`. Prose read against the code
+  on 2026-10-24, all matching: `deployment-server.md` (generated token
+  length, the auth header and rejection status per surface, unauthenticated
+  `/ca.crt`, `/ca.pem`, `/crl`, health endpoints only on the gateway,
+  `/metrics` behind dashboard auth, the image `HEALTHCHECK`) and
+  `gateway-mode.md` (routing table, key custody of headers and query
+  parameters, tenant tokens beside the deployment token, quota 429 with
+  `Retry-After`, the Helm `replicaCount` note); metric names match in both
+  directions. One gap fixed: the Realtime section did not mention the new
+  message size cap. Left: the remaining guides.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release
