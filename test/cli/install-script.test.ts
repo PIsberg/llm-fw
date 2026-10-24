@@ -66,7 +66,9 @@ describe('scripts/install.ps1', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     },
-    20_000,
+    // Each pwsh case takes about 1 s idle, but a contended full-suite run on
+    // Windows has spent more than 20 s on pwsh start-up alone (#449).
+    60_000,
   );
 
   it.runIf(Boolean(pwsh) && os.platform() === 'win32')(
@@ -92,7 +94,8 @@ describe('scripts/install.ps1', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     },
-    20_000,
+    // Same pwsh start-up cost as the case above (#449).
+    60_000,
   );
 });
 
