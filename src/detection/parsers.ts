@@ -41,6 +41,22 @@ function toolResultText(content: unknown): string {
   }).join('\n')
 }
 
+// Keys whose string values are text a model reads, in Anthropic's server-tool
+// and search-result blocks. Everything else (ids, urls, media types, and
+// encrypted_content, which llm-fw cannot read) is left out rather than
+// stringified, so opaque base64 never reaches the entropy and decoding checks.
+const THIRD_PARTY_TEXT_KEYS = new Set(['text', 'title', 'data', 'stdout', 'stderr', 'content'])
+
+/** The readable text inside a server-tool result or search result, in document order. */
+function thirdPartyText(value: unknown, key = 'content'): string[] {
+  if (typeof value === 'string') return THIRD_PARTY_TEXT_KEYS.has(key) ? [value] : []
+  if (Array.isArray(value)) return value.flatMap(v => thirdPartyText(v, key))
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([k, v]) => thirdPartyText(v, k))
+  }
+  return []
+}
+
 class AnthropicParser implements PayloadParser {
   supports(path: string): boolean {
     // Strip the query string before matching: real Anthropic traffic appends
@@ -124,13 +140,36 @@ class AnthropicParser implements PayloadParser {
         for (const msg of data.messages) {
           if (msg.role === 'assistant' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
-              if (block?.type === 'tool_use' && typeof block.id === 'string') calls.set(block.id, { name: block.name, input: block.input })
+              if ((block?.type === 'tool_use' || block?.type === 'server_tool_use' || block?.type === 'mcp_tool_use') && typeof block.id === 'string') {
+                calls.set(block.id, { name: block.name, input: block.input })
+              }
             }
           }
         }
         for (const msg of data.messages) {
+          // Server tools (web fetch, web search, code execution, the MCP
+          // connector) run at the provider; the client resends their results
+          // in the assistant turn of every later request. A fetched page or an
+          // MCP server's reply is third-party text like any tool_result.
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+            for (const block of msg.content) {
+              if (typeof block?.type !== 'string' || !block.type.endsWith('_tool_result')) continue
+              const call = calls.get(block.tool_use_id)
+              results.push({
+                toolUseId: block.tool_use_id || 'unknown',
+                result: thirdPartyText(block.content).join('\n'),
+                toolName: call && typeof call.name === 'string' ? call.name : block.type,
+                ...(call ? { toolInput: call.input } : {}),
+              })
+            }
+          }
           if (msg.role === 'user' && Array.isArray(msg.content)) {
             for (const block of msg.content) {
+              // Retrieved text the client hands over as search results.
+              if (block?.type === 'search_result') {
+                results.push({ toolUseId: 'search_result', result: thirdPartyText([block.title, block.content]).join('\n'), toolName: 'search_result' })
+                continue
+              }
               if (block.type === 'tool_result') {
                 const resText = toolResultText(block.content)
                 const call = calls.get(block.tool_use_id)

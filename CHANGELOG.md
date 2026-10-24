@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Server-tool results and search results are scanned as tool output.** On the Anthropic Messages
+  API only `tool_result` blocks were, so a page fetched with the `web_fetch` server tool, an MCP
+  connector reply, code-execution output and `search_result` blocks stayed in the conversation
+  unscanned on every later request. They are now read on the tool-output surface, named after the
+  tool that produced it; `web_search` results contribute their titles, since their
+  `encrypted_content` is opaque.
+
 - **A request body that is not exactly readable JSON is refused instead of forwarded unscanned.**
   A body `JSON.parse` rejected produced no text to scan and passed, which is only safe if every
   provider is at least as strict; and a key repeated inside one object (`"content"` twice) was
