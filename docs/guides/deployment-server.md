@@ -457,9 +457,14 @@ Shared behaviour worth knowing:
 
 - Tokens are compared by hashing both sides and using a constant-time compare,
   so a wrong length does not leak through timing.
-- **Loopback callers bypass the dashboard token unconditionally.** Anyone with a
+- **Loopback callers bypass the dashboard token** when their `Host` header names
+  loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Anyone with a
   shell on the server, or any process on it, reads every captured payload and can
-  toggle defenses. There is no `dashboard.requireAuth` to close this.
+  toggle defenses. There is no `dashboard.requireAuth` to close this. A loopback
+  request with any other `Host` must present the token, which shuts out web pages
+  that rebind their domain to `127.0.0.1` and means a reverse proxy on the same
+  host must forward the token (set `LLM_FW_DASHBOARD_TOKEN`). The gateway applies
+  the same rule to its own loopback trust.
 - `/ca.crt`, `/ca.pem` and `/crl` are always unauthenticated. A client cannot
   present a token before it trusts the CA.
 - `/healthz`, `/livez` and `/readyz` answer before authentication, because a
@@ -655,6 +660,17 @@ through the gateway instead.
 wildcard bind resolves to this host's LAN address rather than `0.0.0.0`. A CA
 generated before you moved the dashboard still carries the old URL; see the note
 under [Ports and firewall rules](#ports-and-firewall-rules).
+
+**A remote client cannot tunnel back into this host.** A `CONNECT` from a client
+that is not on loopback to a loopback, unspecified or link-local address
+(`127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, `169.254.0.0/16`, which holds the AWS,
+GCP and Azure metadata endpoint, `fe80::/10`, and AWS's `fd00:ec2::254`) is
+refused with `403`, checked on the address the name resolves to. Metadata
+services elsewhere, such as Alibaba Cloud's `100.100.100.200`, are not covered;
+firewall them at the host if the proxy runs there. Private ranges stay reachable, because clients send all their HTTPS
+traffic through the proxy. A remote client that reaches the proxy through a TLS
+terminator on the same host arrives from loopback and is not restricted, so
+terminate on a different host or not at all.
 
 **Quotas and stateful detection are per-process.** DoS quotas, per-tenant quotas
 and cross-request crescendo tracking are in-memory. They do not aggregate across

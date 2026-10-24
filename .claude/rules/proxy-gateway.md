@@ -27,6 +27,11 @@ Rules that must not regress:
 - The proxy's auth check runs **first** in `handleConnect`, before the bypass
   tunnel and regardless of `LLM_FW_BYPASS`. Pinned by
   `test/proxy/proxy-auth.e2e.test.ts`.
+- A client that is not on loopback cannot tunnel to this host's loopback,
+  unspecified or link-local addresses (`src/proxy/tunnelGuard.ts`), checked on
+  the resolved address. The tunnel arrives from 127.0.0.1, so without it a
+  proxy token was a dashboard token, a loopback gateway's provider keys and the
+  cloud metadata endpoint. Pinned by `test/proxy/proxy-tunnel-guard.e2e.test.ts`.
 - Token comparison hashes both sides and uses a constant-time compare. Do not
   replace it with `===`.
 - `/ca.crt`, `/ca.pem` and `/crl` stay unauthenticated. A client cannot present
@@ -74,7 +79,12 @@ that needs a changelog entry, not a cleanup.
   the client. Pinned by Cases 9 and 10 in `test/proxy/proxy.e2e.test.ts`.
 - **Health endpoints exist only on the gateway.** Nothing answers on the proxy
   or the dashboard.
-- **The dashboard exempts loopback unconditionally** and has no `requireAuth`.
+- **The dashboard exempts loopback only when `Host` names loopback**
+  (`isLoopbackHostHeader` in `src/auth.ts`), and has no `requireAuth`. The
+  gateway's loopback trust follows the same rule. Without it, any web page
+  that rebinds its domain to 127.0.0.1 drove both. Pinned by
+  `test/dashboard/host-rebinding.test.ts` and
+  `test/gateway/gateway-host-rebinding.e2e.test.ts`.
 - **The proxy forwards CONNECT only.** Its `request` handler exists solely to
   answer `501` with an explanation, so a client that set `HTTP_PROXY` fails fast
   instead of hanging. Do not grow it into a plain-HTTP forward path without

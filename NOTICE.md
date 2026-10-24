@@ -67,15 +67,6 @@ the vulnerable code is present in the tree but is not on any path llm-fw
 executes. An application that uses sharp itself is affected on its own terms
 and should pin its own copy.
 
-## Permissive but flagged by scanners
-
-This creates no obligation beyond attribution. It is listed because automated
-tooling (Socket, and license scanners with strict allowlists) reports it as
-non-standard:
-
-- `argparse@2.0.1`, reached through `cosmiconfig` and `js-yaml`, is `Python-2.0`.
-  That is a permissive license, but it is absent from most allowlists.
-
 ## Repository test data (not in the npm package)
 
 `test/eval/data/dolly-15k-sample.json` is a 2,000-row sample of the

@@ -201,8 +201,8 @@ framework: the transport layers are Node's own `http`/`https` servers, and the
 
 **Pure ESM.** `"type": "module"`, and `src/` contains no `require()`. Node 22+.
 
-**Two runtime dependencies, and adding a third is a decision.**
-`@huggingface/transformers`, `cosmiconfig`. Every dependency of a
+**One runtime dependency, and adding a second is a decision.**
+`@huggingface/transformers`. Every dependency of a
 security product is attack surface a user inherits, so reach for the standard
 library first. A schema-validation library for seventeen scalar environment
 variables did not earn its place; a twenty-line parser did. See

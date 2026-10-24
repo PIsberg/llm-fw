@@ -14,11 +14,9 @@ action (a merge, a publish, a setting, a purchase).
 
 ## Phase 0: clear what is already known
 
-- [~] **GHSA-83jp-cppw-c3v6** (Responses API tool output never scanned).
-  Status: the fix (6841cd4) is on `main` and in the v0.8.0 tag, which is the
-  published npm `latest`. The advisory is still a draft, with its patched
-  version set to `0.8.0` (vulnerable `<= 0.7.0`). Waiting on: publish it. Then rebase the parked draft PR #392
-  per its HANDOVER (#377).
+- [x] **GHSA-83jp-cppw-c3v6** (Responses API tool output never scanned).
+  Status: published 2026-10-24, patched in 0.8.0 (vulnerable `<= 0.7.0`).
+  Still to do: rebase the parked draft PR #392 per its HANDOVER (#377).
 - [x] **#391** benign tool output refused (2.2% of 1,382 real Codex outputs).
   Status: five wording fixes, ruleset 2026.10.84. Codex replay 17 refusals to
   6; 0 of 23,938 eval verdicts changed; `fpr` unchanged (2.68%, Dolly and
@@ -75,26 +73,37 @@ Findings so far:
   log, licence), attackers (remote network client, local process, malicious web
   page, malicious upstream response, malicious tool output or MCP server,
   malicious repository in cwd), one trust boundary per listener.
-- [ ] Proxy: CONNECT target validation on a standalone bind (internal hosts,
+- [x] Proxy: CONNECT target validation on a standalone bind (internal hosts,
   `169.254.169.254`), header and target parsing, request smuggling,
-  Content-Encoding handling and decompression bombs.
+  Content-Encoding handling and decompression bombs. Status: a remote client
+  could tunnel into the host's loopback and link-local addresses
+  (GHSA-q53q-qg98-p9jf), fixed in 0.9.0; compressed bodies passed unscanned,
+  now decoded and capped at `proxy.maxBodyBytes` (#458).
 - [ ] Gateway: tenant isolation, SSRF through routing, provider keys in errors,
   logs or the dashboard, quota bypass.
-- [ ] Dashboard: the loopback exemption behind a same-host reverse proxy, DNS
-  rebinding against `127.0.0.1:7731`, the Origin check, SSE.
+- [x] Dashboard: the loopback exemption behind a same-host reverse proxy, DNS
+  rebinding against `127.0.0.1:7731`, the Origin check, SSE. Status: DNS
+  rebinding reached the dashboard and a loopback gateway on a default install
+  (GHSA-c725-vwcm-h8rr), fixed in 0.9.0: loopback trust now needs a loopback
+  `Host`.
 - [ ] Detection bypass: parser differentials against the providers (duplicate
   JSON keys, encodings, alternative content shapes), normalization
   differentials, a per-provider sweep for text-bearing fields that are not
   scanned.
-- [ ] Config: cosmiconfig searches upward from cwd and evaluates
+- [x] Config: cosmiconfig searches upward from cwd and evaluates
   `llm-fw.config.js`; can a cloned repository run code or disable detection?
-  Hot-reload races.
+  Hot-reload races. Status: it could (GHSA-4578-7p8f-hc8r), fixed in 0.9.0:
+  config is read only from `LLM_FW_DIR`, `LLM_FW_*` variables and a JSON file
+  named by `LLM_FW_CONFIG`; cosmiconfig is gone.
 - [ ] CA and files: key permissions on Windows and Linux, `LLM_FW_DIR`, CRL.
 - [ ] CLI and service: systemd unit, Task Scheduler entry, `setup` editing the
   environment, uninstall leftovers.
 - [ ] Licence: offline licence forgery, Paddle fulfilment trust.
-- [ ] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
-  WebSocket relay.
+- [~] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
+  WebSocket relay. Status: quadratic regexes and a quadratic tokenizer
+  (GHSA-gm3q-2gwx-gppq) fixed in 0.9.0. Left: embedding forward passes on
+  dense user text still cost 4-8 s per request, bounded at 24 chunks per
+  candidate; tracked as a follow-up issue.
 - [ ] Fail-open versus fail-closed, written down per path.
 - [ ] Fuzzers for the provider parsers and the normalizer, in the suite.
 - [ ] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to

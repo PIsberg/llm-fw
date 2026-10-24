@@ -1,6 +1,6 @@
 {
   "name": "llm-fw",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Local LLM prompt injection firewall",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
@@ -73,8 +73,7 @@
     "config:reference": "node --import tsx/esm scripts/gen-config-reference.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "~4.2.0",
-    "cosmiconfig": "^10.0.0"
+    "@huggingface/transformers": "~4.2.0"
   },
   "//peerDependencies": "OCR is off by default (nonText.ocr), loaded through a dynamic import in src/detection/ocr.ts, and already degrades to opaque handling when the import fails. As a hard dependency it cost every install ~50 MB and 13 packages for a feature most installs never switch on. An OPTIONAL peer is the only form npm does not install by default: optionalDependencies are installed unless the user passes --omit=optional.",
   "peerDependencies": {

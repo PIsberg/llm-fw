@@ -93,3 +93,19 @@ describe('TaintTracker', () => {
     expect(findings.some(f => f.category === 'secret')).toBe(true)
   })
 })
+
+// GHSA-gm3q-2gwx-gppq: the bare-domain pattern restarted at every word
+// boundary of a long dash-separated run and rescanned it, quadratic on the
+// event loop (205 ms at 20 KB).
+describe('extractTaintTokens: linear time on dash-separated runs', () => {
+  it('scans 200 KB of "1-" in under 1.5 s', () => {
+    const t0 = performance.now()
+    extractTaintTokens('1-'.repeat(100 * 1024))
+    expect(performance.now() - t0).toBeLessThan(1500)
+  })
+
+  it('extracts the same domains around dashes', () => {
+    const tokens = extractTaintTokens('--evil-collect.example and a-b.c-d.example.org').map(t => t.token)
+    expect(tokens).toEqual(expect.arrayContaining(['evil-collect.example', 'a-b.c-d.example.org']))
+  })
+})

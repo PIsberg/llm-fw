@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-24
+
+### Security
+
+- **Detection no longer has quadratic worst cases (GHSA-gm3q-2gwx-gppq).** Several detector
+  regexes (the indirect-instruction email and clause-start patterns, the harmful-request threat
+  tail, the taint domain pattern) and transformers.js's Unigram tokenizer took time quadratic in
+  the input, on the thread that serves every request. One large tool result or prompt could stall
+  every client: 100 KB of line breaks took 9.8 s in one detector, and 100 KB of base64 took 35 s
+  end to end on the user-prompt surface. The regexes now start only at the beginning of a run,
+  and the tokenizer's prefix search is bounded to the longest vocabulary token, which leaves every
+  token id unchanged. The same inputs now take milliseconds per detector. Measured: 0 of 23,938
+  eval verdicts changed.
+
+- **The dashboard and a loopback gateway no longer trust a rebound web page (GHSA-c725-vwcm-h8rr).**
+  Both trusted every request from loopback without looking at its `Host` header, so a website
+  using DNS rebinding (its own domain re-pointed at `127.0.0.1`) could, on a default install, read
+  the dashboard's event stream, change settings and add whitelist entries, and with the gateway
+  enabled use the provider keys it holds. Loopback trust now needs a `Host` that names loopback
+  (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`); any other loopback request must present
+  the token. **Changed:** a reverse proxy on the same host must now forward the dashboard or
+  gateway token, and a gateway bound to loopback accepts its configured `gateway.authToken` from
+  such a caller.
+
+- **The forward proxy no longer tunnels a remote client into this host (GHSA-q53q-qg98-p9jf).**
+  On a proxy exposed to the network (`--standalone` or a non-loopback `proxy.bindHost`), a client
+  holding the proxy token could `CONNECT` to `127.0.0.1` and reach the dashboard, which exempts
+  loopback callers from its token, a loopback-bound gateway and the provider keys it holds, and
+  link-local services such as the cloud metadata endpoint. A `CONNECT` from a non-loopback client
+  to a loopback, unspecified or link-local address is now refused with `403`, checked on the
+  resolved address, so a name pointing at `127.0.0.1` is refused too. Loopback clients and
+  private (RFC 1918) destinations are unaffected.
+
+- **Config is no longer read from the working directory (GHSA-4578-7p8f-hc8r).** Every command,
+  and the library's `createFirewall()`, loaded `.llm-fw.json`, `.llm-fwrc*`, `llm-fw.config.js` or
+  a `"llm-fw"` key in `package.json` from the directory llm-fw was started in. Run inside a cloned
+  repository, that repository could execute code (`.llm-fwrc.js`), switch enforcement to observe,
+  stop inspection, or bind the proxy to every interface without auth. Config now comes from
+  `<LLM_FW_DIR>/config.json`, `LLM_FW_*` variables, and a JSON file only when named with
+  `LLM_FW_CONFIG=<path>`. **Breaking:** a project-root `.llm-fw.json` is ignored, with a warning
+  naming it; set `LLM_FW_CONFIG` to keep using it. JavaScript and YAML config files are not
+  supported, and `cosmiconfig` is no longer a dependency.
+
 ### Changed
 
 - **The scan-latency histogram is now `llmfw_scan_duration_seconds`** (was
@@ -2823,7 +2866,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/PIsberg/llm-fw/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/PIsberg/llm-fw/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/PIsberg/llm-fw/compare/v0.5.0...v0.6.0

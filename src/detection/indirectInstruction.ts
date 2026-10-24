@@ -123,8 +123,12 @@ const POLITE_IMPERATIVE_RE = new RegExp(
 // <path>" / "delete mode 100644 <path>" in commit and merge output, where the
 // file mode met the long-identifier object, so every commit that added a file
 // blocked the next request (26 of 51,229 real tool results, #314).
+// After a line break only horizontal whitespace is skipped: `\n\s*` let every
+// break in a long whitespace run rescan the rest of it, quadratic on the event
+// loop (GHSA-gm3q-2gwx-gppq). The last break before the verb still opens the
+// clause, so nothing that matched before is lost.
 const SENTENCE_IMPERATIVE_RE = new RegExp(
-  '(?:^|[.!?\\n]\\s*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
+  '(?:^|[.!?]\\s*|\\n[ \\t]*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
   '(?:also\\s+|then\\s+|immediately\\s+|now\\s+|first\\s+)*' +
   `(${VERB_ALT})\\b(?![\'"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)\\s+\\S`,
   'gim',
@@ -354,7 +358,11 @@ const DIRECTIVE_RE = new RegExp(
 // negative lookahead excludes JSON KEYS ('email':, 'cc':) from counting as
 // verbs, and we require the verb within EXFIL_PROXIMITY chars of the address so
 // a passive 'from'/'to' field with no instruction does not fire.
-const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
+// The match starts only where the previous character cannot belong to an
+// address. A leading \b restarted at every word boundary inside a long run of
+// address characters and rescanned to its end each time: 200 KB of base64url
+// took 4.6 s and grew quadratically, on the event loop (GHSA-gm3q-2gwx-gppq).
+const EMAIL_RE = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
 const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/gi
 
 // A verb word that is the last segment of a dotted config key, with an email
@@ -417,7 +425,8 @@ const EXFIL_PROXIMITY = 200
 // blanked before any rule runs, which also keeps the polite and multilingual
 // rules from re-matching "please email us at".
 const CONTACT_CLAUSE_RE = new RegExp(
-  '(^|[.!?:;,]\\s*|\\n\\s*|\\b(?:please|kindly|or)\\s+)(' +
+  // `\n[ \t]*`, not `\n\s*`: see SENTENCE_IMPERATIVE_RE (GHSA-gm3q-2gwx-gppq).
+  '(^|[.!?:;,]\\s*|\\n[ \\t]*|\\b(?:please|kindly|or)\\s+)(' +
   '(?:send|write|drop|shoot)\\s+(?:us\\s+|me\\s+|them\\s+)?(?:an?\\s+)?(?:quick\\s+|short\\s+|brief\\s+)?(?:e-?mail|message|note|line|mail)\\s+(?:to|at)' +
   '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
   '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +

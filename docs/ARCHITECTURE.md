@@ -42,7 +42,7 @@ flowchart TD
     end
 
     subgraph Config ["src/config/"]
-        cfg["config.ts\n(cosmiconfig + env overrides)"]
+        cfg["config.ts\n(config files + env overrides)"]
     end
 
     subgraph Proxy ["src/proxy/"]
@@ -454,7 +454,7 @@ llm-fw/
 │   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
 │   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/
-│       └── config.ts        # cosmiconfig + env overrides + defaults
+│       └── config.ts        # defaults + config files + env overrides
 ├── data/
 │   └── attacks.json         # ~100 canonical injection templates
 ├── test/

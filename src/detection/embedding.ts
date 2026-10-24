@@ -27,7 +27,58 @@ export const EMBEDDING_MODEL_ID = 'Xenova/multilingual-e5-small'
 export const EMBEDDING_DTYPE = 'q8' as const
 
 export async function loadEmbeddingExtractor(): Promise<FeatureExtractor> {
-  return (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, { dtype: EMBEDDING_DTYPE })) as unknown as FeatureExtractor
+  const extractor = (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, { dtype: EMBEDDING_DTYPE })) as unknown as FeatureExtractor
+  const tokenizer = (extractor as unknown as { tokenizer?: { model?: unknown; _tokenizer?: { model?: unknown } } }).tokenizer
+  boundUnigramPrefixSearch(tokenizer?._tokenizer?.model ?? tokenizer?.model)
+  return extractor
+}
+
+interface UnigramModel {
+  vocab: string[]
+  trie: { common_prefix_search(text: string): Iterable<string> }
+  tokens_to_ids: Map<string, number>
+  scores: number[]
+  unk_score: number
+  unk_token_id: number
+  populate_nodes: (this: UnigramModel, lattice: { chars: string[]; insert(pos: number, len: number, score: number, id: number): void }) => void
+  __llmFwOriginalPopulateNodes?: UnigramModel['populate_nodes']
+}
+
+/**
+ * Make transformers.js's Unigram tokenizer linear (GHSA-gm3q-2gwx-gppq).
+ *
+ * Its populate_nodes copies the whole rest of the text at every position
+ * (`chars.slice(begin_pos).join("")`) to run a trie prefix search that never
+ * reads past the longest vocabulary token. On a 4,096-character chunk of
+ * dense text that is quadratic: a 100 KB base64 prompt spent 35 s here, on
+ * the thread that scans every request. Slicing only as far as the longest
+ * token gives the search the same input prefix, so the lattice, the token ids
+ * and the vectors are identical.
+ *
+ * Applied only to the exact implementation it was written against: if a
+ * transformers.js upgrade changes populate_nodes, the patch steps aside and
+ * test/detection/tokenizer-bound.test.ts reports the slowdown.
+ */
+function boundUnigramPrefixSearch(candidate: unknown): void {
+  const model = candidate as UnigramModel | undefined
+  if (!model || typeof model.populate_nodes !== 'function' || model.__llmFwOriginalPopulateNodes) return
+  if (!model.populate_nodes.toString().includes('chars.slice(begin_pos).join("")') || !Array.isArray(model.vocab)) return
+  let maxTokenChars = 1
+  for (const token of model.vocab) maxTokenChars = Math.max(maxTokenChars, [...String(token)].length)
+  model.__llmFwOriginalPopulateNodes = model.populate_nodes
+  model.populate_nodes = function (lattice): void {
+    const chars = lattice.chars
+    for (let pos = 0; pos < chars.length; pos++) {
+      let hasSingle = false
+      for (const token of this.trie.common_prefix_search(chars.slice(pos, pos + maxTokenChars).join(''))) {
+        const id = this.tokens_to_ids.get(token) as number
+        const n = [...token].length
+        lattice.insert(pos, n, this.scores[id] as number, id)
+        if (n === 1) hasSingle = true
+      }
+      if (!hasSingle) lattice.insert(pos, 1, this.unk_score, this.unk_token_id)
+    }
+  }
 }
 
 /**

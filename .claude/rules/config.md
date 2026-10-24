@@ -7,8 +7,10 @@ Read when adding a config key, an env var, or a CLI flag.
 `loadConfig` in `src/config/config.ts` merges, lowest precedence first:
 
 1. `DEFAULT_CONFIG` in `src/config/config.ts`
-2. a cosmiconfig project file, searched upward from cwd (`package.json` key
-   `llm-fw`, `.llm-fw.json`, `.llm-fwrc*`, `llm-fw.config.js`)
+2. a JSON file named by `LLM_FW_CONFIG`, if set. The working directory is
+   never searched: a cloned repository's `.llm-fwrc.js` used to run as code
+   and its `.llm-fw.json` could switch enforcement off. Do not bring back
+   implicit discovery; pinned by `test/config/project-config.test.ts`
 3. `<LLM_FW_DIR>/config.json`, default `~/.llm-fw/config.json`
 4. `LLM_FW_*` environment variables, via the `ENV_OVERRIDES` table
 5. `extraTargets` appended to `targets`
@@ -46,7 +48,7 @@ digest, so a new default also needs `RULESET_DIGEST` re-pinned.
   ignored, not treated as false.
 - **Arrays replace wholesale.** Overriding `targets` in a file drops the entire
   built-in provider registry. That is why `extraTargets` exists.
-- **`LLM_FW_DIR` comes from the process environment only.** It locates
+- **`LLM_FW_DIR` and `LLM_FW_CONFIG` come from the process environment only.** It locates
   `config.json`, so no config file can set it. Resolve it per call through
   `getLlmFwDir()`, never into a module-level constant: `src/proxy/certs.ts`
   once did, and the unit tests that set it in a hook wrote their CA over the
