@@ -126,9 +126,8 @@ Findings so far:
   `schtasks /Create`; the systemd unit and launchd plist live in the user's
   home; `setup` writes HKCU via `setx` or appends a marked block to the shell
   profile, which uninstall strips by marker. Fixed: uninstall edited or
-  deleted a `.llm-fw.json` in the working directory. Accepted: the systemd
-  `ExecStart` quotes each argument but does not escape `%` or `$`, which only
-  matters for an install path containing them (#465).
+  deleted a `.llm-fw.json` in the working directory; the systemd `ExecStart`
+  did not escape `%`, `$`, backslash or `"` in the install path (#465).
 - [x] Licence: offline licence forgery, Paddle fulfilment trust. Status:
   reviewed 2026-10-24. Keys and licence files are Ed25519-verified offline
   against compiled-in keys. The licence gates nothing functional: it feeds

@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`llm-fw service install` on Linux writes a unit that starts the right command for any install
+  path (#465).** systemd expands `%` specifiers and `$` variables inside `ExecStart` even within
+  quotes, so a path containing either started something else. Each argument now escapes `%`, `$`,
+  backslash and `"`.
+
 - **A Realtime or Gemini Live session can no longer exhaust the firewall's memory.** Each WebSocket
   frame was capped at `proxy.maxBodyBytes`, but a message's fragments were collected without a
   total, so a client sending continuation frames without ever finishing the message grew one buffer

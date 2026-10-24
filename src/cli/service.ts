@@ -182,12 +182,21 @@ ${argsXml}
 }
 
 /**
+ * One ExecStart argument, ready to sit inside double quotes. systemd expands
+ * %-specifiers and $VARIABLES there even when quoted, and reads C-style
+ * backslash escapes, so each of %, $, backslash and " is escaped (#465).
+ */
+function systemdQuote(arg: string): string {
+  return arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%').replace(/\$/g, '$$$$')
+}
+
+/**
  * A per-user systemd unit under ~/.config/systemd/user. `WantedBy=default.target`
  * is the user-session equivalent of "start at login"; `Restart=on-failure` gives
  * a small amount of crash resilience without fighting start.ts's own self-heal.
  */
 export function buildSystemdUnit(inv: Invocation): string {
-  const execStart = [inv.command, ...inv.args].map(a => `"${a}"`).join(' ')
+  const execStart = [inv.command, ...inv.args].map(a => `"${systemdQuote(a)}"`).join(' ')
   return `[Unit]
 Description=llm-fw prompt injection firewall
 
