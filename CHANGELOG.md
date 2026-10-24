@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Config is no longer read from the working directory (GHSA-4578-7p8f-hc8r).** Every command,
+  and the library's `createFirewall()`, loaded `.llm-fw.json`, `.llm-fwrc*`, `llm-fw.config.js` or
+  a `"llm-fw"` key in `package.json` from the directory llm-fw was started in. Run inside a cloned
+  repository, that repository could execute code (`.llm-fwrc.js`), switch enforcement to observe,
+  stop inspection, or bind the proxy to every interface without auth. Config now comes from
+  `<LLM_FW_DIR>/config.json`, `LLM_FW_*` variables, and a JSON file only when named with
+  `LLM_FW_CONFIG=<path>`. **Breaking:** a project-root `.llm-fw.json` is ignored, with a warning
+  naming it; set `LLM_FW_CONFIG` to keep using it. JavaScript and YAML config files are not
+  supported, and `cosmiconfig` is no longer a dependency.
+
 ### Changed
 
 - **The scan-latency histogram is now `llmfw_scan_duration_seconds`** (was
