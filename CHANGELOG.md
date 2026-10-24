@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Realtime or Gemini Live session can no longer exhaust the firewall's memory.** Each WebSocket
+  frame was capped at `proxy.maxBodyBytes`, but a message's fragments were collected without a
+  total, so a client sending continuation frames without ever finishing the message grew one buffer
+  until the process ran out of memory, for every client. A message over `proxy.maxBodyBytes` now
+  ends the session with close code 1009 and a `dos` event, before the upstream sees it.
+
 - **Three invisible characters no longer hide an injection from the heuristics.** An injection
   with the combining grapheme joiner (`U+034F`) between its letters, the Hangul filler (`U+3164`)
   between its words, or interlinear annotation anchors (`U+FFF9`, `U+FFFB`) around them passed as

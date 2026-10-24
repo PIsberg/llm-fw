@@ -247,6 +247,27 @@ describe('Realtime API over WebSocket through the proxy (#270)', { timeout: 60_0
     session.socket.destroy()
   })
 
+  // Each frame was capped at proxy.maxBodyBytes, but a message's fragments
+  // were collected without a total, so continuation frames sent without FIN
+  // grew one buffer until the process ran out of memory, for every client.
+  it('refuses a fragmented message that grows past proxy.maxBodyBytes, instead of buffering it', async () => {
+    const saved = config.proxy.maxBodyBytes
+    config.proxy.maxBodyBytes = 64 * 1024
+    try {
+      const { session } = await open()
+      const got = upstreamGot.at(-1)!
+      const chunk = Buffer.alloc(20 * 1024, 0x61)
+      session.socket.write(encodeFrame(OPCODE.text, chunk, true, false))
+      for (let i = 0; i < 5; i++) session.socket.write(encodeFrame(OPCODE.continuation, chunk, true, false))
+      await waitFor(() => session.closeCode() !== null, 10_000)
+      expect(session.closeCode()).toBe(1009)
+      expect(got).toHaveLength(0)
+      session.socket.destroy()
+    } finally {
+      config.proxy.maxBodyBytes = saved
+    }
+  })
+
   it('redacts a secret in a conversation item, as DLP does for a request body', async () => {
     const { session } = await open()
     const got = upstreamGot.at(-1)!

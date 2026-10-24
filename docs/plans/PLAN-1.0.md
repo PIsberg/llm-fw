@@ -141,15 +141,16 @@ Findings so far:
   `scripts/fulfill-paddle-webhook.ts` is run by hand and does not look up an
   existing licence for the transaction, so running it twice issues a second
   key for the same purchase.
-- [~] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
-  WebSocket relay. Status: quadratic regexes and a quadratic tokenizer
-  (GHSA-gm3q-2gwx-gppq) fixed in 0.9.0. Embedding forward passes now have a
-  per-request budget (`detection.embeddingMaxPassesPerRequest`, 128): 64 dense
-  40 KB messages scan in 48 s instead of 391 s. Left: the heuristic stage reads
-  every byte at about 0.25 s per 40 KB message, linear in the body up to
-  `proxy.maxBodyBytes` (10 MiB); and the WebSocket relay.
+- [x] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
+  WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
+  embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
+  to 48 s); a fragmented WebSocket message is now held to
+  `proxy.maxBodyBytes` (it grew without limit). Accepted: the heuristic
+  stage reads every byte at about 0.25 s per 40 KB message, linear up to
+  the 10 MiB body limit, on the request thread; an attacker needs a token
+  on any non-loopback bind, and `dos` rate limits apply.
 - [x] Fail-open versus fail-closed, written down per path.
-  Status: a table of 17 paths under "Failure Semantics" in
+  Status: a table of 18 paths under "Failure Semantics" in
   `docs/guides/configuration.md`, each read from the code it names.
 - [x] Fuzzers for the provider parsers and the normalizer, in the suite.
   Status: `test/fuzz/parsers.fuzz.test.ts` already held never-throws

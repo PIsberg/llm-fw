@@ -440,6 +440,7 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | A response over `proxy.maxBodyBytes` | Forwarded verbatim from that point, inspection stops | open | `proxy.ts` |
 | A compressed response llm-fw cannot decode | Forwarded verbatim, not inspected | open | `proxy.ts` |
 | A WebSocket upgrade to anything but the OpenAI Realtime API or Gemini Live | `501` | closed | `proxy.ts`, `gateway.ts` |
+| A Realtime or Gemini Live message, fragments included, over `proxy.maxBodyBytes` | Session closed with code `1009` and a `dos` event | closed | `realtimeRelay.ts` |
 | A plain-HTTP request to the proxy | `501` | closed | `proxy.ts` |
 | A `CONNECT` to a host that is not intercepted | Tunnelled without inspection, by design | open | `proxy.ts` |
 | A `CONNECT` from a non-loopback client into the host's loopback or link-local addresses | `403` | closed | `tunnelGuard.ts` |
