@@ -63,6 +63,11 @@ Findings so far:
 - Fixed: the audit webhook posted `payload_full` and `payload_preview` with
   `includePayloads` off; the file sink did not. Found while adding the audit
   schema version. Both sinks now build one record.
+- Fixed: compressed request bodies were scanned as raw bytes, so a gzip or
+  zstd body passed unread. Now decoded first, and refused when undecodable.
+- Open: Codex CLI signed in with ChatGPT talks to `chatgpt.com/backend-api/codex`,
+  which llm-fw does not intercept. Decided 2026-10-24: an opt-in switch, off by
+  default, documented as a known gap until enabled.
 
 - [ ] `docs/THREAT-MODEL.md`: assets (CA key, provider keys, prompts, audit
   log, licence), attackers (remote network client, local process, malicious web

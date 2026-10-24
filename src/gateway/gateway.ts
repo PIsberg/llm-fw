@@ -3,6 +3,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import { Config, PipelineResult } from '../types.js';
 import { Pipeline } from '../detection/pipeline.js';
+import { decodeContentEncoding, UnsupportedEncoding } from '../proxy/contentEncoding.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
@@ -233,8 +234,23 @@ export class GatewayServer {
         }
       }
 
-      const body = await this.readBody(req, res);
+      let body = await this.readBody(req, res);
       if (body === null) return; // readBody already answered (413 / read error)
+
+      // Decode a compressed body before screening and forward it decoded, as
+      // the proxy does: the compressed bytes read as text carry no prompt, so
+      // they passed every detector. What cannot be decoded is refused.
+      const encoding = req.headers['content-encoding'];
+      if (encoding && !/^\s*identity\s*$/i.test(encoding)) {
+        try {
+          body = decodeContentEncoding(body, encoding, this.config.proxy.maxBodyBytes);
+        } catch (err) {
+          if (err instanceof UnsupportedEncoding) return this.json(res, 415, { error: `${err.message}; llm-fw cannot inspect it` });
+          if (err instanceof RangeError) return this.json(res, 413, { error: 'request body too large once decompressed' });
+          return this.json(res, 400, { error: `request body is not valid ${encoding}` });
+        }
+        delete req.headers['content-encoding'];
+      }
 
       const decision = await this.screen(req, route, body, tenant);
       if (decision.blocked) {
