@@ -35,6 +35,8 @@ import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
+import { constants as bufferConstants } from 'node:buffer'
+import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('proxy');
@@ -153,6 +155,31 @@ const NON_LLM_JSON_PATH_PREFIXES = [
   '/oauth2/',
 ]
 
+// Codex CLI signed in with ChatGPT sends its turns to chatgpt.com, not to
+// api.openai.com. Interception is per host, so `proxy.inspectChatgptBackend`
+// intercepts the whole of chatgpt.com, the ChatGPT web app included; only the
+// Codex paths below are inspected and every other request is passed through.
+const CHATGPT_HOST = 'chatgpt.com'
+const CODEX_BACKEND_PREFIX = '/backend-api/codex/'
+
+function isCodexBackendPath(path: string): boolean {
+  return (path.split('?')[0] ?? '').startsWith(CODEX_BACKEND_PREFIX)
+}
+
+/** Whether CONNECTs to `hostname` are TLS-intercepted rather than tunnelled. */
+export function isInterceptedHost(hostname: string, config: Config): boolean {
+  const interceptDomains = config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
+  return config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
+    || interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))
+    || (config.proxy.inspectChatgptBackend === true && hostname === CHATGPT_HOST)
+}
+
+/** The payload parser for an intercepted request, or null when it is not an LLM call. */
+export function parserForRequest(hostname: string, path: string, _config: Config): PayloadParser | null {
+  if (hostname === CHATGPT_HOST && !isCodexBackendPath(path)) return null
+  return getParser(path)
+}
+
 function isKnownNonLlmEndpoint(path: string): boolean {
   const p = (path.split('?')[0] ?? '')
   return NON_LLM_JSON_PATH_SUFFIXES.some(suffix => p.endsWith(suffix))
@@ -216,7 +243,7 @@ export class ProxyServer {
   private eventBus: EventBus
   private config: Config
   // Task C4 — optional shared metrics registry (see cli/start.ts). Records
-  // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_ms at the
+  // llmfw_requests_total{surface="proxy"} + llmfw_scan_duration_seconds at the
   // pipeline.run() call boundary below; block/warn/event counters are
   // recorded centrally by EventBus.emit() instead.
   private metrics?: MetricsRegistry | undefined
@@ -405,11 +432,7 @@ export class ProxyServer {
     // (LLM_FW_BYPASS=true) restores full connectivity if a detection change goes
     // wrong, so the operator can never be locked out of their LLM APIs.
     const bypass = this.config.proxy.bypass === true
-    const interceptDomains = this.config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
-    const isTarget = !bypass && (
-      this.config.targets.some(t => hostname === t || hostname.endsWith('.' + t)) ||
-      interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))
-    )
+    const isTarget = !bypass && isInterceptedHost(hostname, this.config)
 
     if (!isTarget) {
       // Cross-turn taint (host level). The destination hostname is visible at
@@ -550,6 +573,26 @@ export class ProxyServer {
   }
 
   private async handleRequest(hostname: string, port: number, innerReq: http.IncomingMessage, innerRes: http.ServerResponse): Promise<void> {
+    // chatgpt.com is intercepted for Codex's sake only. The rest of it (the
+    // ChatGPT web app) goes through untouched: no detection, no DLP, no
+    // response scan, no "unrecognized LLM endpoint" warning per page load.
+    if (hostname === CHATGPT_HOST && !isCodexBackendPath(innerReq.url ?? '/')) {
+      const chunks: Buffer[] = []
+      let size = 0
+      const max = this.config.proxy.maxBodyBytes
+      for await (const chunk of innerReq) {
+        size += (chunk as Buffer).length
+        if (max > 0 && size > max) {
+          innerRes.writeHead(413, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error: 'request body too large', limit: max }))
+          drainRefusedUpload(innerReq)
+          return
+        }
+        chunks.push(chunk as Buffer)
+      }
+      await this.forwardRequest(hostname, port, innerReq, Buffer.concat(chunks), innerRes, false, false, undefined, true)
+      return
+    }
     {
       const dosMethod = innerReq.method ?? 'GET'
       const dosPath = innerReq.url ?? '/'
@@ -698,15 +741,39 @@ export class ProxyServer {
       // ONLY for text-based detection. Decoding binary payloads (e.g. image
       // uploads) to a string and back would replace invalid byte sequences
       // with U+FFFD, corrupting the request and changing its length.
-      let bodyBuf = Buffer.concat(chunks)
+      let bodyBuf: Buffer = Buffer.concat(chunks)
       let body = bodyBuf.toString('utf-8')
 
       // Stage 0 — Data Loss Prevention. Only LLM JSON requests (those with a
       // registered parser) are scanned, so binary/file uploads are skipped.
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
-      const parser = getParser(dlpPath)
+      const parser = parserForRequest(hostname, dlpPath, this.config)
       const isLlmRequest = parser !== null
+
+      // A compressed LLM request is decoded before anything reads it, and the
+      // decoded body is what goes upstream. Scanning the compressed bytes as
+      // text found nothing, so an injection in a gzip or zstd body (Codex CLI
+      // on ChatGPT sign-in compresses with zstd by default) reached the
+      // provider unscanned. What cannot be decoded is refused, never forwarded.
+      const requestEncoding = innerReq.headers['content-encoding']
+      if (isLlmRequest && requestEncoding && !/^\s*identity\s*$/i.test(requestEncoding)) {
+        const refuse = (status: number, error: string): void => {
+          log.warn(`refused ${method} ${hostname}${dlpPath}: ${error}`)
+          innerRes.writeHead(status, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error }))
+        }
+        try {
+          bodyBuf = decodeContentEncoding(bodyBuf, requestEncoding, maxBodyBytes > 0 ? maxBodyBytes : bufferConstants.MAX_LENGTH)
+        } catch (err) {
+          if (err instanceof UnsupportedEncoding) refuse(415, `${err.message}; llm-fw cannot inspect it`)
+          else if (err instanceof RangeError) refuse(413, 'request body too large once decompressed')
+          else refuse(400, `request body is not valid ${requestEncoding}`)
+          return
+        }
+        body = bodyBuf.toString('utf-8')
+        delete innerReq.headers['content-encoding']
+      }
 
       // Session identity shared across the proxy's per-client state (taint
       // tracking below, and — opt-in — the pipeline's cross-request crescendo
@@ -896,7 +963,7 @@ export class ProxyServer {
       let scanEventId = 'unknown'
       // Task C4 — timed at this call boundary (non-invasive: Pipeline.run()
       // itself is untouched) to feed llmfw_requests_total{surface="proxy"} +
-      // the overall llmfw_scan_duration_ms histogram.
+      // the overall llmfw_scan_duration_seconds histogram.
       const scanStart = Date.now()
       try {
         result = await this.pipeline.run(
@@ -1336,7 +1403,7 @@ export class ProxyServer {
 
   // `extraHeaders`: request headers a module asked for (lower-case names),
   // each replacing the client's.
-  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false, extraHeaders?: Record<string, string>): Promise<number> {
+  private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false, extraHeaders?: Record<string, string>, passThrough: boolean = false): Promise<number> {
     const ip = await this.resolver.resolve(hostname)
     return new Promise<number>((resolve, reject) => {
       const startedAt = Date.now()
@@ -1384,7 +1451,7 @@ export class ProxyServer {
       const parser = getParser(req.url ?? '/')
       const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
       const responseScanActive = this.config.responseScan?.enabled === true
-      const wantInspect = mcpActive || responseScanActive
+      const wantInspect = !passThrough && (mcpActive || responseScanActive)
       const maxResp = this.config.proxy.maxBodyBytes
 
       let headersDone = false

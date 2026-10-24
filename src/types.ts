@@ -37,6 +37,13 @@ export interface ProxyConfig {
   // only — suffixes are never written to the hosts-file sinkhole. Also
   // settable via LLM_FW_INTERCEPT_DOMAINS (comma-separated, replaces).
   interceptDomains?: string[];
+  // TLS-intercept chatgpt.com so Codex CLI signed in with ChatGPT is inspected:
+  // it sends its turns to /backend-api/codex/responses there, not to
+  // api.openai.com. Off by default because interception is per host, so the
+  // ChatGPT web app's traffic is intercepted too; only the Codex paths are
+  // parsed and everything else is forwarded untouched. Cold: restart to apply.
+  // Also settable via LLM_FW_INSPECT_CHATGPT_BACKEND.
+  inspectChatgptBackend?: boolean;
   // Shared secret a CLIENT must present as `Proxy-Authorization` to use the
   // proxy. Without one, a proxy bound off-host is an open forward relay: any
   // machine that can reach the port can tunnel arbitrary CONNECT traffic

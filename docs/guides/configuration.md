@@ -174,6 +174,18 @@ allowance, and an address counts as trusted only when whitespace or
 ordinary punctuation surrounds it and its local part has no `%` or `!`
 routing.
 
+**Codex CLI signed in with ChatGPT.** Codex sends its turns to
+`chatgpt.com/backend-api/codex/responses` when you sign in with a ChatGPT
+account, and to `api.openai.com` only with an API key. llm-fw inspects the API
+key route by default and tunnels `chatgpt.com` uninspected. Set
+`proxy.inspectChatgptBackend: true` (or `LLM_FW_INSPECT_CHATGPT_BACKEND=true`)
+to intercept it. Interception works per host, so this intercepts the whole of
+`chatgpt.com`, including the ChatGPT web app in any browser that trusts the
+llm-fw CA; only `/backend-api/codex/*` is inspected and every other request is
+forwarded untouched, without detection, DLP or response scanning. Off by
+default for that reason. A restart applies it. Proxy mode only: the gateway has
+no ChatGPT route.
+
 **Refusal status.** A request refused for its content (detection, DLP, MCP,
 taint, a URL in the path, a response-side block) answers `422` on the proxy and
 the gateway, with the same JSON body as before. It used to be `403`, which
@@ -244,7 +256,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_105 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_106 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -297,6 +309,7 @@ _105 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_INDIRECT_INSTRUCTION_ENABLED` | `indirectInstruction.enabled` | `true` |
 | `LLM_FW_INDIRECT_INSTRUCTION_MODE` | `indirectInstruction.mode` | `block` |
 | `LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS` | `indirectInstruction.trustedRecipientDomains` | `0 entries` |
+| `LLM_FW_INSPECT_CHATGPT_BACKEND` | `proxy.inspectChatgptBackend` | `false` |
 | `LLM_FW_INTENT_MENTION_ENABLED` | `detection.intentMention` | `true` |
 | `LLM_FW_INTERCEPT_DOMAINS` | `proxy.interceptDomains` | `2 entries` |
 | `LLM_FW_JUDGE_BLOCK` | `detection.judgeBlock` | `false` |

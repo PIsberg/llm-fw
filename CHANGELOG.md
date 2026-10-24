@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The scan-latency histogram is now `llmfw_scan_duration_seconds`** (was
+  `llmfw_scan_duration_ms`), in Prometheus's base unit, with buckets from 0.005 to 2.5 seconds.
+  Dashboards and alerts on the old name need the new name and thresholds divided by 1000. Made
+  before 1.0 so the metric names can be frozen; see [docs/STABILITY.md](docs/STABILITY.md).
+
+### Added
+
+- **`proxy.inspectChatgptBackend` (`LLM_FW_INSPECT_CHATGPT_BACKEND`) inspects Codex CLI signed in
+  with ChatGPT.** That route goes to `chatgpt.com/backend-api/codex/responses`, which llm-fw
+  tunnelled uninspected; only API-key Codex (`api.openai.com`) was scanned. The switch intercepts
+  `chatgpt.com`, inspects `/backend-api/codex/*` as the Responses API and forwards every other
+  path untouched. Off by default, because interception is per host and covers the ChatGPT web
+  app too. Restart-required. The client-setup guide has a Codex CLI recipe.
+
+- **Audit records carry `"schema": 1`.** Every `audit.jsonl` line, every webhook batch and every
+  event in it now names the version of the record shape, so a SIEM parser can branch on it if the
+  shape ever changes. Adding a field keeps the version; renaming or removing one raises it.
+
 ### Fixed
+
+- **Compressed request bodies are scanned.** The proxy and the gateway read a request body
+  sent with `Content-Encoding` as raw bytes, so a prompt in a gzip, Brotli, deflate or zstd
+  body passed every detector unread. Codex CLI signed in with ChatGPT compresses its requests
+  with zstd by default. Bodies are now decoded before scanning, capped at `proxy.maxBodyBytes`,
+  and forwarded decoded; an encoding llm-fw cannot decode is refused with `415`, a corrupt body
+  with `400`, and one that expands past the limit with `413`, rather than forwarded unscanned.
+  zstd needs Node 22.15 or later; on an older Node a zstd body is refused.
+
+- **The audit webhook no longer ships prompt text unless payloads are enabled.** The file sink
+  dropped `payload_full` and `payload_preview` unless `audit.includePayloads` (or
+  `LLM_FW_AUDIT_PAYLOADS=true`) was set, but the webhook posted the raw event, so pointing
+  `LLM_FW_AUDIT_WEBHOOK` at a collector sent every blocked prompt off the host. Both sinks now
+  build the same record. Found during the 1.0 security review.
 
 - **Fewer benign tool outputs refused (#391; ruleset 2026.10.84).** Replaying 872 real Codex CLI
   shell outputs, 17 were refused by default and 6 still are. Five shapes are no longer read as
@@ -19,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged (2.68%, 9 of 336; Dolly and oasst1 0 of 2,000 each).
 
 ### Documentation
+
+- **[docs/STABILITY.md](docs/STABILITY.md) states what semver covers from 1.0**: CLI, config
+  keys, `LLM_FW_*` variables, the library exports, the gateway endpoint, refusals, the dashboard's
+  operations routes, Prometheus metrics, the audit record and the data directory. Detection
+  verdicts follow `RULESET_VERSION` instead; the token-saving modules and the judge are
+  experimental.
+
+- **`SECURITY.md` lists the two advisories in the Semgrep CI lock** (`opentelemetry-api` 1.37.0,
+  `mcp` 1.29.0), why each is accepted, and that neither ships in the npm package or the image.
+  Semgrep pins both versions itself, so they move only with a Semgrep release (#452, #433).
 
 - **Road to 1.0.0.** [docs/plans/PLAN-1.0.md](docs/plans/PLAN-1.0.md) lists what
   has to be true before 1.0.0 ships: the open security advisory, a stability

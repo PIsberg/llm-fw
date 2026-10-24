@@ -365,6 +365,27 @@ Every prompt, tool result and MCP tool definition Claude Code sends to
 `api.anthropic.com` now passes through the detection pipeline. Blocked requests
 surface in the dashboard with `[tool-result]` and `[tool-def]` provenance tags.
 
+### Codex CLI
+
+Codex is a native binary. It honours `HTTPS_PROXY` and reads an extra CA from
+`CODEX_CA_CERTIFICATE` (or `SSL_CERT_FILE`):
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:8080
+export CODEX_CA_CERTIFICATE="$HOME/.llm-fw/ca.crt"
+codex
+```
+
+Which route it takes depends on how you signed in:
+
+- **API key:** Codex talks to `api.openai.com`, which llm-fw inspects by default.
+- **ChatGPT account:** Codex talks to `chatgpt.com/backend-api/codex`, which
+  llm-fw tunnels uninspected unless the operator sets
+  `proxy.inspectChatgptBackend: true` (see
+  [Configuration](configuration.md#configuration)). Codex compresses those
+  request bodies with zstd; llm-fw decodes them, which needs Node 22.15 or later
+  on the firewall host.
+
 ### Cursor, VS Code, Antigravity
 
 Electron IDEs bypass the OS hosts file, so use the IDE's proxy setting rather

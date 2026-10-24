@@ -351,7 +351,7 @@ export async function run(args: string[] = []): Promise<void> {
   // appear on the dashboard and be missing from the record.
   auditLog = config.audit?.enabled ? new AuditLog(config.audit) : null;
   auditWebhook = config.audit?.enabled && config.audit.webhookUrl
-    ? new AuditWebhook(config.audit.webhookUrl)
+    ? new AuditWebhook(config.audit.webhookUrl, undefined, undefined, undefined, config.audit.includePayloads)
     : null;
   if (auditLog) {
     auditLog.open();
