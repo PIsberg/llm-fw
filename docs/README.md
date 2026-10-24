@@ -87,6 +87,7 @@ Release planning: [PLAN-1.0.md](plans/PLAN-1.0.md), the checklist for 1.0.0 GA.
 | --- | --- |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Reporting bugs and detection misses, code style, testing requirements, PR process |
 | [SECURITY.md](../SECURITY.md) | Reporting a vulnerability |
+| [STABILITY.md](STABILITY.md) | What semver covers from 1.0: CLI, config, env vars, library, gateway, metrics, audit record, data directory |
 | [CHANGELOG.md](../CHANGELOG.md) | Release history |
 | [PUBLISHING.md](PUBLISHING.md) | Publishing to npm (maintainers) |
 | [LICENSING.md](LICENSING.md) | How commercial and offline licences are issued (maintainer runbook) |

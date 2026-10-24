@@ -8,6 +8,29 @@ import { createLogger } from '../logger.js';
 const log = createLogger('audit');
 
 /**
+ * Version of the audit record shape, written into every `audit.jsonl` line and
+ * every webhook batch. Part of the 1.0 stability contract (docs/STABILITY.md):
+ * adding a field keeps it, renaming or removing one bumps it, so a SIEM parser
+ * can branch on it instead of guessing from the fields present.
+ */
+export const AUDIT_SCHEMA_VERSION = 1;
+
+/**
+ * The record both sinks write: the event, stamped with the schema and the
+ * ruleset that decided it. Payloads can carry customer data and secrets, so
+ * they are dropped unless `includePayloads` is the deliberate opt-in; enabling
+ * the audit log, file or webhook, never silently starts shipping prompt text.
+ */
+function auditRecord(event: BlockEvent, includePayloads: boolean | undefined): Record<string, unknown> {
+  return {
+    schema: AUDIT_SCHEMA_VERSION,
+    ...event,
+    ruleset: RULESET_VERSION,
+    ...(includePayloads ? {} : { payload_full: undefined, payload_preview: undefined }),
+  };
+}
+
+/**
  * A durable destination for events. Both sinks below implement it, and
  * EventBus.emit() fans out to whatever it was given, so adding a sink never
  * means touching the scanners that produce events.
@@ -95,16 +118,7 @@ export class AuditLog {
     if (!this.config.enabled) return;
     if (!this.stream && !this.rotating) this.open();
 
-    const record = {
-      ...event,
-      ruleset: RULESET_VERSION,
-      // Payloads can carry customer data and secrets. Off by default so
-      // enabling the audit log never silently starts writing prompt text to
-      // disk; `includePayloads` is the deliberate opt-in.
-      ...(this.config.includePayloads ? {} : { payload_full: undefined, payload_preview: undefined }),
-    };
-
-    const line = JSON.stringify(record) + '\n';
+    const line = JSON.stringify(auditRecord(event, this.config.includePayloads)) + '\n';
     // A rotation is a flush plus a rename, both asynchronous. Events that
     // arrive during that window are held rather than written, because writing
     // them would either land them in the file about to be renamed away or
@@ -191,7 +205,7 @@ export class AuditLog {
  * service.
  */
 export class AuditWebhook {
-  private queue: BlockEvent[] = [];
+  private queue: Record<string, unknown>[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private dropped = 0;
   private failures = 0;
@@ -201,6 +215,7 @@ export class AuditWebhook {
     private readonly maxQueue = 1000,
     private readonly flushMs = 2000,
     private readonly headers: Record<string, string> = {},
+    private readonly includePayloads = false,
   ) {}
 
   get droppedCount(): number { return this.dropped; }
@@ -225,7 +240,7 @@ export class AuditWebhook {
       this.queue.shift();
       this.dropped++;
     }
-    this.queue.push(event);
+    this.queue.push(auditRecord(event, this.includePayloads));
   }
 
   async flush(): Promise<void> {
@@ -236,7 +251,7 @@ export class AuditWebhook {
       const res = await fetch(this.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...this.headers },
-        body: JSON.stringify({ ruleset: RULESET_VERSION, events: batch }),
+        body: JSON.stringify({ schema: AUDIT_SCHEMA_VERSION, ruleset: RULESET_VERSION, events: batch }),
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) this.failures++;

@@ -119,8 +119,8 @@ describe('GET /metrics — Prometheus scrape endpoint', () => {
     expect(res.headers['content-type']).toContain('text/plain')
     expect(res.body).toContain('# HELP llmfw_requests_total')
     expect(res.body).toContain('# TYPE llmfw_blocks_total counter')
-    expect(res.body).toContain('# TYPE llmfw_scan_duration_ms histogram')
-    expect(res.body).toContain('llmfw_scan_duration_ms_bucket{le="+Inf"}')
+    expect(res.body).toContain('# TYPE llmfw_scan_duration_seconds histogram')
+    expect(res.body).toContain('llmfw_scan_duration_seconds_bucket{le="+Inf"}')
     // Model status was mocked as embedding=true, classifier=false.
     expect(res.body).toContain('llmfw_model_loaded{model="embedding"} 1')
     expect(res.body).toContain('llmfw_model_loaded{model="classifier"} 0')
