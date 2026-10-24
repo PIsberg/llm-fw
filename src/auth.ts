@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
+import { isIP } from 'node:net';
 
 /**
  * Shared credential handling for every listener that can be exposed off-host:
@@ -13,6 +14,26 @@ export function isLoopbackAddr(addr: string | undefined): boolean {
   if (!addr) return false;
   const a = addr.replace(/^::ffff:/, '');
   return a === '127.0.0.1' || a === '::1' || a.startsWith('127.');
+}
+
+/**
+ * True when an HTTP `Host` header names this machine's loopback: `localhost`,
+ * a `*.localhost` name, `127.0.0.0/8` or `[::1]`, with or without a port.
+ *
+ * A web page that rebinds its own domain to 127.0.0.1 reaches a loopback
+ * listener FROM loopback, so the source address alone cannot tell the local
+ * operator from any website they visit. The page cannot choose `Host`,
+ * though: the browser sends the page's own domain (GHSA-c725-vwcm-h8rr). An
+ * absent `Host` counts as local, because browsers always send one.
+ */
+export function isLoopbackHostHeader(host: string | undefined): boolean {
+  if (!host) return true;
+  let name = host.trim().toLowerCase();
+  if (name.startsWith('[')) name = name.slice(1, name.indexOf(']'));
+  else if (name.split(':').length === 2) name = name.slice(0, name.indexOf(':'));
+  // An IP literal, checked as one: isLoopbackAddr's "127." prefix test would
+  // also accept a name like 127.x.attacker.example, which the attacker controls.
+  return name === 'localhost' || name.endsWith('.localhost') || (isIP(name) !== 0 && isLoopbackAddr(name));
 }
 
 /**
@@ -72,16 +93,22 @@ export function generateToken(): string {
 export interface AuthPolicy {
   /** Whether a credential is demanded at all. */
   required: boolean;
-  /** The expected credential (empty when auth is off). */
+  /**
+   * The expected credential. When auth is not required this is the configured
+   * token, if any, so a caller that does not qualify for loopback trust (a
+   * reverse proxy on this host) can still present one.
+   */
   token: string;
   /** True when the token was generated rather than configured — print it once. */
   generated: boolean;
   /**
    * Whether loopback clients skip the check. True only when the requirement was
-   * INFERRED from a non-local bind: an operator who explicitly sets
-   * `requireAuth: true` means every client, including one on this machine.
+   * INFERRED from the bind: an operator who explicitly sets `requireAuth: true`
+   * means every client, including one on this machine.
    */
   exemptLoopback: boolean;
+  /** `requireAuth: false` set explicitly: every caller is admitted. */
+  open: boolean;
 }
 
 /**
@@ -102,23 +129,30 @@ export function resolveAuthPolicy(opts: {
 }): AuthPolicy {
   const inferred = !isLocalBind(opts.bindHost);
   const required = opts.requireAuth ?? inferred;
-  if (!required) return { required: false, token: '', generated: false, exemptLoopback: true };
   const configured = opts.authToken ?? '';
+  if (!required) return { required: false, token: configured, generated: false, exemptLoopback: true, open: opts.requireAuth === false };
   return {
     required: true,
     token: configured || generateToken(),
     generated: configured === '',
     exemptLoopback: opts.requireAuth === undefined,
+    open: false,
   };
 }
 
-/** Apply a resolved policy to one client. */
+/**
+ * Apply a resolved policy to one client. `hostHeader` is the HTTP `Host` of a
+ * request to an HTTP listener; loopback trust needs it to name loopback (see
+ * isLoopbackHostHeader). The proxy's CONNECT passes none: its `Host` names the
+ * tunnel's target, and a browser cannot send CONNECT.
+ */
 export function authorizeClient(
   policy: AuthPolicy,
   remoteAddress: string | undefined,
   presented: string,
+  hostHeader?: string,
 ): boolean {
-  if (!policy.required) return true;
-  if (policy.exemptLoopback && isLoopbackAddr(remoteAddress)) return true;
-  return tokenMatches(presented, policy.token);
+  if (policy.open) return true;
+  if (policy.exemptLoopback && isLoopbackHostHeader(hostHeader) && (!policy.required || isLoopbackAddr(remoteAddress))) return true;
+  return policy.token !== '' && tokenMatches(presented, policy.token);
 }

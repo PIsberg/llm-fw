@@ -457,9 +457,14 @@ Shared behaviour worth knowing:
 
 - Tokens are compared by hashing both sides and using a constant-time compare,
   so a wrong length does not leak through timing.
-- **Loopback callers bypass the dashboard token unconditionally.** Anyone with a
+- **Loopback callers bypass the dashboard token** when their `Host` header names
+  loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Anyone with a
   shell on the server, or any process on it, reads every captured payload and can
-  toggle defenses. There is no `dashboard.requireAuth` to close this.
+  toggle defenses. There is no `dashboard.requireAuth` to close this. A loopback
+  request with any other `Host` must present the token, which shuts out web pages
+  that rebind their domain to `127.0.0.1` and means a reverse proxy on the same
+  host must forward the token (set `LLM_FW_DASHBOARD_TOKEN`). The gateway applies
+  the same rule to its own loopback trust.
 - `/ca.crt`, `/ca.pem` and `/crl` are always unauthenticated. A client cannot
   present a token before it trusts the CA.
 - `/healthz`, `/livez` and `/readyz` answer before authentication, because a
