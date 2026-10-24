@@ -126,7 +126,9 @@ Findings so far:
   40 KB messages scan in 48 s instead of 391 s. Left: the heuristic stage reads
   every byte at about 0.25 s per 40 KB message, linear in the body up to
   `proxy.maxBodyBytes` (10 MiB); and the WebSocket relay.
-- [ ] Fail-open versus fail-closed, written down per path.
+- [x] Fail-open versus fail-closed, written down per path.
+  Status: a table of 17 paths under "Failure Semantics" in
+  `docs/guides/configuration.md`, each read from the code it names.
 - [x] Fuzzers for the provider parsers and the normalizer, in the suite.
   Status: `test/fuzz/parsers.fuzz.test.ts` already held never-throws
   properties for every parser method and normalizer; `body-and-path.fuzz.test.ts`

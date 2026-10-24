@@ -420,3 +420,30 @@ What happens if the detection pipeline itself **fails** — a parser or stage th
 | `LLM_FW_FAIL_MODE` | `open` / `closed` — any other value is ignored |
 
 Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` (`LLM_FW_BYPASS=true`) turns the whole proxy into a transparent no-inspection tunnel, and upstream/network failures still surface as `502` proxy errors as before.
+
+### Every path, open or closed
+
+`failMode` covers one failure. The table lists what each other path does when it cannot inspect something, read from the code (file in the last column), so the open paths are a decision on record rather than a surprise. **Closed** means the request or response does not go through; **open** means it goes through without that inspection.
+
+| Situation | What happens | | Where |
+| --- | --- | --- | --- |
+| The detection pipeline throws | Refused with the block status, or forwarded with an `error` event under `failMode: open` | closed by default | `proxy.ts`, `gateway.ts` |
+| A body sent to a parsed endpoint is not valid JSON, or repeats a key | Refused, stage `malformed-body` | closed | `pipeline.ts` |
+| A JSON `POST` to an intercepted host on a path no parser reads | Forwarded, with an `unparsed` warn event | open | `proxy.ts` |
+| A request `Content-Encoding` llm-fw cannot decode | `415`; a corrupt body `400`; one that expands past `proxy.maxBodyBytes` `413` | closed | `contentEncoding.ts` |
+| A request body over `proxy.maxBodyBytes` | `413` | closed | `proxy.ts`, `gateway.ts` |
+| The embedding model failed to load | Stage 2 is skipped and the other stages run; the gateway's `/readyz` answers `503` until it loads, so an orchestrator routes no traffic to it | open | `embedding.ts`, `gateway.ts` |
+| A request spends its embedding budget (`detection.embeddingMaxPassesPerRequest`) | The rest is read by the heuristic stage only; the request warns with stage `scan-budget` | open | `pipeline.ts` |
+| The judge (Ollama) is unreachable or errors | It returns `ERROR` and the scan carries on without it | open | `judge.ts` |
+| An image or audio clip llm-fw cannot read | Forwarded with a `non-text` warn; `nonText.mode: block` refuses it | open by default | `pipeline.ts` |
+| A token-saving module throws | Logged; the request continues unmodified | open | `modules/registry.ts` |
+| A response over `proxy.maxBodyBytes` | Forwarded verbatim from that point, inspection stops | open | `proxy.ts` |
+| A compressed response llm-fw cannot decode | Forwarded verbatim, not inspected | open | `proxy.ts` |
+| A WebSocket upgrade to anything but the OpenAI Realtime API or Gemini Live | `501` | closed | `proxy.ts`, `gateway.ts` |
+| A plain-HTTP request to the proxy | `501` | closed | `proxy.ts` |
+| A `CONNECT` to a host that is not intercepted | Tunnelled without inspection, by design | open | `proxy.ts` |
+| A `CONNECT` from a non-loopback client into the host's loopback or link-local addresses | `403` | closed | `tunnelGuard.ts` |
+| Observe mode, deployment-wide or per tenant | Every refusal is recorded and the request forwarded | open, by configuration | `pipeline.ts` |
+
+The open rows are deliberate trade-offs. Response-side inspection is defence in depth behind the request side. A judge that is down must not take the firewall down with it. A refusal for a spent embedding budget would turn a long session resumed after a restart into an outage while the heuristic stage still reads every byte.
+
