@@ -197,7 +197,11 @@ Findings so far:
 - [~] Docs claim audit of the README and guides against the code. Status:
   started 2026-10-24 on the hardening branch: the README quoted a stale
   13.38% false-positive rate (now 2.68%) and the client-setup uninstall steps
-  described removed behaviour; both fixed. Left: the rest of the guides.
+  described removed behaviour; both fixed. Checked mechanically across the
+  README and every guide, all clean: each documented llm-fw flag exists in
+  `src/cli`, each `LLM_FW_*` variable is read by the code, and each dotted
+  config key names a field in `src/types.ts`. Left: reading the guides'
+  prose claims (behaviour, numbers outside generated blocks) against the code.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release
