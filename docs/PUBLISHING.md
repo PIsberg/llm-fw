@@ -8,6 +8,7 @@ Releases are published to [npmjs.com](https://www.npmjs.com/package/llm-fw) by t
 1. Bump `version` in `package.json` and commit/merge to `main`.
 2. Create a **GitHub Release** with tag `vX.Y.Z` (matching that version — the workflow fails on a mismatch).
 3. The workflow lints, type-checks, builds, runs the test suite, and runs `npm publish --provenance --access public`.
+4. A second job attaches `llm-fw-vX.Y.Z.cdx.json` to the Release: a CycloneDX SBOM of the production dependencies, generated from the lockfile at the tag with `npm sbom --omit dev`. It is a separate job because uploading a release asset needs `contents: write`, which the publish job, able to mint an npm OIDC token, does not hold. If only this job fails, re-run it; the package is already on npm.
 
 Only `dist/` and `data/` ship (the `files` whitelist); `npm pack --dry-run` shows the exact tarball. Publishing with provenance means the npm page links back to the exact commit and workflow run that built the release.
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every GitHub Release carries an SBOM.** `llm-fw-vX.Y.Z.cdx.json` is a CycloneDX 1.5 list of the
+  production dependencies the version ships (60 components for 0.9.0), generated from the lockfile
+  at the tag, so a version can be audited without installing it.
+
 ### Fixed
 
 - **`llm-fw uninstall` no longer edits a `.llm-fw.json` in the directory it is run from.** It used

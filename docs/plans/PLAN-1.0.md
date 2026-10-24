@@ -152,8 +152,13 @@ Findings so far:
   properties for every parser method and normalizer; `body-and-path.fuzz.test.ts`
   adds agreement properties for the repeated-key check and the canonical path
   (300 runs each). Mutating either implementation fails 3 of its 4 properties.
-- [ ] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to
-  releases.
+- [x] Triage current CodeQL, Semgrep and Scorecard findings. SBOM attached to
+  releases. Status: 2026-10-24, no open CodeQL, Semgrep, Dependabot or
+  secret-scanning alerts; 7 Scorecard findings. Vulnerabilities: the npm
+  package audits clean (`npm audit --omit=dev`, 0); dev-only zod moved to
+  4.6.7; dev-only fast-uri 3.1.8 waits for 3.1.9 to clear the 7-day cooldown
+  on 2026-10-26. Pinned-Dependencies, Code-Review and CII-Best-Practices are
+  accepted as before. The release workflow now attaches a CycloneDX SBOM.
 - [ ] External pentest: decide yes or no.
 
 ## Phase 3: remote server testing
