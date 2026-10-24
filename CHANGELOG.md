@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Detection no longer has quadratic worst cases (GHSA-gm3q-2gwx-gppq).** Several detector
+  regexes (the indirect-instruction email and clause-start patterns, the harmful-request threat
+  tail, the taint domain pattern) and transformers.js's Unigram tokenizer took time quadratic in
+  the input, on the thread that serves every request. One large tool result or prompt could stall
+  every client: 100 KB of line breaks took 9.8 s in one detector, and 100 KB of base64 took 35 s
+  end to end on the user-prompt surface. The regexes now start only at the beginning of a run,
+  and the tokenizer's prefix search is bounded to the longest vocabulary token, which leaves every
+  token id unchanged. The same inputs now take milliseconds per detector. Measured: 0 of 23,938
+  eval verdicts changed.
+
 - **The dashboard and a loopback gateway no longer trust a rebound web page (GHSA-c725-vwcm-h8rr).**
   Both trusted every request from loopback without looking at its `Host` header, so a website
   using DNS rebinding (its own domain re-pointed at `127.0.0.1`) could, on a default install, read

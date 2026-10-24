@@ -29,6 +29,18 @@ PR with the measured before and after. Never lower one silently to go green.
 Prefer closing a miss additively in stage 1 over recalibrating stage 2. A regex
 gap is a local fix; a threshold move is a global one.
 
+## Linear time
+
+Detection runs on the thread that serves every request, and its input is
+often attacker-controlled, so a regex with quadratic worst case stalls every
+client. Two shapes did (GHSA-gm3q-2gwx-gppq): a leading `\b` or `\s*` before a
+character class that can span a long run (`\b[A-Za-z0-9._%+-]+@`,
+`[.!?\n]\s*`, `[,;]?\s*`), which restarts at every position of the run and
+rescans it. Start such a pattern where the previous character cannot belong
+to the run (`(?<![...])`), and skip only horizontal whitespace after a line
+break. New detectors get a timing test on 200 KB of whitespace, `1-` and
+base64url, like those in `test/detection/indirectInstruction.test.ts`.
+
 ## Ruleset version
 
 Detection carries `RULESET_VERSION` in `src/detection/ruleset.ts`, separate from
