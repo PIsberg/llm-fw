@@ -176,7 +176,7 @@ Install Ollama from **https://ollama.com/download**, then:
 ollama pull phi3
 ```
 
-Add to your `.llm-fw.json`:
+Add to `~/.llm-fw/config.json` (or the file `LLM_FW_CONFIG` names):
 
 ```json
 {

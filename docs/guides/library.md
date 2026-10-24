@@ -8,7 +8,7 @@ The proxy ([Quick Start](../../README.md#quick-start)) is the zero-integration p
 import { createFirewall } from 'llm-fw'
 
 const firewall = await createFirewall({
-  // Optional — deep-merges over your .llm-fw.json / env-var config, same as the proxy.
+  // Optional — deep-merges over ~/.llm-fw/config.json, LLM_FW_CONFIG and env vars, same as the proxy.
   detection: { judgeEnabled: false },
 })
 

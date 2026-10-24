@@ -1,5 +1,6 @@
 import { Config, ScanSource } from '../types.js';
-import { cosmiconfig } from 'cosmiconfig';
+import { existsSync, readFileSync } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
 import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS, AI_PROVIDER_INTERCEPT_DOMAINS } from './providers.js';
 import { getLlmFwDir } from './paths.js';
 
@@ -466,29 +467,68 @@ export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   return result;
 }
 
-export async function loadConfig(): Promise<Config> {
-  const explorer = cosmiconfig('llm-fw', {
-    searchPlaces: [
-      'package.json',
-      '.llm-fw.json',
-      '.llm-fwrc',
-      '.llm-fwrc.json',
-      '.llm-fwrc.yaml',
-      '.llm-fwrc.yml',
-      '.llm-fwrc.js',
-      'llm-fw.config.js'
-    ]
-  });
-  const found = await explorer.search();
+// Project files earlier versions picked up from the working directory. They
+// are no longer read: the working directory is wherever the user happens to
+// be, often a cloned repository, and that repository's `.llm-fwrc.js` ran as
+// code while its `.llm-fw.json` could switch enforcement off or bind the proxy
+// to every interface (GHSA-4578-7p8f-hc8r). Listed only to say so once.
+const IGNORED_PROJECT_FILES = [
+  '.llm-fw.json', '.llm-fwrc', '.llm-fwrc.json', '.llm-fwrc.yaml', '.llm-fwrc.yml', '.llm-fwrc.js', 'llm-fw.config.js',
+];
+const warnedIgnored = new Set<string>();
+
+/**
+ * The project layer: a JSON file named by `LLM_FW_CONFIG`, or nothing. Like
+ * `LLM_FW_DIR`, the variable comes from the process environment only, so no
+ * file can redirect it. A file that was asked for and cannot be used is an
+ * error, not a silent fall-back to defaults the operator did not choose.
+ */
+function readProjectConfig(): Partial<Config> {
+  const named = process.env.LLM_FW_CONFIG;
+  if (!named) {
+    for (const name of IGNORED_PROJECT_FILES) {
+      const p = resolve(process.cwd(), name);
+      if (warnedIgnored.has(p) || !existsSync(p)) continue;
+      warnedIgnored.add(p);
+      const use = name.endsWith('.json')
+        ? `Set LLM_FW_CONFIG=${p} to use it`
+        : 'To use it, convert it to a .json file and set LLM_FW_CONFIG to that path';
+      console.warn(`llm-fw: ignoring ${p}: project config files are no longer read from the working directory. ${use}, or move its settings to ${join(getLlmFwDir(), 'config.json')}.`);
+    }
+    return {};
+  }
+  if (extname(named).toLowerCase() !== '.json') {
+    throw new Error(`LLM_FW_CONFIG must name a .json file; got ${named}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(named, 'utf8'));
+  } catch (err) {
+    throw new Error(`LLM_FW_CONFIG names ${named}, which could not be read as JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`LLM_FW_CONFIG names ${named}, which does not hold a JSON object`);
+  }
+  return parsed;
+}
+
+/**
+ * Resolve the effective config from every layer. Asynchronous for its callers'
+ * sake (the signature predates the synchronous reads): a project file that
+ * cannot be used surfaces as a rejection, not a synchronous throw.
+ */
+export function loadConfig(): Promise<Config> {
+  return new Promise(resolve => { resolve(buildConfig()); });
+}
+
+function buildConfig(): Config {
+  const projectConfig = readProjectConfig();
 
   // ~/.llm-fw/config.json persists settings written by setup (e.g. sinkhole mode).
   // It takes priority over project-level config but is overridden by env vars below.
   let userConfig: Partial<Config> = {};
   try {
-    const { readFileSync } = await import('node:fs');
-    const path = await import('node:path');
-    const p = path.join(getLlmFwDir(), 'config.json');
-    userConfig = JSON.parse(readFileSync(p, 'utf8')) as Partial<Config>;
+    userConfig = JSON.parse(readFileSync(join(getLlmFwDir(), 'config.json'), 'utf8')) as Partial<Config>;
   } catch { /* not present */ }
 
   // Clone the default before merging: deepMerge only recurses into keys the
@@ -500,7 +540,7 @@ export async function loadConfig(): Promise<Config> {
   // the rest of the process (surfaced by Task B3's surfaces override, but a
   // latent risk for every existing in-place env override too).
   let config = deepMerge<Config>(
-    deepMerge<Config>(structuredClone(DEFAULT_CONFIG), (found?.config as Partial<Config> | undefined) ?? {}),
+    deepMerge<Config>(structuredClone(DEFAULT_CONFIG), projectConfig),
     userConfig
   );
 

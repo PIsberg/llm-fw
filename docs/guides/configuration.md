@@ -6,7 +6,31 @@ Where config is read from, the full key reference, and what the firewall does wh
 
 ## Configuration
 
-Create `.llm-fw.json` in your project root, or `~/.llm-fw.json` for a global default:
+Settings are read from four layers, lowest precedence first:
+
+1. the built-in defaults;
+2. a JSON file named by `LLM_FW_CONFIG`, if set;
+3. `<LLM_FW_DIR>/config.json`, default `~/.llm-fw/config.json`, which `setup`,
+   `setup-judge` and the dashboard's Settings view write;
+4. `LLM_FW_*` environment variables.
+
+**The working directory is not searched.** Earlier versions read
+`.llm-fw.json`, `.llm-fwrc*`, `llm-fw.config.js` or a `"llm-fw"` key in
+`package.json` from whatever directory llm-fw was started in, so running it
+inside a cloned repository let that repository change the firewall's settings
+or run code. A file of that name in the working directory is now ignored, with
+a warning that names it. To keep using one, point at it explicitly:
+
+```bash
+LLM_FW_CONFIG=/path/to/.llm-fw.json llm-fw start
+```
+
+`LLM_FW_CONFIG` must name a `.json` file; a missing or unparsable file stops
+startup rather than falling back to defaults. JavaScript and YAML config files
+are not supported. Like `LLM_FW_DIR`, it is read from the process environment
+only, so no config file can redirect it.
+
+A config file, for example `~/.llm-fw/config.json`:
 
 ```json
 {

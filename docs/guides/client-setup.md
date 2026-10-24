@@ -617,7 +617,8 @@ What it does, in order:
    Tool Usage counts (`tool-usage.json`) and the licence key. It prints what it removed and what it left. `--purge` deletes
    all of that too, except the licence key.
 6. **Removes judge settings** (`detection.judgeEnabled/judgeModel/judgeBlock`)
-   from the project `.llm-fw.json`, keeping any settings you authored yourself.
+   from a `.llm-fw.json` in the current directory, which older versions of
+   `setup-judge` wrote, keeping any settings you authored yourself.
 7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)
    that setup wrote into VS Code / Antigravity `settings.json`.
 8. **Removes the `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` environment variables** —
