@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **Road to 1.0.0.** [docs/plans/PLAN-1.0.md](docs/plans/PLAN-1.0.md) lists what
+  has to be true before 1.0.0 ships: the open security advisory, a stability
+  contract for config keys, CLI flags and the library API, a surface-by-surface
+  security review, testing on a remote server, and the GA accuracy bar. Each item
+  is ticked as it is verified.
+
 ## [0.8.0] - 2026-10-23
 
 ### Added
