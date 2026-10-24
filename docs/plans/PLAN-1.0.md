@@ -79,8 +79,18 @@ Findings so far:
   could tunnel into the host's loopback and link-local addresses
   (GHSA-q53q-qg98-p9jf), fixed in 0.9.0; compressed bodies passed unscanned,
   now decoded and capped at `proxy.maxBodyBytes` (#458).
-- [ ] Gateway: tenant isolation, SSRF through routing, provider keys in errors,
-  logs or the dashboard, quota bypass.
+- [x] Gateway: tenant isolation, SSRF through routing, provider keys in errors,
+  logs or the dashboard, quota bypass. Status: reviewed 2026-10-24. Routing
+  maps each slug to a fixed or operator-configured host, so a caller picks
+  only the path. Order is auth, route, tenant provider allowlist, quota, body,
+  screen, then cache or forward; a refused provider costs no quota. The
+  response cache keys on tenant, session, every credential header and the
+  URL, stores only 200s and answers nothing without a credential. Fixed: three
+  error logs printed the query string, where Google and Azure put the key;
+  the auth-path exemption from key custody now uses the canonical path.
+  Accepted: an upstream error body reaches the client unchanged, so OpenAI's
+  "Incorrect API key provided: sk-...abcd" shows the last four characters of
+  an operator key.
 - [x] Dashboard: the loopback exemption behind a same-host reverse proxy, DNS
   rebinding against `127.0.0.1:7731`, the Origin check, SSE. Status: DNS
   rebinding reached the dashboard and a loopback gateway on a default install
