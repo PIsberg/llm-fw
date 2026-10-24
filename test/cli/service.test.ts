@@ -365,4 +365,13 @@ describe('buildSystemdUnit', () => {
     const unit = buildSystemdUnit(withSpace)
     expect(unit).toContain('ExecStart="/usr/bin/node" "/home/me/my app/index.js" "start"')
   })
+
+  // systemd expands %-specifiers and $VARIABLES inside ExecStart even within
+  // double quotes, and reads backslash escapes there (#465). A path holding
+  // any of them started a different command.
+  it('escapes %, $, backslash and double quote so the path reaches node as written', () => {
+    const odd: Invocation = { command: '/usr/bin/node', args: ['/opt/100%/$HOME/a\\b"c/index.js', 'start'] }
+    const unit = buildSystemdUnit(odd)
+    expect(unit).toContain('ExecStart="/usr/bin/node" "/opt/100%%/$$HOME/a\\\\b\\"c/index.js" "start"')
+  })
 })

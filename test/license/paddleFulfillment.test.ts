@@ -111,22 +111,25 @@ describe('Paddle -> Keygen license fulfilment', () => {
         expiry: '2027-10-21T00:00:00.000Z',
       })
 
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 201,
-        json: () =>
-          Promise.resolve({
-            data: {
-              id: 'lic_01',
-              type: 'licenses',
-              attributes: {
-                key,
-                name: 'Acme Corp',
-                expiry: '2027-10-21T00:00:00.000Z',
+      const fetchMock = vi.fn()
+        // The lookup for an existing licence on this transaction: none.
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ data: [] }) })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: () =>
+            Promise.resolve({
+              data: {
+                id: 'lic_01',
+                type: 'licenses',
+                attributes: {
+                  key,
+                  name: 'Acme Corp',
+                  expiry: '2027-10-21T00:00:00.000Z',
+                },
               },
-            },
-          }),
-      })
+            }),
+        })
 
       const payload = JSON.stringify({
         event_type: 'transaction.completed',
@@ -160,8 +163,11 @@ describe('Paddle -> Keygen license fulfilment', () => {
         expect(result.activationCommand).toBe(`llm-fw license --activate ${key}`)
       }
 
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      const [lookupUrl, lookupInit] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(lookupUrl).toBe('https://api.keygen.sh/v1/accounts/e32e3ad2-6680-45ea-81e0-df983822fdd0/licenses?metadata[paddleTransactionId]=txn_01hxyz&limit=1')
+      expect(lookupInit.method).toBe('GET')
+      const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit]
       expect(url).toBe('https://api.keygen.sh/v1/accounts/e32e3ad2-6680-45ea-81e0-df983822fdd0/licenses')
       expect(init.method).toBe('POST')
       const sentBody = JSON.parse(init.body as string) as Record<string, unknown>
@@ -212,6 +218,45 @@ describe('Paddle -> Keygen license fulfilment', () => {
           now,
         }),
       ).rejects.toThrow(/failed offline verification/i)
+    })
+
+    // #466: the operator tool created a licence on every run, so running it
+    // twice for one purchase issued two valid keys.
+    it('returns the licence already issued for the transaction instead of minting a second', async () => {
+      const { key, publicKeyHex } = makeSignedKeygenKey({ holder: 'Acme Corp', plan: 'Team Annual' })
+      const fetchMock = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ data: [{ id: 'lic_existing', type: 'licenses', attributes: { key, name: 'Acme Corp' } }] }),
+      })
+
+      const issued = await issueKeygenLicense({
+        accountId: 'acc_1',
+        policyId: 'pol_1',
+        apiToken: 'tok_1',
+        transactionId: 'txn_repeat',
+        publicKeyHex,
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        now,
+      })
+
+      expect(issued.licenseId).toBe('lic_existing')
+      expect(issued.licenseKey).toBe(key)
+      expect(issued.reused).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('GET')
+    })
+
+    it('refuses to mint when the lookup for an existing licence fails', async () => {
+      const { publicKeyHex } = makeSignedKeygenKey({ holder: 'Acme' })
+      const fetchMock = vi.fn().mockResolvedValueOnce({ ok: false, status: 503, json: () => Promise.resolve({}) })
+      await expect(
+        issueKeygenLicense({
+          accountId: 'acc_1', policyId: 'pol_1', apiToken: 'tok_1', transactionId: 'txn_x',
+          publicKeyHex, fetchImpl: fetchMock as unknown as typeof fetch, now,
+        }),
+      ).rejects.toThrow(/existing licence/i)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     })
   })
 })

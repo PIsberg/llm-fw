@@ -126,9 +126,8 @@ Findings so far:
   `schtasks /Create`; the systemd unit and launchd plist live in the user's
   home; `setup` writes HKCU via `setx` or appends a marked block to the shell
   profile, which uninstall strips by marker. Fixed: uninstall edited or
-  deleted a `.llm-fw.json` in the working directory. Accepted: the systemd
-  `ExecStart` quotes each argument but does not escape `%` or `$`, which only
-  matters for an install path containing them (#465).
+  deleted a `.llm-fw.json` in the working directory; the systemd `ExecStart`
+  did not escape `%`, `$`, backslash or `"` in the install path (#465).
 - [x] Licence: offline licence forgery, Paddle fulfilment trust. Status:
   reviewed 2026-10-24. Keys and licence files are Ed25519-verified offline
   against compiled-in keys. The licence gates nothing functional: it feeds
@@ -137,10 +136,9 @@ Findings so far:
   verify keys (documented in `docs/LICENSING.md` for staging), so a user can
   make their own install report itself licensed, which in an open-source
   package is no more than editing the code. Paddle: `Paddle-Signature` is an
-  HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Accepted:
-  `scripts/fulfill-paddle-webhook.ts` is run by hand and does not look up an
-  existing licence for the transaction, so running it twice issues a second
-  key for the same purchase (#466).
+  HMAC-SHA256 over `ts:body`, 300 s window, constant-time compare. Fixed:
+  `scripts/fulfill-paddle-webhook.ts` issued a second key when run twice for
+  one transaction; it now returns the existing one (#466).
 - [x] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
   WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
   embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
@@ -199,7 +197,11 @@ Findings so far:
 - [~] Docs claim audit of the README and guides against the code. Status:
   started 2026-10-24 on the hardening branch: the README quoted a stale
   13.38% false-positive rate (now 2.68%) and the client-setup uninstall steps
-  described removed behaviour; both fixed. Left: the rest of the guides.
+  described removed behaviour; both fixed. Checked mechanically across the
+  README and every guide, all clean: each documented llm-fw flag exists in
+  `src/cli`, each `LLM_FW_*` variable is read by the code, and each dotted
+  config key names a field in `src/types.ts`. Left: reading the guides'
+  prose claims (behaviour, numbers outside generated blocks) against the code.
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release
