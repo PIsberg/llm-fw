@@ -79,6 +79,8 @@ Detection tuning rounds, which have no spec of their own:
 [PLAN-next-improvements.md](plans/PLAN-next-improvements.md) ·
 [PLAN-future.md](plans/PLAN-future.md)
 
+Release planning: [PLAN-1.0.md](plans/PLAN-1.0.md), the checklist for 1.0.0 GA.
+
 ## Project and process
 
 | Document | Covers |
