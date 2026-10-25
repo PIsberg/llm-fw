@@ -94,6 +94,7 @@
     "@vitest/coverage-v8": "^5.0.3",
     "eslint": "^10.8.1",
     "fast-check": "^4.9.0",
+    "hyparquet": "^1.31.5",
     "knip": "^6.32.1",
     "tesseract.js": "^7.0.0",
     "tsx": "^4.23.12",
