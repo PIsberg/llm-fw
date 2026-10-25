@@ -70,6 +70,7 @@
     "lint:fix": "eslint . --fix",
     "knip": "knip",
     "docs:links": "node scripts/check-links.mjs",
+    "fixture:multilingual": "node --import tsx/esm scripts/multilingual-fixture.ts",
     "config:reference": "node --import tsx/esm scripts/gen-config-reference.ts"
   },
   "dependencies": {

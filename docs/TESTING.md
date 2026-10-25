@@ -16,6 +16,26 @@
 
 Unlike the load test (which *samples* under concurrency through the proxy), this gate is **deterministic and exhaustive** — every corpus entry runs every time — and it executes as part of `npm run test:run`, so CI fails on any detection change that silently regresses coverage. **Grow the corpus, not the thresholds**, when adding a detector or fixing a miss; lower a threshold only with a deliberate, documented reason.
 
+### Playground examples
+
+`test/dashboard/playground-examples.test.ts` sends every example button of the Prompt Testing playground (all categories, from `src/dashboard/playgroundExamples.ts`, which the page embeds) to `/api/test` on a real dashboard server backed by the real default pipeline, building each request the way the page does. A danger example must be caught and a `safe` one must pass, so an example listed under "Examples llm-fw catches" that stops being caught fails the build.
+
+### Multilingual playground gate
+
+`test/detection/multilingual-playground.test.ts` runs the Prompt Testing playground's attack examples, and the playground's Translate button, as a test: 51 English sentences in 133 languages (6,783 rows) from `test/detection/fixtures/multilingual-playground.json`. The sentences fall into four sets:
+
+- `examples`: the playground's own Injection, RAG and DLP example buttons (14), exactly as `src/dashboard/playgroundExamples.ts` defines them. The test fails if the two drift apart; regenerate rather than edit. ASCII smuggling is left out because Google Translate drops its invisible characters, and with them the payload.
+- `playground`: 9 attack sentences taken from those examples (including the inner text of the ASCII, image and RAG ones). The per-language rules and lexicons were written against these.
+- `heldout`: 6 attacks phrased differently. No rule was written from them, so they measure whether the rules generalise. Do not fit a rule to them; add a new held-out sentence instead.
+- `benign`: 22 ordinary prompts that share the attacks' words ("ignore the typos in my draft", "enable developer mode on my Android phone").
+
+It asserts:
+
+- **Covered languages:** in every language with a hand-written rule or a lexicon (`src/detection/overrideLexicon.ts`), the heuristic alone blocks every playground attack except an exact list of known misses. A fixed miss fails the test as surely as a new one, so the list always says what is still open.
+- **Every language, through the cheap pipeline:** recall floors for `playground`, `heldout` and `examples`, no new miss in a covered language, and an exact list of the benign prompts it blocks. Translated DLP examples go to the DLP scanner instead, as the playground sends them, against an exact list of known misses.
+
+The pipeline half takes about 50 to 90 seconds. The fixture is committed, so the test never calls the network. To add a case, put the English sentence under `sets.<set>.source` in the fixture and run `npm run fixture:multilingual`. It translates only the missing entries through the playground's own Google endpoint, pacing requests and backing off on HTTP 429.
+
 ---
 
 ## 🚀 Quick Start: Running Tests
@@ -133,7 +153,8 @@ timeout) plus a dedicated
 Ollama) and the handful of suites that exercise the *real* (unmocked)
 embedding/classifier model or spin up real worker threads
 (`accuracy.eval.test.ts`, `multilingual.test.ts`,
-`multilingual-indirect.test.ts`, `image-attacks.test.ts`, `media.test.ts`,
+`multilingual-indirect.test.ts`, `multilingual-playground.test.ts`,
+`image-attacks.test.ts`, `media.test.ts`,
 `inferenceIsolation.test.ts`) — Stryker reruns the suite once per surviving
 mutant candidate, so anything slow or network-dependent there gets
 multiplied across thousands of runs. None of those excluded suites add
