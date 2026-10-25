@@ -395,6 +395,9 @@ interface Compiled {
   unspaced: boolean
 }
 
+/** A lexicon word without its trailing stem marker. */
+const unstem = (w: string): string => (w.endsWith('*') ? w.slice(0, -1) : w)
+
 function norm(word: string): string {
   const stem = word.endsWith('*')
   const n = normalize(stem ? word.slice(0, -1) : word)
@@ -403,7 +406,7 @@ function norm(word: string): string {
 
 function compile(l: Lexicon): Compiled {
   const phrases = (xs: string[] = []) =>
-    xs.map(x => (l.unspaced ? [norm(x)] : x.split(' ').map(norm))).filter(p => p.every(t => t.replace('*', '').length > 0))
+    xs.map(x => (l.unspaced ? [norm(x)] : x.split(' ').map(norm))).filter(p => p.every(t => unstem(t).length > 0))
   return {
     order: l.order,
     verbs: phrases(l.verbs),
@@ -443,31 +446,46 @@ function phraseAt(tokens: string[], i: number, phrases: string[][]): number {
  * `window` tokens of the verb, walking away from it in `dir`, and stopping at
  * a breaker.
  */
-function objectIn(tokens: string[], from: number, dir: 1 | -1, c: Compiled): boolean {
-  const found = scanSide(tokens, from, dir, c)
-  return (found.pos || c.positionals.length === 0) && found.noun
+/**
+ * For one lexicon and one clause, which tokens start a positional, a noun or a
+ * breaker. Computed once per clause rather than once per trigger: a token such
+ * as "roman" triggers ten lexicons, and re-matching every phrase in a window
+ * around each trigger took 3 s on 200 KB of fiction nouns on a CI runner.
+ */
+interface Hits { pos: Uint8Array; noun: Uint8Array; brk: Uint8Array }
+
+function hitsFor(tokens: string[], c: Compiled): Hits {
+  const mark = (phrases: string[][]) => {
+    const out = new Uint8Array(tokens.length)
+    if (phrases.length) for (let j = 0; j < tokens.length; j++) if (phraseAt(tokens, j, phrases)) out[j] = 1
+    return out
+  }
+  return { pos: mark(c.positionals), noun: mark(c.nouns), brk: mark(c.breakers) }
 }
 
 /** Which object parts lie within `window` tokens in `dir`, up to a breaker. */
-function scanSide(tokens: string[], from: number, dir: 1 | -1, c: Compiled): { pos: boolean; noun: boolean } {
+function scanSide(h: Hits, length: number, from: number, dir: 1 | -1, c: Compiled): { pos: boolean; noun: boolean } {
   let pos = false
   let noun = false
-  for (let n = 0, i = from; n < c.window && i >= 0 && i < tokens.length; n++, i += dir) {
-    if (phraseAt(tokens, i, c.breakers)) break
-    if (!pos && phraseAt(tokens, i, c.positionals)) pos = true
-    if (!noun && phraseAt(tokens, i, c.nouns)) noun = true
+  for (let n = 0, i = from; n < c.window && i >= 0 && i < length; n++, i += dir) {
+    if (h.brk[i]) break
+    if (h.pos[i]) pos = true
+    if (h.noun[i]) noun = true
   }
   return { pos, noun }
 }
 
 /**
- * Either word order: the parts may sit on different sides of the trigger.
- * "DAN नाम के एक AI के बारे में ... उपन्यास ... कोई नियम नहीं" has the AI before
- * the novel and "no rules" after it.
+ * The object (a positional, when the lexicon has any, and a noun) within
+ * `window` tokens of the trigger, stopping at a breaker: after it (VO), before
+ * it (OV), or either side, combined ('any'). In 'any' the parts may sit on
+ * different sides: "DAN नाम के एक AI के बारे में ... उपन्यास ... कोई नियम नहीं" has
+ * the AI before the novel and "no rules" after it.
  */
-function objectAround(tokens: string[], start: number, end: number, c: Compiled): boolean {
-  const before = scanSide(tokens, start - 1, -1, c)
-  const after = scanSide(tokens, end, 1, c)
+function objectNear(h: Hits, length: number, start: number, end: number, c: Compiled): boolean {
+  const none = { pos: false, noun: false }
+  const before = c.order === 'VO' ? none : scanSide(h, length, start - 1, -1, c)
+  const after = c.order === 'OV' ? none : scanSide(h, length, end, 1, c)
   return (before.pos || after.pos || c.positionals.length === 0) && (before.noun || after.noun)
 }
 
@@ -641,24 +659,28 @@ function verbsFor(trie: TrieNode, token: string): VerbEntry[] {
 }
 
 function matchSpaced(trie: TrieNode, tokens: string[]): boolean {
+  // Triggers first, grouped by lexicon; then each triggered lexicon's hits
+  // once, and every trigger's window is array lookups.
+  const triggers = new Map<Compiled, Array<[number, number]>>()
   for (let i = 0; i < tokens.length; i++) {
     for (const { c, phrase } of verbsFor(trie, tokens[i] ?? '')) {
       let ok = i + phrase.length <= tokens.length
       for (let k = 1; ok && k < phrase.length; k++) ok = tokMatch(tokens[i + k] ?? '', phrase[k] ?? '')
       if (!ok) continue
       if (i > 0 && c.notBefore.has(tokens[i - 1] ?? '')) continue
-      if (c.order === 'any') {
-        if (objectAround(tokens, i, i + phrase.length, c)) return true
-        continue
-      }
-      if (c.order === 'VO' && objectIn(tokens, i + phrase.length, 1, c)) return true
-      if (c.order === 'OV' && objectIn(tokens, i - 1, -1, c)) return true
+      const list = triggers.get(c) ?? []
+      list.push([i, i + phrase.length])
+      triggers.set(c, list)
     }
+  }
+  for (const [c, list] of triggers) {
+    const h = hitsFor(tokens, c)
+    for (const [start, end] of list) if (objectNear(h, tokens.length, start, end, c)) return true
   }
   return false
 }
 
-const bare = (p: string[]) => (p[0] ?? '').replace('*', '')
+const bare = (p: string[]) => unstem(p[0] ?? '')
 
 function objectInText(span: string, c: Compiled): boolean {
   return (c.positionals.length === 0 || c.positionals.some(p => span.includes(bare(p)))) &&
