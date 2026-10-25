@@ -58,6 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skipped version leaves wrong and how to move the advisories to the version npm serves, check the
   fork PR's head is in the tag, close it and publish.
 
+- **Guides corrected against the code.** The `trustedPaths` example in the tuning guide was not
+  valid JSON (`"C:\dev\private"`), so a pasted config failed to load; every `json` code block in the
+  docs is now parsed by a test. The detection-stages worked examples showed responses from an
+  older ruleset (the first now blocks at `harmful-request`, not `embedding`) and are replaced with
+  output captured from a running proxy. The judge section gave a warn range (0.70 to 0.85) and a
+  default model (`phi3`) the code does not use, and said the sync judge runs on every request; it
+  runs only on a candidate the cheap stages flagged. The README said the body is scanned as it
+  streams in, with zero added latency and a boot under 2 seconds: detection runs once on the
+  complete body, a short prompt scans in about 7 ms (median of 60), and a start with the model
+  cached took 2.1 and 2.5 s. The MCP guide said a credential read by a tool is blocked; under the
+  default DLP mode it is redacted. Guides that promise a `422` now say a flagged tool result is
+  withheld instead.
+
 ## [0.9.1] - 2026-10-25
 
 The first published 0.9 release. 0.9.0 was prepared but never published, so 0.9.1 also

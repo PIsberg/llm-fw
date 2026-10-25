@@ -13,7 +13,7 @@ We will execute the implementation in **4 sequential phases**.
 ### Phase 1: Configuration & DLP Engine Setup
 1.  **Extend Configuration**:
     Modify `src/config/config.ts` to support DLP settings:
-    ```json
+    ```jsonc
     {
       "dlp": {
         "enabled": true,

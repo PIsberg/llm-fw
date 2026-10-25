@@ -8,7 +8,7 @@
 //
 // Design notes:
 //   - Config layering mirrors every other entrypoint (proxy/CLI/dashboard):
-//     loadConfig() resolves DEFAULT_CONFIG + project config file +
+//     loadConfig() resolves DEFAULT_CONFIG + the LLM_FW_CONFIG file +
 //     ~/.llm-fw/config.json + LLM_FW_* env vars, and the caller's `config`
 //     argument deep-merges on top of that as the final, most-specific layer.
 //   - `scan({ text, surface })` synthesizes the minimal Anthropic /v1/messages
@@ -130,7 +130,7 @@ function wrapText(text: string, surface: ScanSource): string {
 /**
  * Build an in-process firewall: init the same detection Pipeline the proxy
  * and dashboard use, with no proxy/TLS/dashboard server started. `config`
- * deep-merges over the fully-resolved config (defaults + project file +
+ * deep-merges over the fully-resolved config (defaults + the LLM_FW_CONFIG file +
  * ~/.llm-fw/config.json + env vars) as the final override layer — e.g.
  * `createFirewall({ detection: { judgeEnabled: true } })`.
  */

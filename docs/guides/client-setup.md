@@ -158,7 +158,7 @@ for your use case, say so to the operator.
 | Status | Meaning |
 | --- | --- |
 | `401` | Missing or wrong `X-Llm-Fw-Key` |
-| `422` | Blocked by detection, DLP, MCP, taint or a URL path (`blockStatus: 403` restores 403) |
+| `422` | Blocked by detection, DLP, MCP, taint or a URL path (`blockStatus: 403` restores 403). A flagged tool result is withheld from the model instead, and the request answered |
 | `403` | Your tenant is not allowed that provider |
 | `404` | The path did not match any provider route |
 | `413` | Request body over the size limit (10 MiB by default) |

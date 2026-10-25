@@ -56,7 +56,7 @@ Three threshold knobs are exposed for `tool_result`/`document` (the user prompt 
 - `embeddingMarginThreshold` — the minimum contrastive margin required (the gap between the top injection-anchor cosine and the top benign-anchor cosine) for that surface's Stage 2 to act on an embedding match; overrides the global default (`0.02`) for this surface only.
 - `classifierBlockThreshold` — the opt-in classifier's block threshold on that surface, for when the classifier is enabled.
 
-(The embedding stage's absolute block/warn cosines stay global e5-calibration constants — only the contrastive margin requirement is overridable per surface.) Leaving `detection.surfaces` unset is **bit-identical** to prior behavior.
+(The embedding stage's absolute block and warn cosines, `detection.embeddingBlockThreshold` and `detection.embeddingWarnThreshold`, stay global: only the contrastive margin requirement is overridable per surface.) Leaving `detection.surfaces` unset is **bit-identical** to prior behavior.
 
 ### Configuration
 
@@ -121,7 +121,7 @@ An agent working in a security project, a game about rogue AIs, or llm-fw itself
 {
   "detection": {
     "surfaces": {
-      "tool_result": { "trustedPaths": ["C:\dev\private", "/home/me/src"] }
+      "tool_result": { "trustedPaths": ["C:\\dev\\private", "/home/me/src"] }
     }
   }
 }

@@ -247,7 +247,9 @@ measured against Claude Code 2.1.301, `422` gets "API Error: 422" and the
 explanation, in one request, while `400` is retried once and `409` eight times.
 `blockStatus: 403` (or `LLM_FW_BLOCK_STATUS=403`) restores the old status for a
 client that branches on it. Refused CONNECT tunnels, authentication failures and
-a tenant's disallowed provider keep their own codes.
+a tenant's disallowed provider keep their own codes. A tool result that blocks is
+withheld rather than refused (see "What a blocked tool result does" above), so
+that request is forwarded and answered normally.
 
 **Token pruner (gateway modules).** `modules.tokenPruner.enabled: true` (or
 `LLM_FW_TOKEN_PRUNER_ENABLED=true`, or the Settings toggle in the Cost & Abuse
@@ -455,10 +457,12 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | The embedding model failed to load | Stage 2 is skipped and the other stages run; the gateway's `/readyz` answers `503` until it loads, so an orchestrator routes no traffic to it | open | `embedding.ts`, `gateway.ts` |
 | A request spends its embedding budget (`detection.embeddingMaxPassesPerRequest`) | The rest is read by the heuristic stage only; the request warns with stage `scan-budget` | open | `pipeline.ts` |
 | The judge (Ollama) is unreachable or errors | It returns `ERROR` and the scan carries on without it | open | `judge.ts` |
+| A tool result blocks (`detection.surfaces.tool_result.onBlock: withhold`, the default) | Its text is replaced with a fixed notice and the rest forwarded; refused if the text cannot be found in the body or it is the 17th in one request | closed for that text | `pipeline.ts`, `withhold.ts` |
 | An image or audio clip llm-fw cannot read | Forwarded with a `non-text` warn; `nonText.mode: block` refuses it | open by default | `pipeline.ts` |
 | A token-saving module throws | Logged; the request continues unmodified | open | `modules/registry.ts` |
 | A response over `proxy.maxBodyBytes` | Forwarded verbatim from that point, inspection stops | open | `proxy.ts` |
 | A compressed response llm-fw cannot decode | Forwarded verbatim, not inspected | open | `proxy.ts` |
+| A compressed streaming (SSE) response | Forwarded verbatim, not inspected; the proxy asks upstream for `Accept-Encoding: identity`, so it takes an upstream that ignores that | open | `proxy.ts` |
 | A WebSocket upgrade to anything but the OpenAI Realtime API or Gemini Live | `501` | closed | `proxy.ts`, `gateway.ts` |
 | A Realtime or Gemini Live message, fragments included, over `proxy.maxBodyBytes` | Session closed with code `1009` and a `dos` event | closed | `realtimeRelay.ts` |
 | A plain-HTTP request to the proxy | `501` | closed | `proxy.ts` |
