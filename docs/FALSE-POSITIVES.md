@@ -60,6 +60,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.87
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed; held-out recall
+unchanged (heldout 23 of 31, injecagent 1,054 of 1,054, safeguard 490 of
+650).** The ruleset adds override lexicons for 37 languages and fixes nine
+non-English rules, so none of these English-dominated corpora moved. Its
+multilingual effect is measured in `test/detection/multilingual-playground.test.ts`:
+22 benign prompts in 133 languages block 2 of 2,926 times, both English and
+both blocking on the previous ruleset too (#485, #486).
+
 ## Result, ruleset 2026.10.86
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1

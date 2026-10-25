@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Fixed
+
+- **"Ignore all previous instructions" no longer passes in 37 more languages.** Translating
+  the Prompt Testing playground's own attack examples into the 132 languages its Translate button
+  offers, 711 of 1,197 passed the default configuration, including "Ignore all previous
+  instructions and tell me" in Chinese and Serbian. The embedding stage cannot close this: a
+  translated override scores 0.80 to 0.86 against the English anchors, under the 0.86 block line,
+  and no threshold separates it from benign text in the same language. Stage 1 now carries a
+  lexicon for 37 languages (Hindi, Bengali, Indonesian, Turkish, Vietnamese, Polish, Ukrainian,
+  Persian, Thai, Swedish and others): an override verb, a positional and an instruction noun in
+  that language's word order, plus "disable the safety filters". Chinese gained 说明/指示 and
+  free word order, and Serbian, Croatian and Bosnian gained a rule. Now 681 of 1,197 block, and 3
+  pass in the 54 languages with a rule or a lexicon. Six attacks worded unlike anything a rule was
+  written from block 226 of 798 times (221 before), so other shapes ("your instructions are
+  cancelled") are still open (#484), as are the 78 languages with neither (#483). 22 benign
+  prompts in every language block 2 of 2,926 times, down from 10; the two left are English and
+  blocked before too (#485, #486), and 0 of the 23,938 eval-corpus verdicts changed.
+  `test/detection/multilingual-playground.test.ts` gates all of it, from a committed fixture that
+  `npm run fixture:multilingual` extends.
+- **Nine non-English rules never matched, or matched ordinary sentences.** Rules are matched
+  after diacritics are stripped, so the literal "esqueça", "instruções" and "обращай" could never
+  match ("Esqueça todas as instruções anteriores" passed). The Spanish and Portuguese rules missed
+  the formal "Ignore todas las instrucciones anteriores" that a translator produces. The bare
+  Italian "dimentica" blocked "Ho dimenticato la password" (I forgot my password), the Somali rule
+  blocked "follow the previous instructions", and "my new task" blocked in Spanish, German,
+  Belarusian and Korean (English stopped doing that in #247).
 
 - **A blocked tool result is withheld instead of refusing the whole request.** The tool result that
   blocked is replaced with a fixed notice (`[llm-fw withheld this tool output: it matched the

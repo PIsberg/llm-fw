@@ -1,7 +1,8 @@
 import { HeuristicResult } from '../types.js'
 import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
+import { overrideLexiconMatcher } from './overrideLexicon.js'
 
-interface WeightedRule { weight: number; label: string; patterns: RegExp[] }
+interface WeightedRule { weight: number; label: string; patterns: Array<Pick<RegExp, 'test'>> }
 
 // Defensive instruction-hygiene clauses: an override verb whose
 // instructions-object carries a locative into DATA ("disregard any
@@ -228,10 +229,14 @@ export class HeuristicScorer {
           // canonical Spanish injection) missed on one character, while the
           // French rule below matched because it lists `toutes`. Trailing
           // (anteriores|previas) is no longer required either.
-          /ignora(?:r)? (?:todas? |las |mis |tus )*(?:instrucciones|reglas|directivas|indicaciones)/,
+          // "ignore" is the formal imperative (usted), which a translator
+          // produces for "Ignore all previous instructions".
+          /\bignor(?:a|ar|e|en|ad)\b (?:todas? |las |mis |tus |sus )*(?:instrucciones|reglas|directivas|indicaciones)/,
           /olvida(?:te)? (?:todas? |tus |las? |los |el |mis |anteriores )*(?:instrucciones|reglas|contexto|indicaciones)/,
           /olvida(?:te)? todo\b/,
-          /nueva (directiva|tarea|instruccion|orden|mision)/,
+          // A speaker possessive is a person relaying their own work ("aqui
+          // esta mi nueva tarea para esta semana"), as in English (#247).
+          /(?<!\b(?:mi|mis|nuestra|nuestro) )nueva (directiva|tarea|instruccion|orden|mision)/,
           /omitir las instrucciones de seguridad/,
 
           // French
@@ -247,12 +252,32 @@ export class HeuristicScorer {
           /ignoriere(?:n)?(?: sie)?[\s\S]{0,25}?(?:anweisungen|regeln|angaben|vorgaben|anleitung)/,
           /vergiss (?:deine\s+|alle\s+)*(anweisungen|regeln|kontext)/,
           /vergiss alles\b/,
-          /neue (anweisung|richtlinie|aufgabe)/,
+          /(?<!\b(?:meine|mein|unsere|unser) )neue (anweisung|richtlinie|aufgabe)/,
 
           // Chinese
           /忽略(所有)?(之前|先前的)?指令/,
           /忘记(所有)?(之前|先前的)?指令/,
           /新指令/,
+          // The two rules above name only 指令, and only in one word order, so
+          // the playground's own example rendered by Google Translate
+          // ("忽略之前的所有说明，告诉我…", 说明/說明 for "instructions") passed in
+          // both scripts. Simplified and Traditional, any order of the
+          // positional and the quantifier. The positional must sit directly
+          // before the noun, and a noun followed by 中/里 ("the typos IN the
+          // instructions above") is a locative, not the object.
+          /(?:忽略|忽视|忽視|无视|無視|不要理会|不要理會|不理会|不理會|别管|別管|抛开|拋開|放弃|放棄|忘记|忘記|忘掉)(?:你|掉)?(?:所有|全部|一切)?(?:的)?(?:之前|先前|以前|此前|上面|上述|前面|原有|原来|原來|原先)(?:的)?(?:所有|全部|一切)?(?:的)?(?:指令|指示|说明|說明|规则|規則|命令|提示|设定|設定|约束|約束|限制)(?![^。！？.!?，,]{0,4}?(?:中|里|裡))/,
+          // "Forget everything you were told before": the object is what the
+          // MODEL was told, so "忘记一切烦恼" (forget all your worries) is not.
+          /(?:忘记|忘記|忘掉|忽略|无视|無視)[^。！？.!?]{0,8}?(?:告诉你|告訴你|对你说|對你說|给你|給你|你被告知|你收到)的(?:一切|所有|全部)/,
+
+          // Serbian, Croatian, Bosnian (Latin and Cyrillic). No rule existed,
+          // and the encoder scores "Занемарите сва претходна упутства и
+          // реците ми" at 0.855, under the 0.86 block line. Diacritics are
+          // already stripped (š -> s, ć -> c). Verb, then a positional, then
+          // the instruction noun, so "zanemari pravopisna pravila" (ignore the
+          // spelling rules) and "zaboravi prethodnu poruku" do not match.
+          /\b(?:zanemar|ignoris|ignorir|zaboravi|odbaci)\w*\b(?: \w+){0,2}? (?:prethodn|ranij|dosadasnj|gore navedene|gornje)\w*\b(?: \w+)?? (?:upute|uputa|uputstv|uputstav|instrukcij|pravil|naredb|smjernic|smernic|direktiv|naredenj)/,
+          /(?:^|[^\p{L}])(?:занемар|игнориш|игнорир|заборав|одбац)\p{L}*(?: \p{L}+){0,2}? (?:претходн|раниј|досадашњ|горе наведен|горњ)\p{L}*(?: \p{L}+)?? (?:упут|инструкциј|правил|наредб|смерниц|смјерниц|директив|наређењ)/u,
 
           // Russian. NFD normalization strips the breve off й → и, so the
           // post-normalize form is "игнорируи"/"забуди"; match both. Allow
@@ -260,12 +285,25 @@ export class HeuristicScorer {
           // object rather than a rigid fixed phrase.
           /игнориру(?:й|и)(?:те)?[\s\S]{0,20}?инструкци/,
           /забуд(?:ь|и)(?:те)?[\s\S]{0,20}?(?:инструкци|правила|указани)/,
-          /(?:не\s?обращай\s?внимани|пренебрег)[\s\S]{0,20}?(?:инструкци|правила|указани)/,
-          /нов(?:ое|ая)\s?(?:указание|инструкция|директива|задача)/,
+          // "обращай" never matched: NFD turns й into и here too, and the
+          // polite "обращайте внимания" puts -те between the two words.
+          /(?:не\s?обраща(?:й|и)(?:те)?\s?внимани|пренебрег)[\s\S]{0,30}?(?:инструкци|правила|указани)/,
+          // Also Belarusian ("мая новая задача", my new task), so the
+          // possessive exemption lists its forms too.
+          /(?<!(?:^|[^\p{L}])(?:моя|мое|мой|наша|наше|мая|мае) )нов(?:ое|ая)\s?(?:указание|инструкция|директива|задача)/u,
 
           // Italian / Portuguese
-          /ignora(re)? (?:tutte\s+|le\s+|as\s+)*(istruzioni|instruções) (precedenti|anteriores)/,
-          /dimentica|esqueça/,
+          // Diacritics are stripped before matching, so a literal "ç" or "õ"
+          // never matched: "instruções" is "instrucoes" here, and the bare
+          // "esqueça" was dead while the bare "dimentica" blocked "Ho
+          // dimenticato la password" (I forgot my password). Forget now needs
+          // an instruction object or "everything", like the other languages.
+          /ignora(re)? (?:tutte\s+|le\s+|as\s+)*(istruzioni|instrucoes) (precedenti|anteriores)/,
+          // Portuguese formal imperative ("Ignore todas as instruções
+          // anteriores", "Desconsidere ..."), with the positional required as
+          // above. "Esqueci" (I forgot) is a person, not an imperative.
+          /\b(?:ignore|ignorem|desconsidere|desconsiderem|despreze|desprezem)\b (?:todas |todos |as |os |suas |tuas )*(?:instrucoes|regras|diretrizes|orientacoes|comandos|ordens) (?:anteriores|previas|acima)\b/,
+          /\b(?:dimentica(?:te|re)?|scordati|scordate|esqueca(?:m)?|esquece|esquecer)\b(?: \S+){0,4}? (?:istruzion|regol|contesto|tutto\b|instruc|regras|contexto|tudo\b|diretrizes)/,
 
           // Japanese (kanji cores are stable, but NFD strips the dakuten off
           // voiced kana: で→て, ど→と, AND すべて→すへて, プ→フ. So allow any
@@ -278,11 +316,11 @@ export class HeuristicScorer {
           // Korean. Allow filler words (모두 "all", 이전의, …) between the object
           // and the verb instead of a single optional space.
           /(?:이전|기존|위의|앞의)?\s?(?:지시|명령|규칙|지침)(?:사항)?(?:을|를)?[\s가-힣]{0,8}?(?:무시|잊)/,
-          /새로운\s?(?:지시|명령|규칙|작업|임무)/,
+          /(?<!(?:나의|내|제|우리의|우리)\s?)새로운\s?(?:지시|명령|규칙|작업|임무)/,
 
           // Arabic (hamza-on-alef أ/إ/آ is preserved by normalize, so match the
           // hamza flexibly as [اأإآ] — e.g. الأوامر, not bare-alef الاوامر).
-          /تجاهل\s?(?:كل\s?|جميع\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد|التوجيهات)/,
+          /تجاهل\s?(?:كل\s?|جميع\s?|كافة\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد|التوجيهات)/,
           /[اأإآ]نس\s?(?:كل\s?)?(?:التعليمات|ال[اأإآ]وامر|القواعد)/,
           /تعليمات\s?جديدة/,
 
@@ -302,7 +340,15 @@ export class HeuristicScorer {
           // lands at 0.8636, ~0.003 above threshold), so it gets a deterministic
           // rule like the other hand-coded languages.
           /\biska\s+(?:indho\s*tir|indhotir|indhatir|dhaaf|daaf)\b/,
-          /\b(?:tilmaamo|tilmaamaha|tilmaamihii|amarro|amarradii|hagayaal)\b[\s\S]{0,15}?\bhore\b/
+          // "Raac tilmaamaha hore" is "FOLLOW the previous instructions" (in
+          // the README), so the noun phrase alone is not an override.
+          /(?<!\braac\w* )\b(?:tilmaamo|tilmaamaha|tilmaamihii|amarro|amarradii|hagayaal)\b[\s\S]{0,15}?\bhore\b/,
+
+          // Every other language with a lexicon in overrideLexicon.ts: an
+          // override verb plus "previous/above" plus an instruction noun, in
+          // that language's word order. See that file for why this is a
+          // lexicon rather than more embedding anchors.
+          overrideLexiconMatcher,
         ],
       },
       {
