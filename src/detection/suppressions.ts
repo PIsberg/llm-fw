@@ -27,6 +27,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { getLlmFwDir } from '../config/paths.js'
 import { normalizeSemantic } from './normalize.js'
+import type { ScanSource } from '../types.js'
 
 export interface SuppressionEntry {
   /** sha256 hex digest of the semantically-normalized prompt text. */
@@ -41,6 +42,18 @@ const PREVIEW_LEN = 200
 /** sha256 of the semantically-normalized text — the suppression matching key. */
 export function hashPrompt(text: string): string {
   return createHash('sha256').update(normalizeSemantic(text)).digest('hex')
+}
+
+/**
+ * The key a suppression of `text` scanned on `source` is stored under. The
+ * prompt and system surfaces share the plain hash, as they always have. Any
+ * other surface carries untrusted data, so its key names the surface too:
+ * marking a prompt does not wave the same text through as a tool result, and
+ * a marked tool result covers that exact tool result and nothing else.
+ */
+export function suppressionKey(text: string, source: ScanSource): string {
+  if (source === 'prompt' || source === 'system') return hashPrompt(text)
+  return createHash('sha256').update(source).update('\0').update(normalizeSemantic(text)).digest('hex')
 }
 
 export class SuppressionStore {
@@ -65,6 +78,11 @@ export class SuppressionStore {
     return this.hashes.has(hashPrompt(text))
   }
 
+  /** Whether a suppression is stored under `key` (see suppressionKey). */
+  has(key: string): boolean {
+    return this.hashes.has(key)
+  }
+
   /**
    * Record a false-positive suppression. Read-merge-write against the
    * persisted file (mirrors the ~/.llm-fw/config.json and whitelist.json
@@ -73,7 +91,15 @@ export class SuppressionStore {
    * re-marking the same prompt is a no-op that returns the existing entry.
    */
   add(text: string, previewSource?: string): SuppressionEntry {
-    const hash = hashPrompt(text)
+    return this.addKey(hashPrompt(text), previewSource ?? text)
+  }
+
+  /**
+   * Record a suppression under a key the pipeline already derived for a block
+   * event (BlockEvent.suppressionKey), for the stages whose event shows a
+   * label and a snippet rather than the text they scanned.
+   */
+  addKey(hash: string, preview: string): SuppressionEntry {
     const entries = this.readAll()
     const existing = entries.find(e => e.hash === hash)
     if (existing) {
@@ -83,7 +109,7 @@ export class SuppressionStore {
 
     const entry: SuppressionEntry = {
       hash,
-      preview: (previewSource ?? text).slice(0, PREVIEW_LEN),
+      preview: preview.slice(0, PREVIEW_LEN),
       addedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
     }
     entries.push(entry)

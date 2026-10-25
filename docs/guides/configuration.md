@@ -40,9 +40,9 @@ A config file, for example `~/.llm-fw/config.json`:
   },
   "detection": {
     "heuristicBlockThreshold": 50,
-    "embeddingBlockThreshold": 0.85,
+    "embeddingBlockThreshold": 0.86,
     "judgeEnabled": false,
-    "judgeModel": "phi3",
+    "judgeModel": "qwen2.5:3b",
     "judgeBlock": false
   },
   "dashboard": {
@@ -111,6 +111,22 @@ stage objects; other shell output, fetches and anything under `node_modules` or
 `vendor` there do not count. Empty by default, applied
 live. See [Tuning: trust file reads from your own projects](tuning.md#trust-file-reads-from-your-own-projects).
 
+**What a blocked tool result does.** `detection.surfaces.tool_result.onBlock`
+(also `LLM_FW_TOOL_RESULT_ON_BLOCK`) is `withhold` by default: the tool result
+that blocked is replaced with a fixed notice, `[llm-fw withheld this tool
+output: it matched the <stage> rule. Its content was not passed on to the
+model.]`, and the rest of the request is forwarded. The event is recorded as
+blocked with `withheld: true` (shown as WITHHELD), once per text. `refuse`
+refuses the whole request, as before. An agent resends its history on every
+turn, so under `refuse` one false positive in a tool result refuses every later
+request of the session; replaying 7 days of real Claude Code sessions, the
+sessions that would have ended that way went from 32 to 10 of 245 under
+`withhold`. Either way the model never reads the flagged text. Blocks on the
+prompt, a system prompt, a tool definition or the request itself still refuse,
+and so does a tool result the proxy cannot find in the body to replace, or a
+17th one in the same request. Realtime WebSocket sessions always refuse.
+Applied live.
+
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
 while. Point `LLM_FW_MODEL_DIR` at a persistent path to download once and reuse
@@ -149,8 +165,7 @@ certify the audio.
 [gateway](gateway-mode.md) relay OpenAI Realtime sessions
 (`wss://api.openai.com/v1/realtime`) and Gemini Live sessions
 (`wss://generativelanguage.googleapis.com/ws/…BidiGenerateContent`) and inspect
-the client's messages; until this release the proxy dropped every WebSocket
-handshake, so a Realtime session could not connect through it at all. A turn's
+the client's messages. A turn's
 `input_audio_buffer.append` chunks (PCM16, 24 kHz) are held when the client
 commits them (`input_audio_buffer.commit`, or `response.create` with audio
 buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and
@@ -231,7 +246,9 @@ measured against Claude Code 2.1.301, `422` gets "API Error: 422" and the
 explanation, in one request, while `400` is retried once and `409` eight times.
 `blockStatus: 403` (or `LLM_FW_BLOCK_STATUS=403`) restores the old status for a
 client that branches on it. Refused CONNECT tunnels, authentication failures and
-a tenant's disallowed provider keep their own codes.
+a tenant's disallowed provider keep their own codes. A tool result that blocks is
+withheld rather than refused (see "What a blocked tool result does" above), so
+that request is forwarded and answered normally.
 
 **Token pruner (gateway modules).** `modules.tokenPruner.enabled: true` (or
 `LLM_FW_TOKEN_PRUNER_ENABLED=true`, or the Settings toggle in the Cost & Abuse
@@ -293,7 +310,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_107 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_108 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -371,7 +388,7 @@ _107 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_NONTEXT_TRANSCRIBE` | `nonText.transcribe` | `false` |
 | `LLM_FW_OLLAMA_URL` | `detection.ollamaUrl` | `http://localhost:11434` |
 | `LLM_FW_PROGRESS_COLLAPSE_ENABLED` | `modules.progressCollapse.enabled` | `false` |
-| `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` |  |
+| `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` | _unset_ |
 | `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |
 | `LLM_FW_PROXY_MODE` | `proxy.mode` | `proxy` |
 | `LLM_FW_PROXY_PORT` | `proxy.port` | `8080` |
@@ -396,6 +413,7 @@ _107 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TOOL_FILTER_ENABLED` | `modules.toolFilter.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_DEDUP_ENABLED` | `modules.toolResultDedup.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD` | `detection.surfaces.tool_result` |  |
+| `LLM_FW_TOOL_RESULT_ON_BLOCK` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_TOOL_RESULT_PRUNER_ENABLED` | `modules.toolResultPruner.enabled` | `false` |
 | `LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED` | `modules.toolResultTruncate.enabled` | `false` |
 | `LLM_FW_TOOL_USAGE_ENABLED` | `modules.toolUsage.enabled` | `true` |
@@ -438,10 +456,12 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | The embedding model failed to load | Stage 2 is skipped and the other stages run; the gateway's `/readyz` answers `503` until it loads, so an orchestrator routes no traffic to it | open | `embedding.ts`, `gateway.ts` |
 | A request spends its embedding budget (`detection.embeddingMaxPassesPerRequest`) | The rest is read by the heuristic stage only; the request warns with stage `scan-budget` | open | `pipeline.ts` |
 | The judge (Ollama) is unreachable or errors | It returns `ERROR` and the scan carries on without it | open | `judge.ts` |
+| A tool result blocks (`detection.surfaces.tool_result.onBlock: withhold`, the default) | Its text is replaced with a fixed notice and the rest forwarded; refused if the text cannot be found in the body or it is the 17th in one request | closed for that text | `pipeline.ts`, `withhold.ts` |
 | An image or audio clip llm-fw cannot read | Forwarded with a `non-text` warn; `nonText.mode: block` refuses it | open by default | `pipeline.ts` |
 | A token-saving module throws | Logged; the request continues unmodified | open | `modules/registry.ts` |
 | A response over `proxy.maxBodyBytes` | Forwarded verbatim from that point, inspection stops | open | `proxy.ts` |
 | A compressed response llm-fw cannot decode | Forwarded verbatim, not inspected | open | `proxy.ts` |
+| A compressed streaming (SSE) response | Forwarded verbatim, not inspected; the proxy asks upstream for `Accept-Encoding: identity`, so it takes an upstream that ignores that | open | `proxy.ts` |
 | A WebSocket upgrade to anything but the OpenAI Realtime API or Gemini Live | `501` | closed | `proxy.ts`, `gateway.ts` |
 | A Realtime or Gemini Live message, fragments included, over `proxy.maxBodyBytes` | Session closed with code `1009` and a `dos` event | closed | `realtimeRelay.ts` |
 | A plain-HTTP request to the proxy | `501` | closed | `proxy.ts` |

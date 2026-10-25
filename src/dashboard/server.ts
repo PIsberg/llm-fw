@@ -976,7 +976,7 @@ function toggleDrawer(id, ev) {
           '<dt>Target</dt><dd>' + esc(ev.target) + '</dd>' +
           '<dt>Method</dt><dd>' + esc(ev.method) + '</dd>' +
           '<dt>Path</dt><dd>' + esc(ev.path) + '</dd>' +
-          '<dt>Action</dt><dd>' + esc(ev.action) + (isObservedBlock(ev) ? ' (observe mode: not enforced, request forwarded)' : '') + '</dd>' +
+          '<dt>Action</dt><dd>' + esc(ev.action) + (isObservedBlock(ev) ? ' (observe mode: not enforced, request forwarded)' : ev.withheld === true ? ' (tool output withheld from the model, rest of the request forwarded)' : '') + '</dd>' +
           '<dt>Time</dt><dd>' + esc(ev.timestamp) + '</dd>' +
           '<dt>ID</dt><dd>' + esc(ev.id) + '</dd>' +
         '</dl>' +
@@ -999,7 +999,9 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section drawer-full">' +
         '<button class="btn btn-ghost btn-sm" id="wl-btn-' + esc(id) + '" title="Records the event in whitelist.json for review. It does not change what future requests get">Record as false positive (audit only)</button>' +
         '<span id="wl-status-' + esc(id) + '" class="status-ok"></span>' +
-        (ev.action === 'blocked'
+        // Only a block about one scanned text carries a suppressionKey; on a
+        // DLP, URL or rate block the button would store an entry nothing reads.
+        (ev.action === 'blocked' && ev.suppressionKey
           ? '<button class="btn btn-sm" id="fp-btn-' + esc(id) + '" style="margin-left:12px" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
             '<span id="fp-status-' + esc(id) + '" class="status-ok"></span>'
           : '') +
@@ -1088,6 +1090,8 @@ function appendRow(ev) {
 
   const actionBadge = isObservedBlock(ev)
     ? '<span class="badge badge-observed" title="Observe mode: recorded, not refused">WOULD BLOCK</span>'
+    : ev.action === 'blocked' && ev.withheld === true
+    ? '<span class="badge badge-observed" title="The tool output was withheld from the model; the rest of the request was forwarded">WITHHELD</span>'
     : '<span class="badge badge-' + esc(ev.action) + '">' + esc((ev.action || '').toUpperCase()) + '</span>';
   const stageChip  = '<span class="chip chip-' + esc(ev.stage) + '">' + esc(ev.stage) + '</span>';
   const endpoint   = esc((ev.method || '') + ' ' + (ev.path || ''));
@@ -1874,7 +1878,7 @@ const SETTINGS_SCHEMA = [
     { key: 'promptInjectionJudge', label: 'Stage 3 — local LLM judge', sub: 'A local Ollama model reasons about intent for prompts the cheap stages miss. Requires Ollama (run: llm-fw setup-judge)' },
     { key: 'judgeBlock', label: 'Judge blocks (vs. warn-only)', sub: 'Synchronously block the request on a MALICIOUS verdict, instead of only logging a warning' },
     { key: 'judgeUnlessBenign', label: 'Judge unless confidently benign', sub: 'Routes nearly every prompt to the judge. NOT recommended with a small local judge — measured 27-86% false positives on held-out data. Use the trained classifier above for novel-attack coverage instead' },
-    { key: 'suppressions', label: 'False-positive suppression list', sub: 'Downgrade a block to a warn when the exact prompt was previously marked a false positive from an event’s "Mark false positive" button. Empty until an operator marks one — never loosens detection for anything else' },
+    { key: 'suppressions', label: 'False-positive suppression list', sub: 'Downgrade a block to a warn when the exact text, on the same surface, was previously marked a false positive from an event’s "Mark false positive" button. Empty until an operator marks one — never loosens detection for anything else' },
   ]},
   { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
     { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },
@@ -3152,7 +3156,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             res.end(JSON.stringify({ error: 'event has no payload to suppress' }))
             return
           }
-          const entry = suppressionStore.add(promptText)
+          const entry = event.suppressionKey
+            ? suppressionStore.addKey(event.suppressionKey, event.payload_preview || promptText)
+            : suppressionStore.add(promptText)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, entry }))
         } catch (err) {

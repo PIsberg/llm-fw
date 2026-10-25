@@ -128,10 +128,18 @@ describe('loadConfig env overrides', () => {
     expect(cfg.dashboard.bindHost).toBe('10.0.0.5')
   })
 
-  it('has no default surfaces override (absent ⇒ no per-surface behaviour change)', async () => {
-    expect(DEFAULT_CONFIG.detection.surfaces).toBeUndefined()
+  it('defaults surfaces to withholding a blocked tool result and nothing else', async () => {
+    expect(DEFAULT_CONFIG.detection.surfaces).toEqual({ tool_result: { onBlock: 'withhold' } })
     const cfg = await loadConfig()
     expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBeUndefined()
+  })
+
+  it('LLM_FW_TOOL_RESULT_ON_BLOCK=refuse restores refusing the request, and an unknown value is ignored', async () => {
+    process.env.LLM_FW_TOOL_RESULT_ON_BLOCK = 'refuse'
+    expect((await loadConfig()).detection.surfaces?.tool_result?.onBlock).toBe('refuse')
+    process.env.LLM_FW_TOOL_RESULT_ON_BLOCK = 'drop'
+    expect((await loadConfig()).detection.surfaces?.tool_result?.onBlock).toBe('withhold')
+    delete process.env.LLM_FW_TOOL_RESULT_ON_BLOCK
   })
 
   it('LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD sets only the tool_result heuristic override', async () => {
@@ -157,7 +165,7 @@ describe('loadConfig env overrides', () => {
     expect(cfg.detection.surfaces?.prompt?.wordingAction).toBe('warn')
     // The tier stays unset, so the pipeline's measured defaults apply.
     expect(cfg.detection.surfaces?.prompt?.highConfidenceHeuristic).toBeUndefined()
-    expect(cfg.detection.surfaces?.tool_result).toBeUndefined()
+    expect(cfg.detection.surfaces?.tool_result).toEqual({ onBlock: 'withhold' })
     delete process.env.LLM_FW_PROMPT_WORDING_ACTION
   })
 
@@ -172,7 +180,7 @@ describe('loadConfig env overrides', () => {
     process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD = '70'
     process.env.LLM_FW_TRUSTED_PATHS = 'C:\dev\private, /home/dev/projects ,'
     const cfg = await loadConfig()
-    expect(cfg.detection.surfaces?.tool_result).toEqual({ heuristicBlockThreshold: 70, trustedPaths: ['C:\dev\private', '/home/dev/projects'] })
+    expect(cfg.detection.surfaces?.tool_result).toEqual({ onBlock: 'withhold', heuristicBlockThreshold: 70, trustedPaths: ['C:\dev\private', '/home/dev/projects'] })
     delete process.env.LLM_FW_TRUSTED_PATHS
     delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
   })

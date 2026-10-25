@@ -5,7 +5,7 @@
 As AI agents increasingly rely on the **Model Context Protocol (MCP)** and local tool execution, securing what the LLM is allowed to execute locally is critical. The firewall natively intercepts the JSON-RPC tool schemas flowing between your agent and the upstream LLM API to provide four layers of defense:
 
 ### 1. Definition Enforcement (Outbound)
-Agents often expose more tools than necessary (e.g. wildcard filesystem access). `llm-fw` intercepts the `tools` array exposed in the API request and aborts the connection if the agent attempts to advertise a blocked tool (e.g., `execute_command`) to the LLM.
+Agents often expose more tools than necessary (e.g. wildcard filesystem access). `llm-fw` intercepts the `tools` array exposed in the API request and refuses the request (`422`, with the reason in the body) if the agent advertises a tool on `mcp.blockedTools` (by default `execute_command` and `delete_database`, matched by exact name) to the LLM. A tool on that list is refused by name before the command guardrails below ever see its arguments, so drop it from the list if you would rather have its commands scanned.
 
 ### 2. Invocation Blocking (Inbound Streaming Defense)
 If the LLM decides to use a tool, it returns the `tool_use` payload to the agent. `llm-fw` inspects the inbound response **before any tool bytes reach the agent**, and rather than dropping the connection (which would surface as an opaque network error), it **surgically strips the blocked tool call and lets the rest of the turn through**:
@@ -31,7 +31,7 @@ Quoted text is scanned like the rest of the line, so `grep -rn "git reset --hard
 Two limits are deliberate. Text inside a body fed to an interpreter (`python - <<'EOF'`) is scanned, string literals included, because a string literal is exactly what `os.system` or `subprocess` runs. And a script written in one tool call and run in the next is outside what a per-call check can see, as is a file written with an agent's own file-writing tool.
 
 ### 4. Result Scanning & DLP (Outbound)
-When a safe tool returns data (e.g., `read_file`), that result is sent back to the LLM in the next turn. `llm-fw` extracts the `tool_result` content and subjects it to the standard Data Loss Prevention (DLP) engine. If a tool accidentally reads your `~/.aws/credentials`, the firewall blocks it from being uploaded.
+When a safe tool returns data (e.g., `read_file`), that result is sent back to the LLM in the next turn. `llm-fw` extracts the `tool_result` content and subjects it to the standard Data Loss Prevention (DLP) engine. If a tool accidentally reads your `~/.aws/credentials`, the keys are redacted before the request is forwarded under the default `dlp.mode: redact`. Under `dlp.mode: block` the whole request is refused instead; this check does not withhold one tool result the way detection does, so the refusal repeats on every later turn of that session until the tool result leaves the history. `mcp.auditOnly: true` turns that refusal into a warn.
 
 The same text goes through the injection pipeline on the `tool_result` surface. An MCP tool returns its content as an array of blocks; their text is read as the model reads it, one block per line with its own line breaks, and only a block with no text (an image, a `json` block) is scanned as JSON.
 
@@ -41,7 +41,8 @@ The same text goes through the injection pipeline on the `tool_result` surface. 
 {
   "mcp": {
     "enabled": true,
-    "blockedTools": ["execute_command", "delete_database", "eval"],
+    "blockedTools": ["execute_command", "delete_database"],
+    "auditOnly": false,
     "guardrailsEnabled": true,
     "guardrailsCategories": {
       "a": true,

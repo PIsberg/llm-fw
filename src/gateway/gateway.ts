@@ -559,7 +559,9 @@ export class GatewayServer {
     let eventId = 'unknown';
     let result: PipelineResult;
     try {
-      result = await this.pipeline.run(path, text, {
+      // inspect(): a blocked tool result is withheld from the body rather than
+      // refusing the request (detection.surfaces.tool_result.onBlock).
+      const inspected = await this.pipeline.inspect(path, text, {
         target, method, path, sessionKey,
         onEvent: e => { eventId = e.id; },
         // Per-tenant enforcement: one team can run in observation while the rest
@@ -568,6 +570,11 @@ export class GatewayServer {
         // everyone. Also stamps tenant attribution onto every event this emits.
         ...(tenant ? { enforcement: tenant.enforcement, tenant: tenant.id } : {}),
       });
+      result = inspected.result;
+      if (inspected.withheld > 0) {
+        text = inspected.body;
+        bodyBuf = Buffer.from(text, 'utf-8');
+      }
     } catch (err) {
       // detection.failMode, honoured here rather than left to the outer catch.
       // A throw inside the pipeline is a BUG in detection, not a verdict about

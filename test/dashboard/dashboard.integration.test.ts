@@ -461,6 +461,23 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(suppressions.isSuppressed(promptText)).toBe(false)
   })
 
+  it('POST /api/feedback stores the event\'s suppressionKey, not a hash of its display text', async () => {
+    // A stage that labels its event ("[indirect: ...] snippet") puts a line in
+    // payload_full that is not the text it scanned; hashing that line stored a
+    // suppression nothing could ever match.
+    const key = 'a'.repeat(64)
+    const ev = eventBus.emit({
+      stage: 'indirect-instruction', score: 100, similarity: 0, target: 'api.anthropic.com', method: 'POST', path: '/v1/messages',
+      payload_preview: '[tool-result] [indirect: exfil-target "send"] ...', payload_full: '[indirect: exfil-target "send"] ...',
+      action: 'blocked', suppressionKey: key,
+    })
+
+    const res = await req(server, 'POST', '/api/feedback', JSON.stringify({ eventId: ev.id }))
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body).entry.hash).toBe(key)
+    expect(suppressions.has(key)).toBe(true)
+  })
+
   // The ring holds dashboard.maxEvents events of every kind, and an agent
   // session emits passed/warned events by the dozen, so on a live install a
   // false positive had scrolled out of the ring within minutes while its row,

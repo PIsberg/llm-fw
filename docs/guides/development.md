@@ -27,5 +27,5 @@ To enable the sinkhole from source (elevated terminal required):
 
 ```powershell
 # Windows — elevated PowerShell in the project directory:
-node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup
+npm run dev -- setup
 ```

@@ -146,10 +146,13 @@ const NON_LLM_JSON_PATH_SUFFIXES = [
 /**
  * Same idea for endpoints whose last segment varies per client. Claude Code
  * POSTs GrowthBook attributes to `/api/eval/<client key>` at every start,
- * and calls OAuth / CLI management endpoints on the provider's API host.
+ * calls OAuth / CLI management endpoints on the provider's API host, and its
+ * Artifact tool speaks MCP JSON-RPC to `/api/artifacts/mcp`. What that returns
+ * reaches the model as a tool_result in the next scanned `/v1/messages` call.
  */
 const NON_LLM_JSON_PATH_PREFIXES = [
   '/api/eval/',
+  '/api/artifacts/',
   '/api/oauth/',
   '/api/claude_cli',
   '/v1/oauth/',
@@ -989,7 +992,9 @@ export class ProxyServer {
       // the overall llmfw_scan_duration_seconds histogram.
       const scanStart = Date.now()
       try {
-        result = await this.pipeline.run(
+        // inspect(): a blocked tool result is withheld from the body rather
+        // than refusing the request (detection.surfaces.tool_result.onBlock).
+        const inspected = await this.pipeline.inspect(
           innerReq.url ?? '/',
           body,
           {
@@ -1005,6 +1010,11 @@ export class ProxyServer {
             onEvent: (e) => { scanEventId = e.id },
           }
         )
+        result = inspected.result
+        if (inspected.withheld > 0) {
+          body = inspected.body
+          bodyBuf = Buffer.from(body, 'utf-8')
+        }
         this.metrics?.recordScan('proxy', Date.now() - scanStart)
       } catch (err) {
         this.metrics?.recordScan('proxy', Date.now() - scanStart)

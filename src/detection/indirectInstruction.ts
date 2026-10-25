@@ -439,6 +439,20 @@ const CONTACT_CLAUSE_RE = new RegExp(
 // account or card number, a URL, another address).
 const CONTACT_DATA_RE = IMPERATIVE_OBJECT_RE
 
+// A git identity line, a trailer ("Co-Authored-By: Name <addr>") or a
+// `git log` header ("Author: Name <addr>"), names who wrote or
+// reviewed a commit. In `git log` output it sits a line away from the next
+// subject, whose verbs paired with its address ("small phases share a round",
+// a live Claude Code session reading its own history). Only a whole line
+// counts: key at the line start, the address in angle brackets, nothing after
+// it, so an instruction cannot ride on the line. `^[ \t]*` under the m flag
+// fails at once off a line start, and the name is bounded, so this stays linear.
+const GIT_IDENTITY_LINE_RE = /^([ \t]*(?:author|commit|committer|co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|reported-by|suggested-by|helped-by|cc):[ \t]*[^<>\n]{0,200}<)([^<>\s@]+@[^<>\s]+)(?=>[ \t]*\r?$)/gim
+
+function blankGitIdentityLines(text: string): string {
+  return text.replace(GIT_IDENTITY_LINE_RE, (_m: string, head: string, address: string) => head + ' '.repeat(address.length))
+}
+
 function blankContactClauses(text: string): string {
   return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
     const start = offset + lead.length
@@ -984,7 +998,7 @@ function decodeJsonEscapes(text: string): string {
  */
 export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  const original = blankContactClauses(decodeJsonEscapes(input))
+  const original = blankContactClauses(blankGitIdentityLines(decodeJsonEscapes(input)))
   const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
   const text = blankTrustedAddresses(original, trusted)
   // The ungated rules (polite, directive) fire on the verb alone. When the

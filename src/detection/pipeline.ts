@@ -13,6 +13,16 @@ import { extractCandidatesYielding, maxWindowEntropy, yieldToEventLoop } from '.
 const YIELD_EVERY_MS = 50
 
 /**
+ * Most tool results one request may have withheld before it is refused
+ * instead. Each one costs a rescan; a request with this many flagged tool
+ * results is more likely an attack than a run of false positives.
+ */
+const MAX_WITHHELD = 16
+
+/** The item a scan is on, so run() can say which one a block came from. */
+type ScanCursor = { item: { text: string; source: ScanSource } | null }
+
+/**
  * Candidate sources the EMBEDDING stage skips.
  *
  * extractCandidates emits these for every input with no gate worth the name:
@@ -85,7 +95,8 @@ import { referencesModelInstructions } from './selfReference.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
-import { SuppressionStore } from './suppressions.js'
+import { SuppressionStore, suppressionKey } from './suppressions.js'
+import { withholdText } from './withhold.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { transcribeAudio, isTranscribeCandidate, MAX_TRANSCRIBE_CLIPS } from './transcribe.js'
@@ -275,9 +286,13 @@ export class Pipeline {
       enforcement?: 'enforce' | 'observe';
       // Tenant attribution, carried onto every event this run emits.
       tenant?: string;
+      // Set by inspect(): a tool-result block will be withheld, not refused.
+      withholding?: boolean;
     }
   ): Promise<PipelineResult> {
-    const result = await this.scan(requestPath, body, meta)
+    const at: ScanCursor = { item: null }
+    const scanned = await this.scan(requestPath, body, meta, at)
+    const result = scanned.action === 'block' && at.item ? { ...scanned, blockedItem: at.item } : scanned
     // THE choke point for observe mode. Every caller — proxy, gateway, the
     // library API — takes its verdict from here, so downgrading once makes
     // "observe blocks nothing" a property of the system rather than a promise
@@ -294,6 +309,43 @@ export class Pipeline {
     return result
   }
 
+  /**
+   * run(), plus what detection.surfaces.tool_result.onBlock says to do with a
+   * blocked tool result: under 'withhold' its text is replaced with a notice
+   * (src/detection/withhold.ts) and the request scanned again, up to
+   * MAX_WITHHELD times, so the session goes on without the model ever reading
+   * the flagged text. Returns the verdict and the body to forward. Refuses as
+   * before when the text cannot be found in the body, or a prompt or any other
+   * surface blocks. The rescan is cheap: items already seen clean come from
+   * the item cache.
+   */
+  async inspect(
+    requestPath: string,
+    body: string,
+    meta: Parameters<Pipeline['run']>[2],
+  ): Promise<{ result: PipelineResult; body: string; withheld: number }> {
+    const withholding = this.config.detection.surfaces?.tool_result?.onBlock === 'withhold'
+    let current = body
+    for (let withheld = 0; ; withheld++) {
+      const result = await this.run(requestPath, current, { ...meta, withholding })
+      const item = result.blockedItem
+      if (!withholding || result.action !== 'block' || item?.source !== 'tool_result') {
+        return { result, body: current, withheld }
+      }
+      // The same bytes on every request: the agent resends the original tool
+      // result each turn, and a notice that changed (an event id in it) would
+      // change the forwarded history there and break the prompt cache.
+      const notice = `[llm-fw withheld this tool output: it matched the ${result.stage} rule. Its content was not passed on to the model.]`
+      const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, notice) : null
+      const parser = getParser(requestPath)
+      if (next === null || !parser || parser.extractToolResults(next).some(tr => tr.result === item.text)) {
+        this.emit({ ...result, withheld: false }, meta, `[not withheld] tool output could not be removed from the request, so it was refused`, 'tool_result', null)
+        return { result, body: current, withheld: 0 }
+      }
+      current = next
+    }
+  }
+
   private async scan(
     requestPath: string,
     body: string,
@@ -301,7 +353,8 @@ export class Pipeline {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
       onEvent?: (event: BlockEvent) => void | undefined;
-    }
+    },
+    at: ScanCursor,
   ): Promise<PipelineResult> {
     const parser = getParser(requestPath)
     if (!parser) return this.pass(0, 0)
@@ -315,7 +368,7 @@ export class Pipeline {
     const malformed = malformedBody(body)
     if (malformed) {
       const result: PipelineResult = { action: 'block', stage: 'malformed-body', score: 100, similarity: 0 }
-      this.emit(result, meta, `request body refused: ${malformed}`, 'document')
+      this.emit(result, meta, `request body refused: ${malformed}`, 'document', null)
       return result
     }
 
@@ -365,7 +418,7 @@ export class Pipeline {
           if (this.isSuppressed(finalText, 'prompt')) {
             pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source: 'prompt' }
           } else {
-            this.emit(result, meta, line, 'prompt')
+            this.emit(result, meta, line, 'prompt', finalText)
             return result
           }
         } else if (!pendingWarn) {
@@ -488,7 +541,7 @@ export class Pipeline {
         const summary = summarizeOpaque(opaque)
         if (nonText.mode === 'block') {
           const result: PipelineResult = { action: 'block', stage: 'non-text', score: 100, similarity: 0, prompt: `[non-text content] ${summary}` }
-          this.emit({ ...result, mediaSummary: summary }, meta, `unscannable non-text content: ${summary}`, 'document')
+          this.emit({ ...result, mediaSummary: summary }, meta, `unscannable non-text content: ${summary}`, 'document', null)
           return result
         }
         // Keyed on the whole set, not each block: a URL image has no bytes, so
@@ -534,6 +587,7 @@ export class Pipeline {
     }
 
     for (const { text: prompt, source, trustedPath } of scanItems) {
+      at.item = { text: prompt, source }
       await yieldIfDue()
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks.
@@ -590,7 +644,7 @@ export class Pipeline {
           if (this.isSuppressed(prompt, source)) {
             if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
           } else {
-            this.emit(result, meta, line, source)
+            this.emit(result, meta, line, source, prompt)
             return result
           }
         }
@@ -610,7 +664,7 @@ export class Pipeline {
           if (this.isSuppressed(prompt, source)) {
             if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
           } else {
-            this.emit(result, meta, line, source)
+            this.emit(result, meta, line, source, prompt)
             return result
           }
         }
@@ -632,8 +686,12 @@ export class Pipeline {
         if (ind) {
           if (this.config.indirectInstruction.mode === 'block' && !trustedPath) {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
-            this.emit(result, meta, `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`, source)
-            return result
+            const line = `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`
+            if (!this.isSuppressed(prompt, source)) {
+              this.emit(result, meta, line, source, prompt)
+              return result
+            }
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
@@ -661,8 +719,12 @@ export class Pipeline {
           const quotedInData = mem.quoted && source !== 'memory'
           if (this.config.memoryPoisoning.mode === 'block' && !quotedInData && !trustedPath) {
             const result: PipelineResult = { action: 'block', stage: 'memory-poisoning', score: 100, similarity: 0, prompt }
-            this.emit(result, meta, `[memory: ${mem.kind}] ${mem.snippet}`, source)
-            return result
+            const line = `[memory: ${mem.kind}] ${mem.snippet}`
+            if (!this.isSuppressed(prompt, source)) {
+              this.emit(result, meta, line, source, prompt)
+              return result
+            }
+            if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'memory-poisoning', score: 0, similarity: 0, prompt },
@@ -686,7 +748,7 @@ export class Pipeline {
             if (this.isSuppressed(prompt, source)) {
               if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
             } else {
-              this.emit(result, meta, line, source)
+              this.emit(result, meta, line, source, prompt)
               return result
             }
           }
@@ -845,7 +907,7 @@ export class Pipeline {
             if (this.isSuppressed(prompt, source)) {
               if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
             } else {
-              this.emit(result, meta, line, source)
+              this.emit(result, meta, line, source, prompt)
               return result
             }
           }
@@ -875,7 +937,7 @@ export class Pipeline {
                 if (this.isSuppressed(prompt, source)) {
                   if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
                 } else {
-                  this.emit(result, meta, line, source)
+                  this.emit(result, meta, line, source, prompt)
                   return result
                 }
               }
@@ -1049,13 +1111,15 @@ export class Pipeline {
       lastScore = Math.max(scoreBeforeItem, lastScore)
       lastSim = Math.max(simBeforeItem, lastSim)
     }
+    // Blocks after the loop are about the request, not one item.
+    at.item = null
 
     // No candidate blocked. Surface the deferred opaque-media warn (an opaque
     // image was present and OCR, if on, recovered nothing that blocked) and the
     // embedding warn if any candidate crossed the warn threshold; otherwise pass.
     if (opaqueAudit) this.emitNonTextWarn(opaqueAudit, meta)
     if (pendingWarn) {
-      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source)
+      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, null)
       pendingWarn.reported = true
       return pendingWarn.result
     }
@@ -1066,7 +1130,7 @@ export class Pipeline {
     // operator can see that part of this request was read by the heuristics only.
     if (itemsCut > 0) {
       const result: PipelineResult = { action: 'warn', stage: 'scan-budget', score: lastScore, similarity: lastSim }
-      this.emit(result, meta, `embedding budget of ${maxPasses} forward passes spent: ${itemsCut} of ${scanItems.length} texts read by the heuristic stage only`, 'document')
+      this.emit(result, meta, `embedding budget of ${maxPasses} forward passes spent: ${itemsCut} of ${scanItems.length} texts read by the heuristic stage only`, 'document', null)
       return result
     }
 
@@ -1076,7 +1140,7 @@ export class Pipeline {
   /** Emit the audit warn for opaque media that the pipeline could not inspect, once per set of media. */
   private emitNonTextWarn(audit: { summary: string; key: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; tenant?: string; }): void {
     if (!this.firstReport(`non-text\0${meta.tenant ?? ''}\0${audit.key}`)) return
-    this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: audit.summary }, meta, `non-text content not scanned: ${audit.summary}`, 'document')
+    this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: audit.summary }, meta, `non-text content not scanned: ${audit.summary}`, 'document', null)
   }
 
   /**
@@ -1108,19 +1172,19 @@ export class Pipeline {
 
   /**
    * Operator false-positive suppression (Task B2). Consulted immediately
-   * before every BLOCK verdict in `run()`, on the prompt/system surfaces
-   * only — a suppression is an operator's judgment about a specific piece of
-   * user/system text, not a blanket pass for untrusted tool_result/document
-   * data, where a "known-safe" quoted string is standard indirect-injection
-   * dressing and must still block. Off by default only when the operator
-   * explicitly disables `detection.suppressions`; an empty suppression list
-   * (the default, fresh-install state) always returns false, so this is a
-   * no-op until an operator actually marks a false positive.
+   * before every BLOCK verdict in `run()` that is about one scanned text. The
+   * key is scoped to the surface (suppressionKey): text an operator vouched
+   * for in a prompt is standard indirect-injection dressing when it turns up
+   * in tool_result/document data, so a prompt mark never matches there. A
+   * mark on a tool result matches that exact tool result only, which is what
+   * an agent resends on every later turn: without it one false positive in
+   * the history refused the rest of the session. Off only when the operator
+   * disables `detection.suppressions`; an empty list (the fresh-install
+   * state) always returns false.
    */
   private isSuppressed(text: string, source: ScanSource): boolean {
-    if (source !== 'prompt' && source !== 'system') return false
     if (this.config.detection.suppressions === false) return false
-    const hit = this.suppressions.isSuppressed(text)
+    const hit = this.suppressions.has(suppressionKey(text, source))
     // An item whose verdict leaned on a suppression is never put in the item
     // cache: removing the suppression has to make it block again.
     if (hit) this.suppressionHits++
@@ -1179,13 +1243,15 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; }, prompt: string, source: ScanSource = 'prompt'): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
     if (!this.onBlock) return
     const observing = isObserving(this.config.enforcement, meta.enforcement)
+    const withheld = result.withheld ?? (meta.withholding && result.action === 'block' && source === 'tool_result' && !observing ? true : undefined)
     // Under observe a block is forwarded, so the item stays in the history and
-    // blocks again on every later request of the session (#295). Enforced
-    // blocks are all reported: each one refused a request.
-    if (observing && result.action === 'block'
+    // blocks again on every later request of the session (#295). A withheld
+    // tool result is the same: the agent resends it and it is withheld again.
+    // Other enforced blocks are all reported: each one refused a request.
+    if ((observing || withheld === true) && result.action === 'block'
       && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${source}\0${result.stage}\0${prompt}`).digest('hex'))) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
@@ -1208,6 +1274,12 @@ export class Pipeline {
       // WOULD have been blocked, not read a log of warnings.
       ...(observing ? { enforced: false } : {}),
       ...(meta.tenant ? { tenant: meta.tenant } : {}),
+      // inspect() withholds a blocked tool result rather than refusing; say
+      // so on the event, or false when it could not and refused after all.
+      ...(withheld !== undefined ? { withheld } : {}),
+      // `prompt` above may be a label and a snippet; the dashboard's "Mark
+      // false positive" needs the key of the text this stage scanned.
+      ...(scanned !== null ? { suppressionKey: suppressionKey(scanned, source) } : {}),
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
       verdict: result.verdict,

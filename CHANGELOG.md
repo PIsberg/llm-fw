@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A blocked tool result is withheld instead of refusing the whole request.** The tool result that
+  blocked is replaced with a fixed notice (`[llm-fw withheld this tool output: it matched the
+  <stage> rule. ...]`) and the rest of the request is forwarded, through the proxy and the gateway.
+  An agent resends its history on every turn, so refusing the request for one tool result refused
+  every later request of the session too: replaying 7 days of real Claude Code sessions on one
+  machine, 32 of 245 sessions outside llm-fw would have ended at a block, and 10 do now. The model
+  still never reads the flagged text. The event is recorded as blocked with `withheld: true`, shown
+  as WITHHELD, and reported once per text rather than on every turn; the notice is the same bytes
+  every time, so the provider's prompt cache survives. Blocks on the prompt, system prompt, tool
+  definitions or the request itself still refuse, as does a tool result the proxy cannot find in
+  the body, a 17th in one request, and any block in a realtime WebSocket session. Set
+  `detection.surfaces.tool_result.onBlock` (or `LLM_FW_TOOL_RESULT_ON_BLOCK`) to `refuse` for the
+  old behaviour; applied live. Verified with a two-turn `claude -p` session through the proxy:
+  both turns answered under `withhold`, both refused with 422 under `refuse`.
+
+### Fixed
+
+- **"Mark false positive" now works on tool-result and document blocks.** It used to store an
+  entry nothing could match: the dashboard hashed the event's label and snippet
+  (`[indirect: exfil-target "send"] ...`) rather than the text that was scanned, and the pipeline
+  never consulted the list on tool results. An agent resends its history on every turn, so one
+  false positive in a tool result refused every later request of the session, and marking it
+  changed nothing. Each block event now carries the key of the text its stage scanned, and the
+  indirect-instruction and memory-poisoning stages honour it. A key is scoped to its surface: a
+  prompt mark still never waves the same text through as a tool result, and a tool-result mark
+  covers that exact tool result only. Existing entries keep matching prompts as before. The button
+  is gone from DLP, URL-filter, rate-limit and response-side blocks, which never read the list.
+
+- **`git log` output no longer trips the indirect-instruction exfil rule.** A commit trailer or
+  header naming a person (`Co-Authored-By: Name <address>`, `Signed-off-by:`, `Author:` and the
+  like, alone on its line) is attribution, not a destination; "share" in the next commit's subject
+  paired with its address and refused a live Claude Code session.
+  Measured: 0 of 23,938 eval verdicts changed, held-out recall and the false-positive rate
+  unchanged.
+
+- **Claude Code's Artifact tool no longer floods Live Traffic with "Unrecognized LLM endpoint"
+  warnings.** Its MCP calls to `api.anthropic.com/api/artifacts/mcp` are not model calls, and
+  were 8 of the last 37 events on a live install. They are now excluded like the other Claude
+  Code service paths. Nothing is lost: what the artifact service returns reaches the model as a
+  tool result in the next `/v1/messages` request, which is scanned.
+
 ### Documentation
 
 - **The `release` skill covers skipping a version and publishing security advisories.** 0.9.1
@@ -14,6 +57,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not publish (HTTP 422) while each private fork held an open fix PR. The skill now lists what a
   skipped version leaves wrong and how to move the advisories to the version npm serves, check the
   fork PR's head is in the tag, close it and publish.
+
+- **Guides corrected against the code.** The `trustedPaths` example in the tuning guide was not
+  valid JSON (`"C:\dev\private"`), so a pasted config failed to load; every `json` code block in the
+  docs is now parsed by a test. The detection-stages worked examples showed responses from an
+  older ruleset (the first now blocks at `harmful-request`, not `embedding`) and are replaced with
+  output captured from a running proxy. The judge section gave a warn range (0.70 to 0.85) and a
+  default model (`phi3`) the code does not use, and said the sync judge runs on every request; it
+  runs only on a candidate the cheap stages flagged. The README said the body is scanned as it
+  streams in, with zero added latency and a boot under 2 seconds: detection runs once on the
+  complete body, a short prompt scans in about 7 ms (median of 60), and a start with the model
+  cached took 2.1 and 2.5 s. The MCP guide said a credential read by a tool is blocked; under the
+  default DLP mode it is redacted. Guides that promise a `422` now say a flagged tool result is
+  withheld instead. The client guide said the Anthropic and OpenAI Node SDKs honour `HTTPS_PROXY`
+  (neither reads it; `NODE_USE_ENV_PROXY=1` or a dispatcher does the job), that `setup` configures
+  Cursor (it writes VS Code and Antigravity settings only) and gave `node ...tsx.cmd` commands
+  that fail with a SyntaxError (now `npm run dev -- setup`).
 
 ## [0.9.1] - 2026-10-25
 

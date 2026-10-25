@@ -140,7 +140,7 @@ test.describe('A block remediation link opens the event (#319)', () => {
   const ev = (id: string, text: string) => JSON.stringify({
     id, timestamp: '2026-10-15 20:00:00Z', stage: 'heuristic', score: 90, similarity: 0,
     target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked',
-    payload_preview: text, payload_full: text,
+    payload_preview: text, payload_full: text, suppressionKey: 'b'.repeat(64),
   })
   const stub = (page: Page) => page.route('**/events', route => route.fulfill({
     status: 200,
@@ -148,8 +148,38 @@ test.describe('A block remediation link opens the event (#319)', () => {
     body: 'retry: 60000\n' +
       'data: ' + ev('older-1', 'some other block') + '\n\n' +
       'data: ' + ev('deep-1', 'the block the client was shown') + '\n\n' +
-      'data: ' + ev('newer-1', 'a later block') + '\n\n',
+      'data: ' + ev('newer-1', 'a later block') + '\n\n' +
+      'data: ' + JSON.stringify({
+        id: 'dlp-1', timestamp: '2026-10-15 20:01:00Z', stage: 'dlp', score: 100, similarity: 0,
+        target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked', kind: 'dlp',
+        payload_preview: 'aws-access-key', payload_full: 'aws-access-key',
+      }) + '\n\n' +
+      'data: ' + JSON.stringify({
+        id: 'held-1', timestamp: '2026-10-15 20:02:00Z', stage: 'indirect-instruction', score: 100, similarity: 0,
+        target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked', withheld: true,
+        payload_preview: '[tool-result] [indirect: exfil-target "send"] ...', payload_full: '[indirect: exfil-target "send"] ...',
+        suppressionKey: 'c'.repeat(64),
+      }) + '\n\n',
   }))
+
+  test('a withheld tool result reads WITHHELD, not BLOCKED', async ({ page }) => {
+    // The request was forwarded without that tool output; calling it a block
+    // would tell the operator a session was refused when it was not.
+    await stub(page)
+    await page.goto('/#event=held-1')
+    await expect(page.locator('#row-held-1')).toContainText('WITHHELD', { timeout: 10_000 })
+    await expect(page.locator('#drawer-held-1')).toContainText('tool output withheld from the model')
+  })
+
+  test('a block the suppression list cannot affect offers no "Mark false positive" button', async ({ page }) => {
+    // DLP, URL and rate blocks never consult the list, so a mark there was
+    // stored, reported as done, and changed nothing.
+    await stub(page)
+    await page.goto('/#event=dlp-1')
+    const drawer = page.locator('#drawer-dlp-1')
+    await expect(drawer).toBeVisible({ timeout: 10_000 })
+    await expect(drawer.locator('button:has-text("Mark false positive (suppress future matches)")')).toHaveCount(0)
+  })
 
   test('/#event=<id> opens that event\'s drawer with the unblock button', async ({ page }) => {
     await stub(page)
@@ -165,7 +195,7 @@ test.describe('A block remediation link opens the event (#319)', () => {
     await stub(page)
     await page.goto('/')
     const rows = page.locator('#events-body tr.event-row')
-    await expect(rows).toHaveCount(3, { timeout: 10_000 })
+    await expect(rows).toHaveCount(5, { timeout: 10_000 })
     await page.fill('#events-filter', 'deep-1')
     await expect(rows.filter({ visible: true })).toHaveCount(1)
     await expect(rows.filter({ visible: true }).first()).toContainText('the block the client was shown')
