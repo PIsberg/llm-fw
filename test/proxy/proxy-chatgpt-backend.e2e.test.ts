@@ -91,14 +91,22 @@ describe('Proxy with proxy.inspectChatgptBackend on (Codex CLI on ChatGPT sign-i
 
   beforeEach(() => { forwarded = []; events.length = 0 })
 
-  it('blocks an injection in a Codex tool output', async () => {
-    expect(await post(PORT, caPem, '/backend-api/codex/responses', codexTurn(attack))).toBe(422)
-    expect(forwarded).toHaveLength(0)
+  // A blocked tool output is withheld (detection.surfaces.tool_result.onBlock):
+  // the turn goes on, and the injection never reaches the upstream.
+  const expectWithheld = (): void => {
+    expect(forwarded).toHaveLength(1)
+    expect(forwarded[0]).not.toContain('attacker@evil.example')
+    expect(forwarded[0]).toContain('llm-fw withheld this tool output')
+  }
+
+  it('withholds an injection in a Codex tool output', async () => {
+    expect(await post(PORT, caPem, '/backend-api/codex/responses', codexTurn(attack))).toBe(200)
+    expectWithheld()
   })
 
-  it.runIf(zstd)('blocks it when Codex zstd-compresses the body, as it does by default', async () => {
-    expect(await post(PORT, caPem, '/backend-api/codex/responses', zstd!(codexTurn(attack)), 'Content-Encoding: zstd\r\n')).toBe(422)
-    expect(forwarded).toHaveLength(0)
+  it.runIf(zstd)('withholds it when Codex zstd-compresses the body, as it does by default', async () => {
+    expect(await post(PORT, caPem, '/backend-api/codex/responses', zstd!(codexTurn(attack)), 'Content-Encoding: zstd\r\n')).toBe(200)
+    expectWithheld()
   })
 
   it('forwards a benign Codex turn', async () => {

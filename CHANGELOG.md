@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A blocked tool result is withheld instead of refusing the whole request.** The tool result that
+  blocked is replaced with a fixed notice (`[llm-fw withheld this tool output: it matched the
+  <stage> rule. ...]`) and the rest of the request is forwarded, through the proxy and the gateway.
+  An agent resends its history on every turn, so refusing the request for one tool result refused
+  every later request of the session too: replaying 7 days of real Claude Code sessions on one
+  machine, 32 of 245 sessions outside llm-fw would have ended at a block, and 10 do now. The model
+  still never reads the flagged text. The event is recorded as blocked with `withheld: true`, shown
+  as WITHHELD, and reported once per text rather than on every turn; the notice is the same bytes
+  every time, so the provider's prompt cache survives. Blocks on the prompt, system prompt, tool
+  definitions or the request itself still refuse, as does a tool result the proxy cannot find in
+  the body, a 17th in one request, and any block in a realtime WebSocket session. Set
+  `detection.surfaces.tool_result.onBlock` (or `LLM_FW_TOOL_RESULT_ON_BLOCK`) to `refuse` for the
+  old behaviour; applied live. Verified with a two-turn `claude -p` session through the proxy:
+  both turns answered under `withhold`, both refused with 422 under `refuse`.
+
 ### Fixed
 
 - **"Mark false positive" now works on tool-result and document blocks.** It used to store an

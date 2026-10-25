@@ -153,8 +153,23 @@ test.describe('A block remediation link opens the event (#319)', () => {
         id: 'dlp-1', timestamp: '2026-10-15 20:01:00Z', stage: 'dlp', score: 100, similarity: 0,
         target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked', kind: 'dlp',
         payload_preview: 'aws-access-key', payload_full: 'aws-access-key',
+      }) + '\n\n' +
+      'data: ' + JSON.stringify({
+        id: 'held-1', timestamp: '2026-10-15 20:02:00Z', stage: 'indirect-instruction', score: 100, similarity: 0,
+        target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked', withheld: true,
+        payload_preview: '[tool-result] [indirect: exfil-target "send"] ...', payload_full: '[indirect: exfil-target "send"] ...',
+        suppressionKey: 'c'.repeat(64),
       }) + '\n\n',
   }))
+
+  test('a withheld tool result reads WITHHELD, not BLOCKED', async ({ page }) => {
+    // The request was forwarded without that tool output; calling it a block
+    // would tell the operator a session was refused when it was not.
+    await stub(page)
+    await page.goto('/#event=held-1')
+    await expect(page.locator('#row-held-1')).toContainText('WITHHELD', { timeout: 10_000 })
+    await expect(page.locator('#drawer-held-1')).toContainText('tool output withheld from the model')
+  })
 
   test('a block the suppression list cannot affect offers no "Mark false positive" button', async ({ page }) => {
     // DLP, URL and rate blocks never consult the list, so a mark there was
@@ -180,7 +195,7 @@ test.describe('A block remediation link opens the event (#319)', () => {
     await stub(page)
     await page.goto('/')
     const rows = page.locator('#events-body tr.event-row')
-    await expect(rows).toHaveCount(4, { timeout: 10_000 })
+    await expect(rows).toHaveCount(5, { timeout: 10_000 })
     await page.fill('#events-filter', 'deep-1')
     await expect(rows.filter({ visible: true })).toHaveCount(1)
     await expect(rows.filter({ visible: true }).first()).toContainText('the block the client was shown')

@@ -224,6 +224,13 @@ export interface PromptSurfaceConfig {
 // LLM_FW_TRUSTED_PATHS, comma-separated.
 export interface ToolResultSurfaceConfig {
   trustedPaths?: string[];
+  // What a block on a tool result does (src/detection/withhold.ts). 'withhold'
+  // (default) replaces that tool result's text with a notice and forwards the
+  // rest of the request; 'refuse' refuses the whole request, as before. An
+  // agent resends its history, so under 'refuse' one false positive refused
+  // every later request of the session. Either way the model never reads the
+  // flagged text. Also LLM_FW_TOOL_RESULT_ON_BLOCK.
+  onBlock?: 'refuse' | 'withhold';
 }
 
 export interface ClassifierConfig {
@@ -807,6 +814,8 @@ export interface PipelineResult {
   nearestTemplate?: string;
   ragTag?: string;
   smuggleRanges?: string[];
+  /** On a block, the scan item that caused it; absent for request-level blocks. */
+  blockedItem?: { text: string; source: ScanSource };
 }
 
 export interface BlockEvent {
@@ -854,6 +863,10 @@ export interface BlockEvent {
   // the text the stage scanned, which payload_full may only label and quote.
   // Absent on blocks that are not about one scanned text.
   suppressionKey?: string | undefined;
+  // On a tool-result block: true when the tool result was withheld and the
+  // rest of the request forwarded, false when it could not be and the request
+  // was refused. Absent on every other block.
+  withheld?: boolean | undefined;
 }
 
 // An event an operator marked as a false positive, persisted to

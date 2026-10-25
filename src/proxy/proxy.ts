@@ -992,7 +992,9 @@ export class ProxyServer {
       // the overall llmfw_scan_duration_seconds histogram.
       const scanStart = Date.now()
       try {
-        result = await this.pipeline.run(
+        // inspect(): a blocked tool result is withheld from the body rather
+        // than refusing the request (detection.surfaces.tool_result.onBlock).
+        const inspected = await this.pipeline.inspect(
           innerReq.url ?? '/',
           body,
           {
@@ -1008,6 +1010,11 @@ export class ProxyServer {
             onEvent: (e) => { scanEventId = e.id },
           }
         )
+        result = inspected.result
+        if (inspected.withheld > 0) {
+          body = inspected.body
+          bodyBuf = Buffer.from(body, 'utf-8')
+        }
         this.metrics?.recordScan('proxy', Date.now() - scanStart)
       } catch (err) {
         this.metrics?.recordScan('proxy', Date.now() - scanStart)

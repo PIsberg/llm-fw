@@ -22,7 +22,7 @@ From the dashboard **Events** tab, opening a blocked event shows a **"Mark false
 2. Appends `{ hash, preview, addedAt }` (`addedAt` in UTC) to `~/.llm-fw/suppressions.json` (`preview` is a short truncated excerpt kept only so you can recognize the entry later; it plays no role in matching).
 3. From then on, an **identical** future text that would have been **blocked** on the same surface is downgraded to a **warn** instead (logged with a `[suppressed-fp]` note) — every other text is scored exactly as before.
 
-A false positive in a tool result matters most here: an agent resends its whole history on every turn, so until it is marked, that one tool result refuses every later request of the session.
+A false positive in a tool result is withheld by default (`detection.surfaces.tool_result.onBlock`, see [Configuration](configuration.md#configuration)): the model gets a notice in its place and the session goes on. Marking it lets the model read it again. Under `onBlock: refuse` the mark matters more: an agent resends its whole history on every turn, so until it is marked, that one tool result refuses every later request of the session.
 
 The button works on events the running process still holds. Events live in memory only: a restart forgets them, and the process keeps the last `dashboard.maxEvents` (default 100) blocked events, separately from other traffic, so a busy agent session cannot push a false positive out before you mark it. For an event from before a restart, re-send the request and mark the new event.
 

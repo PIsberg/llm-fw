@@ -67,10 +67,25 @@ Rules that must not regress:
   observe-mode event per chunk, and rescanning the growing body cost ~2.5 s of
   CPU on a 107 KB request. Pinned by `test/proxy/proxy-early-block.e2e.test.ts`.
 
+- A blocked tool result is withheld, not refused, under
+  `detection.surfaces.tool_result.onBlock: 'withhold'` (the default):
+  `Pipeline.inspect` replaces its text with a notice and both the proxy and
+  the gateway forward the rewritten body. The notice must stay byte-identical
+  across requests (no event id, no timestamp): the agent resends the original
+  every turn, and a changing notice breaks the provider's prompt cache from
+  that point on. When the text cannot be found in the body, refuse; never
+  forward a body that still holds it. Pinned by
+  `test/detection/pipeline-withhold.test.ts` and Case 4a2 in
+  `test/proxy/proxy.e2e.test.ts`.
+
 ## Asymmetries to preserve, or fix deliberately
 
 These are real and load-bearing. If you change one, it is a behaviour change
 that needs a changelog entry, not a cleanup.
+
+- **Realtime WebSocket sessions refuse a blocked tool output.** The relay
+  (`src/proxy/realtimeRelay.ts`) calls `pipeline.run`, not `inspect`, so a
+  flagged `function_call_output` ends the session rather than being withheld.
 
 - **Response-side scanning is proxy-only.** The gateway runs the request-side
   pipeline and streams responses through untouched. A response the module

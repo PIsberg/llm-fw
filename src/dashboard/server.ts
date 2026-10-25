@@ -976,7 +976,7 @@ function toggleDrawer(id, ev) {
           '<dt>Target</dt><dd>' + esc(ev.target) + '</dd>' +
           '<dt>Method</dt><dd>' + esc(ev.method) + '</dd>' +
           '<dt>Path</dt><dd>' + esc(ev.path) + '</dd>' +
-          '<dt>Action</dt><dd>' + esc(ev.action) + (isObservedBlock(ev) ? ' (observe mode: not enforced, request forwarded)' : '') + '</dd>' +
+          '<dt>Action</dt><dd>' + esc(ev.action) + (isObservedBlock(ev) ? ' (observe mode: not enforced, request forwarded)' : ev.withheld === true ? ' (tool output withheld from the model, rest of the request forwarded)' : '') + '</dd>' +
           '<dt>Time</dt><dd>' + esc(ev.timestamp) + '</dd>' +
           '<dt>ID</dt><dd>' + esc(ev.id) + '</dd>' +
         '</dl>' +
@@ -1090,6 +1090,8 @@ function appendRow(ev) {
 
   const actionBadge = isObservedBlock(ev)
     ? '<span class="badge badge-observed" title="Observe mode: recorded, not refused">WOULD BLOCK</span>'
+    : ev.action === 'blocked' && ev.withheld === true
+    ? '<span class="badge badge-observed" title="The tool output was withheld from the model; the rest of the request was forwarded">WITHHELD</span>'
     : '<span class="badge badge-' + esc(ev.action) + '">' + esc((ev.action || '').toUpperCase()) + '</span>';
   const stageChip  = '<span class="chip chip-' + esc(ev.stage) + '">' + esc(ev.stage) + '</span>';
   const endpoint   = esc((ev.method || '') + ' ' + (ev.path || ''));

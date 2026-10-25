@@ -131,6 +131,12 @@ export const DEFAULT_CONFIG: Config = {
     // positive from the dashboard, so this is behavior-preserving out of the
     // box. Also LLM_FW_SUPPRESSIONS_ENABLED.
     suppressions: true,
+    // A blocked tool result is withheld (replaced with a notice) and the rest
+    // of the request forwarded, rather than the whole request refused: an
+    // agent resends its history, so one refused tool result ended the session.
+    // Replaying 7 days of real Claude Code sessions, sessions ended by a block
+    // went from 32 to 10 of 245. Also LLM_FW_TOOL_RESULT_ON_BLOCK.
+    surfaces: { tool_result: { onBlock: 'withhold' } },
     // Trusted by default: the system prompt is developer-authored and naturally
     // contains instruction-management language that injection heuristics flag, so
     // scanning it blocks legitimate traffic. Enable only when untrusted data is
@@ -736,6 +742,12 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_TRUSTED_PATHS: (c, v) => {
     c.detection.surfaces = c.detection.surfaces ?? {};
     c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, trustedPaths: splitList(v) };
+  },
+  // 'refuse' or 'withhold'; anything else is ignored, so a typo keeps the default.
+  LLM_FW_TOOL_RESULT_ON_BLOCK: (c, v) => {
+    if (v !== 'refuse' && v !== 'withhold') return;
+    c.detection.surfaces = c.detection.surfaces ?? {};
+    c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, onBlock: v };
   },
   // Issue #287: 'warn' demotes prompt-surface heuristic/embedding matches
   // below the high-confidence tier to warn events. Any other value is ignored

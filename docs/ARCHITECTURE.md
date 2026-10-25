@@ -380,6 +380,8 @@ stateDiagram-v2
 
     JudgeAsync --> [*] : verdict logged post-facto
 
+    Block --> Withhold : the item is a tool result, onBlock=withhold
+    Withhold --> Normalize : rescan with a notice in its place
     Block --> [*] : HTTP 422 + dashboard event
     Pass --> [*] : forward to upstream
     Warn --> [*] : forward + dashboard warning
