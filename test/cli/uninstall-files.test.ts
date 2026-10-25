@@ -100,7 +100,7 @@ describe('removeLlmfwFiles', () => {
 })
 
 describe('a .llm-fw.json in the working directory', () => {
-  // Since 0.9.0 llm-fw never reads a config file from the working directory,
+  // Since 0.9.1 llm-fw never reads a config file from the working directory,
   // so it has no claim on one. uninstall used to rewrite or delete it, which,
   // run inside a cloned repository, edited that repository's file.
   let dir: string

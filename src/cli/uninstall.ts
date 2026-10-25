@@ -21,7 +21,7 @@ import { run as stopFirewall } from './stop.js';
  *   3. The hosts file + a port      — the sinkhole redirect (elevated installs).
  *      redirect rule
  *   4. A .llm-fw.json in the cwd    — judge settings setup-judge wrote before
- *                                     0.9.0. Reported, never edited: it may
+ *                                     0.9.1. Reported, never edited: it may
  *                                     belong to a cloned repository.
  *   5. IDE proxy settings           — http.proxy / http.proxyStrictSSL written
  *                                     to VS Code / Antigravity settings.json.
@@ -216,14 +216,14 @@ function removePortRedirect(httpsPort: number): void {
  *
  * Older setup-judge versions wrote judge settings there, and uninstall used to
  * strip or delete it. llm-fw has not read a config file from the working
- * directory since 0.9.0, so it has no claim on one: run inside a cloned
+ * directory since 0.9.1, so it has no claim on one: run inside a cloned
  * repository, that cleanup edited the repository's own file. Now it is only
  * reported.
  */
 export function noteProjectConfig(dir: string): string | undefined {
   const configPath = join(dir, '.llm-fw.json');
   if (!fs.existsSync(configPath)) return undefined;
-  return `${configPath} is not read by llm-fw (since 0.9.0) and was left as it is; delete it if llm-fw wrote it`;
+  return `${configPath} is not read by llm-fw (since 0.9.1) and was left as it is; delete it if llm-fw wrote it`;
 }
 
 // What uninstall deletes from ~/.llm-fw (#322), with what each file means to
