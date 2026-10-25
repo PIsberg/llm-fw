@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claude Code's Artifact tool no longer floods Live Traffic with "Unrecognized LLM endpoint"
+  warnings.** Its MCP calls to `api.anthropic.com/api/artifacts/mcp` are not model calls, and
+  were 8 of the last 37 events on a live install. They are now excluded like the other Claude
+  Code service paths. Nothing is lost: what the artifact service returns reaches the model as a
+  tool result in the next `/v1/messages` request, which is scanned.
+
 ### Documentation
 
 - **The `release` skill covers skipping a version and publishing security advisories.** 0.9.1

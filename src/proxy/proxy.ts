@@ -146,10 +146,13 @@ const NON_LLM_JSON_PATH_SUFFIXES = [
 /**
  * Same idea for endpoints whose last segment varies per client. Claude Code
  * POSTs GrowthBook attributes to `/api/eval/<client key>` at every start,
- * and calls OAuth / CLI management endpoints on the provider's API host.
+ * calls OAuth / CLI management endpoints on the provider's API host, and its
+ * Artifact tool speaks MCP JSON-RPC to `/api/artifacts/mcp`. What that returns
+ * reaches the model as a tool_result in the next scanned `/v1/messages` call.
  */
 const NON_LLM_JSON_PATH_PREFIXES = [
   '/api/eval/',
+  '/api/artifacts/',
   '/api/oauth/',
   '/api/claude_cli',
   '/v1/oauth/',

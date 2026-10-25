@@ -478,6 +478,28 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     expect(events.find((e: any) => e.path === path)).toBeUndefined()
   })
 
+  it('E2E Case 4b2b: Claude Code artifact service calls are forwarded without an "unparsed" warn', async () => {
+    // Claude Code's Artifact tool sends MCP JSON-RPC to /api/artifacts/mcp.
+    // It is not a model call: whatever it returns reaches the model only as a
+    // tool_result in the next /v1/messages request, which is scanned. Warning
+    // on it filled Live Traffic with one "unrecognized LLM endpoint" row per call.
+    const path = '/api/artifacts/mcp'
+    const response = await sendProxyRequest(
+      testConfig.proxy.port,
+      'api.anthropic.com',
+      mockUpstreamPort,
+      'POST',
+      path,
+      { 'Content-Type': 'application/json' },
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+    )
+
+    expect(response.statusCode).toBe(200)
+
+    const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
+    expect(events.find((e: any) => e.path === path)).toBeUndefined()
+  })
+
   it('E2E Case 4b3: Claude Code OAuth and login requests are forwarded without blocks or unparsed warns', async () => {
     // Claude Code exchanges OAuth tokens and provisions CLI API keys against api.anthropic.com.
     // They are non-LLM JSON POSTs/GETs carrying auth credentials that must neither be blocked
