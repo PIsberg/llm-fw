@@ -850,6 +850,10 @@ export interface BlockEvent {
   // Which tenant's traffic this was, when the gateway resolved one. Absent for
   // the forward proxy and for single-token gateway deployments.
   tenant?: string | undefined;
+  // What "Mark false positive" stores for this event: the suppression key of
+  // the text the stage scanned, which payload_full may only label and quote.
+  // Absent on blocks that are not about one scanned text.
+  suppressionKey?: string | undefined;
 }
 
 // An event an operator marked as a false positive, persisted to

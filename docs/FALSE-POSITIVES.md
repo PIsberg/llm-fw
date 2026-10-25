@@ -60,6 +60,31 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.86
+
+**2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
+samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed; held-out recall
+unchanged (heldout 23 of 31, injecagent 1,054 of 1,054, safeguard 490 of
+650).** A git identity line (a commit trailer such as `Co-Authored-By: Name
+<address>`, or a `git log` header such as `Author:`, alone on its line) no
+longer gives the indirect-instruction exfil rule a destination. No eval row is
+`git log` output, so nothing there moved; the case came from a live Claude Code
+session whose `git log` paired "share" in one subject with the previous
+commit's trailer. A false-positive mark on a tool-result or document block now
+takes effect, scoped to that surface; that changes no verdict until an operator
+marks one.
+
+Replaying the last 7 days of this machine's Claude Code transcripts per session
+(407 sessions, 13,934 unique items, live config, no suppressions) shows what is
+left: 32 of 245 sessions outside llm-fw would have hit a block (13.1%), and 54
+of 162 llm-fw sessions and fixtures, which quote attacks by design. Because an
+agent resends its history, each of those sessions ends at its first block. 22
+of the 32 are tool results only, mostly the indirect-instruction rule on
+attribution addresses (`mailto:` links, `email = "..."` in project metadata),
+CI log advice ("Please update your unit file") and spec prose. The other 10 are
+prompt-surface text the harness itself sends: skill bodies, a compaction
+summary, `/security-review` prompts carrying a diff.
+
 ## Result, ruleset 2026.10.85
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1

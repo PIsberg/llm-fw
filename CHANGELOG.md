@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Mark false positive" now works on tool-result and document blocks.** It used to store an
+  entry nothing could match: the dashboard hashed the event's label and snippet
+  (`[indirect: exfil-target "send"] ...`) rather than the text that was scanned, and the pipeline
+  never consulted the list on tool results. An agent resends its history on every turn, so one
+  false positive in a tool result refused every later request of the session, and marking it
+  changed nothing. Each block event now carries the key of the text its stage scanned, and the
+  indirect-instruction and memory-poisoning stages honour it. A key is scoped to its surface: a
+  prompt mark still never waves the same text through as a tool result, and a tool-result mark
+  covers that exact tool result only. Existing entries keep matching prompts as before. The button
+  is gone from DLP, URL-filter, rate-limit and response-side blocks, which never read the list.
+
+- **`git log` output no longer trips the indirect-instruction exfil rule.** A commit trailer or
+  header naming a person (`Co-Authored-By: Name <address>`, `Signed-off-by:`, `Author:` and the
+  like, alone on its line) is attribution, not a destination; "share" in the next commit's subject
+  paired with its address and refused a live Claude Code session.
+  Measured: 0 of 23,938 eval verdicts changed, held-out recall and the false-positive rate
+  unchanged.
+
 - **Claude Code's Artifact tool no longer floods Live Traffic with "Unrecognized LLM endpoint"
   warnings.** Its MCP calls to `api.anthropic.com/api/artifacts/mcp` are not model calls, and
   were 8 of the last 37 events on a live install. They are now excluded like the other Claude

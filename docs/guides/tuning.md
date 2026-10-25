@@ -16,15 +16,17 @@ The same toggles are available headless via the `LLM_FW_*_ENABLED` environment v
 
 Every threshold in this firewall is a trade-off, and no threshold is perfect — occasionally a legitimate prompt trips a block. Rather than asking you to loosen a global threshold (and quietly widen the hole for everyone), llm-fw lets you suppress that **exact** prompt going forward.
 
-From the dashboard **Events** tab, opening a blocked event on the `prompt`/`system` surface shows a **"Mark false positive (suppress future matches)"** button. Clicking it:
+From the dashboard **Events** tab, opening a blocked event shows a **"Mark false positive (suppress future matches)"** button when the block was about one scanned text: a prompt, a system prompt, a tool result or a document. DLP, URL-filter, rate-limit and response-side blocks never consult the list, so they show no button. Clicking it:
 
-1. Computes the sha256 hash of the **normalized** prompt text (the same normalization the embedding cache uses) — never the raw prompt itself is stored.
+1. Records the key the pipeline put on the event: the sha256 hash of the **normalized** text the stage scanned (the same normalization the embedding cache uses), never the raw text. The event's payload may only show a label and a snippet (`[indirect: exfil-target "send"] ...`); the key is of the whole scanned text.
 2. Appends `{ hash, preview, addedAt }` (`addedAt` in UTC) to `~/.llm-fw/suppressions.json` (`preview` is a short truncated excerpt kept only so you can recognize the entry later; it plays no role in matching).
-3. From then on, an **identical** future prompt that would have been **blocked** on the `prompt`/`system` surface is downgraded to a **warn** instead (logged with a `[suppressed-fp]` note) — every other prompt is scored exactly as before.
+3. From then on, an **identical** future text that would have been **blocked** on the same surface is downgraded to a **warn** instead (logged with a `[suppressed-fp]` note) — every other text is scored exactly as before.
+
+A false positive in a tool result matters most here: an agent resends its whole history on every turn, so until it is marked, that one tool result refuses every later request of the session.
 
 The button works on events the running process still holds. Events live in memory only: a restart forgets them, and the process keeps the last `dashboard.maxEvents` (default 100) blocked events, separately from other traffic, so a busy agent session cannot push a false positive out before you mark it. For an event from before a restart, re-send the request and mark the new event.
 
-Suppressions are intentionally scoped to the trusted `prompt`/`system` surfaces — `tool_result` and `document` are untrusted data, so a match there is never downgraded, no matter what's in the list.
+A suppression is scoped to the surface it was marked on. `tool_result` and `document` are untrusted data, and text you vouched for in a prompt is classic dressing for an injection planted in a tool result, so a prompt or system mark never downgrades a tool result or document. A mark on a tool result covers that exact tool result only, and not the same text arriving as a document. Entries made before this scoping keep matching on the `prompt`/`system` surfaces, as they always did.
 
 `GET /api/suppressions` lists current entries; `DELETE /api/suppressions` removes one — both behind the existing dashboard auth-token middleware.
 
