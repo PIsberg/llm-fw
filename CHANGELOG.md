@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **The `release` skill covers skipping a version and publishing security advisories.** 0.9.1
+  shipped after 0.9.0 was never published, and its four advisories said patched=0.9.0 and would
+  not publish (HTTP 422) while each private fork held an open fix PR. The skill now lists what a
+  skipped version leaves wrong and how to move the advisories to the version npm serves, check the
+  fork PR's head is in the tag, close it and publish.
+
 ## [0.9.1] - 2026-10-25
 
 The first published 0.9 release. 0.9.0 was prepared but never published, so 0.9.1 also
