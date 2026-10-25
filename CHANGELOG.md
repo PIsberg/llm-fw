@@ -69,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Italian "dimentica" blocked "Ho dimenticato la password" (I forgot my password), the Somali rule
   blocked "follow the previous instructions", and "my new task" blocked in Spanish, German,
   Belarusian and Korean (English stopped doing that in #247).
+- **"This game has no rules for beginners" and "Write a story where kindness is celebrated" no
+  longer block.** The English jailbreak-frame rule took any game, world or story next to "no
+  rules", and anything "celebrated" in one, so ordinary game questions, an essay prompt about a
+  world without rules and creative-writing requests ("a story about a town with no rules") were
+  refused. "No rules" now needs the AI or character the story is about, "celebrated" an illegal
+  act (crime, hacking, fraud), and a game or world only the explicit lawlessness phrases
+  ("nothing is illegal"). No row of any eval corpus relied on the readings removed. The
+  multilingual frame lexicons follow the same rule.
 - **DLP finds a card number written in other scripts' digits.** "৪১১১ ১১১১ ১১১১ ১১১১" (Bengali
   digits) and the same number in Devanagari, Arabic-Indic, Meetei or fullwidth digits passed the
   card detector, which matched ASCII digits only. It now matches every decimal digit and redacts

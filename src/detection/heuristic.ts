@@ -614,7 +614,15 @@ export class HeuristicScorer {
           /\b(napalm|methamphetamine|explosives?|nerve agents?)\b[^.!?]{0,50}\b(steps?|synthesis|recipe|instructions?|procedure)/,
           /(exact|real.?world|working|complete|full)[^.!?]{0,30}(poison recipe|malware source code|exploit code)/,
           /how to (hotwire|hot.?wire) a/,
-          /(fictional?\w*|story|script|novel|movie|film|universe|world|game)\b[^.!?]{0,60}(nothing is illegal|no rules|no restrictions|all information is (free|legal)|is (celebrated|praised|encouraged))/,
+          // A fiction frame that suspends the rules. It used to take any
+          // fiction noun with "no rules" or anything "celebrated", so "this
+          // game has no rules for beginners", "would a world with no rules be
+          // chaos?" and "a story where kindness is celebrated" blocked; no row
+          // of any eval corpus relied on those readings. "No rules" now needs
+          // the AI or character it is about, "celebrated" an illegal act, and
+          // a game or world only the explicit lawlessness phrases.
+          /(fictional?\w*|story|script|novel|movie|film|universe)\b[^.!?]{0,60}\b(?:ai|a\.i\.|assistant|chat ?bot|bot|model|llm|character|persona|entity)\b[^.!?]{0,40}(no rules|no restrictions)/,
+          /(fictional?\w*|story|script|novel|movie|film|universe|world|game)\b[^.!?]{0,60}(nothing is illegal|all information is (free|legal)|(?:crimes?|hacking|violence|drugs?|stealing|theft|murder|fraud|piracy|lawbreaking|breaking the law) (?:is|are) (?:celebrated|praised|encouraged))/,
           /(dream|simulation|sandbox)[^.!?]{0,80}(no (rules|filters)|rules (can.?t|cannot) reach|answer anything)/,
           /if you (were|had)[^.!?]{0,30}(no|without|free of) (guidelines|restrictions|rules|filters|limits)/,
           /an ai without (guidelines|restrictions|rules|filters|limits)/,

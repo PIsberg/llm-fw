@@ -444,15 +444,31 @@ function phraseAt(tokens: string[], i: number, phrases: string[][]): number {
  * a breaker.
  */
 function objectIn(tokens: string[], from: number, dir: 1 | -1, c: Compiled): boolean {
-  let pos = c.positionals.length === 0
+  const found = scanSide(tokens, from, dir, c)
+  return (found.pos || c.positionals.length === 0) && found.noun
+}
+
+/** Which object parts lie within `window` tokens in `dir`, up to a breaker. */
+function scanSide(tokens: string[], from: number, dir: 1 | -1, c: Compiled): { pos: boolean; noun: boolean } {
+  let pos = false
   let noun = false
   for (let n = 0, i = from; n < c.window && i >= 0 && i < tokens.length; n++, i += dir) {
-    if (phraseAt(tokens, i, c.breakers)) return false
+    if (phraseAt(tokens, i, c.breakers)) break
     if (!pos && phraseAt(tokens, i, c.positionals)) pos = true
-    if (phraseAt(tokens, i, c.nouns)) noun = true
-    if (pos && noun) return true
+    if (!noun && phraseAt(tokens, i, c.nouns)) noun = true
   }
-  return false
+  return { pos, noun }
+}
+
+/**
+ * Either word order: the parts may sit on different sides of the trigger.
+ * "DAN नाम के एक AI के बारे में ... उपन्यास ... कोई नियम नहीं" has the AI before
+ * the novel and "no rules" after it.
+ */
+function objectAround(tokens: string[], start: number, end: number, c: Compiled): boolean {
+  const before = scanSide(tokens, start - 1, -1, c)
+  const after = scanSide(tokens, end, 1, c)
+  return (before.pos || after.pos || c.positionals.length === 0) && (before.noun || after.noun)
 }
 
 // "A story / novel / game with no rules" (the English jailbreak-frame shape:
@@ -519,10 +535,67 @@ export const JAILBREAK_FRAME_LEXICONS: Record<string, FrameLexicon> = {
   th: { unspaced: true, fiction: ['นิยาย', 'เรื่องราว', 'ภาพยนตร์'], noRules: ['ไม่มีกฎ'] },
 }
 
-const FRAME_COMPILED: Compiled[] = Object.values(JAILBREAK_FRAME_LEXICONS).map(f => compile({
+// Who the story is about: the frame needs the AI or character that "has no
+// rules", so "a novel about a town with no rules" is not one. "AI" survives
+// translation as a loanword, so every language also takes it.
+const FRAME_PERSONAS: Record<string, string[]> = {
+  es: ['ia', 'inteligencia artificial', 'asistente', 'robot', 'personaje'],
+  fr: ['ia', 'intelligence artificielle', "l'ia", "l'intelligence", 'assistant*', 'robot', 'personnage'],
+  de: ['ki', 'künstliche*', 'assistent*', 'roboter', 'figur'],
+  it: ['ia', 'intelligenza artificiale', "un'intelligenza", "l'intelligenza", "un'ia", "l'ia", 'assistente', 'robot', 'personaggio'],
+  pt: ['ia', 'inteligência artificial', 'assistente', 'robô', 'personagem'],
+  ru: ['ии', 'искусственн*', 'ассистент*', 'робот*', 'персонаж*'],
+  uk: ['ші', 'штучн*', 'асистент*', 'робот*', 'персонаж*'],
+  bg: ['ии', 'изкуствен*', 'асистент*', 'робот*', 'персонаж*'],
+  sh: ['аи', 'ви', 'вештачк*', 'асистент*', 'робот*', 'umjetn*', 'umetn*', 'vestack*', 'asistent*', 'robot*', 'lik*'],
+  pl: ['si', 'sztuczn*', 'asystent*', 'robot*', 'postać*', 'postaci'],
+  cs: ['ui', 'umělá*', 'umělou', 'umělé', 'asistent*', 'robot*', 'postav*'],
+  sk: ['ui', 'umel*', 'asistent*', 'robot*', 'postav*'],
+  ro: ['ia', 'inteligență*', 'asistent*', 'robot*', 'personaj*'],
+  el: ['τν', 'τεχνητή*', 'βοηθό*', 'ρομπότ', 'χαρακτήρα*'],
+  hu: ['mi', 'mi-ről', 'mi-t', 'mesterséges', 'asszisztens*', 'robot*', 'szereplő*'],
+  iw: ['בינה', 'עוזר', 'רובוט', 'דמות'],
+  fi: ['tekoäly*', 'avustaja*', 'robot*', 'hahmo*'],
+  sv: ['artificiell*', 'assistent*', 'robot*', 'karaktär*'],
+  da: ['kunstig*', 'assistent*', 'robot*', 'karakter*'],
+  no: ['kunstig*', 'assistent*', 'robot*', 'karakter*'],
+  nl: ['ki', 'kunstmatige', 'assistent*', 'robot*', 'personage*'],
+  id: ['kecerdasan buatan', 'asisten', 'robot', 'tokoh'],
+  ms: ['kecerdasan buatan', 'pembantu', 'robot', 'watak'],
+  vi: ['trí tuệ nhân tạo', 'trợ lý', 'rô bốt', 'nhân vật'],
+  tl: ['katulong', 'robot', 'tauhan'],
+  sw: ['akili bandia', 'msaidizi', 'roboti', 'mhusika'],
+  ha: ['mataimaki', 'mutum-mutumi'],
+  tr: ['yapay zeka', 'yapay zekâ', 'asistan*', 'robot*', 'karakter*'],
+  az: ['süni intellekt', 'köməkçi*', 'robot*', 'personaj*'],
+  uz: ["sun'iy intellekt",'yordamchi*', 'robot*', 'qahramon*'],
+  kk: ['жасанды', 'көмекші*', 'робот*', 'кейіпкер*'],
+  fa: ['هوش مصنوعی', 'دستیار', 'ربات', 'شخصیت'],
+  ar: ['الذكاء الاصطناعي', 'ذكاء اصطناعي', 'مساعد', 'روبوت', 'شخصية'],
+  ur: ['مصنوعی ذہانت', 'اسسٹنٹ', 'روبوٹ', 'کردار'],
+  so: ['caawiye', 'robot', 'jilaa'],
+  hi: ['एआई*', 'कृत्रिम बुद्धि*', 'सहायक', 'रोबोट', 'पात्र'],
+  mr: ['एआय*', 'कृत्रिम बुद्धिमत्ता', 'सहाय्यक', 'रोबोट', 'पात्र'],
+  ne: ['एआई*', 'कृत्रिम बुद्धिमत्ता', 'सहायक', 'रोबोट', 'पात्र'],
+  bn: ['এআই*', 'কৃত্রিম বুদ্ধিমত্তা', 'সহকারী', 'রোবট', 'চরিত্র'],
+  gu: ['એઆઈ*', 'કૃત્રિમ બુદ્ધિ*', 'સહાયક', 'રોબોટ', 'પાત્ર'],
+  pa: ['ਏਆਈ*', 'ਨਕਲੀ ਬੁੱਧੀ', 'ਸਹਾਇਕ', 'ਰੋਬੋਟ', 'ਪਾਤਰ'],
+  ta: ['செயற்கை நுண்ணறிவு', 'உதவியாளர்*', 'ரோபோ*', 'கதாபாத்திர*'],
+  te: ['కృత్రిమ మేధ*', 'సహాయకుడు*', 'రోబో*', 'పాత్ర*'],
+  kn: ['ಕೃತಕ ಬುದ್ಧಿಮತ್ತೆ*', 'ಸಹಾಯಕ*', 'ರೋಬೋಟ್*', 'ಪಾತ್ರ*'],
+  ml: ['കൃത്രിമ ബുദ്ധി*', 'സഹായി*', 'റോബോട്ട്*', 'കഥാപാത്ര*'],
+  am: ['ሰው ሰራሽ', 'ረዳት', 'ሮቦት', 'ገፀ ባህሪ'],
+  ko: ['인공지능*', 'ai*', '조수', '로봇', '캐릭터'],
+  zh: ['人工智能', '人工智慧', '机器人', '機器人', '助手', '角色'],
+  ja: ['人工知能', 'アシスタント', 'ロボット', 'キャラクター'],
+  th: ['ปัญญาประดิษฐ์', 'ผู้ช่วย', 'หุ่นยนต์', 'ตัวละคร'],
+}
+const AI_LOANWORD = ['ai', 'ai-*', 'a.i.']
+
+const FRAME_COMPILED: Compiled[] = Object.entries(JAILBREAK_FRAME_LEXICONS).map(([lang, f]) => compile({
   order: 'any',
   verbs: f.unspaced ? f.fiction : [...f.fiction, ...SCI_FI],
-  positionals: [],
+  positionals: [...(FRAME_PERSONAS[lang] ?? []), ...(f.unspaced ? ['ai'] : AI_LOANWORD)],
   nouns: f.noRules,
   unspaced: f.unspaced ?? false,
   window: f.unspaced ? 30 : 14,
@@ -574,8 +647,12 @@ function matchSpaced(trie: TrieNode, tokens: string[]): boolean {
       for (let k = 1; ok && k < phrase.length; k++) ok = tokMatch(tokens[i + k] ?? '', phrase[k] ?? '')
       if (!ok) continue
       if (i > 0 && c.notBefore.has(tokens[i - 1] ?? '')) continue
-      if (c.order !== 'OV' && objectIn(tokens, i + phrase.length, 1, c)) return true
-      if (c.order !== 'VO' && objectIn(tokens, i - 1, -1, c)) return true
+      if (c.order === 'any') {
+        if (objectAround(tokens, i, i + phrase.length, c)) return true
+        continue
+      }
+      if (c.order === 'VO' && objectIn(tokens, i + phrase.length, 1, c)) return true
+      if (c.order === 'OV' && objectIn(tokens, i - 1, -1, c)) return true
     }
   }
   return false
@@ -593,16 +670,15 @@ function matchUnspaced(flat: string, c: Compiled): boolean {
   for (const v of c.verbs) {
     const verb = bare(v)
     for (let at = flat.indexOf(verb); at !== -1; at = flat.indexOf(verb, at + 1)) {
-      if (c.order !== 'OV') {
-        let after = flat.slice(at + verb.length, at + verb.length + c.window)
-        for (const b of breakers) { const k = after.indexOf(b); if (k !== -1) after = after.slice(0, k) }
-        if (objectInText(after, c)) return true
-      }
-      if (c.order !== 'VO') {
-        let before = flat.slice(Math.max(0, at - c.window), at)
-        for (const b of breakers) { const k = before.lastIndexOf(b); if (k !== -1) before = before.slice(k + b.length) }
-        if (objectInText(before, c)) return true
-      }
+      let after = flat.slice(at + verb.length, at + verb.length + c.window)
+      for (const b of breakers) { const k = after.indexOf(b); if (k !== -1) after = after.slice(0, k) }
+      let before = flat.slice(Math.max(0, at - c.window), at)
+      for (const b of breakers) { const k = before.lastIndexOf(b); if (k !== -1) before = before.slice(k + b.length) }
+      // Either order: the parts may sit on both sides; the separator keeps a
+      // word from being assembled across the trigger.
+      if (c.order === 'any' && objectInText(`${before}\u0000${after}`, c)) return true
+      if (c.order === 'VO' && objectInText(after, c)) return true
+      if (c.order === 'OV' && objectInText(before, c)) return true
     }
   }
   return false
