@@ -199,13 +199,40 @@ Findings so far:
 
 ## Phase 4: quality bar and platforms
 
-- [ ] GA accuracy criteria as numbers, published in `docs/SCORECARD.md`, plus a
+- [~] GA accuracy criteria as numbers, published in `docs/SCORECARD.md`, plus a
   real-traffic replay result. Decide whether #221, #273, #287 and #405 block 1.0.
   Replay so far (PR #479, 2026-10-25): 7 days of this machine's Claude Code
   transcripts replayed per session, 407 sessions. Sessions ended by a block:
   outside llm-fw 32 of 245 before, 10 with tool results withheld; inside llm-fw
   and its fixtures 54 of 162 before, 8 after. The rest are prompt-surface
   harness text (#476).
+  Status: proposed 2026-10-25, waiting on the maintainer. GA ships when the
+  release tree measures at least these, the values of ruleset 2026.10.86
+  (default config, judge and classifier off):
+
+  | Criterion | Value now | Gated by |
+  | --- | --- | --- |
+  | Accuracy gate, `corpus.json` | precision >= 95%, recall >= 80%, each category >= 60% | CI, every PR |
+  | Realistic benign agent traffic blocked | 9 of 336 (2.68%) | CI `npm run fpr` |
+  | Dolly-15k and oasst1 samples blocked | 0 of 2,000 each | CI `npm run fpr` |
+  | Indirect injection (InjecAgent) | 1,054 of 1,054 | nightly drift gate |
+  | Direct injection, held-out splits | heldout 23 of 31, safeguard 490 of 650 | nightly drift gate |
+  | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31 | none; publish it |
+  | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
+
+  Proposed answer on the four issues: none blocks 1.0, because detection
+  verdicts move under `RULESET_VERSION`, not semver, so each can keep
+  improving after 1.0 without a major version. #221 (direct recall) is the
+  73.5% row above, published as a number rather than closed. It was 635 of
+  853 on 2026-10-10 (the table in `docs/guides/tuning.md`), so 8 direct
+  injections were lost between then and ruleset 2026.10.86 without any gate
+  failing (#480); a floor is what would catch the next one. #273 (embedding
+  false positives) is held by the `fpr` rows: the two of its families fixed
+  in #286 stay fixed, and a regression fails CI. #287 (decide by surface)
+  shipped its first two pieces: `wordingAction: warn` (opt-in) and
+  withholding blocked tool results (#479, default). #405 (rogue-AI game
+  code) now withholds the one tool result instead of ending the session, and
+  `trustedPaths` (opt-in) covers its file reads.
 - [ ] Install matrix: Windows, macOS, Linux on Node 22, 24, 26; setup, uninstall,
   setup again leaves the machine clean.
 - [ ] Commercial licence purchase tested end to end.
