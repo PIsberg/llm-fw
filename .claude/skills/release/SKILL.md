@@ -59,6 +59,17 @@ tag existed. A version bumped in a commit is not a release, and a dated
 abandoned release, not starting a new one. Do not bump again — the number is
 already allocated. Confirm with the human before changing it.
 
+If the human decides to skip the unpublished version instead (0.9.0 was
+skipped for 0.9.1, because hardening had merged on top of it), the skipped
+number must disappear from every claim a user will read:
+
+- Retitle its changelog heading `## X.Y.Z - not published` with one line
+  saying which version ships its changes, drop its compare link (the tag does
+  not exist), and tell upgraders in the new section to read both.
+- `git grep -n "X\.Y\.Z"` and move every "since X.Y.Z" / "fixed in X.Y.Z" /
+  "before X.Y.Z" to the new version, including strings the CLI prints.
+- Draft security advisories naming it as the patched version: see Step 7.
+
 **When a downstream consumer or an issue is waiting on a specific fix**, prove
 the fix is on the commit you are about to tag, rather than assuming it is
 because the PR merged:
@@ -168,6 +179,7 @@ Ready to release vX.Y.Z. Remaining steps are yours:
   3. git tag vX.Y.Z <merge-sha> && git push origin vX.Y.Z
   4. gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>
      ↳ this publishes to npm. It cannot be undone.
+  5. Once npm serves X.Y.Z, publish the advisories it fixes (Step 7).
 ```
 
 A tag that triggers a publish cannot be re-cut. If asked to tag, confirm CI is
@@ -187,3 +199,34 @@ docker buildx imagetools inspect ghcr.io/pisberg/llm-fw:X.Y.Z  # amd64 + arm64, 
 If the workflow failed *after* the Release was published, the Release exists but
 npm does not have the version. Say exactly that — the fix is re-running the
 workflow, not cutting a new version.
+
+`npm view` can answer the previous version for about two minutes after the
+job logs `+ llm-fw@X.Y.Z`. Poll it; do not report the publish as failed.
+
+## Step 7: security advisories the release fixes
+
+List them before tagging, so the patched version is settled while it can
+still change:
+
+```bash
+gh api "repos/PIsberg/llm-fw/security-advisories?state=draft" \
+  --jq '.[] | [.ghsa_id, (.vulnerabilities|map(.patched_versions)|join(","))] | @tsv'
+```
+
+Each one's `patched_versions` and its "Fixed in" / `npm install -g llm-fw@...`
+text must name the version npm will actually serve. An advisory pointing at a
+version that never published sends users and Dependabot to nothing. Changing a
+draft is reversible; publishing is not, so publish only when asked, and only
+after `npm view llm-fw dist-tags.latest` returns the new version.
+
+Publishing (`gh api -X PATCH .../security-advisories/<GHSA> -f state=published`)
+answers 422 "not publishable" while the advisory's private fork
+(`llm-fw-ghsa-*`) has an open pull request. Fixes here land on `main` through
+ordinary branches, so that PR is never merged, and merging it would replay
+commits already on `main`. Check its head is in the release, then close it:
+
+```bash
+git fetch https://github.com/PIsberg/llm-fw-ghsa-<id>.git <branch>:refs/remotes/adv
+git merge-base --is-ancestor refs/remotes/adv vX.Y.Z && echo shipped
+gh pr close 1 -R PIsberg/llm-fw-ghsa-<id>   # no --comment: comments are forbidden in advisory workspaces
+```
