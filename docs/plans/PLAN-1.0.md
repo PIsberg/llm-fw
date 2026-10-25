@@ -12,6 +12,37 @@ stability decisions. Phase 3 needs the published container image from Phase 2.
 Legend: `[x]` done, `[ ]` open, `[~]` prepared and waiting on a maintainer
 action (a merge, a publish, a setting, a purchase).
 
+## Where it stands (2026-10-25)
+
+Done on 2026-10-25, in two PRs that land in order (merge #479 first, with a
+merge commit, then #481):
+
+- #479: a blocked tool result is withheld instead of refusing the request,
+  and "Mark false positive" works on tool results. Per-session replay: 32 of
+  245 sessions outside llm-fw ended by a block before, 10 after.
+- #481: the docs claim audit (Phase 4) is finished, every `json` block in the
+  docs is parsed by a test, and the GA accuracy criteria are proposed
+  (Phase 4). Measuring them found direct-injection recall at 627 of 853, down
+  from 635 on 2026-10-10 with no gate failing (#480).
+
+Waiting on a maintainer decision:
+
+- Sign off the proposed GA accuracy criteria and the recommendation that none
+  of #221, #273, #287 and #405 blocks 1.0 (Phase 4).
+- External pentest: yes or no (Phase 2).
+- Make the GHCR package public after the first release (Phase 3).
+- The repository setting "Allow GitHub Actions to create and approve pull
+  requests" for the lock freshness workflow (#432, Phase 0).
+- The next version number: 0.9.2 or `1.0.0-rc.1` (Phase 5).
+
+Needs infrastructure access, not started: the Linux VM walkthrough of
+`deployment-server.md`, the install paths and modes, the attack from a second
+host, the 48 to 72 hour soak and the failure modes (Phase 3), and the install
+matrix across Windows, macOS and Linux on Node 22, 24 and 26 (Phase 4). This
+machine has WSL (Ubuntu 22.04) and Docker Desktop, which is installed but not
+running. Using either for these tests is the maintainer's call: nothing has been
+installed into them.
+
 ## Phase 0: clear what is already known
 
 - [x] **GHSA-83jp-cppw-c3v6** (Responses API tool output never scanned).
