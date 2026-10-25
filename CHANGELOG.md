@@ -69,7 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complete body, a short prompt scans in about 7 ms (median of 60), and a start with the model
   cached took 2.1 and 2.5 s. The MCP guide said a credential read by a tool is blocked; under the
   default DLP mode it is redacted. Guides that promise a `422` now say a flagged tool result is
-  withheld instead.
+  withheld instead. The client guide said the Anthropic and OpenAI Node SDKs honour `HTTPS_PROXY`
+  (neither reads it; `NODE_USE_ENV_PROXY=1` or a dispatcher does the job), that `setup` configures
+  Cursor (it writes VS Code and Antigravity settings only) and gave `node ...tsx.cmd` commands
+  that fail with a SyntaxError (now `npm run dev -- setup`).
 
 ## [0.9.1] - 2026-10-25
 

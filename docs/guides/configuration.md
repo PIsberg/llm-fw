@@ -40,9 +40,9 @@ A config file, for example `~/.llm-fw/config.json`:
   },
   "detection": {
     "heuristicBlockThreshold": 50,
-    "embeddingBlockThreshold": 0.85,
+    "embeddingBlockThreshold": 0.86,
     "judgeEnabled": false,
-    "judgeModel": "phi3",
+    "judgeModel": "qwen2.5:3b",
     "judgeBlock": false
   },
   "dashboard": {
@@ -165,8 +165,7 @@ certify the audio.
 [gateway](gateway-mode.md) relay OpenAI Realtime sessions
 (`wss://api.openai.com/v1/realtime`) and Gemini Live sessions
 (`wss://generativelanguage.googleapis.com/ws/…BidiGenerateContent`) and inspect
-the client's messages; until this release the proxy dropped every WebSocket
-handshake, so a Realtime session could not connect through it at all. A turn's
+the client's messages. A turn's
 `input_audio_buffer.append` chunks (PCM16, 24 kHz) are held when the client
 commits them (`input_audio_buffer.commit`, or `response.create` with audio
 buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and

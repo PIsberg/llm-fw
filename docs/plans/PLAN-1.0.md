@@ -201,10 +201,15 @@ Findings so far:
 
 - [ ] GA accuracy criteria as numbers, published in `docs/SCORECARD.md`, plus a
   real-traffic replay result. Decide whether #221, #273, #287 and #405 block 1.0.
+  Replay so far (PR #479, 2026-10-25): 7 days of this machine's Claude Code
+  transcripts replayed per session, 407 sessions. Sessions ended by a block:
+  outside llm-fw 32 of 245 before, 10 with tool results withheld; inside llm-fw
+  and its fixtures 54 of 162 before, 8 after. The rest are prompt-surface
+  harness text (#476).
 - [ ] Install matrix: Windows, macOS, Linux on Node 22, 24, 26; setup, uninstall,
   setup again leaves the machine clean.
 - [ ] Commercial licence purchase tested end to end.
-- [~] Docs claim audit of the README and guides against the code. Status:
+- [x] Docs claim audit of the README and guides against the code. Status:
   started 2026-10-24 on the hardening branch: the README quoted a stale
   13.38% false-positive rate (now 2.68%) and the client-setup uninstall steps
   described removed behaviour; both fixed. Checked mechanically across the
@@ -220,10 +225,28 @@ Findings so far:
   `Retry-After`, the Helm `replicaCount` note); metric names match in both
   directions; `cli.md` lists every dispatched subcommand except `license`,
   now added. Gaps fixed: the Realtime section did not mention the new
-  message size cap. Left: the remaining guides.
+  message size cap. The remaining guides read against the code on
+  2026-10-25 (PR stacked on #479), claims reproduced where they were
+  measurable. The `trustedPaths` JSON example did not parse (every
+  `json` block is now parsed by `test/ci/docsJsonExamples.test.ts`); the
+  detection-stages worked examples, judge trigger range, default judge model
+  and anchor count were stale; the README's streaming scan, "zero added
+  latency" and "under 2 seconds" boot were wrong or unmeasured (measured: a
+  short prompt scans in 6.7 ms median, a cached start took 2.1 and 2.5 s);
+  the MCP guide said a credential in a tool result is blocked where the
+  default redacts it; the Anthropic and OpenAI Node SDKs were said to honour
+  `HTTPS_PROXY` and do not; `setup` was said to configure Cursor and does
+  not; `node tsx.cmd` commands failed with a SyntaxError. Read, not
+  re-measured: the measurement sections of `token-savings.md` (its module
+  table, order and all 23 option defaults were checked against
+  `DEFAULT_CONFIG` and `BUILTINS`).
 - [ ] `SECURITY.md` supported-versions table moved to 1.x.
 
 ## Phase 5: release
+
+The next release may be numbered 0.9.2 rather than an rc (maintainer's call,
+2026-10-25). The checks below apply to whichever release comes next; the rc
+steps apply to the release that is the 1.0 candidate.
 
 - [ ] At the first release after the hardening branch: confirm the new `sbom`
   job attached `llm-fw-vX.Y.Z.cdx.json` to the GitHub Release (it cannot run

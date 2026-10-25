@@ -121,6 +121,7 @@ Custody is opt-in per provider, so both can be true in the same deployment.
 
 ```python
 # Python, OpenAI SDK
+import os
 from openai import OpenAI
 client = OpenAI(
     base_url="https://fw.example.com/openai/v1",
@@ -131,6 +132,7 @@ client = OpenAI(
 
 ```python
 # Python, Anthropic SDK
+import os
 from anthropic import Anthropic
 client = Anthropic(
     base_url="https://fw.example.com/anthropic",
@@ -311,7 +313,7 @@ export NO_PROXY=localhost,127.0.0.1,::1,.corp.internal,.svc.cluster.local,regist
 ```
 
 Support is not universal. Go, Python (requests, httpx), curl and the Node proxy
-agents all honour it; Node's global `fetch` ignores proxy variables altogether,
+agents all honour it; Node's global `fetch` ignores proxy variables unless `NODE_USE_ENV_PROXY=1` is set,
 and some runtimes do not implement CIDR ranges, only hostnames and suffixes. When
 in doubt, scope the proxy variable instead of relying on the exclusion list.
 
@@ -389,8 +391,9 @@ Which route it takes depends on how you signed in:
 ### Cursor, VS Code, Antigravity
 
 Electron IDEs bypass the OS hosts file, so use the IDE's proxy setting rather
-than the sinkhole. `llm-fw setup` writes it automatically when it finds a
-`settings.json`, keeping the file's own formatting. It skips a file with
+than the sinkhole. `llm-fw setup` writes it automatically for VS Code and
+Antigravity when it finds their user `settings.json`, keeping the file's own
+formatting; for Cursor, set it by hand as below. It skips a file with
 comments, and one where `http.proxy` already points at a proxy of your own,
 since llm-fw cannot chain to it; setup prints which file it left alone. To do it
 by hand: **Settings, search "proxy", set `http.proxy`
@@ -425,7 +428,8 @@ The CA variable is always needed:
 export NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"
 ```
 
-Node's global `fetch` (undici) **ignores `HTTPS_PROXY`**. On a local firewall the
+Node's global `fetch` (undici) **ignores `HTTPS_PROXY`** unless
+`NODE_USE_ENV_PROXY=1` is set. On a local firewall the
 answer is [sinkhole mode](#sinkhole-mode--for-nodejs-tools-and-native-binaries),
 which redirects at the OS level. Against a **remote** firewall there is no
 sinkhole equivalent, so either configure undici explicitly:
@@ -437,8 +441,12 @@ setGlobalDispatcher(new ProxyAgent(process.env.HTTPS_PROXY));
 
 or use [gateway mode](#gateway-clients), which needs neither.
 
-The official Anthropic and OpenAI Node SDKs do honour proxy environment
-variables, so they work without the dispatcher.
+The official Anthropic and OpenAI Node SDKs call `fetch` too and read no proxy
+variable themselves (checked in `@anthropic-ai/sdk` 1.3.0 and `openai` 7.43.0 on
+2026-10-25), so they need the dispatcher as well. Alternatively,
+`NODE_USE_ENV_PROXY=1` makes Node's own `fetch` honour `HTTPS_PROXY` (verified
+on Node 26.12.1: without it the request went direct, with it the proxy received
+the `CONNECT`).
 
 ### curl and other proxy-aware tools
 
@@ -487,10 +495,10 @@ sudo llm-fw setup
 
 # Windows — open an elevated terminal (right-click → Run as Administrator), then:
 llm-fw setup
-# If npm is not in the elevated PATH, use the full path:
-node "%APPDATA%\..\Local\llm-fw\node_modules\.bin\tsx.cmd" ... setup
+# If npm's global folder is not in the elevated PATH, use the full path (npm prefix -g shows it):
+"%APPDATA%\npm\llm-fw.cmd" setup
 # Or from source (elevated terminal in the project folder):
-node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" setup
+npm run dev -- setup
 ```
 
 This modifies the hosts file and sets up the port redirect (Windows: `netsh portproxy`, macOS: `pf`, Linux: `iptables`). Both are automatically removed when you run `llm-fw stop`.
@@ -618,7 +626,7 @@ npm run dev uninstall
 
 ```powershell
 # Windows — elevated PowerShell (matches an elevated/sinkhole install):
-node ".\node_modules\.bin\tsx.cmd" ".\src\cli\index.ts" uninstall
+npm run dev -- uninstall
 ```
 
 What it does, in order:
@@ -643,7 +651,7 @@ What it does, in order:
    uninstall only tells you it exists. Delete it yourself if llm-fw wrote it.
 7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)
    that setup wrote into VS Code / Antigravity `settings.json`.
-8. **Removes the `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` environment variables** —
+8. **Removes the `HTTPS_PROXY` / `NO_PROXY` / `NODE_EXTRA_CA_CERTS` environment variables** —
    from the Windows registry (user, plus machine scope when elevated), or from
    your shell profiles (`~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.bash_profile`)
    on macOS/Linux. Already-open shell sessions keep their copies until you unset
@@ -654,21 +662,21 @@ Flags:
 | Flag | Effect |
 | --- | --- |
 | `--yes`, `-y` | Skip the confirmation prompt (for scripts/CI). |
-| `--keep-model` | Preserve the cached embedding model (~120 MB) to avoid re-downloading on a later reinstall. |
+| `--keep-model` | Preserve the cached embedding model (130 MB on disk) to avoid re-downloading on a later reinstall. |
 | `--purge` | Also delete your settings, both false-positive stores, the audit log and the OCR cache. The licence key is never deleted. |
 
 **Active shell sessions:** uninstall clears the persisted `HTTPS_PROXY` /
-`NODE_EXTRA_CA_CERTS` values (registry / shell profiles), but a terminal that was
+`NO_PROXY` / `NODE_EXTRA_CA_CERTS` values (registry / shell profiles), but a terminal that was
 already open keeps its in-memory copy. Clear the current session manually:
 
 ```bash
 # macOS / Linux
-unset HTTPS_PROXY NODE_EXTRA_CA_CERTS
+unset HTTPS_PROXY NO_PROXY NODE_EXTRA_CA_CERTS
 ```
 
 ```powershell
 # PowerShell (current session)
-Remove-Item Env:HTTPS_PROXY, Env:NODE_EXTRA_CA_CERTS
+Remove-Item Env:HTTPS_PROXY, Env:NO_PROXY, Env:NODE_EXTRA_CA_CERTS
 ```
 
 **Left in place** (shared resources `setup` didn't exclusively create):
@@ -705,8 +713,8 @@ self-hosted or unusual endpoint, ask the operator to add it to `extraTargets` or
 `interceptDomains`.
 
 **Node's `fetch` is not going through the proxy.** undici ignores proxy
-environment variables. Set a `ProxyAgent` dispatcher, use sinkhole mode locally,
-or use gateway mode.
+environment variables unless `NODE_USE_ENV_PROXY=1` is set. Set that, set a
+`ProxyAgent` dispatcher, use sinkhole mode locally, or use gateway mode.
 
 **Everything on the machine got slow, or an unrelated internal service broke.**
 You exported `HTTPS_PROXY` globally and the host is not in `NO_PROXY`, so its
