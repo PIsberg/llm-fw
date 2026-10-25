@@ -1,6 +1,6 @@
 import { HeuristicResult } from '../types.js'
 import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
-import { overrideLexiconMatcher } from './overrideLexicon.js'
+import { overrideLexiconMatcher, jailbreakFrameMatcher } from './overrideLexicon.js'
 
 interface WeightedRule { weight: number; label: string; patterns: Array<Pick<RegExp, 'test'>> }
 
@@ -618,6 +618,9 @@ export class HeuristicScorer {
           /(dream|simulation|sandbox)[^.!?]{0,80}(no (rules|filters)|rules (can.?t|cannot) reach|answer anything)/,
           /if you (were|had)[^.!?]{0,30}(no|without|free of) (guidelines|restrictions|rules|filters|limits)/,
           /an ai without (guidelines|restrictions|rules|filters|limits)/,
+          // The fiction-with-no-rules frame above, in the languages of
+          // overrideLexicon.ts (JAILBREAK_FRAME_LEXICONS).
+          jailbreakFrameMatcher,
         ],
       },
       {

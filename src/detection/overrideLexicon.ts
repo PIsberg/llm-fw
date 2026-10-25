@@ -78,8 +78,8 @@ export const OVERRIDE_LEXICONS: Record<string, Lexicon> = {
   },
   pa: {
     order: 'OV',
-    verbs: ['ਅਣਡਿੱਠ*', 'ਨਜ਼ਰਅੰਦਾਜ਼*', 'ਭੁੱਲ ਜਾ*'],
-    positionals: ['ਪਿਛਲ*', 'ਪਹਿਲਾਂ', 'ਪੂਰਵ', 'ਉਪਰੋਕਤ'],
+    verbs: ['ਅਣਡਿੱਠ*', 'ਅਣਦੇਖੀ*', 'ਨਜ਼ਰਅੰਦਾਜ਼*', 'ਭੁੱਲ ਜਾ*'],
+    positionals: ['ਪਿਛਲ*', 'ਪਹਿਲਾਂ', 'ਪੂਰਵ', 'ਉਪਰੋਕਤ', 'ਪੁਰਾਣ*'],
     nouns: ['ਹਦਾਇਤ*', 'ਹਿਦਾਇਤ*', 'ਨਿਰਦੇਸ਼*', 'ਨਿਯਮ*'],
     breakers: ['ਅਤੇ', 'ਪਾਲਣਾ'],
   },
@@ -152,7 +152,7 @@ export const OVERRIDE_LEXICONS: Record<string, Lexicon> = {
   am: {
     order: 'OV',
     verbs: ['ችላ*', 'እርሳ*'],
-    positionals: ['የቀድሞ*', 'የቀደሙ*', 'ቀደም*', 'የቀደመ*'],
+    positionals: ['የቀድሞ*', 'የቀደሙ*', 'ቀደም*', 'የቀደመ*', 'ቀዳሚ*'],
     nouns: ['መመሪያ*', 'ትእዛዝ*', 'ህግ*', 'ደንብ*'],
     breakers: ['እና', 'ተከተል*'],
   },
@@ -274,8 +274,8 @@ export const OVERRIDE_LEXICONS: Record<string, Lexicon> = {
   iw: {
     order: 'VO',
     verbs: ['התעלם', 'התעלמי', 'התעלמו', 'שכח', 'תשכח', 'שכחי', 'תתעלם'],
-    positionals: ['הקודמות', 'הקודמים', 'הקודמת', 'הקודם', 'שלעיל'],
-    nouns: ['ההוראות', 'הוראות', 'מההוראות', 'מכל ההוראות', 'הכללים', 'ההנחיות', 'הנחיות', 'הפקודות'],
+    positionals: ['הקודמות', 'הקודמים', 'הקודמת', 'הקודם', 'קודמות', 'קודמים', 'שלעיל'],
+    nouns: ['ההוראות', 'הוראות', 'מההוראות', 'מהוראות', 'מכל ההוראות', 'הכללים', 'ההנחיות', 'הנחיות', 'הפקודות'],
     breakers: ['ו', 'ופעל', 'פעל'],
   },
   fi: {
@@ -455,32 +455,109 @@ function objectIn(tokens: string[], from: number, dir: 1 | -1, c: Compiled): boo
   return false
 }
 
-// One trie over the first word of every spaced lexicon's verbs, so a token is
-// looked up once, in time proportional to its length, instead of against
-// every verb of every lexicon (which cost 1.7 s on 200 KB of verbs).
+// "A story / novel / game with no rules" (the English jailbreak-frame shape:
+// the playground's roleplay example, "a sci-fi novel about an AI named DAN who
+// has no rules"): a fiction noun and a no-rules phrase in one sentence, either
+// order. As in English, the frame alone blocks. "sci-fi" and its spellings
+// survive translation as loanwords, so every language also takes those.
+// Unlike the English rule, "world" is not a fiction noun here: "a world
+// without rules would be chaos" is essay prose, not a jailbreak.
+interface FrameLexicon { fiction: string[]; noRules: string[]; unspaced?: boolean }
+
+const SCI_FI = ['sci-fi*', 'scifi*', 'science-fiction*', 'sciencefiction*']
+
+export const JAILBREAK_FRAME_LEXICONS: Record<string, FrameLexicon> = {
+  es: { fiction: ['novela', 'historia', 'cuento', 'película', 'guion', 'ficción'], noRules: ['no tiene reglas', 'no tiene ninguna regla', 'no hay reglas'] },
+  fr: { fiction: ['roman', 'histoire', 'film', 'scénario', 'fiction'], noRules: ["n'a pas de règles", "n'a aucune règle", "il n'y a pas de règles"] },
+  de: { fiction: ['roman', 'science-fiction-roman', 'geschichte', 'film', 'drehbuch'], noRules: ['keine regeln'] },
+  it: { fiction: ['romanzo', 'storia', 'racconto', 'film', 'sceneggiatura'], noRules: ['non ha regole', 'non ha nessuna regola', 'nessuna regola'] },
+  pt: { fiction: ['romance', 'história', 'conto', 'filme', 'roteiro', 'ficção'], noRules: ['não tem regras', 'não tem nenhuma regra', 'nenhuma regra'] },
+  ru: { fiction: ['роман*', 'истори*', 'рассказ*', 'фильм*', 'сценари*'], noRules: ['нет правил', 'нет никаких правил'] },
+  uk: { fiction: ['роман*', 'істор*', 'оповідан*', 'фільм*', 'сценар*'], noRules: ['не має правил', 'немає правил'] },
+  bg: { fiction: ['роман*', 'истори*', 'разказ*', 'филм*'], noRules: ['няма правила', 'няма никакви правила'] },
+  sh: { fiction: ['роман*', 'прич*', 'филм*', 'roman*', 'pric*', 'film*'], noRules: ['нема правила', 'nema pravila', 'nema nikakvih pravila'] },
+  pl: { fiction: ['powieść*', 'powiesc*', 'histori*', 'opowiadani*', 'film*', 'scenariusz*'], noRules: ['nie ma zasad', 'nie ma żadnych zasad', 'nie ma reguł', 'nie ma żadnych reguł'] },
+  cs: { fiction: ['román*', 'příběh*', 'film*', 'scénář*'], noRules: ['nemá žádná pravidla', 'nemá pravidla'] },
+  sk: { fiction: ['román*', 'príbeh*', 'film*', 'scenár*'], noRules: ['nemá žiadne pravidlá', 'nemá pravidlá'] },
+  ro: { fiction: ['roman*', 'poveste', 'povestir*', 'film*', 'scenariu*'], noRules: ['nu are reguli', 'nu are nicio regulă'] },
+  el: { fiction: ['μυθιστόρημα*', 'ιστορία*', 'ταινία*', 'σενάριο*'], noRules: ['δεν έχει κανόνες', 'κανένα κανόνα'] },
+  hu: { fiction: ['regény*', 'történet*', 'film*', 'forgatókönyv*'], noRules: ['nincsenek szabályai', 'nincsenek szabályok', 'nincs szabály*'] },
+  iw: { fiction: ['רומן', 'סיפור', 'סרט', 'תסריט'], noRules: ['אין לו חוקים', 'אין לה חוקים', 'שאין לו חוקים', 'שאין לה חוקים'] },
+  fi: { fiction: ['romaani*', 'tarina*', 'elokuva*', 'käsikirjoitus*'], noRules: ['ei ole sääntöjä', 'ei sääntöjä'] },
+  sv: { fiction: ['roman*', 'berättelse*', 'film*', 'manus*'], noRules: ['inte har några regler', 'har inga regler', 'inga regler'] },
+  da: { fiction: ['roman*', 'historie*', 'film*', 'manuskript*'], noRules: ['ikke har nogen regler', 'har ingen regler', 'ingen regler'] },
+  no: { fiction: ['roman*', 'historie*', 'film*', 'manus*'], noRules: ['ikke har noen regler', 'har ingen regler', 'ingen regler'] },
+  nl: { fiction: ['roman*', 'sciencefictionroman*', 'verhaal*', 'film*', 'script*'], noRules: ['geen regels'] },
+  id: { fiction: ['novel', 'cerita', 'kisah', 'film', 'naskah'], noRules: ['tidak memiliki aturan', 'tidak punya aturan', 'tidak ada aturan'] },
+  ms: { fiction: ['novel', 'cerita', 'kisah', 'filem', 'skrip'], noRules: ['tidak mempunyai peraturan', 'tiada peraturan', 'tidak mempunyai aturan'] },
+  vi: { fiction: ['tiểu thuyết', 'câu chuyện', 'truyện', 'phim', 'kịch bản'], noRules: ['không có quy tắc', 'không có luật', 'không có bất kỳ quy tắc'] },
+  tl: { fiction: ['nobela', 'novel', 'kuwento', 'pelikula', 'iskrip'], noRules: ['walang mga panuntunan', 'walang panuntunan', 'walang patakaran', 'walang mga patakaran'] },
+  sw: { fiction: ['riwaya', 'hadithi', 'filamu'], noRules: ['hana sheria', 'hakuna sheria', 'haina sheria'] },
+  ha: { fiction: ['labari', 'fim'], noRules: ['ba shi da dokoki', 'ba ta da dokoki', 'babu dokoki'] },
+  tr: { fiction: ['roman*', 'hikaye*', 'öykü*', 'film*', 'senaryo*'], noRules: ['kuralları olmayan', 'hiçbir kuralı olmayan', 'kuralı yok', 'kuralları yok'] },
+  az: { fiction: ['roman*', 'hekayə*', 'film*', 'ssenari*'], noRules: ['qaydası olmayan', 'heç bir qaydası olmayan', 'qaydaları olmayan'] },
+  uz: { fiction: ['roman*', 'hikoya*', 'film*'], noRules: ["qoidalarga ega bo'lmagan", "qoidalari yo'q"] },
+  kk: { fiction: ['роман*', 'әңгіме*', 'фильм*'], noRules: ['ережелері жоқ', 'ешқандай ережесі жоқ'] },
+  fa: { fiction: ['رمان', 'داستان', 'فیلم'], noRules: ['هیچ قانونی ندارد', 'قانونی ندارد'] },
+  ar: { fiction: ['رواية', 'قصة', 'فيلم'], noRules: ['ليس لديه قواعد', 'ليس لديها قواعد', 'لا قواعد'] },
+  ur: { fiction: ['ناول', 'کہانی', 'فلم'], noRules: ['کوئی اصول نہیں', 'کوئی قاعدہ نہیں'] },
+  so: { fiction: ['sheeko', 'riwaayad', 'filim'], noRules: ['aan lahayn xeerar', 'aan lahayn sharci'] },
+  hi: { fiction: ['उपन्यास', 'कहानी', 'फ़िल्म'], noRules: ['कोई नियम नहीं', 'कोई नियम न'] },
+  mr: { fiction: ['कादंबरी', 'कथा', 'चित्रपट'], noRules: ['कोणतेही नियम नाहीत', 'नियम नाहीत'] },
+  ne: { fiction: ['उपन्यास', 'कथा', 'फिल्म'], noRules: ['कुनै नियम नभएको', 'नियम नभएको'] },
+  bn: { fiction: ['উপন্যাস', 'গল্প', 'চলচ্চিত্র'], noRules: ['কোনো নিয়ম নেই', 'কোন নিয়ম নেই'] },
+  gu: { fiction: ['નવલકથા', 'વાર્તા', 'ફિલ્મ'], noRules: ['કોઈ નિયમો નથી', 'કોઈ નિયમ નથી'] },
+  pa: { fiction: ['ਨਾਵਲ', 'ਕਹਾਣੀ', 'ਫਿਲਮ'], noRules: ['ਕੋਈ ਨਿਯਮ ਨਹੀਂ'] },
+  ta: { fiction: ['நாவல்*', 'கதை*', 'திரைப்பட*'], noRules: ['விதிகள் இல்லாத', 'விதிகள் இல்லை'] },
+  te: { fiction: ['నవల*', 'కథ*', 'సినిమా*'], noRules: ['నియమాలు లేని', 'నియమాలు లేవు'] },
+  kn: { fiction: ['ಕಾದಂಬರಿ*', 'ಕಥೆ*', 'ಚಲನಚಿತ್ರ*'], noRules: ['ನಿಯಮಗಳಿಲ್ಲ*', 'ಯಾವುದೇ ನಿಯಮಗಳಿಲ್ಲ*'] },
+  ml: { fiction: ['നോവൽ*', 'കഥ*', 'സിനിമ*'], noRules: ['നിയമങ്ങളില്ല*'] },
+  am: { fiction: ['ልብ ወለድ', 'ታሪክ', 'ፊልም'], noRules: ['ህግ ስለሌለው', 'ህግ የሌለው', 'ህግ የለውም'] },
+  ko: { fiction: ['소설*', '이야기*', '영화*'], noRules: ['규칙이 없는', '규칙이 없*', '규칙 없는'] },
+  zh: { unspaced: true, fiction: ['小说', '小說', '故事', '电影', '電影', '剧本', '劇本'], noRules: ['没有规则', '沒有規則', '没有任何规则', '沒有任何規則', '无规则', '無規則'] },
+  ja: { unspaced: true, fiction: ['小説', '物語', '映画', 'ストーリー'], noRules: ['ルールのない', 'ルールがない', '規則のない', '規則がない'] },
+  th: { unspaced: true, fiction: ['นิยาย', 'เรื่องราว', 'ภาพยนตร์'], noRules: ['ไม่มีกฎ'] },
+}
+
+const FRAME_COMPILED: Compiled[] = Object.values(JAILBREAK_FRAME_LEXICONS).map(f => compile({
+  order: 'any',
+  verbs: f.unspaced ? f.fiction : [...f.fiction, ...SCI_FI],
+  positionals: [],
+  nouns: f.noRules,
+  unspaced: f.unspaced ?? false,
+  window: f.unspaced ? 30 : 14,
+}))
+
+// One trie over the first word of every spaced lexicon's trigger phrases, so a
+// token is looked up once, in time proportional to its length, instead of
+// against every verb of every lexicon (which cost 1.7 s on 200 KB of verbs).
 interface VerbEntry { c: Compiled; phrase: string[] }
 interface TrieNode { next: Map<string, TrieNode>; exact: VerbEntry[]; stem: VerbEntry[] }
 const trieNode = (): TrieNode => ({ next: new Map(), exact: [], stem: [] })
-const VERB_TRIE = trieNode()
-for (const c of COMPILED) {
-  if (c.unspaced) continue
-  for (const phrase of c.verbs) {
-    const first = phrase[0] ?? ''
-    const stem = first.endsWith('*')
-    let node = VERB_TRIE
-    for (const ch of stem ? first.slice(0, -1) : first) {
-      let next = node.next.get(ch)
-      if (!next) { next = trieNode(); node.next.set(ch, next) }
-      node = next
+
+function buildTrie(compiled: Compiled[]): TrieNode {
+  const root = trieNode()
+  for (const c of compiled) {
+    if (c.unspaced) continue
+    for (const phrase of c.verbs) {
+      const first = phrase[0] ?? ''
+      const stem = first.endsWith('*')
+      let node = root
+      for (const ch of stem ? first.slice(0, -1) : first) {
+        let next = node.next.get(ch)
+        if (!next) { next = trieNode(); node.next.set(ch, next) }
+        node = next
+      }
+      ;(stem ? node.stem : node.exact).push({ c, phrase })
     }
-    ;(stem ? node.stem : node.exact).push({ c, phrase })
   }
+  return root
 }
 
-/** Every verb phrase whose first word matches `token`. */
-function verbsFor(token: string): VerbEntry[] {
+/** Every trigger phrase whose first word matches `token`. */
+function verbsFor(trie: TrieNode, token: string): VerbEntry[] {
   const out: VerbEntry[] = []
-  let node: TrieNode | undefined = VERB_TRIE
+  let node: TrieNode | undefined = trie
   for (const ch of token) {
     node = node.next.get(ch)
     if (!node) return out
@@ -490,9 +567,9 @@ function verbsFor(token: string): VerbEntry[] {
   return out
 }
 
-function matchSpaced(tokens: string[]): boolean {
+function matchSpaced(trie: TrieNode, tokens: string[]): boolean {
   for (let i = 0; i < tokens.length; i++) {
-    for (const { c, phrase } of verbsFor(tokens[i] ?? '')) {
+    for (const { c, phrase } of verbsFor(trie, tokens[i] ?? '')) {
       let ok = i + phrase.length <= tokens.length
       for (let k = 1; ok && k < phrase.length; k++) ok = tokMatch(tokens[i + k] ?? '', phrase[k] ?? '')
       if (!ok) continue
@@ -531,25 +608,40 @@ function matchUnspaced(flat: string, c: Compiled): boolean {
   return false
 }
 
-// Clause breaks, in the normalized text (newlines are already spaces there).
-const CLAUSE_BREAK = /[.!?;:,،؛؟。！？，、।॥۔|]+/
-
 /**
- * A RegExp-shaped matcher, so it can sit in the heuristic's system-override
- * pattern list. Input is the heuristic's normalized text. Linear in the input:
- * each token is looked up once in the verb trie, and every verb found opens a
- * fixed window.
+ * A RegExp-shaped matcher, so it can sit in one of the heuristic's pattern
+ * lists. Input is the heuristic's normalized text. Linear in the input: each
+ * token is looked up once in the trie, and every trigger found opens a fixed
+ * window.
  */
-const UNSPACED = COMPILED.filter(c => c.unspaced)
+// Quotes, brackets and, at sentence scope, commas cling to a word.
+const EDGE_PUNCT = /^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu
+const trimToken = (t: string): string => t.replace(EDGE_PUNCT, '')
 
-export const overrideLexiconMatcher = {
-  test(text: string): boolean {
-    for (const clause of text.split(CLAUSE_BREAK)) {
-      if (clause.length < 4) continue
-      if (matchSpaced(clause.split(' ').filter(Boolean))) return true
-      const flat = clause.replace(/ /g, '')
-      for (const c of UNSPACED) if (matchUnspaced(flat, c)) return true
-    }
-    return false
-  },
+function lexiconMatcher(compiled: Compiled[], breaks: RegExp): Pick<RegExp, 'test'> {
+  const trie = buildTrie(compiled)
+  const unspaced = compiled.filter(c => c.unspaced)
+  return {
+    test(text: string): boolean {
+      for (const clause of text.split(breaks)) {
+        if (clause.length < 4) continue
+        if (matchSpaced(trie, clause.split(' ').map(trimToken).filter(Boolean))) return true
+        const flat = clause.replace(/ /g, '')
+        for (const c of unspaced) if (matchUnspaced(flat, c)) return true
+      }
+      return false
+    },
+  }
 }
+
+// Clause breaks, in the normalized text (newlines are already spaces there).
+// The jailbreak frame spans commas ("a novel about an AI named DAN, who has no
+// rules"), so it splits on sentence ends only.
+const CLAUSE_BREAK = /[.!?;:,،؛؟。！？，、।॥۔|]+/
+const SENTENCE_BREAK = /[.!?;。！？।॥۔|]+/
+
+/** Override and disable-the-filters shapes; feeds the system-override rule. */
+export const overrideLexiconMatcher = lexiconMatcher(COMPILED, CLAUSE_BREAK)
+
+/** "A story with no rules"; feeds the jailbreak-frame rule. */
+export const jailbreakFrameMatcher = lexiconMatcher(FRAME_COMPILED, SENTENCE_BREAK)

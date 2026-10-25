@@ -25,6 +25,24 @@ const BEARER_TOKEN = /\bbearer\s+([A-Za-z0-9._~+/=-]{20,})/gi
 
 const ENTROPY_THRESHOLD = 4.0
 
+// Unicode decimal digits come in runs of ten, 0 to 9, so the value of a digit
+// is its distance from the start of its run. Built once from the BMP; a digit
+// outside it is two UTF-16 units and is left alone, which keeps the mapped
+// copy the same length as the text.
+const DIGIT_VALUE = new Map<string, string>()
+for (let cp = 0x80, zero = -1; cp <= 0xffff; cp++) {
+  const ch = String.fromCharCode(cp)
+  if (!/\p{Nd}/u.test(ch)) { zero = -1; continue }
+  if (zero < 0 || cp - zero > 9) zero = cp
+  DIGIT_VALUE.set(ch, String(cp - zero))
+}
+const NON_ASCII_DIGIT = /(?![0-9])\p{Nd}/gu
+
+/** `text` with every BMP decimal digit written as its ASCII digit, same length. */
+export function asciiDigits(text: string): string {
+  return text.replace(NON_ASCII_DIGIT, ch => DIGIT_VALUE.get(ch) ?? ch)
+}
+
 // luhnValid used internally
 
 export class DlpScanner {
@@ -68,11 +86,15 @@ export class DlpScanner {
     // (Visa 4, Mastercard 2 and 5, Amex/JCB/Diners 3, Discover/UnionPay 6)
     // sits in ISO/IEC 7812 industry digits 2 to 6.
     if (this.active('pii')) {
+      // Matched on a copy with other scripts' digits mapped to ASCII, the same
+      // length, so a card typed as "৪১১১ ১১১১ ..." is found and its offsets
+      // still point into the original text.
+      const ascii = asciiDigits(text)
       CREDIT_CARD_CANDIDATE.lastIndex = 0
       let m: RegExpExecArray | null
-      while ((m = CREDIT_CARD_CANDIDATE.exec(text)) !== null) {
+      while ((m = CREDIT_CARD_CANDIDATE.exec(ascii)) !== null) {
         if (/^[2-6]/.test(m[0]) && luhnValid(m[0])) {
-          findings.push({ type: 'CREDIT_CARD', label: 'Credit Card Number', match: m[0], index: m.index })
+          findings.push({ type: 'CREDIT_CARD', label: 'Credit Card Number', match: text.slice(m.index, m.index + m[0].length), index: m.index })
         }
         if (m.index === CREDIT_CARD_CANDIDATE.lastIndex) CREDIT_CARD_CANDIDATE.lastIndex++
       }
