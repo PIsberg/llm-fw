@@ -37,7 +37,7 @@ in [SCORECARD.md](SCORECARD.md) and [FALSE-POSITIVES.md](FALSE-POSITIVES.md).
 | **Malicious content**: a web page, a document, a repository file, an MCP server's reply, a tool's output | Put text in front of the model, through any field the provider reads | Run code on the host, or reach the firewall's listeners |
 | **A malicious web page in the user's browser** | Make the browser send requests to `127.0.0.1` ports, including after DNS rebinding | Read responses across origins, or send `CONNECT` |
 | **A remote network client** | Connect to a listener that is bound beyond loopback | Present a token it was not given |
-| **A malicious repository in the working directory** | Plant files that a tool started there might read | Change the firewall's configuration (since 0.9.0) |
+| **A malicious repository in the working directory** | Plant files that a tool started there might read | Change the firewall's configuration (since 0.9.1) |
 | **A hostile upstream response** | Return text, URLs or images that try to exfiltrate data | Change what the request side already decided |
 | **Another local account on the same machine** | Read files its ACLs allow | Read the user's `LLM_FW_DIR` |
 | **A gateway tenant** | Send any request its token allows, to the providers its tenant allows | Exceed its quota, use another tenant's identity, or read the dashboard |

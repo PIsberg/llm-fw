@@ -638,7 +638,7 @@ What it does, in order:
    Tool Usage counts (`tool-usage.json`) and the licence key. It prints what it removed and what it left. `--purge` deletes
    all of that too, except the licence key.
 6. **Names a `.llm-fw.json` in the current directory and leaves it alone.**
-   Versions before 0.9.0 of `setup-judge` wrote judge settings there; llm-fw
+   Versions before 0.9.1 of `setup-judge` wrote judge settings there; llm-fw
    no longer reads that file, and it may belong to the project you are in, so
    uninstall only tells you it exists. Delete it yourself if llm-fw wrote it.
 7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)

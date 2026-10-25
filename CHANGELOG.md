@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-25
+
+The first published 0.9 release. 0.9.0 was prepared but never published, so 0.9.1 also
+ships every change listed under 0.9.0 below. Upgrading from 0.8.0, read both sections.
+
 ### Added
 
 - **The container image is published to GHCR on each release.** `ghcr.io/pisberg/llm-fw:<version>`
@@ -15,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build both architectures without pushing, so a change that breaks arm64 fails before a release.
 
 - **Every GitHub Release carries an SBOM.** `llm-fw-vX.Y.Z.cdx.json` is a CycloneDX 1.5 list of the
-  production dependencies the version ships (60 components for 0.9.0), generated from the lockfile
+  production dependencies the version ships (60 components for 0.9.1), generated from the lockfile
   at the tag, so a version can be audited without installing it.
 
 ### Fixed
@@ -108,7 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2026.10.85; measured, 0 of 23,938 eval verdicts changed and the false-positive rate is unchanged
   (2.68%, 9 of 336; Dolly and oasst1 0 of 2,000 each).
 
-## [0.9.0] - 2026-10-24
+## 0.9.0 - not published
+
+Prepared on 2026-10-24 and never tagged or published to npm. Its changes ship in 0.9.1.
 
 ### Security
 
@@ -2967,8 +2974,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...v0.9.0
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...v0.9.1
 [0.8.0]: https://github.com/PIsberg/llm-fw/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/PIsberg/llm-fw/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/PIsberg/llm-fw/compare/v0.5.0...v0.6.0

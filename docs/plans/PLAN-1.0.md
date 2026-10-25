@@ -78,7 +78,7 @@ Findings so far:
   `169.254.169.254`), header and target parsing, request smuggling,
   Content-Encoding handling and decompression bombs. Status: a remote client
   could tunnel into the host's loopback and link-local addresses
-  (GHSA-q53q-qg98-p9jf), fixed in 0.9.0; compressed bodies passed unscanned,
+  (GHSA-q53q-qg98-p9jf), fixed in 0.9.1; compressed bodies passed unscanned,
   now decoded and capped at `proxy.maxBodyBytes` (#458).
 - [x] Gateway: tenant isolation, SSRF through routing, provider keys in errors,
   logs or the dashboard, quota bypass. Status: reviewed 2026-10-24. Routing
@@ -95,7 +95,7 @@ Findings so far:
 - [x] Dashboard: the loopback exemption behind a same-host reverse proxy, DNS
   rebinding against `127.0.0.1:7731`, the Origin check, SSE. Status: DNS
   rebinding reached the dashboard and a loopback gateway on a default install
-  (GHSA-c725-vwcm-h8rr), fixed in 0.9.0: loopback trust now needs a loopback
+  (GHSA-c725-vwcm-h8rr), fixed in 0.9.1: loopback trust now needs a loopback
   `Host`.
 - [x] Detection bypass: parser differentials against the providers (duplicate
   JSON keys, encodings, alternative content shapes), normalization
@@ -110,7 +110,7 @@ Findings so far:
   are matched canonically.
 - [x] Config: cosmiconfig searches upward from cwd and evaluates
   `llm-fw.config.js`; can a cloned repository run code or disable detection?
-  Hot-reload races. Status: it could (GHSA-4578-7p8f-hc8r), fixed in 0.9.0:
+  Hot-reload races. Status: it could (GHSA-4578-7p8f-hc8r), fixed in 0.9.1:
   config is read only from `LLM_FW_DIR`, `LLM_FW_*` variables and a JSON file
   named by `LLM_FW_CONFIG`; cosmiconfig is gone.
 - [x] CA and files: key permissions on Windows and Linux, `LLM_FW_DIR`, CRL.
@@ -140,7 +140,7 @@ Findings so far:
   `scripts/fulfill-paddle-webhook.ts` issued a second key when run twice for
   one transaction; it now returns the existing one (#466).
 - [x] DoS: ReDoS in heuristics, embedding CPU per byte, body limits, the
-  WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.0;
+  WebSocket relay. Status: quadratic regexes and tokenizer fixed in 0.9.1;
   embedding passes have a per-request budget (64 dense 40 KB messages: 391 s
   to 48 s); a fragmented WebSocket message is now held to
   `proxy.maxBodyBytes` (it grew without limit). The scan now hands the

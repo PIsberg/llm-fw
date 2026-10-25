@@ -524,7 +524,7 @@ Mode A (proxy) needs none of these — it relies on the client honouring
 | Setting | What it is | Why it's needed | Reversal |
 | --- | --- | --- | --- |
 | Ollama model pull | e.g. `ollama pull phi3` | Stage 3 runs a local LLM to reason about intent that regex/similarity miss. | **left in place** — the model is shared and reusable; `uninstall` prints `ollama rm <model>` |
-| `.llm-fw.json` judge keys (setup-judge before 0.9.0) | `detection.judgeEnabled / judgeModel / judgeBlock` written to a config file in the working directory | Persisted that the judge is enabled. llm-fw no longer reads that file, and current setup-judge writes `~/.llm-fw/config.json` instead. | **left in place** and reported, since the file may belong to a cloned repository; `uninstall` names it so the user can delete it |
+| `.llm-fw.json` judge keys (setup-judge before 0.9.1) | `detection.judgeEnabled / judgeModel / judgeBlock` written to a config file in the working directory | Persisted that the judge is enabled. llm-fw no longer reads that file, and current setup-judge writes `~/.llm-fw/config.json` instead. | **left in place** and reported, since the file may belong to a cloned repository; `uninstall` names it so the user can delete it |
 
 ### 12.5 IDE proxy settings (auto-configured)
 
