@@ -78,7 +78,9 @@ Replaying the last 7 days of this machine's Claude Code transcripts per session
 (407 sessions, 13,934 unique items, live config, no suppressions) shows what is
 left: 32 of 245 sessions outside llm-fw would have hit a block (13.1%), and 54
 of 162 llm-fw sessions and fixtures, which quote attacks by design. Because an
-agent resends its history, each of those sessions ends at its first block. 22
+agent resends its history, each of those sessions ended at its first block.
+This ruleset withholds a blocked tool result instead of refusing the request
+(`detection.surfaces.tool_result.onBlock`), which leaves 10 and 8: 22
 of the 32 are tool results only, mostly the indirect-instruction rule on
 attribution addresses (`mailto:` links, `email = "..."` in project metadata),
 CI log advice ("Please update your unit file") and spec prose. The other 10 are
