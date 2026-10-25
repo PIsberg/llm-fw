@@ -29,6 +29,7 @@ import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { join, dirname, resolve, isAbsolute } from 'node:path'
+import { parquetReadObjects } from 'hyparquet'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dir, '..', 'test', 'eval', 'data')
@@ -208,6 +209,43 @@ export function oasstUserTurns(messages: OasstMessage[]): Row[] {
     }))
 }
 
+/**
+ * CohereLabs/aya_dataset, pinned. Human-written prompts in 65 languages, the
+ * benign traffic for the per-language override lexicons
+ * (src/detection/overrideLexicon.ts): oasst1's non-English turns are mostly
+ * Spanish, Russian, German, Chinese, French and Portuguese, which had rules
+ * already, so they could not tell whether a Hindi or Swedish lexicon blocks
+ * ordinary prompts.
+ *
+ * A fixed number per language (lowest sha256 within each) rather than a
+ * proportional sample: proportional left Hungarian or Danish one or two rows.
+ * Only the half of the dataset whose text hashes to an odd sha256 is drawn
+ * from. The even half was used to look for false positives while the
+ * lexicons were written, so this half is the one no rule was checked against.
+ */
+const AYA_REVISION = 'f9ea04583f02a8f86404ff6c58bf75fe637df8a2'
+const AYA_PER_LANGUAGE = 40
+
+export function ayaSample(rows: Array<{ inputs?: string | null; language_code?: string | null }>, perLanguage: number): Row[] {
+  const hash = (s: string) => createHash('sha256').update(s).digest('hex')
+  const byLang = new Map<string, Map<string, string>>()
+  for (const r of rows) {
+    const text = (r.inputs ?? '').trim()
+    const lang = r.language_code ?? ''
+    if (!text || !lang) continue
+    const h = hash(text)
+    if (parseInt(h.slice(-1), 16) % 2 === 0) continue
+    const seen = byLang.get(lang) ?? new Map<string, string>()
+    seen.set(h, text)
+    byLang.set(lang, seen)
+  }
+  const out: Row[] = []
+  for (const [lang, seen] of [...byLang].sort(([a], [b]) => a.localeCompare(b))) {
+    for (const h of [...seen.keys()].sort().slice(0, perLanguage)) out.push({ text: seen.get(h) ?? '', label: 0, class: lang })
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 
 const FETCHERS: Record<string, () => Promise<void>> = {
@@ -247,6 +285,18 @@ const FETCHERS: Record<string, () => Promise<void>> = {
       `OpenAssistant/oasst1 (2023-04-12_oasst_ready.messages): a fixed ${OASST_SAMPLE_SIZE}-row stratified sample (by language group x opening/follow-up turn, lowest sha256 within each) of the ${turns.length} user turns that passed the dataset's own review, label 0 (benign-only, FPR-only). HELD OUT: never tune detection against it. Regenerate with scripts/fetch-eval-data.ts oasst1-sample.`,
       OASST_REVISION, 'injection', rows,
       { _license: 'Apache-2.0. Source: OpenAssistant/oasst1, https://huggingface.co/datasets/OpenAssistant/oasst1. This derived file (user-turn text only, sampled) is redistributed under the same licence.' })
+  },
+
+  /** CohereLabs/aya_dataset: a fixed per-language sample of human-written prompts, for the FPR gate. */
+  'aya-sample': async () => {
+    const buf = await getBuffer(`https://huggingface.co/datasets/CohereLabs/aya_dataset/resolve/${AYA_REVISION}/data/train-00000-of-00001.parquet`)
+    const file = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+    const all = await parquetReadObjects({ file, columns: ['inputs', 'language_code'] }) as Array<{ inputs?: string; language_code?: string }>
+    const rows = ayaSample(all, AYA_PER_LANGUAGE)
+    write('aya-sample.json',
+      `CohereLabs/aya_dataset (train): up to ${AYA_PER_LANGUAGE} human-written prompts per language (lowest sha256 within each, from the half of the ${all.length} prompts whose sha256 is odd), ${new Set(rows.map(r => r.class)).size} languages, label 0 (benign-only, FPR-only). HELD OUT: never tune detection against it; the even half is for finding false positives. Regenerate with scripts/fetch-eval-data.ts aya-sample.`,
+      AYA_REVISION, 'injection', rows,
+      { _license: 'Apache-2.0. Source: CohereLabs/aya_dataset, https://huggingface.co/datasets/CohereLabs/aya_dataset. This derived file (prompt text only, sampled) is redistributed under the same licence.' })
   },
 
   /** deepset/prompt-injections — full test split. Independent public injection set (noisy labels). */
