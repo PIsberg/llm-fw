@@ -56,6 +56,12 @@ npm run test:coverage
 LLM_FW_JUDGE_MODEL=qwen2.5:3b npm run test:judge
 ```
 
+`test:coverage` leaves out `multilingual-playground.test.ts`, which `test:run` already
+runs. It pushes 6,783 rows through the real pipeline for about three minutes on a
+CI runner, and under coverage instrumentation that load pushed the 200 KB timing
+checks in `overrideLexicon.test.ts` and `tokens.test.ts` past their budgets
+(1.7 to 3.1 s against 1.5 s, 650 ms against 500 ms).
+
 The default run skips nothing. The OCR (`image-attacks.test.ts`) and speech
 transcription (`transcribe.model.test.ts`) suites run real models in it: the
 first run downloads about 12 MB of tesseract.js data and the 40 MB Whisper
