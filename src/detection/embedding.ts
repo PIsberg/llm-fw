@@ -217,9 +217,12 @@ export class EmbeddingChecker {
     }
 
     // Curated canonical injection-intent anchors (data/semantic-anchors.json),
-    // English-only. E5's cross-lingual alignment maps an injection in any
-    // language onto these, so a small clean anchor set generalizes to every
-    // language. We deliberately do NOT use data/attacks.json here: it contains
+    // English-only. E5's cross-lingual alignment maps an injection in another
+    // language onto these, but only partly: a translated override lands at
+    // 0.80-0.86, mostly under the block line, which is why other languages
+    // are covered in Stage 1 (overrideLexicon.ts). Translated anchors are no
+    // fix: in its own language e5 scores ordinary text near them too, and 76%
+    // of benign prompts blocked when tried. We deliberately do NOT use data/attacks.json here: it contains
     // encoded/obfuscated strings (base64, hex, morse) meant for the decode path,
     // which are noisy semantic anchors that benign text accidentally matches and
     // erode the separation. The decode path re-scores DECODED text against these

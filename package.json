@@ -48,7 +48,7 @@
     "dev": "tsx src/cli/index.ts",
     "test": "vitest",
     "test:run": "vitest run && vitest run --config vitest.e2e.config.ts",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --exclude test/detection/multilingual-playground.test.ts",
     "test:judge": "vitest run --config vitest.judge.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:proxy": "vitest run --config vitest.e2e.config.ts",
@@ -70,6 +70,7 @@
     "lint:fix": "eslint . --fix",
     "knip": "knip",
     "docs:links": "node scripts/check-links.mjs",
+    "fixture:multilingual": "node --import tsx/esm scripts/multilingual-fixture.ts",
     "config:reference": "node --import tsx/esm scripts/gen-config-reference.ts"
   },
   "dependencies": {
@@ -94,6 +95,7 @@
     "@vitest/coverage-v8": "^5.0.3",
     "eslint": "^10.8.1",
     "fast-check": "^4.9.0",
+    "hyparquet": "^1.31.5",
     "knip": "^6.32.1",
     "tesseract.js": "^7.0.0",
     "tsx": "^4.23.12",

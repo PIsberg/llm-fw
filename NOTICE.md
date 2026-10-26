@@ -82,6 +82,13 @@ licensed Apache-2.0, redistributed under the same licence with its attribution
 in the file's `_license` field. Same status as the Dolly sample: evaluation data
 for the false-positive gate, repository only, not in the package.
 
+`test/eval/data/aya-sample.json` is a sample of up to 40 human-written prompts
+per language, in 70 languages, from the Aya dataset
+(https://huggingface.co/datasets/CohereLabs/aya_dataset), licensed Apache-2.0,
+redistributed under the same licence with its attribution in the file's
+`_license` field. Same status: evaluation data for the false-positive gate,
+repository only, not in the package.
+
 ## Optional peer dependency
 
 `tesseract.js` (Apache-2.0) is an optional peer dependency, not a runtime

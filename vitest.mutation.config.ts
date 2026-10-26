@@ -23,6 +23,7 @@ export default defineConfig({
       'test/detection/accuracy.eval.test.ts',
       'test/detection/multilingual.test.ts',
       'test/detection/multilingual-indirect.test.ts',
+      'test/detection/multilingual-playground.test.ts',
       'test/detection/inferenceIsolation.test.ts',
       'test/detection/image-attacks.test.ts',
       'test/detection/media.test.ts',

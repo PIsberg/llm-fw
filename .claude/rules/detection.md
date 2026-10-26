@@ -29,6 +29,18 @@ PR with the measured before and after. Never lower one silently to go green.
 Prefer closing a miss additively in stage 1 over recalibrating stage 2. A regex
 gap is a local fix; a threshold move is a global one.
 
+## Other languages
+
+A non-English miss goes in stage 1: a rule in `heuristic.ts` for a language
+that has one, otherwise an entry in `src/detection/overrideLexicon.ts`.
+Stage 2 cannot close it. Same-language anchors blocked 76% of benign prompts
+when tried, and no threshold separates translated attacks from benign text.
+Match against the NORMALIZED text: diacritics and Indic/Thai vowel signs are
+stripped, so a literal `ç`, `й` or `ё` in a rule never matches (three rules
+were dead that way). `test/detection/multilingual-playground.test.ts` gates
+every language. Its `heldout` set is the generalisation measure, so never
+write a rule from it; add a new held-out sentence instead.
+
 ## Linear time
 
 Detection runs on the thread that serves every request, and its input is

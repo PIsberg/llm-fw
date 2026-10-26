@@ -454,6 +454,7 @@ llm-fw/
 │   ├── dashboard/
 │   │   ├── server.ts        # HTTP server (Events + Playground + Modules + Settings + /api/test + /api/settings + /api/status + /api/modules + whitelist + translate)
 │   │   ├── eventBus.ts      # ring buffer + SSE fan-out + whitelist persistence
+│   │   ├── playgroundExamples.ts  # the playground's example buttons, embedded in the page and tested
 │   │   └── translate.ts     # Google Translate gtx client + full language list
 │   └── config/
 │       └── config.ts        # defaults + config files + env overrides

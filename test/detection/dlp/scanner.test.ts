@@ -183,6 +183,29 @@ describe('DlpScanner.scan — credit cards (Luhn)', () => {
       expect(scanner.scan(`card ${card}`).some(x => x.type === 'CREDIT_CARD'), card).toBe(true)
     }
   })
+
+  // A number typed in another script's digits is the same card. Found by the
+  // playground's DLP example translated into Assamese, which writes
+  // "৪১১১ ১১১১ ১১১১ ১১১১" and passed.
+  it('flags a card written in non-Latin digits, and redacts it in place', () => {
+    for (const text of [
+      'কাৰ্ড ৪১১১ ১১১১ ১১১১ ১১১১ চাৰ্জ কৰক',        // Bengali-Assamese
+      'कार्ड ४१११ ११११ ११११ ११११ से भुगतान',          // Devanagari
+      'البطاقة ٤١١١١١١١١١١١١١١١ من فضلك',            // Arabic-Indic
+      'ꯀꯥꯔꯗ ꯴꯱꯱꯱ ꯱꯱꯱꯱ ꯱꯱꯱꯱ ꯱꯱꯱꯱',                  // Meetei Mayek
+    ]) {
+      const f = scanner.scan(text).filter(x => x.type === 'CREDIT_CARD')
+      expect(f, text).toHaveLength(1)
+      const red = scanner.redact(text, f)
+      expect(red, text).toContain('[REDACTED_CREDIT_CARD]')
+      expect(/[\p{Nd}]{4}/u.test(red), red).toBe(false)
+    }
+  })
+
+  it('still applies Luhn and the issuer digit to non-Latin digits', () => {
+    expect(scanner.scan('৪১১১১১১১১১১১১১১২').some(x => x.type === 'CREDIT_CARD')).toBe(false) // 4111...2, Luhn-invalid
+    expect(scanner.scan('١٧٦٠٠٥٤٤٠٠٠٠٥').some(x => x.type === 'CREDIT_CARD')).toBe(false)    // starts with 1: a timestamp
+  })
 })
 
 describe('DlpScanner.scan — entropy generic secret (Strategy 2)', () => {

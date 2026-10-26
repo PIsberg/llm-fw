@@ -24,6 +24,20 @@ Done on 2026-10-25, merged to main the same day:
   (Phase 4). Measuring them found direct-injection recall at 627 of 853, down
   from 635 on 2026-10-10 with no gate failing (#480).
 
+In review (PR from `detection/multilingual-playground`, ruleset 2026.10.87):
+
+- Other languages. The playground's own attacks, translated into the 132
+  languages its Translate button offers, passed 711 of 1,197 times on the
+  default config. Stage 1 lexicons for 37 languages and fixes to nine
+  non-English rules bring that to 681 blocked; 3 still pass in the 54
+  languages with a rule or lexicon. Every playground example in every
+  category is now tested (`test/dashboard/playground-examples.test.ts`), and
+  every translated one (`test/detection/multilingual-playground.test.ts`).
+  False positives were measured on 235,525 human-written prompts (Aya,
+  oasst1): 1 new block, the probe English blocks too. `npm run fpr` gates a
+  70-language Aya sample (0 of 2,795). Leftovers are under "Multilingual
+  coverage" in Phase 4.
+
 Waiting on a maintainer decision:
 
 - Sign off the proposed GA accuracy criteria and the recommendation that none
@@ -223,7 +237,11 @@ Findings so far:
 - [ ] Attack from a second host: port scan, unauthenticated CONNECT, open relay,
   metadata endpoint, token brute force.
 - [ ] 48 to 72 hour soak with memory and CPU graphs, concurrent clients, log
-  rotation, Prometheus scrape, k8s probes, audit log to a SIEM.
+  rotation, Prometheus scrape, k8s probes, audit log to a SIEM. Before it, fix
+  what an hour of observe mode on 2026-10-25 showed: the dashboard keeps 100
+  events and a would-block was evicted in about 15 minutes, so 4 would-blocks
+  could not be traced (#488); 59 of those 100 events were one taint warning on
+  every `api.github.com` connection (#489).
 - [ ] Failure modes: upstream down, Ollama down, OOM kill, restart keeps the CA,
   in-place upgrade from 0.8.
 
@@ -249,6 +267,8 @@ Findings so far:
   | Direct injection, held-out splits | heldout 23 of 31, safeguard 490 of 650 | nightly drift gate |
   | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31 | none; publish it |
   | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
+  | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |
+  | Proposed, ruleset 2026.10.87: human-written prompts in 70 languages blocked | 0 of 2,795 (Aya sample) | CI `npm run fpr` |
 
   Proposed answer on the four issues: none blocks 1.0, because detection
   verdicts move under `RULESET_VERSION`, not semver, so each can keep
@@ -263,6 +283,28 @@ Findings so far:
   withholding blocked tool results (#479, default). #405 (rogue-AI game
   code) now withholds the one tool result instead of ending the session, and
   `trustedPaths` (opt-in) covers its file reads.
+- [ ] Multilingual coverage: decide what 1.0 claims for languages other than
+  English, and close or defer each of these. Measured 2026-10-25 on ruleset
+  2026.10.87 (default config).
+  - #483: 78 of the 132 playground languages (Aymara, Quechua, Mizo, Zulu,
+    ...) have no rule or lexicon, and the embedding stage cannot carry them:
+    no threshold separates translated attacks from benign text. First step:
+    measure the judge on the multilingual fixture; if it closes them, the
+    answer is documentation.
+  - #484: attack shapes the lexicons do not cover ("your instructions are
+    cancelled", "pay no attention to what you were told", "skip the earlier
+    directions"): held-out phrasings block 226 of 798. Needs a second
+    held-out set written before any rule, since the first has been seen.
+  - #490: 11 lexicon languages (Slovak, Bulgarian, Romanian, Hebrew,
+    Norwegian, Kazakh, Azerbaijani, Uzbek, Croatian, Bosnian, Czech) have no
+    human-written benign check; neither Aya nor oasst1 has them.
+  - #487: Dutch "Schakel veiligheidsfilters uit" passes (separable verb).
+  - #485, #486: two English false positives the multilingual benign set
+    exposed ("Follow the previous instructions in the README ...",
+    "Is unrestricted free speech protected ...?"), pinned as known blocks.
+  - The DLP "Bearer token" and "Private key" examples are not checked in
+    translation (the translator rewrites the protocol word and the PEM
+    armour); their English forms are.
 - [ ] Install matrix: Windows, macOS, Linux on Node 22, 24, 26; setup, uninstall,
   setup again leaves the machine clean.
 - [ ] Commercial licence purchase tested end to end.

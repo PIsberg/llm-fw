@@ -43,6 +43,12 @@ across groups would be dishonest, because they test different jobs:
   multilingual, benign only, so FPR-only. Regenerate with
   `scripts/fetch-eval-data.ts oasst1-sample`. Held out: the third corpus of the
   false-positive gate.
+- **aya-sample** — up to 40 human-written prompts per language, 2,795 in 70
+  languages, from `CohereLabs/aya_dataset` (rev `f9ea04583f02`, Apache 2.0),
+  benign only, so FPR-only. Regenerate with
+  `scripts/fetch-eval-data.ts aya-sample`. Held out: the fourth corpus of the
+  false-positive gate, drawn from the half of Aya nobody searched for false
+  positives while the per-language lexicons were written.
 - **heldout** — 52 self-authored novel phrasings (31 attacks / 21 benign),
   deliberately *not* drawn from the tuning corpus. The hardest set on purpose:
   semantic-only jailbreaks (no keyword signature) and injection-adjacent benign
@@ -180,6 +186,7 @@ claim, not a measurement; regenerate this table when detection changes.
 | heldout (hardest, adversarial benign) | 52 | 74.2% (23/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
 | dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | not measured |
 | oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000) at `2026.10.8`; 0.05% (1/2,000) on Linux CI, #272 | not measured |
+| aya-sample (human-written prompts, 70 languages, benign only) | 2,795 | — / 0% (0/2,795) at `2026.10.87` | not measured |
 
 ‡‡ Re-measured at ruleset `2026.08.12`, before the cheap column's last five
 rulesets.
