@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been blocked only by an obfuscation bonus that a pig-latin or URL-decoded copy of the same
   text earned by accident, removed on 2026-10-11 (de41987), and 1 fell under the embedding line
   when three output-format benign anchors were added the same day (ruleset 2026.10.36).
+- **Recall on unseen held-out rows, beside the floor.** Rules were tuned on 2026-10-26 by reading
+  21 safeguard rows and 1 heldout row, so those splits no longer cleanly measure attacks nobody
+  fitted a rule to. The rows read are listed in `test/eval/lib/seenRows.ts`, and
+  `npm run recall:floor` now also prints each split on its unseen rows: 613 of 831 on ruleset
+  2026.10.90 (safeguard 477 of 629), against 633 of 853 on every row.
 
 - **Every Prompt Testing playground example is now tested.** The example buttons moved from the
   page's inline script to `src/dashboard/playgroundExamples.ts`, which the page embeds, and

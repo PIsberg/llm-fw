@@ -54,6 +54,15 @@ export interface RecallFloorVerdict {
   improved: string[];
 }
 
+/**
+ * Blocked and total over the attack rows not read during rule work
+ * (lib/seenRows.ts), the split's generalisation number.
+ */
+export function countUnseen(attackRows: readonly number[], blocked: ReadonlySet<number>, seen: ReadonlySet<number>): SplitCount {
+  const unseen = attackRows.filter(i => !seen.has(i))
+  return { blocked: unseen.filter(i => blocked.has(i)).length, attacks: unseen.length }
+}
+
 export function evaluateRecallFloor(
   counts: Record<string, SplitCount>,
   floors: Record<string, RecallFloor>,

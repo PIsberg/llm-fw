@@ -14,6 +14,18 @@ example that exposed it to `corpus.json` rather than only fixing the one case
 you hit. If a threshold itself genuinely needs to move, say so explicitly in the
 PR with the measured before and after. Never lower one silently to go green.
 
+## Held-out splits stay unread
+
+`heldout`, `safeguard-prompt-injection`, `deepset-prompt-injections`,
+`gandalf-ignore-instructions` and `injecagent` measure attacks nobody fitted a
+rule to. When a held-out row exposes a miss, write fresh variants of its shape
+into `corpus.json` and the tests; do not open further held-out rows to tune
+the rule. A row you did read, to write a rule or to check a narrowed one
+still blocks it, goes into `test/eval/lib/seenRows.ts` in the same PR.
+`npm run recall:floor` reports every split on all rows (the floor) and on
+unseen rows (the number to quote for generalisation); 22 rows were read on
+2026-10-26 alone.
+
 ## The three stages
 
 1. **Heuristic** (`src/detection/heuristic.ts`) plus multi-candidate

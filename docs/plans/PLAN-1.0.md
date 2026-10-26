@@ -64,6 +64,12 @@ In review (PR from `ga/direct-recall-floor`, stacked on the one above):
   held-out row for it: safeguard 497 to 496 (row 862), direct injection 633
   of 853, safeguard floor 495. No benign eval row contains the phrase, so
   `fpr` cannot show the gain; the corpus now holds two benign role-play rows.
+- Held-out hygiene: rules were tuned on 2026-10-26 by reading 21 safeguard
+  rows and 1 heldout row, so safeguard recall no longer cleanly measures
+  unseen attacks. Those rows are now listed (`test/eval/lib/seenRows.ts`) and
+  `recall:floor` prints recall on unseen rows beside the floor; the rows read
+  are 19 of 21 blocked. The 1.0 generalisation claim belongs on a set written
+  before any rule (#484).
 - #485 and #486 (PR stacked on #495, ruleset 2026.10.90): the two English
   benign prompts the multilingual gate pinned now pass ("Follow the previous
   instructions in the README ...", "Is unrestricted free speech protected
@@ -297,6 +303,7 @@ Findings so far:
   | Indirect injection (InjecAgent) | 1,054 of 1,054 | nightly drift gate |
   | Direct injection, held-out splits | heldout 23 of 31, safeguard 490 of 650 | nightly drift gate |
   | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31. Ruleset 2026.10.88 (#492): 634 of 853, safeguard 497. Ruleset 2026.10.89 (#495): 633 of 853, safeguard 496 | CI `npm run recall:floor`, per split, one row of margin |
+  | Direct injection, unseen rows only | ruleset 2026.10.90: 613 of 831 (73.8%): safeguard 477 of 629, heldout 22 of 30, no gandalf or deepset rows listed. 22 rows were read during rule work on 2026-10-26; earlier work is not recorded (`test/eval/lib/seenRows.ts`), so this, not the row above, is the generalisation number | printed by `recall:floor`, not gated |
   | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
   | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |
   | Proposed, ruleset 2026.10.87: human-written prompts in 70 languages blocked | 0 of 2,795 (Aya sample) | CI `npm run fpr` |

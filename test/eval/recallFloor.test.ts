@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateRecallFloor, DIRECT_RECALL_FLOORS } from './lib/recallFloor.js'
+import { evaluateRecallFloor, DIRECT_RECALL_FLOORS, countUnseen } from './lib/recallFloor.js'
 
 /**
  * The direct-injection recall floor exists because a slow loss passed every
@@ -69,5 +69,18 @@ describe('evaluateRecallFloor', () => {
     expect(Object.keys(DIRECT_RECALL_FLOORS).sort()).toEqual([
       'deepset-prompt-injections', 'gandalf-ignore-instructions', 'heldout', 'safeguard-prompt-injection',
     ])
+  })
+})
+
+describe('countUnseen', () => {
+  it('leaves rows read during rule work out of both the count and the total', () => {
+    // Attack rows 0..9, rows 1, 2, 3 blocked, rows 2 and 5 seen.
+    const attacks = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    const blocked = new Set([1, 2, 3])
+    expect(countUnseen(attacks, blocked, new Set([2, 5]))).toEqual({ blocked: 2, attacks: 8 })
+  })
+
+  it('is the plain count when nothing was seen', () => {
+    expect(countUnseen([0, 1, 2], new Set([0]), new Set())).toEqual({ blocked: 1, attacks: 3 })
   })
 })
