@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // A default `npm i llm-fw` used to pull ~50 MB and 13 extra packages for OCR,
@@ -87,5 +87,47 @@ describe('SECURITY.md, Chart.yaml and NOTICE.md track the current release and de
   it('neither SECURITY.md nor NOTICE.md lists removed node-forge as in the dependency tree', () => {
     expect(SECURITY_MD).not.toMatch(/`node-forge`/)
     expect(NOTICE_MD).not.toMatch(/`node-forge`/)
+  })
+})
+
+describe('docs/DEPENDENCIES.md accounts for every declared dependency', () => {
+  const DEPS_MD = readFileSync(fileURLToPath(new URL('docs/DEPENDENCIES.md', ROOT)), 'utf8')
+  const declared = [
+    ...Object.keys(PKG.dependencies ?? {}),
+    ...Object.keys(PKG.peerDependencies ?? {}),
+    ...Object.keys(PKG.devDependencies ?? {}),
+  ]
+
+  it.each([...new Set(declared)])('%s has a row', (name) => {
+    expect(DEPS_MD).toContain(`| \`${name}\` |`)
+  })
+})
+
+describe('devDependencies never reach the release', () => {
+  it('src/ imports no devDependency except the optional tesseract.js peer', () => {
+    // dist/ is compiled from src/, so an import of a dev package from src/
+    // would make `npm i llm-fw` fail at runtime with a module-not-found.
+    const dev = Object.keys(PKG.devDependencies ?? {}).filter((d) => d !== 'tesseract.js')
+    const offenders: string[] = []
+    const walk = (dir: URL): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const child = new URL(e.name + (e.isDirectory() ? '/' : ''), dir)
+        if (e.isDirectory()) walk(child)
+        else if (e.name.endsWith('.ts')) {
+          const text = readFileSync(child, 'utf8')
+          for (const d of dev) {
+            if (new RegExp(String.raw`(from|import\()\s*['"]${d.replace(/[/.]/g, '\$&')}(/[^'"]*)?['"]`).test(text)) {
+              offenders.push(`${fileURLToPath(child)} -> ${d}`)
+            }
+          }
+        }
+      }
+    }
+    walk(new URL('src/', ROOT))
+    expect(offenders).toEqual([])
+  })
+
+  it('ships only dist, data and NOTICE.md, so no test, script or fixture is packed', () => {
+    expect([...(PKG.files ?? [])].sort()).toEqual(['NOTICE.md', 'data', 'dist'])
   })
 })
