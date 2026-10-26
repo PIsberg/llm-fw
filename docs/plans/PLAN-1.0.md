@@ -51,6 +51,15 @@ In review (PR from `ga/direct-recall-floor`, stacked on the one above):
   fixes for real false positives; neither lost row was blocked for a reason
   the rules meant. `npm run recall:floor` now fails CI when a split blocks
   fewer attacks than its floor (measured count minus one row).
+- #492 (PR stacked on the one above, ruleset 2026.10.88): the 7 persona
+  prompts block on purpose now. Each describes a persona free of rules and
+  tells it, in the third person, to drop refusals or warnings; the
+  refusal-suppression rule now reads that form. 7 of 26,733 eval verdicts
+  changed, exactly those; `fpr` unchanged. Direct injection 634 of 853, and
+  the safeguard floor rises from 489 to 496. Found on the way: an OpenAI
+  response's `"refusal": null` blocked as a fake policy (fixed in the same
+  PR), and "Act as X and stay in character" blocks ordinary role-play (#495,
+  open).
 
 Waiting on a maintainer decision:
 
@@ -279,7 +288,7 @@ Findings so far:
   | Dolly-15k and oasst1 samples blocked | 0 of 2,000 each | CI `npm run fpr` |
   | Indirect injection (InjecAgent) | 1,054 of 1,054 | nightly drift gate |
   | Direct injection, held-out splits | heldout 23 of 31, safeguard 490 of 650 | nightly drift gate |
-  | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31 | CI `npm run recall:floor`, per split, one row of margin |
+  | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31. Ruleset 2026.10.88 (#492): 634 of 853, safeguard 497 | CI `npm run recall:floor`, per split, one row of margin |
   | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
   | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |
   | Proposed, ruleset 2026.10.87: human-written prompts in 70 languages blocked | 0 of 2,795 (Aya sample) | CI `npm run fpr` |

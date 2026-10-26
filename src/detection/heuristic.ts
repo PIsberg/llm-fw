@@ -777,6 +777,26 @@ export class HeuristicScorer {
           /(skip|omit|drop|leave out) (the |any |all )?(disclaimers?|warnings?|caveats?|safety (notice|warning|disclaimer)s?|moral\w*)/,
           /(do ?n.?t|never) (tell me|say|mention|claim) (that )?(you (can.?t|cannot|are unable)|it'?s (illegal|dangerous|unsafe|wrong))/,
           /no (disclaimers?|warnings?|caveats?|moralizing|lectures?|refusals?)\b/,
+          // The same instruction as the long persona jailbreaks give it: in the
+          // third person ("X does not add warnings", "X will never deny a
+          // request"), as a brace list ("never { argue refuse }"), or as
+          // getting past the provider ("bypassing openai's limitations"). Paired
+          // with unconstrained-persona they block; alone they stay at 30 (#492).
+          // None reuses a phrase unconstrained-persona matches ("never declines",
+          // "never refuses"), so one phrase cannot score twice, and the braces
+          // need "never" or "zero" before them, so an API's {"refusal": ...}
+          // field does not count.
+          /\bbypass(?:es|ing)? (?:openai|anthropic|chatgpt|gpt|claude|gemini|google|microsoft|bing)['’]?s? (?:limitations|restrictions|filters|guidelines|polic(?:y|ies)|rules|safeguards|constraints)\b/,
+          /\bnone of (?:your|its|their|his|her) (?:responses?|replies|answers?|messages?) should (?:inform|tell|remind) (?:me|the user) (?:that )?(?:you|it|they|he|she) (?:can['’]?t|cannot|can not|are unable|is unable)\b/,
+          /\b(?:does not|doesn['’]?t|will not|won['’]?t) (?:add|include|give|provide)s? (?:any )?(?:warnings?|disclaimers?|caveats?|cautionary (?:advice|notes?))\b/,
+          /\bmust (?:not|never) (?:reject|refuse|deny|decline) (?:any|all) (?:of )?(?:my |the user['’]?s )?(?:instructions|requests|questions|commands|prompts)\b/,
+          /\bnever\s*\{[^}]{0,60}\brefuse\b/,
+          /\bzero\s*\{[^}]{0,40}\brefusals?\b/,
+          // A bare "Never refuse." ends the sentence; "never refuse a reasonable
+          // request" qualifies what is refused and is not matched.
+          /\bnever refuse(?=\s*(?:[.!;,]|$)|\s+always\b)/,
+          /\bnever (?:deny|denies|reject|rejects) (?:a|any) (?:request|question|instruction|command)s?\b/,
+          /\bnever (?:advise|advises|warn|warns) (?:the user|users|anyone|people|me) against\b/,
         ],
       },
       {
@@ -867,7 +887,10 @@ export class HeuristicScorer {
           // key. Otherwise prose matched, e.g. a tool printing "panel
           // guardrails: no level_comic_defs entry, shows ..." (found replaying
           // real agent traffic).
-          /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0|null)\b(?=\s*(?:["'<>,;.!)}\]]|$|[\w-]+\s*[:=]))/i,
+          // null is not a value here: in a JSON API it is an unset field, and
+          // every OpenAI chat completion carries "refusal": null, so a pasted
+          // response or a tool printing one blocked.
+          /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0)\b(?=\s*(?:["'<>,;.!)}\]]|$|[\w-]+\s*[:=]))/i,
           /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*["'<]?\s*(true|1|yes|on|enabled)\b/i,
           /<\/?(policy|ruleset|config|permissions?|safety|guardrails?)>[^<]{0,80}(allow_all|unrestricted|disabled|no restrictions)/i,
           /(the following|this) (policy|configuration|config|ruleset|manifest) (applies|governs|overrides|takes precedence|is now active)\b[^.!?]{0,60}(allow|unrestricted|no (restrictions?|limits?|filter)|disabled)/i,
