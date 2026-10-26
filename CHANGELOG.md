@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Act as X and stay in character" no longer blocks ordinary role-play.** "Act as a job
+  interviewer for a backend role and stay in character" and "Pretend to be a grumpy innkeeper in
+  my D&D game and stay in character" were refused: "stay in character" was scored as a persona
+  free of rules (30) and "act as" added 20. It now has its own weight (20), which still completes
+  a block next to a real persona or refusal signal. "Never refuses a challenge" no longer reads as
+  a rule-free persona either; "never refuse a request" still does. Cost: 1 of 26,733 eval
+  verdicts, a safeguard override prompt that now warns instead of blocking (safeguard 497 to 496
+  of 650), accepted as the trade; `npm run fpr` unchanged. Ruleset 2026.10.89 (#495).
 - **Long persona jailbreaks that tell the persona to drop refusals are blocked again.** 7 held-out
   prompts of the "Mongo Tom" and "Skynet" kind passed: they describe a persona free of rules
   (scored 30) and tell it, in the third person, to drop refusals and warnings ("FFRCB does not add

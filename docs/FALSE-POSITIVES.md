@@ -73,7 +73,20 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.88
+## Result, ruleset 2026.10.89
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** The ruleset stops blocking ordinary
+role-play such as "Act as a job interviewer and stay in character" or "Pretend
+to be a grumpy innkeeper in my D&D game and stay in character" (#495): asking
+a model to stay in character was scored as describing a persona free of rules.
+None of the held-out benign corpora contains the phrase, so the rates above
+cannot show the gain; all 22 eval rows that contain it are attacks. It costs 1
+of 26,733 eval verdicts: safeguard row 862, an override this rule set does not
+otherwise read, goes from block to warn (497 to 496 of 650), a trade the
+maintainer accepted.
+
+## Ruleset 2026.10.88
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
 each, the Aya sample 0 of 2,795.** Measured row by row, 7 of 26,733 eval

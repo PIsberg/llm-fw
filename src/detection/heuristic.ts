@@ -589,11 +589,30 @@ export class HeuristicScorer {
           /\b(no|without (a |any )?)content polic(?:y|ies)\b/,
           /broken free of (the )?(typical )?confines/,
           /(zero|no|without) filtering/,
-          /never (refuses?|declines?|breaks? character)/,
-          /(stay|remain|stays|remains) in (character|role)/,
+          // "Never refuses a challenge" names something other than a request;
+          // "never refuses", "never refuses anything", "never refuse a request"
+          // and "never refuse to answer" still count (#495).
+          /never (?:(?:refuses?|declines?)\b(?!\s+(?:a|an|the|to|my|your|his|her|their|our)\s+(?!(?:requests?|questions?|prompts?|commands?|orders?|instructions?|tasks?|answer|respond|reply|help|comply|do)\b))|breaks? character)/,
           /no matter what i ask/,
           /(rewarded|punished)[^.!?]{0,40}(taboo|refus)/,
           /total candor/,
+        ],
+      },
+      {
+        // Asking a model to keep up a role ("stay in character") says nothing
+        // about the role being free of rules. It used to be an
+        // unconstrained-persona descriptor (30), so "Act as a job interviewer
+        // and stay in character" blocked with role-hijack (20) (#495). At 20
+        // it still adds to a real persona or refusal signal (a persona that
+        // will "produce any malware" and stays in character blocks) but no
+        // longer completes a block with an "act as" lead-in. Measured: 1 of
+        // 26,733 eval verdicts changed, safeguard row 862 (an override this
+        // rule set does not otherwise read) from block to warn; at 10 a second
+        // row went too. No benign eval row contains the phrase, and all 22
+        // that do are attacks, so the gain is ordinary role-play that the
+        // corpora do not hold. Accepted by the maintainer, 2026-10-26.
+        weight: 20, label: 'in-character', patterns: [
+          /(stay|remain|stays|remains) in (character|role)/,
         ],
       },
       {
