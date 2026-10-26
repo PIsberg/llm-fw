@@ -83,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rules", and anything "celebrated" in one, so ordinary game questions, an essay prompt about a
   world without rules and creative-writing requests ("a story about a town with no rules") were
   refused. "No rules" now needs the AI or character the story is about, "celebrated" an illegal
-  act (crime, hacking, fraud), and a game or world only the explicit lawlessness phrases
+  act (crime, hacking, fraud, sharing exploit code or malware), and a game or world only the explicit lawlessness phrases
   ("nothing is illegal"). No row of any eval corpus relied on the readings removed. The
   multilingual frame lexicons follow the same rule.
 - **DLP finds a card number written in other scripts' digits.** "৪১১১ ১১১১ ১১১১ ১১১১" (Bengali
