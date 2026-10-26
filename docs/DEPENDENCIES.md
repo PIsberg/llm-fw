@@ -103,7 +103,7 @@ None of these ship. Versions are in `package.json`.
 | `eslint` | Lint (`npm run lint`) |
 | `@typescript-eslint/eslint-plugin` | TypeScript lint rules |
 | `@typescript-eslint/parser` | Parses TypeScript for eslint |
-| `knip` | Finds unused exports and dependencies (`npm run knip`), not in CI |
+| `knip` | Finds unused exports and dependencies (`npm run knip`), a CI gate on Node 22 |
 | `hyparquet` | Reads the Parquet benign-traffic datasets that `scripts/fetch-eval-data.ts` downloads for the false-positive evaluation |
 | `tesseract.js` | The same package as the optional peer above, installed in development so the OCR tests and build resolve it |
 

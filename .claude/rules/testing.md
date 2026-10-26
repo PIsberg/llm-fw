@@ -40,9 +40,9 @@ on the held-out direct-injection splits: the accuracy gate grades its own
 corpus, and the nightly drift gate compares with a moving median, so 8 of 853
 direct injections were lost a row or two at a time with both green (#480).
 
-Not in CI: `npm run knip` (unused exports and dependencies), `npm run mutation`
-(Stryker, weekly on a schedule instead). Worth running when restructuring or
-removing code.
+`npm run knip` (unused exports, files and dependencies) runs in CI on Node 22; its
+exceptions for OS commands and the worker entry live in `knip.json`. Not in CI:
+`npm run mutation` (Stryker, weekly on a schedule instead).
 
 ## Where a test goes
 

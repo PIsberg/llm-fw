@@ -116,8 +116,8 @@ gate runs the cheap pipeline (judge off) by default.
   formatting already present in the file you're editing.
 - `npm run lint` (or `npm run lint:fix` for auto-fixable issues) must be clean
   before you open a PR.
-- `npm run knip` finds unused exports/files/dependencies. Not part of CI yet,
-  but worth running if you're removing or restructuring code.
+- `npm run knip` finds unused exports/files/dependencies. CI runs it on Node 22,
+  so a new unused export fails the PR.
 
 ## Testing requirements
 

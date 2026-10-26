@@ -64,6 +64,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Unused exports, files and dependencies. Runs before the publish dry run
+      # below, which strips devDependencies from package.json.
+      - name: Knip (unused code and dependencies)
+        if: matrix.node-version == 22
+        run: npm run knip
+
       - name: Cache embedding model
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -97,6 +103,18 @@ jobs:
           name: coverage
           path: coverage/
           retention-days: 7
+
+      # What release.yml does, minus the upload: strip the dev-only manifest
+      # fields, then let npm pack the package. Catches a bad manifest or file
+      # list on the PR, not after the Release is public. `npm publish --dry-run`
+      # is not usable here: it fails whenever the version is already on the
+      # registry, which is every PR between two releases. Last, because it
+      # rewrites package.json in this runner's checkout.
+      - name: Pack dry run (publish manifest)
+        if: matrix.node-version == 22
+        run: |
+          node scripts/strip-dev-manifest.mjs
+          npm pack --dry-run
 
   e2e:
     name: E2E Tests (Node 22)
