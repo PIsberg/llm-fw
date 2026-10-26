@@ -19,7 +19,8 @@ import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { RULESET_VERSION } from '../../src/detection/ruleset.js'
 import { loadAll } from '../../scripts/run-benchmark.js'
 import { anthropicRequestFor } from './lib/surfaces.js'
-import { DIRECT_RECALL_FLOORS, evaluateRecallFloor, type SplitCount } from './lib/recallFloor.js'
+import { DIRECT_RECALL_FLOORS, evaluateRecallFloor, countUnseen, type SplitCount } from './lib/recallFloor.js'
+import { SEEN_ROWS } from './lib/seenRows.js'
 
 async function main(): Promise<void> {
   const config = structuredClone(DEFAULT_CONFIG)
@@ -29,26 +30,34 @@ async function main(): Promise<void> {
   await pipeline.init()
 
   const counts: Record<string, SplitCount> = {}
+  const unseen: Record<string, SplitCount> = {}
   for (const dataset of loadAll().filter(d => d.name in DIRECT_RECALL_FLOORS)) {
-    const attacks = dataset.rows.filter(r => r.label === 1)
-    let blocked = 0
-    for (const row of attacks) {
-      const res = await pipeline.run('/v1/messages', anthropicRequestFor(row, 'toolu_bench'), { target: 'bench', method: 'POST', path: '/v1/messages' })
-      if (res.action === 'block') blocked++
+    const attackRows = dataset.rows.flatMap((r, i) => (r.label === 1 ? [i] : []))
+    const blocked = new Set<number>()
+    for (const i of attackRows) {
+      const res = await pipeline.run('/v1/messages', anthropicRequestFor(dataset.rows[i]!, 'toolu_bench'), { target: 'bench', method: 'POST', path: '/v1/messages' })
+      if (res.action === 'block') blocked.add(i)
     }
-    counts[dataset.name] = { blocked, attacks: attacks.length }
+    counts[dataset.name] = { blocked: blocked.size, attacks: attackRows.length }
+    unseen[dataset.name] = countUnseen(attackRows, blocked, new Set((SEEN_ROWS[dataset.name] ?? []).map(([i]) => i)))
   }
   await pipeline.close()
 
   console.log(`Direct-injection recall floor, ruleset ${RULESET_VERSION}, cheap pipeline`)
+  // Unseen: the rows nobody read while writing a rule (lib/seenRows.ts), the
+  // number to quote for generalisation. The floor gates every row.
   let blocked = 0
   let attacks = 0
+  let unseenBlocked = 0
+  let unseenAttacks = 0
   for (const [name, floor] of Object.entries(DIRECT_RECALL_FLOORS)) {
     const c = counts[name]
+    const u = unseen[name]
     if (c) { blocked += c.blocked; attacks += c.attacks }
-    console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})`)
+    if (u) { unseenBlocked += u.blocked; unseenAttacks += u.attacks }
+    console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})  unseen ${u ? `${u.blocked}/${u.attacks}` : '-'}`)
   }
-  console.log(`  ${'total'.padEnd(30)} ${blocked}/${attacks}`)
+  console.log(`  ${'total'.padEnd(30)} ${blocked}/${attacks}  unseen ${unseenBlocked}/${unseenAttacks}`)
 
   const verdict = evaluateRecallFloor(counts, DIRECT_RECALL_FLOORS)
   for (const name of verdict.improved) {

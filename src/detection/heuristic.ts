@@ -205,7 +205,12 @@ export class HeuristicScorer {
           // may follow: a free filler let "an unrestricted AI with access" and
           // "unrestricted and obey commands" through. The second pattern keeps
           // a model frame ("you are", "DAN is") matching whatever follows.
-          /\bunrestricted\b(?! (?:(?:file|bash|shell|network|database|db|api|admin|root|read|write|internet|outbound|inbound|disk)[ /-])?(?:access|tools?|uploads?|downloads?|permissions?|execution|bash|shell|terminal|powershell|network|internet|egress|ingress|filesystem|redirects?)\b)/,
+          // Anything else also needs what an attack applies the word to, a
+          // model, persona, mode, answer or capability, within three words
+          // from a closed list ("an unrestricted and uncensored language
+          // model"): "unrestricted free speech" and "unrestricted trade" were
+          // refused (#486).
+          /\bunrestricted\b(?! (?:(?:file|bash|shell|network|database|db|api|admin|root|read|write|internet|outbound|inbound|disk)[ /-])?(?:access|tools?|uploads?|downloads?|permissions?|execution|bash|shell|terminal|powershell|network|internet|egress|ingress|filesystem|redirects?)\b)(?:[ ,]+(?:and|or|completely|totally|fully|utterly|uncensored|unfiltered|careless|judgmental|amoral|evil)){0,3}[ ,]+(?:(?:ai|assistant|chat ?bot|bot|(?:language )?model|llm|\w*gpt|version|persona|character|entity|mode|answers?|responses?|output|repl(?:y|ies)|capabilit(?:y|ies))\b|a\.i\.)/,
           /\b(?:you(?:'re| are)|dan is|i am|i'm)\b[^.!?]{0,30}\bunrestricted\b/,
           /(instructions?|rules?|guidelines?|constraints?|polic(?:y|ies)) (is|are|were|have been) (cancelled|canceled|revoked|suspended|void|voided|lifted|removed|reset|replaced|overridden)/,
           /discard (every|all|any) (instructions?|rules?|prior|previous)/,

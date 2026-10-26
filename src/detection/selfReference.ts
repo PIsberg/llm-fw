@@ -86,9 +86,17 @@ const SELF_INSTRUCTION_PATTERNS: RegExp[] = [
 const PROVENANCE_RE = /\b(?:you|they)\s+(?:were\s+(?:given|told|sent)|got|received)\s+(?:about\s+)?(?:by|from|in|for|at|during)\s+((?:[\w'-]+\s*){1,5})/gi
 const OPERATOR_WORD_RE = /\b(?:system|prompts?|developers?|devs?|operators?|creators?|makers?|owners?|programmers?|admins?|administrators?|openai|anthropic|company|employer|organi[sz]ation|training|setup|start|beginning|outset|conversation|chat|session|context|tasks?|job|role|assignment|mission|purpose|persona|assistant|ai|model|bot|chatbot|llm|config\w*|instructions?|rules?|guidelines?|polic(?:y|ies)|earlier|before|previously|me|us|you|your|yourself)\b/i
 
+// "The previous instructions in the README": a named document, guide or
+// file locates the instructions, so they are the user's material, like a
+// briefing from the GPS above (#485). The phrase is set aside the same way;
+// "previous instructions" with no document, or in "this conversation", still
+// counts, and so does any other tie to the model in the text.
+const DOCUMENT_LOCATED_RE = /\b(?:previous|prior|earlier|above|preceding|initial|original|existing)\s+(?:\w+\s+){0,2}?(?:instructions?|steps?|directions?)\s+(?:in|from|on|of)\s+(?:the\s+|this\s+|that\s+|our\s+|my\s+)?(?:[a-z0-9-]+\s+){0,2}?(?:readme|guide|docs?|documentation|manual|tutorial|wiki|page|section|chapter|article|document|file|notes|runbook|playbook|handbook|changelog|ticket|issue)\b/gi
 function withoutThirdPartyProvenance(text: string): string {
-  return text.replace(PROVENANCE_RE, (match: string, provenance: string) =>
-    OPERATOR_WORD_RE.test(provenance) ? match : ' ')
+  return text
+    .replace(PROVENANCE_RE, (match: string, provenance: string) =>
+      OPERATOR_WORD_RE.test(provenance) ? match : ' ')
+    .replace(DOCUMENT_LOCATED_RE, ' ')
 }
 
 /**

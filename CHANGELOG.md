@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been blocked only by an obfuscation bonus that a pig-latin or URL-decoded copy of the same
   text earned by accident, removed on 2026-10-11 (de41987), and 1 fell under the embedding line
   when three output-format benign anchors were added the same day (ruleset 2026.10.36).
+- **Recall on unseen held-out rows, beside the floor.** Rules were tuned on 2026-10-26 by reading
+  21 safeguard rows and 1 heldout row, so those splits no longer cleanly measure attacks nobody
+  fitted a rule to. The rows read are listed in `test/eval/lib/seenRows.ts`, and
+  `npm run recall:floor` now also prints each split on its unseen rows: 613 of 831 on ruleset
+  2026.10.90 (safeguard 477 of 629), against 633 of 853 on every row.
 
 - **Every Prompt Testing playground example is now tested.** The example buttons moved from the
   page's inline script to `src/dashboard/playgroundExamples.ts`, which the page embeds, and
@@ -53,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Follow the previous instructions in the README" and "unrestricted free speech" no longer
+  block.** The first blocked at the embedding stage: "previous instructions" is read as the
+  model's own instructions, which switches the benign anchors off, and the raw similarity (0.866)
+  crossed the line. Instructions located in a named document (README, guide, docs, wiki, file)
+  are now the user's material, like a briefing from a named third party. The second matched the
+  `unrestricted` rule, which blocked the word unless a resource noun followed; it now needs a
+  model, persona, mode, answer or capability within three words ("an unrestricted language
+  model", "the unrestricted answer"). 0 of 26,733 eval verdicts changed; `npm run fpr`
+  unchanged; the multilingual playground's benign set blocks 0 of 2,926. Ruleset 2026.10.90
+  (#485, #486).
 - **"Act as X and stay in character" no longer blocks ordinary role-play.** "Act as a job
   interviewer for a backend role and stay in character" and "Pretend to be a grumpy innkeeper in
   my D&D game and stay in character" were refused: "stay in character" was scored as a persona
@@ -91,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a rule was written from block 226 of 798 times (221 before), so other shapes ("your
   instructions are cancelled") are still open (#484), as are the 78 languages with neither
   (#483). 22 benign prompts in every language block 2 of 2,926 times, down from 10; the two left
-  are English and blocked before too (#485, #486). `test/detection/multilingual-playground.test.ts`
+  are English and blocked before too (#485, #486), and pass since ruleset 2026.10.90. `test/detection/multilingual-playground.test.ts`
   gates all of it, from a committed fixture that `npm run fixture:multilingual` extends.
 - **Nine non-English rules never matched, or matched ordinary sentences.** Rules are matched
   after diacritics are stripped, so the literal "esqueça", "instruções" and "обращай" could never
