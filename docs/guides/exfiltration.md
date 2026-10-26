@@ -47,3 +47,9 @@ Environment overrides:
 | `LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD` | float 0–1 — flagged-label probability required to act (default `0.9`) |
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `true`/`false` — enable or disable the outbound tool-call argument exfiltration guard |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `audit` \| `block` |
+
+## Cross-turn taint
+
+Request-side, and on the proxy only. A distinctive host or secret-like token that arrives in a tool result is remembered for the client's session (30 minutes, up to 256 tokens). When a later request goes to that host (checked at `CONNECT`, even for tunnelled hosts) or carries the token in its path or query, untrusted data is steering an outbound action. LLM provider hosts never taint.
+
+In `audit` mode (`taint.mode`, the default) the request is forwarded and a `taint` warning recorded, once per session, sink host and token while the taint is live: a development session names `github.com` in tool output all the time, and warning on every later `api.github.com` connection filled 59 of the dashboard's last 100 events in an hour (#489). In `block` mode every matching request is refused and recorded. `LLM_FW_TAINT_ENABLED`, `LLM_FW_TAINT_MODE`.

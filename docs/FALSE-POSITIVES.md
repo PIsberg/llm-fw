@@ -73,7 +73,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.91
+## Result, ruleset 2026.10.92
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed.** The
+ruleset changes what is reported, not what is decided: a cross-turn taint
+warning is recorded once per session, host and token instead of on every
+connection (#489).
+
+## Ruleset 2026.10.91
 
 **Unchanged rates: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of
 2,000 each, the Aya sample 0 of 2,795; 0 of 26,733 eval verdicts changed.**

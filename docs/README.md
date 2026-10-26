@@ -27,7 +27,7 @@ The [README](../README.md) is the pitch and the quick start; this is the rest.
 | [Token savings](guides/token-savings.md) | Opt-in modules that shrink requests before they leave, each with its own live switch |
 | [RAG context poisoning](guides/rag.md) | Instructions smuggled in through retrieved documents |
 | [ASCII smuggling](guides/ascii-smuggling.md) | Invisible Unicode tag characters carrying a payload |
-| [Response-side exfiltration](guides/exfiltration.md) | Data leaving through URLs and images in the model's answer |
+| [Response-side exfiltration](guides/exfiltration.md) | Data leaving through URLs and images in the model's answer; cross-turn taint of hosts and tokens from tool results |
 | [MCP tool firewall](guides/mcp.md) | Tool definitions, invocations, arguments and results |
 | [Tuning detection](guides/tuning.md) | Live toggles, false-positive suppression, per-surface sensitivity |
 

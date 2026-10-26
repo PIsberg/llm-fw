@@ -639,6 +639,26 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     expect(taintEvent.payload_preview).toContain('Untrusted secret')
   })
 
+  it('E2E Case 4c1: a taint finding is reported once per session, host and token, not on every reuse', async () => {
+    // #489: a git remote's host named in tool results tainted every later
+    // API connection, and each one warned. Same session and taint as Case 4c:
+    // two more reuses on other paths add no event.
+    const TAINT = 'Qz7Lm3Xp9Vn2Rt8Wb4Yc6Kd'
+    for (const path of [`/v1/messages?again=${TAINT}`, `/v1/messages?third=${TAINT}&x=1`]) {
+      await sendProxyRequest(
+        testConfig.proxy.port,
+        'api.anthropic.com',
+        mockUpstreamPort,
+        'POST',
+        path,
+        { 'Content-Type': 'application/json' },
+        JSON.stringify({ model: 'claude-3-opus-20240229', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] })
+      )
+    }
+    const events = await queryDashboard(testConfig.dashboard.port, '/api/events')
+    expect(events.filter((e: any) => e.kind === 'taint' && String(e.payload_preview).includes('Untrusted secret'))).toHaveLength(1)
+  })
+
   it('E2E Case 5: Chunked upstream response is framed exactly once (no double-framing)', async () => {
     // Benign body with no tools → passthrough mode. The mock replies with
     // Transfer-Encoding: chunked across multiple writes. Before the fix the

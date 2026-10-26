@@ -97,6 +97,38 @@ describe('TaintTracker', () => {
 // GHSA-gm3q-2gwx-gppq: the bare-domain pattern restarted at every word
 // boundary of a long dash-separated run and rescanned it, quadratic on the
 // event loop (205 ms at 20 KB).
+// #489: a development session names github.com in tool results all the time,
+// so every later api.github.com connection warned: 59 of 100 buffered events
+// in one hour. A finding is now reported once per session, sink host and
+// token while the taint is live; the verdict itself is unchanged.
+describe('TaintTracker.firstReport', () => {
+  it('reports the first finding for a sink host and token, not its repeats', () => {
+    const t = new TaintTracker()
+    t.recordSource('ip-1', 'remote: https://github.com/acme/app', NOW)
+    expect(t.firstReport('ip-1', 'api.github.com', 'github.com', NOW + 1)).toBe(true)
+    expect(t.firstReport('ip-1', 'api.github.com', 'github.com', NOW + 2)).toBe(false)
+  })
+
+  it('reports again for another host, another token or another session', () => {
+    const t = new TaintTracker()
+    t.recordSource('ip-1', 'see https://github.com/acme and https://exfil-sink-9z7.io/x', NOW)
+    t.recordSource('ip-2', 'see https://github.com/acme', NOW)
+    expect(t.firstReport('ip-1', 'api.github.com', 'github.com', NOW)).toBe(true)
+    expect(t.firstReport('ip-1', 'uploads.github.com', 'github.com', NOW)).toBe(true)
+    expect(t.firstReport('ip-1', 'api.github.com', 'exfil-sink-9z7.io', NOW)).toBe(true)
+    expect(t.firstReport('ip-2', 'api.github.com', 'github.com', NOW)).toBe(true)
+  })
+
+  it('reports again once the taint has expired and come back', () => {
+    const t = new TaintTracker()
+    t.recordSource('ip-1', 'remote: https://github.com/acme/app', NOW)
+    expect(t.firstReport('ip-1', 'api.github.com', 'github.com', NOW)).toBe(true)
+    const later = NOW + TTL_MS + 1
+    t.recordSource('ip-1', 'remote: https://github.com/acme/app', later)
+    expect(t.firstReport('ip-1', 'api.github.com', 'github.com', later)).toBe(true)
+  })
+})
+
 describe('extractTaintTokens: linear time on dash-separated runs', () => {
   it('scans 200 KB of "1-" in under 1.5 s', () => {
     const t0 = performance.now()
