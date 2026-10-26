@@ -164,6 +164,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.91 (an earlier blocked user message is withheld
+  // instead of refusing the request; run() verdicts unchanged, measured).
   // Held at ruleset 2026.10.90 (instructions located in a named document are
   // not the model's own; "unrestricted" needs a model, mode or answer;
   // measured, no row moved).

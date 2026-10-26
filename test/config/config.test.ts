@@ -128,10 +128,18 @@ describe('loadConfig env overrides', () => {
     expect(cfg.dashboard.bindHost).toBe('10.0.0.5')
   })
 
-  it('defaults surfaces to withholding a blocked tool result and nothing else', async () => {
-    expect(DEFAULT_CONFIG.detection.surfaces).toEqual({ tool_result: { onBlock: 'withhold' } })
+  it('defaults surfaces to withholding a blocked tool result and an older blocked prompt, and nothing else', async () => {
+    expect(DEFAULT_CONFIG.detection.surfaces).toEqual({ tool_result: { onBlock: 'withhold' }, prompt: { olderTurns: 'withhold' } })
     const cfg = await loadConfig()
     expect(cfg.detection.surfaces?.tool_result?.heuristicBlockThreshold).toBeUndefined()
+  })
+
+  it('LLM_FW_PROMPT_OLDER_TURNS=refuse restores refusing an older blocked prompt, and an unknown value is ignored', async () => {
+    process.env.LLM_FW_PROMPT_OLDER_TURNS = 'refuse'
+    expect((await loadConfig()).detection.surfaces?.prompt?.olderTurns).toBe('refuse')
+    process.env.LLM_FW_PROMPT_OLDER_TURNS = 'drop'
+    expect((await loadConfig()).detection.surfaces?.prompt?.olderTurns).toBe('withhold')
+    delete process.env.LLM_FW_PROMPT_OLDER_TURNS
   })
 
   it('LLM_FW_TOOL_RESULT_ON_BLOCK=refuse restores refusing the request, and an unknown value is ignored', async () => {

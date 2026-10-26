@@ -73,7 +73,20 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.90
+## Result, ruleset 2026.10.91
+
+**Unchanged rates: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of
+2,000 each, the Aya sample 0 of 2,795; 0 of 26,733 eval verdicts changed.**
+What changes is what a block costs a session (#476). A user message that blocks
+but is not the newest one is now withheld, like a blocked tool result, instead
+of refusing every request that resends it. Replaying 7 days of this machine's
+Claude Code sessions (407, each item in a minimal request): 18 sessions
+contained a blocked prompt (skill bodies, a compaction summary, /security-review
+prompts) and ended there. Now each sees one refusal, on the turn that message
+was sent, and goes on: all 17 blocked prompts and all 310 blocked tool results
+are withheld once something newer follows, none fails closed.
+
+## Ruleset 2026.10.90
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
 each, the Aya sample 0 of 2,795; 0 of 26,733 eval verdicts changed.** The two

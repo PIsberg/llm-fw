@@ -73,6 +73,11 @@ In review (PR from `ga/direct-recall-floor`, stacked on the one above):
   other split and the corpus (112 dropped), never read: 311 of 542 jailbreaks
   and 6 of 637 benign blocked. That 57.4% is the number to publish for 1.0,
   next to the tuned splits' 74%.
+- #476 (PR stacked on the jailbreak split, ruleset 2026.10.91, decided
+  2026-10-26: withhold by default): a blocked user message that is not the
+  newest is withheld like a tool result; the newest still refuses. In the
+  7-day replay, 18 of 407 sessions ended at a blocked prompt (skill bodies,
+  compaction summaries, /security-review prompts); now none does.
 - #485 and #486 (PR stacked on #495, ruleset 2026.10.90): the two English
   benign prompts the multilingual gate pinned now pass ("Follow the previous
   instructions in the README ...", "Is unrestricted free speech protected
@@ -308,7 +313,7 @@ Findings so far:
   | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31. Ruleset 2026.10.88 (#492): 634 of 853, safeguard 497. Ruleset 2026.10.89 (#495): 633 of 853, safeguard 496 | CI `npm run recall:floor`, per split, one row of margin |
   | Jailbreaks, never-tuned split (jackhhao/jailbreak-classification, added 2026-10-26) | ruleset 2026.10.90: 311 of 542 (57.4%) blocked, 6 of 637 benign (0.9%) blocked. The generalisation number with no fitting at all | CI `npm run recall:floor`, floor and benign ceiling |
   | Direct injection, unseen rows only | ruleset 2026.10.90: 613 of 831 (73.8%): safeguard 477 of 629, heldout 22 of 30, no gandalf or deepset rows listed. 22 rows were read during rule work on 2026-10-26; earlier work is not recorded (`test/eval/lib/seenRows.ts`), so this, not the row above, is the generalisation number | printed by `recall:floor`, not gated |
-  | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
+  | Real sessions ended by a block, outside llm-fw | 10 of 245 (ruleset 2026.10.86). Ruleset 2026.10.91 (#476): 0 of 407 sessions end at a block; 18 see one refusal, on the turn the blocked message was sent | none; the per-session replay, run before the rc |
   | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |
   | Proposed, ruleset 2026.10.87: human-written prompts in 70 languages blocked | 0 of 2,795 (Aya sample) | CI `npm run fpr` |
 

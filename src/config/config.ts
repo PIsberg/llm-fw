@@ -136,7 +136,9 @@ export const DEFAULT_CONFIG: Config = {
     // agent resends its history, so one refused tool result ended the session.
     // Replaying 7 days of real Claude Code sessions, sessions ended by a block
     // went from 32 to 10 of 245. Also LLM_FW_TOOL_RESULT_ON_BLOCK.
-    surfaces: { tool_result: { onBlock: 'withhold' } },
+    // A blocked user prompt that is not the newest is withheld the same way;
+    // the newest still refuses (#476). Also LLM_FW_PROMPT_OLDER_TURNS.
+    surfaces: { tool_result: { onBlock: 'withhold' }, prompt: { olderTurns: 'withhold' } },
     // Trusted by default: the system prompt is developer-authored and naturally
     // contains instruction-management language that injection heuristics flag, so
     // scanning it blocks legitimate traffic. Enable only when untrusted data is
@@ -748,6 +750,12 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     if (v !== 'refuse' && v !== 'withhold') return;
     c.detection.surfaces = c.detection.surfaces ?? {};
     c.detection.surfaces.tool_result = { ...c.detection.surfaces.tool_result, onBlock: v };
+  },
+  // 'refuse' or 'withhold'; anything else is ignored, so a typo keeps the default.
+  LLM_FW_PROMPT_OLDER_TURNS: (c, v) => {
+    if (v !== 'refuse' && v !== 'withhold') return;
+    c.detection.surfaces = c.detection.surfaces ?? {};
+    c.detection.surfaces.prompt = { ...c.detection.surfaces.prompt, olderTurns: v };
   },
   // Issue #287: 'warn' demotes prompt-surface heuristic/embedding matches
   // below the high-confidence tier to warn events. Any other value is ignored
