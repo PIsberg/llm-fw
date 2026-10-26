@@ -32,6 +32,14 @@ across groups would be dishonest, because they test different jobs:
   interviewer") and short topic fragments as injections, which *depresses*
   measured recall for a firewall whose threat model treats benign role-play as
   safe.
+- **jailbreak-classification**: `jackhhao/jailbreak-classification`, train and
+  test splits (rev `2f2ceeb39658`, Apache-2.0), with the 112 prompts already in
+  another split or in `corpus.json` and 15 repeats removed: n=1,179, 542
+  jailbreaks / 637 benign. Added on 2026-10-26 as the split **no rule was ever
+  tuned on**, after rules were tuned that day by reading safeguard rows. Report
+  it in aggregate only and do not read its rows while writing a rule. Ruleset
+  2026.10.90 blocks 311 of 542 (57.4%) and 6 of 637 benign (0.9%);
+  `npm run recall:floor` gates both.
 - **dolly-15k-sample** — a fixed 2,000-row stratified sample of
   `databricks/databricks-dolly-15k` (rev `bdd27f4d94b9`, CC BY-SA 3.0),
   human-written general instructions, benign only, so FPR-only. Regenerate with

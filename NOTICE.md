@@ -89,6 +89,13 @@ redistributed under the same licence with its attribution in the file's
 `_license` field. Same status: evaluation data for the false-positive gate,
 repository only, not in the package.
 
+`test/eval/data/jailbreak-classification.json` holds the prompts and labels of
+jackhhao/jailbreak-classification
+(https://huggingface.co/datasets/jackhhao/jailbreak-classification), licensed
+Apache-2.0, deduplicated against the other evaluation sets and redistributed
+under the same licence with its attribution in the file's `_license` field.
+Evaluation data for the recall floor, repository only, not in the package.
+
 ## Optional peer dependency
 
 `tesseract.js` (Apache-2.0) is an optional peer dependency, not a runtime
