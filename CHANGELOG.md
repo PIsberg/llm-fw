@@ -46,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A blocked earlier message no longer ends the session; it is withheld.** Claude Code puts skill
+  bodies (`/loop`, bundled skills), compaction summaries and `/security-review` prompts in user
+  turns and resends them every turn, so one prompt that blocked refused every later request of the
+  session. Now only the newest message refuses; an earlier one that blocks is replaced with a fixed
+  notice, `[llm-fw withheld this earlier message: it matched the <stage> rule. ...]`, and the rest is
+  forwarded, recorded once as WITHHELD. The model never reads the flagged text either way, and the
+  newest message is forwarded exactly as typed or the request is refused. Replaying 7 days of this
+  machine's Claude Code sessions (407): 18 contained a blocked prompt and ended there; now none does,
+  and each of the 17 blocked prompts is withheld once a newer message follows. New key
+  `detection.surfaces.prompt.olderTurns` (`withhold` default, `refuse` as before), also
+  `LLM_FW_PROMPT_OLDER_TURNS`, applied live. Ruleset 2026.10.91 (#476).
 - **A blocked tool result is withheld instead of refusing the whole request.** The tool result that
   blocked is replaced with a fixed notice (`[llm-fw withheld this tool output: it matched the
   <stage> rule. ...]`) and the rest of the request is forwarded, through the proxy and the gateway.

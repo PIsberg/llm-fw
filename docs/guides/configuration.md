@@ -122,10 +122,22 @@ turn, so under `refuse` one false positive in a tool result refuses every later
 request of the session; replaying 7 days of real Claude Code sessions, the
 sessions that would have ended that way went from 32 to 10 of 245 under
 `withhold`. Either way the model never reads the flagged text. Blocks on the
-prompt, a system prompt, a tool definition or the request itself still refuse,
-and so does a tool result the proxy cannot find in the body to replace, or a
-17th one in the same request. Realtime WebSocket sessions always refuse.
+newest prompt, a system prompt, a tool definition or the request itself still
+refuse, and so does a tool result the proxy cannot find in the body to replace,
+or a 17th one in the same request. Realtime WebSocket sessions always refuse.
 Applied live.
+
+**What a blocked earlier prompt does.** `detection.surfaces.prompt.olderTurns`
+(also `LLM_FW_PROMPT_OLDER_TURNS`) is `withhold` by default: a user message
+that blocks but is not the newest one is replaced with `[llm-fw withheld this
+earlier message: it matched the <stage> rule. Its content was not passed on to
+the model.]` and the rest is forwarded, recorded once as WITHHELD. The newest
+message still refuses, so a blocked message is refused once, on the turn it
+was sent. Claude Code puts skill bodies and compaction summaries in user turns
+and resends them, so before this one such block refused the rest of the
+session (#476). The newest message is forwarded exactly as typed or the request
+is refused: if withholding would change it, it refuses. `refuse` keeps
+refusing every request that still carries the message. Applied live.
 
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
@@ -310,7 +322,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_108 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_109 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -388,7 +400,8 @@ _108 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_NONTEXT_TRANSCRIBE` | `nonText.transcribe` | `false` |
 | `LLM_FW_OLLAMA_URL` | `detection.ollamaUrl` | `http://localhost:11434` |
 | `LLM_FW_PROGRESS_COLLAPSE_ENABLED` | `modules.progressCollapse.enabled` | `false` |
-| `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` | _unset_ |
+| `LLM_FW_PROMPT_OLDER_TURNS` | `detection.surfaces.prompt` |  |
+| `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` |  |
 | `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |
 | `LLM_FW_PROXY_MODE` | `proxy.mode` | `proxy` |
 | `LLM_FW_PROXY_PORT` | `proxy.port` | `8080` |
@@ -457,6 +470,7 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | A request spends its embedding budget (`detection.embeddingMaxPassesPerRequest`) | The rest is read by the heuristic stage only; the request warns with stage `scan-budget` | open | `pipeline.ts` |
 | The judge (Ollama) is unreachable or errors | It returns `ERROR` and the scan carries on without it | open | `judge.ts` |
 | A tool result blocks (`detection.surfaces.tool_result.onBlock: withhold`, the default) | Its text is replaced with a fixed notice and the rest forwarded; refused if the text cannot be found in the body or it is the 17th in one request | closed for that text | `pipeline.ts`, `withhold.ts` |
+| A user message other than the newest blocks (`detection.surfaces.prompt.olderTurns: withhold`, the default) | Its text is replaced with a fixed notice and the rest forwarded; refused if it cannot be removed, or removing it would change the newest message | closed for that text | `pipeline.ts`, `withhold.ts` |
 | An image or audio clip llm-fw cannot read | Forwarded with a `non-text` warn; `nonText.mode: block` refuses it | open by default | `pipeline.ts` |
 | A token-saving module throws | Logged; the request continues unmodified | open | `modules/registry.ts` |
 | A response over `proxy.maxBodyBytes` | Forwarded verbatim from that point, inspection stops | open | `proxy.ts` |

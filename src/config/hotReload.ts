@@ -120,6 +120,7 @@ const HOT_PATHS: Path[] = [
   ['detection', 'surfaces', 'document', 'embeddingMarginThreshold'],
   ['detection', 'surfaces', 'document', 'classifierBlockThreshold'],
   ['detection', 'surfaces', 'prompt', 'wordingAction'],
+  ['detection', 'surfaces', 'prompt', 'olderTurns'],
   ['detection', 'surfaces', 'prompt', 'highConfidenceHeuristic'],
   ['detection', 'surfaces', 'prompt', 'highConfidenceSimilarity'],
   ['detection', 'surfaces', 'prompt', 'highConfidenceMargin'],

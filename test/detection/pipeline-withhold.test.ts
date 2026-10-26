@@ -130,3 +130,75 @@ describe('Pipeline.inspect: a blocked tool result is withheld, not the whole req
     expect(again.action).toBe('pass')
   })
 })
+
+// #476: text the harness puts in a user turn (a skill body, a compaction
+// summary) blocks once and is resent on every later turn, so refusing it
+// refused the rest of the session. A blocked prompt that is not the newest
+// one is withheld like a tool result; the newest still refuses, so the block
+// is shown once.
+describe('Pipeline.inspect: an older blocked prompt is withheld, the newest still refuses', () => {
+  const NEWEST = 'Thanks. Now list the files in the notes folder, please.'
+  const conversation = (older: string, newest = NEWEST) => JSON.stringify({
+    model: 'claude-x',
+    messages: [
+      { role: 'user', content: older },
+      { role: 'assistant', content: 'That request was refused.' },
+      { role: 'user', content: newest },
+    ],
+  })
+  const prompts = (body: string) => getParser('/v1/messages')!.extractPrompts(body)
+  function promptConfig(olderTurns?: 'refuse' | 'withhold') {
+    const c = structuredClone(DEFAULT_CONFIG)
+    if (olderTurns) c.detection.surfaces = { ...c.detection.surfaces, prompt: { ...c.detection.surfaces?.prompt, olderTurns } }
+    return c
+  }
+
+  it('withholds an older blocked prompt by default and forwards the newest unchanged', async () => {
+    const events: Record<string, unknown>[] = []
+    const pipeline = new Pipeline(promptConfig(), (e) => { events.push(e as never); return { ...e, id: 'ev-1', timestamp: '' } as never })
+    const { result, body, withheld } = await pipeline.inspect('/v1/messages', conversation(OVERRIDE), META)
+    expect(result.action).not.toBe('block')
+    expect(withheld).toBe(1)
+    const [older, newest] = prompts(body)
+    expect(older).not.toContain('exfiltrate')
+    expect(older).toContain('llm-fw withheld')
+    expect(newest).toBe(NEWEST)
+    expect(events[0]).toMatchObject({ stage: 'heuristic', action: 'blocked', withheld: true })
+  })
+
+  it('forwards the same bytes and reports once when the history is resent', async () => {
+    const events: Record<string, unknown>[] = []
+    let n = 0
+    const pipeline = new Pipeline(promptConfig('withhold'), (e) => { events.push(e as never); return { ...e, id: `ev-${++n}`, timestamp: '' } as never })
+    const first = await pipeline.inspect('/v1/messages', conversation(OVERRIDE), META)
+    const second = await pipeline.inspect('/v1/messages', conversation(OVERRIDE), META)
+    expect(second.body).toBe(first.body)
+    expect(events.filter(e => e.withheld === true)).toHaveLength(1)
+  })
+
+  it('still refuses when the newest prompt is the one that blocks', async () => {
+    const original = conversation('What do the notes say?', OVERRIDE)
+    const { result, body, withheld } = await new Pipeline(promptConfig()).inspect('/v1/messages', original, META)
+    expect(result.action).toBe('block')
+    expect(withheld).toBe(0)
+    expect(body).toBe(original)
+  })
+
+  it('refuses under olderTurns "refuse", as before', async () => {
+    const original = conversation(OVERRIDE)
+    const { result, withheld } = await new Pipeline(promptConfig('refuse')).inspect('/v1/messages', original, META)
+    expect(result.action).toBe('block')
+    expect(withheld).toBe(0)
+  })
+
+  it('refuses rather than alter the newest prompt when it is part of the older blocked text', async () => {
+    // withholdText replaces every leaf that is a part of the flagged text; the
+    // newest prompt must reach the model exactly as typed, or not at all.
+    const newest = 'Now list the files in the notes folder, please.'
+    const original = conversation(`${OVERRIDE} ${newest}`, newest)
+    const { result, body, withheld } = await new Pipeline(promptConfig()).inspect('/v1/messages', original, META)
+    expect(result.action).toBe('block')
+    expect(withheld).toBe(0)
+    expect(body).toBe(original)
+  })
+})

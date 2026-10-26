@@ -288,6 +288,8 @@ export class Pipeline {
       tenant?: string;
       // Set by inspect(): a tool-result block will be withheld, not refused.
       withholding?: boolean;
+      // Set by inspect(): so will a block on a prompt that is not the newest.
+      withholdingPrompts?: boolean;
     }
   ): Promise<PipelineResult> {
     const at: ScanCursor = { item: null }
@@ -325,10 +327,28 @@ export class Pipeline {
     meta: Parameters<Pipeline['run']>[2],
   ): Promise<{ result: PipelineResult; body: string; withheld: number }> {
     const withholding = this.config.detection.surfaces?.tool_result?.onBlock === 'withhold'
+    const withholdingPrompts = this.config.detection.surfaces?.prompt?.olderTurns === 'withhold'
+    const parser = getParser(requestPath)
+    // The newest user prompt always refuses, so the person sees the block once.
+    const newest = parser?.extractPrompts(body).at(-1)
     let current = body
     for (let withheld = 0; ; withheld++) {
-      const result = await this.run(requestPath, current, { ...meta, withholding })
+      const result = await this.run(requestPath, current, { ...meta, withholding, withholdingPrompts })
       const item = result.blockedItem
+      if (result.action === 'block' && withholdingPrompts && item?.source === 'prompt' && newest !== undefined && item.text !== newest) {
+        // The same bytes on every request, for the prompt cache (see below).
+        const notice = `[llm-fw withheld this earlier message: it matched the ${result.stage} rule. Its content was not passed on to the model.]`
+        const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, notice) : null
+        // withholdText replaces every leaf that is a part of the flagged text,
+        // so check the newest prompt still reaches the model exactly as typed.
+        const after = next === null ? [] : parser!.extractPrompts(next)
+        if (next === null || after.at(-1) !== newest || after.includes(item.text)) {
+          this.emit({ ...result, withheld: false }, meta, `[not withheld] an earlier message could not be removed from the request, so it was refused`, 'prompt', null)
+          return { result, body: current, withheld: 0 }
+        }
+        current = next
+        continue
+      }
       if (!withholding || result.action !== 'block' || item?.source !== 'tool_result') {
         return { result, body: current, withheld }
       }
@@ -337,7 +357,6 @@ export class Pipeline {
       // change the forwarded history there and break the prompt cache.
       const notice = `[llm-fw withheld this tool output: it matched the ${result.stage} rule. Its content was not passed on to the model.]`
       const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, notice) : null
-      const parser = getParser(requestPath)
       if (next === null || !parser || parser.extractToolResults(next).some(tr => tr.result === item.text)) {
         this.emit({ ...result, withheld: false }, meta, `[not withheld] tool output could not be removed from the request, so it was refused`, 'tool_result', null)
         return { result, body: current, withheld: 0 }
@@ -353,6 +372,9 @@ export class Pipeline {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
       onEvent?: (event: BlockEvent) => void | undefined;
+      withholding?: boolean;
+      withholdingPrompts?: boolean;
+      newestPrompt?: string;
     },
     at: ScanCursor,
   ): Promise<PipelineResult> {
@@ -455,6 +477,9 @@ export class Pipeline {
     const systemTexts = parser.extractSystem ? parser.extractSystem(body) : []
     const systemSet = new Set(systemTexts)
     const userPrompts = parser.extractPrompts(body).filter(t => !systemSet.has(t))
+    // emit() marks a block on any other prompt as withheld under olderTurns.
+    const newestPrompt = userPrompts.at(-1)
+    if (newestPrompt !== undefined) meta = { ...meta, newestPrompt }
 
     // Recalled agent memory, wherever it was spliced in.
     //
@@ -1243,10 +1268,13 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; withholdingPrompts?: boolean; newestPrompt?: string; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
     if (!this.onBlock) return
     const observing = isObserving(this.config.enforcement, meta.enforcement)
-    const withheld = result.withheld ?? (meta.withholding && result.action === 'block' && source === 'tool_result' && !observing ? true : undefined)
+    // inspect() withholds a blocked tool result, and under olderTurns a blocked
+    // prompt other than the newest; it reports withheld: false when it cannot.
+    const olderPrompt = source === 'prompt' && meta.withholdingPrompts === true && scanned !== null && meta.newestPrompt !== undefined && scanned !== meta.newestPrompt
+    const withheld = result.withheld ?? (result.action === 'block' && !observing && ((meta.withholding && source === 'tool_result') || olderPrompt) ? true : undefined)
     // Under observe a block is forwarded, so the item stays in the history and
     // blocks again on every later request of the session (#295). A withheld
     // tool result is the same: the agent resends it and it is withheld again.

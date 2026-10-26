@@ -207,6 +207,15 @@ export interface PromptSurfaceConfig {
   highConfidenceSimilarity?: number;
   /** Under 'warn', contrastive margin the high-confidence embedding block also needs. Default 0.05. */
   highConfidenceMargin?: number;
+  // What a block on a user prompt that is not the newest one does (#476).
+  // 'withhold' (default) replaces its text with a notice and forwards the
+  // rest, as a blocked tool result is; the newest prompt still refuses, so the
+  // block is shown once. 'refuse' refuses every request that still carries it.
+  // Claude Code resends its history and puts skill bodies and compaction
+  // summaries in user turns, so one such block refused the rest of the session.
+  // Either way the model never reads the flagged text. Also
+  // LLM_FW_PROMPT_OLDER_TURNS.
+  olderTurns?: 'refuse' | 'withhold';
 }
 
 // Trusted paths (issues #391, #349, #405, #437). Absolute project roots whose
