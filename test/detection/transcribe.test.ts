@@ -278,6 +278,9 @@ describe('transcribeAudio', () => {
     expect(pipeline).toHaveBeenCalledTimes(1)
   })
 
+  // The fixture is (MAX_TRANSCRIBE_SECONDS + 5) seconds of 16 kHz frames built
+  // one array per frame: about 0.4 s alone, over vitest's 5 s default under a
+  // full parallel run (2026-10-26, the same load that broke #493).
   it('caps the clip length it hands to the model', async () => {
     let seen = 0
     vi.doMock('@huggingface/transformers', () => ({
@@ -288,6 +291,6 @@ describe('transcribeAudio', () => {
     const long = makeWav({ sampleRate: 16000, channels: 1, bits: 8, frames: Array.from({ length: 16000 * (MAX_TRANSCRIBE_SECONDS + 5) }, () => [0]) })
     await transcribeAudio(long.toString('base64'), 'audio/wav')
     expect(seen).toBe(16000 * MAX_TRANSCRIBE_SECONDS)
-  })
+  }, 30_000)
 })
 
