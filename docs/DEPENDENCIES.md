@@ -45,7 +45,7 @@ To check by hand: `npm pack --dry-run`, and
 
 | Package | Version | Licence | Why |
 | --- | --- | --- | --- |
-| `@huggingface/transformers` | `~4.2.0` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. |
+| `@huggingface/transformers` | `~4.2.0` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. 4.3.1 was tried and reverted: 14 of 27,912 eval verdicts changed and the `heldout` recall floor went red (#511). |
 
 ### Transitive, and why they are there
 
@@ -79,7 +79,8 @@ None of these ship. Versions are in `package.json`.
 
 | Package | Used for |
 | --- | --- |
-| `typescript` | Compiles `src/` to `dist/` (`npm run build`) and type-checks (`tsc --noEmit`) |
+| `@typescript/native` | TypeScript 7, installed under this name so its `tsc` compiles `src/` to `dist/` (`npm run build`) and type-checks (`tsc --noEmit`) |
+| `typescript` | Aliased to `@typescript/typescript6`, the TypeScript 6 API. typescript-eslint caps `typescript` below 6.1 and aborts on 7, so eslint, knip and vitest load this one while `tsc` is the native 7 binary |
 | `@types/node` | Node API types for the compiler |
 | `tsx` | Runs TypeScript scripts directly: `npm run dev`, scorecard, fpr, recall floor, verdict dump and diff, benchmarks |
 | `vitest` | Unit, integration and proxy end-to-end test runner (`npm run test:run`) |
