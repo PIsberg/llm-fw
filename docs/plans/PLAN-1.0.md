@@ -14,6 +14,9 @@ action (a merge, a publish, a setting, a purchase).
 
 ## Where it stands (2026-10-26)
 
+No release yet: the maintainer is holding 0.9.2 / `1.0.0-rc.1` until the work
+below is merged.
+
 Done on 2026-10-25, merged to main the same day:
 
 - #479: a blocked tool result is withheld instead of refusing the request,
@@ -21,85 +24,101 @@ Done on 2026-10-25, merged to main the same day:
   245 sessions outside llm-fw ended by a block before, 10 after.
 - #481: the docs claim audit (Phase 4) is finished, every `json` block in the
   docs is parsed by a test, and the GA accuracy criteria are proposed
-  (Phase 4). Measuring them found direct-injection recall at 627 of 853, down
-  from 635 on 2026-10-10 with no gate failing (#480).
+  (Phase 4).
 
-In review (PR from `detection/multilingual-playground`, ruleset 2026.10.87):
+### Open pull requests, in merge order
 
-- Other languages. The playground's own attacks, translated into the 132
-  languages its Translate button offers, passed 711 of 1,197 times on the
-  default config. Stage 1 lexicons for 37 languages and fixes to nine
-  non-English rules bring that to 681 blocked; 3 still pass in the 54
-  languages with a rule or lexicon. Every playground example in every
-  category is now tested (`test/dashboard/playground-examples.test.ts`), and
-  every translated one (`test/detection/multilingual-playground.test.ts`).
-  False positives were measured on 235,525 human-written prompts (Aya,
-  oasst1): 1 new block, the probe English blocks too. `npm run fpr` gates a
-  70-language Aya sample (0 of 2,795). Leftovers are under "Multilingual
-  coverage" in Phase 4.
+Each builds on the one above and shares files with it (`CHANGELOG.md`, this
+plan, `heuristic.ts`, `ruleset.ts`). Merge them in this order with merge
+commits, not squash, so each later one stays conflict-free and keeps its green
+CI. All were green on 2026-10-26.
 
-In review (PR from `ga/direct-recall-floor`, stacked on the one above):
+| PR | What | Ruleset |
+| --- | --- | --- |
+| #491 | Override lexicons for 37 languages; every playground example tested, in every language; Aya benign corpus in `fpr` | 2026.10.87 |
+| #494 | `npm run recall:floor`: a per-split floor on direct-injection recall in CI (closes #480) | |
+| #496 | 7 persona jailbreaks blocked on purpose; an OpenAI response's `"refusal": null` no longer refused (closes #492) | 2026.10.88 |
+| #497 | "Act as X and stay in character" no longer blocked, trading safeguard row 862 (closes #495) | 2026.10.89 |
+| #499 | README instructions and "unrestricted free speech" no longer blocked (closes #485, #486); held-out rows read during rule work listed, recall reported on unseen rows | 2026.10.90 |
+| #500 | `jailbreak-classification`, the split no rule was tuned on, gated with a floor and a benign ceiling | |
+| #501 | A blocked earlier message is withheld instead of ending the session (closes #476) | 2026.10.91 |
+| #502 | A taint warning is reported once per session and host (closes #489) | 2026.10.92 |
+| #503 | Blocks and would-blocks stay in the dashboard event list (closes #488) | |
+| #498 | Two tests that failed under full-suite load (closes #493). Based on main, no shared files: merge any time | |
 
-- #480 explained and gated. The 8 lost direct injections trace to two
-  commits of 2026-10-11 (`npm run verdicts:diff`, 8 of 23,938 rows moved, all
-  safeguard, all block to pass or warn): 7 persona prompts ("Mongo Tom",
-  "Skynet", "CHAR=SJ is amoral") had scored 50 only because a pig-latin or
-  URL-decoded copy of the text re-matched its own rule and earned the +20
-  obfuscation bonus, which de41987 stopped; they now score 30 from
-  `unconstrained-persona` alone. 1 fell from embedding block (0.8617) to warn
-  (0.8524) when 5ed7539 added three output-format benign anchors. Both were
-  fixes for real false positives; neither lost row was blocked for a reason
-  the rules meant. `npm run recall:floor` now fails CI when a split blocks
-  fewer attacks than its floor (measured count minus one row).
-- #492 (PR stacked on the one above, ruleset 2026.10.88): the 7 persona
-  prompts block on purpose now. Each describes a persona free of rules and
-  tells it, in the third person, to drop refusals or warnings; the
-  refusal-suppression rule now reads that form. 7 of 26,733 eval verdicts
-  changed, exactly those; `fpr` unchanged. Direct injection 634 of 853, and
-  the safeguard floor rises from 489 to 496. Found on the way: an OpenAI
-  response's `"refusal": null` blocked as a fake policy (fixed in the same
-  PR), and "Act as X and stay in character" blocks ordinary role-play (#495).
-- #495 (PR stacked on #492, ruleset 2026.10.89): "stay in character" is no
-  longer an unconstrained-persona descriptor. Decided 2026-10-26 to trade 1
-  held-out row for it: safeguard 497 to 496 (row 862), direct injection 633
-  of 853, safeguard floor 495. No benign eval row contains the phrase, so
-  `fpr` cannot show the gain; the corpus now holds two benign role-play rows.
-- Held-out hygiene: rules were tuned on 2026-10-26 by reading 21 safeguard
-  rows and 1 heldout row, so safeguard recall no longer cleanly measures
-  unseen attacks. Those rows are now listed (`test/eval/lib/seenRows.ts`) and
-  `recall:floor` prints recall on unseen rows beside the floor; the rows read
-  are 19 of 21 blocked. Chosen the same day as the generalisation set:
-  `jackhhao/jailbreak-classification` (Apache-2.0), deduplicated against every
-  other split and the corpus (112 dropped), never read: 311 of 542 jailbreaks
-  and 6 of 637 benign blocked. That 57.4% is the number to publish for 1.0,
-  next to the tuned splits' 74%.
-- #476 (PR stacked on the jailbreak split, ruleset 2026.10.91, decided
-  2026-10-26: withhold by default): a blocked user message that is not the
-  newest is withheld like a tool result; the newest still refuses. In the
-  7-day replay, 18 of 407 sessions ended at a blocked prompt (skill bodies,
-  compaction summaries, /security-review prompts); now none does.
-- #485 and #486 (PR stacked on #495, ruleset 2026.10.90): the two English
-  benign prompts the multilingual gate pinned now pass ("Follow the previous
-  instructions in the README ...", "Is unrestricted free speech protected
-  ...?"). 0 of 26,733 eval verdicts changed.
+What they measured, default config, judge and classifier off:
+
+- Direct injection on the four tuned splits: 627 of 853 before the chain,
+  633 after (#480's loss explained: 7 rows had been blocked only by an
+  accidental obfuscation bonus, 1 by an embedding margin a benign anchor
+  closed).
+- The never-tuned `jailbreak-classification` split: 311 of 542 jailbreaks
+  (57.4%) and 6 of 637 benign prompts (0.9%) blocked. That 57.4% is the
+  generalisation number to publish for 1.0, next to the tuned splits' 74%.
+- 7-day per-session replay of this machine's Claude Code traffic (407
+  sessions): 18 ended at a blocked prompt before #501, none after; all 17
+  blocked prompts and 310 blocked tool results are withheld once a newer
+  message follows.
+- `npm run fpr` unchanged throughout (2.68%; Dolly, oasst1 and Aya samples 0).
+
+Held-out hygiene, decided 2026-10-26: rules were tuned that day by reading 21
+safeguard rows and 1 heldout row, so those splits no longer cleanly measure
+unseen attacks. The rows are listed in `test/eval/lib/seenRows.ts` and
+`recall:floor` prints recall on unseen rows beside the floor. From now on,
+write fresh variants instead of opening a held-out row, list any row that was
+read, and never open a `jailbreak-classification` row
+(`.claude/rules/detection.md`).
+
+### Leftovers
 
 Waiting on a maintainer decision:
 
+- Merge the chain above, then cut the next release: 0.9.2 or `1.0.0-rc.1`
+  (Phase 5).
 - Sign off the proposed GA accuracy criteria and the recommendation that none
-  of #221, #273, #287 and #405 blocks 1.0 (Phase 4).
+  of #221, #273, #287 and #405 blocks 1.0 (Phase 4). The criteria table now
+  includes the never-tuned split and unseen-row recall.
 - External pentest: yes or no (Phase 2).
 - Make the GHCR package public after the first release (Phase 3).
 - The repository setting "Allow GitHub Actions to create and approve pull
   requests" for the lock freshness workflow (#432, Phase 0).
-- The next version number: 0.9.2 or `1.0.0-rc.1` (Phase 5).
+- #478: rendering the architecture diagrams (`docs/images/0*-*.svg`) needs
+  `@mermaid-js/mermaid-cli`, which downloads a headless Chromium, and a drift
+  check in CI. A dependency and CI-cost decision; the mermaid source in
+  `docs/ARCHITECTURE.md` is current, the rendered SVGs are not.
+- #475: Realtime WebSocket sessions still refuse a blocked tool output where
+  the proxy and gateway withhold it. A documented asymmetry; changing it is a
+  behaviour change.
 
-Needs infrastructure access, not started: the Linux VM walkthrough of
-`deployment-server.md`, the install paths and modes, the attack from a second
-host, the 48 to 72 hour soak and the failure modes (Phase 3), and the install
-matrix across Windows, macOS and Linux on Node 22, 24 and 26 (Phase 4). This
-machine has WSL (Ubuntu 22.04) and Docker Desktop, which is installed but not
-running. Using either for these tests is the maintainer's call: nothing has been
-installed into them.
+Blocked on something other than a decision:
+
+- #483 (78 playground languages with no rule): measure the judge on the
+  multilingual fixture first. Needs a running Ollama.
+- #484 (override shapes the lexicons miss): needs a second multilingual
+  held-out set written before any rule, generated through the translation
+  service.
+- #490 (11 lexicon languages with no human-written benign check): needs
+  benign prompts in Slovak, Bulgarian, Romanian, Hebrew, Norwegian, Kazakh,
+  Azerbaijani, Uzbek, Croatian, Bosnian and Czech; neither Aya nor oasst1 has
+  them.
+- #459: verify `proxy.inspectChatgptBackend` against a live Codex CLI session
+  signed in with ChatGPT.
+- #474: one warned event with no stage or match; needs more detail from the
+  reporter to act on.
+- Infrastructure, not started: the Linux VM walkthrough of
+  `deployment-server.md`, the install paths and modes, the attack from a
+  second host, the 48 to 72 hour soak and the failure modes (Phase 3), the
+  install matrix across Windows, macOS and Linux on Node 22, 24 and 26, and
+  the commercial licence purchase end to end (Phase 4). This machine has WSL
+  (Ubuntu 22.04) and Docker Desktop, installed but not running; using either
+  is the maintainer's call, and nothing has been installed into them.
+
+Can be done without anyone, not started:
+
+- #487: Dutch "Schakel veiligheidsfilters uit" passes; the disable lexicon
+  needs separable verbs. It would stack on #503.
+- #477: a withheld tool result takes its useful output with it; the model
+  only sees the notice. Needs a design for what, if anything, to keep.
 
 ## Phase 0: clear what is already known
 
