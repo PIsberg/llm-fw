@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
@@ -16,10 +18,13 @@ const cli = fileURLToPath(new URL('../../src/cli/index.ts', import.meta.url))
 // where vitest's 5 s default failed the test before the child could finish.
 const SPAWN_TIMEOUT_MS = 30_000
 
-function runCli(...args: string[]) {
-  return spawnSync(process.execPath, ['--import', 'tsx/esm', cli, ...args], {
+function runCli(...args: (string | Record<string, string>)[]) {
+  const env = args.find((a): a is Record<string, string> => typeof a !== 'string')
+  const argv = args.filter((a): a is string => typeof a === 'string')
+  return spawnSync(process.execPath, ['--import', 'tsx/esm', cli, ...argv], {
     encoding: 'utf8',
     timeout: SPAWN_TIMEOUT_MS,
+    env: { ...process.env, ...env },
   })
 }
 
@@ -54,5 +59,38 @@ describe('llm-fw dispatcher exit status', { timeout: SPAWN_TIMEOUT_MS }, () => {
     const r = runCli('bogus')
     expect(r.stdout).toContain('Usage: llm-fw <command>')
     expect(r.status).toBe(1)
+  })
+
+  // `llm-fw start --obeserve` used to start the firewall in enforce mode: the
+  // misspelt flag was ignored, so it refused traffic the operator had asked
+  // only to observe. It must refuse to start instead. The child gets a scratch
+  // LLM_FW_DIR and spare ports so that, should the check regress, it cannot
+  // replace the developer's running instance.
+  it('an unknown flag to start refuses to start, names the flag and exits 1', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'llm-fw-options-'))
+    try {
+      const r = runCli('start', '--obeserve', {
+        LLM_FW_DIR: dir, LLM_FW_PROXY_PORT: '28080', LLM_FW_DASHBOARD_PORT: '27731',
+      })
+      expect(r.stderr).toContain('"--obeserve"')
+      expect(r.stderr).toContain('--observe')
+      expect(r.stdout).not.toContain('Usage: llm-fw <command>')
+      expect(r.status).toBe(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('an unknown flag to doctor is refused before it runs', () => {
+    const r = runCli('doctor', '--jsn')
+    expect(r.stderr).toContain('"--jsn"')
+    expect(r.stderr).toContain('--json')
+    expect(r.status).toBe(1)
+  })
+
+  it('--help after a subcommand prints usage and exits 0 instead of running it', () => {
+    const r = runCli('status', '--help')
+    expect(r.stdout).toContain('Usage: llm-fw <command>')
+    expect(r.status).toBe(0)
   })
 })

@@ -21,6 +21,10 @@ Every command and flag, the built-in diagnostics, and the dashboard.
 | `llm-fw license` | Print the licence terms and this machine's licence state. `--activate <key>` / `--deactivate` store or remove a key bought at deversity.se/llmfw, `--activate-file <path>` / `--deactivate-file` an offline licence file, `--status` prints the state only, and `--verify` checks the key with Keygen, the only licensing call that uses the network. See [LICENSING.md](../LICENSING.md) |
 | `llm-fw --version` | Print the installed version (`-v` and `version` work too) |
 
+A subcommand refuses an option it does not know, and names the nearest one it does:
+`llm-fw start --obeserve` exits 1 with `did you mean --observe?` rather than starting in enforce
+mode. `--help` or `-h` after any subcommand prints the usage text without running it.
+
 ## Diagnostics (`llm-fw doctor`)
 
 If traffic isn't being intercepted, run `llm-fw doctor` to check the whole setup at a glance. Each check is ticked (`✓`), flagged as a warning (`⚠`), or failed (`✗`) with the exact command to fix it printed underneath. It is mode-aware — `HTTPS_PROXY` is required in proxy mode but optional under the sinkhole — and exits non-zero if any check fails (handy for CI/scripts; add `--json` for machine-readable output).
