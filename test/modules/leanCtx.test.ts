@@ -69,7 +69,7 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
 
   // The fake lean-ctx runs under node with the arguments and environment
   // the module chose; the binary it asked for is recorded.
-  function setup(overrides: Partial<LeanCtxConfig> = {}, idleMs?: number) {
+  function setup(overrides: Partial<LeanCtxConfig> = {}, idleMs?: number, startupMs = START_BUDGET_MS, listenDelayMs = 0) {
     const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-lean-ctx-'))
     process.env.LLM_FW_DIR = dir
     const logFile = join(dir, 'fake.log')
@@ -77,13 +77,13 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     const children: ReturnType<typeof spawn>[] = []
     const launch: LeanCtxSpawn = (command, args, options) => {
       binaries.push(command)
-      const child = spawn(process.execPath, [FAKE, ...args], { ...options, env: { ...options.env, FAKE_LEAN_CTX_LOG: logFile } })
+      const child = spawn(process.execPath, [FAKE, ...args], { ...options, env: { ...options.env, FAKE_LEAN_CTX_LOG: logFile, FAKE_LEAN_CTX_LISTEN_DELAY_MS: String(listenDelayMs) } })
       children.push(child)
       return child
     }
     // The default 500 ms is for a lean-ctx that is already running.
     const cfg: LeanCtxConfig = { ...structuredClone(DEFAULT_CONFIG.modules!.leanCtx!), enabled: true, timeoutMs: START_BUDGET_MS, ...overrides }
-    const mod = new LeanCtxModule(cfg, launch, idleMs)
+    const mod = new LeanCtxModule(cfg, launch, idleMs, startupMs)
     modules.push(mod)
     const entries = () => fs.existsSync(logFile)
       ? fs.readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { started?: string[]; env?: Record<string, string>; compress?: string })
@@ -97,6 +97,22 @@ describe('LeanCtxModule', { timeout: 40_000 }, () => {
     const out = await send(turn([bash('t1', 'mvn -q verify')]))
     expect(out.messages[1]!.content[0]!.content).toBe(COMPRESSED)
     expect(mod.getStats().tokensSaved).toBeGreaterThan(0)
+  })
+
+  // #493: under a full parallel run the sidecar once took more than the
+  // module's 10 s startup wait to answer /health, and the test saw the output
+  // forwarded uncompressed. The wait is the module's to choose; a slower start
+  // fails open, as it should.
+  it('waits for a slow lean-ctx to start, within its startup wait', async () => {
+    const { send } = setup({}, undefined, START_BUDGET_MS, 1500)
+    const out = await send(turn([bash('t1', 'mvn -q verify')]))
+    expect(out.messages[1]!.content[0]!.content).toBe(COMPRESSED)
+  })
+
+  it('forwards the output whole when lean-ctx starts later than its startup wait', async () => {
+    const { send } = setup({}, undefined, 300, 3000)
+    const out = await send(turn([bash('t1', 'mvn -q verify')]))
+    expect(out.messages[1]!.content[0]!.content).toBe(LOG)
   })
 
   it('never sends a file read, a tool that is not a shell, a prompt, or a result whose command it does not know', async () => {
