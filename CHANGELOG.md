@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been blocked only by an obfuscation bonus that a pig-latin or URL-decoded copy of the same
   text earned by accident, removed on 2026-10-11 (de41987), and 1 fell under the embedding line
   when three output-format benign anchors were added the same day (ruleset 2026.10.36).
+- **A held-out split no rule was tuned on: jailbreak-classification.** 1,179 prompts from
+  `jackhhao/jailbreak-classification` (Apache-2.0), with the 112 already in another eval split or
+  in `corpus.json` removed. Nobody reads its rows. On ruleset 2026.10.90 the default config blocks
+  311 of 542 jailbreaks (57.4%), well under the 74% on the splits tuned against, and 6 of 637
+  benign prompts (0.9%). `npm run recall:floor` gates both, with a floor and a benign ceiling.
 - **Recall on unseen held-out rows, beside the floor.** Rules were tuned on 2026-10-26 by reading
   21 safeguard rows and 1 heldout row, so those splits no longer cleanly measure attacks nobody
   fitted a rule to. The rows read are listed in `test/eval/lib/seenRows.ts`, and

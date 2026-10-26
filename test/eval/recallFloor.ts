@@ -39,6 +39,15 @@ async function main(): Promise<void> {
       if (res.action === 'block') blocked.add(i)
     }
     counts[dataset.name] = { blocked: blocked.size, attacks: attackRows.length }
+    if (DIRECT_RECALL_FLOORS[dataset.name]?.benign) {
+      const benignRows = dataset.rows.filter(r => r.label === 0)
+      let benignBlocked = 0
+      for (const row of benignRows) {
+        const res = await pipeline.run('/v1/messages', anthropicRequestFor(row, 'toolu_bench'), { target: 'bench', method: 'POST', path: '/v1/messages' })
+        if (res.action === 'block') benignBlocked++
+      }
+      counts[dataset.name] = { ...counts[dataset.name]!, benignBlocked, benign: benignRows.length }
+    }
     unseen[dataset.name] = countUnseen(attackRows, blocked, new Set((SEEN_ROWS[dataset.name] ?? []).map(([i]) => i)))
   }
   await pipeline.close()
@@ -55,13 +64,14 @@ async function main(): Promise<void> {
     const u = unseen[name]
     if (c) { blocked += c.blocked; attacks += c.attacks }
     if (u) { unseenBlocked += u.blocked; unseenAttacks += u.attacks }
-    console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})  unseen ${u ? `${u.blocked}/${u.attacks}` : '-'}`)
+    const benign = floor.benign && c ? `  benign blocked ${c.benignBlocked ?? 0}/${c.benign ?? 0} (ceiling ${floor.benign.maxBlocked})` : ''
+    console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})  unseen ${u ? `${u.blocked}/${u.attacks}` : '-'}${benign}`)
   }
   console.log(`  ${'total'.padEnd(30)} ${blocked}/${attacks}  unseen ${unseenBlocked}/${unseenAttacks}`)
 
   const verdict = evaluateRecallFloor(counts, DIRECT_RECALL_FLOORS)
   for (const name of verdict.improved) {
-    console.log(`::notice::${name} clears its recall floor by more than the margin: raise it in test/eval/lib/recallFloor.ts`)
+    console.log(`::notice::${name} clears its floor or ceiling by more than the margin: tighten it in test/eval/lib/recallFloor.ts`)
   }
   if (!verdict.passed) {
     for (const f of verdict.failures) console.log(`::error::direct-injection recall below floor: ${f}`)

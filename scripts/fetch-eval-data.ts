@@ -24,7 +24,7 @@
  * Usage:  node --import tsx/esm scripts/fetch-eval-data.ts [name ...]
  *         (no args = fetch all; names = subset, e.g. `jbb-behaviors harmbench`)
  */
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
@@ -246,6 +246,54 @@ export function ayaSample(rows: Array<{ inputs?: string | null; language_code?: 
   return out
 }
 
+/**
+ * jackhhao/jailbreak-classification, pinned: the held-out split nobody tuned a
+ * rule on (chosen 2026-10-26, after rules were tuned by reading safeguard
+ * rows). Both its splits, since nothing here trains on it. Report it in
+ * aggregate and never read its rows while writing a rule: once read, a row is
+ * no longer held out (test/eval/lib/seenRows.ts).
+ */
+const JAILBREAK_REVISION = '2f2ceeb39658696fd3f462403562b6eea5306287'
+const JAILBREAK_LICENSE = 'Apache-2.0. Source: jackhhao/jailbreak-classification, https://huggingface.co/datasets/jackhhao/jailbreak-classification. This derived file (prompt text and label, deduplicated against the other eval splits and the tuning corpus) is redistributed under the same licence.'
+
+const textKey = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/**
+ * jailbreak-classification rows as eval rows: `type` jailbreak is 1, benign 0,
+ * anything else is dropped rather than guessed. A prompt already in another
+ * eval split or in corpus.json (`knownTexts`) is dropped too, because a rule may
+ * have been fitted to it there; so is a repeat within the dataset. Compared
+ * ignoring case and whitespace.
+ */
+export function jailbreakHeldoutRows(raw: { prompt: unknown; type: unknown }[], knownTexts: string[]): { rows: Row[]; dropped: { known: number; repeated: number; unusable: number } } {
+  const known = new Set(knownTexts.map(textKey))
+  const seen = new Set<string>()
+  const dropped = { known: 0, repeated: 0, unusable: 0 }
+  const rows: Row[] = []
+  for (const r of raw) {
+    const text = typeof r.prompt === 'string' ? r.prompt : ''
+    const label = r.type === 'jailbreak' ? 1 : r.type === 'benign' ? 0 : undefined
+    if (text.trim() === '' || label === undefined) { dropped.unusable++; continue }
+    const key = textKey(text)
+    if (known.has(key)) { dropped.known++; continue }
+    if (seen.has(key)) { dropped.repeated++; continue }
+    seen.add(key)
+    rows.push({ text, label, class: label === 1 ? 'jailbreak' : 'benign' })
+  }
+  return { rows, dropped }
+}
+
+/** Every prompt in the other eval splits and in the tuning corpus. */
+function knownEvalTexts(except: string): string[] {
+  const texts: string[] = []
+  for (const f of readdirSync(dataDir).filter(f => f.endsWith('.json') && f !== except)) {
+    const j = JSON.parse(readFileSync(join(dataDir, f), 'utf8')) as { rows?: { text?: unknown }[] }
+    for (const r of j.rows ?? []) if (typeof r.text === 'string') texts.push(r.text)
+  }
+  const corpus = JSON.parse(readFileSync(join(dataDir, '..', '..', 'detection', 'fixtures', 'corpus.json'), 'utf8')) as { attacks: { prompt: string }[]; benign: string[] }
+  return [...texts, ...corpus.attacks.map(a => a.prompt), ...corpus.benign]
+}
+
 // ---------------------------------------------------------------------------
 
 const FETCHERS: Record<string, () => Promise<void>> = {
@@ -317,6 +365,19 @@ const FETCHERS: Record<string, () => Promise<void>> = {
       'Lakera/gandalf_ignore_instructions (FULL test split) — real Gandalf-challenge injection attempts, all label 1 (recall-only)',
       rev, 'injection',
       rows.map(r => ({ text: String(r.text), label: 1, class: 'direct-override' })))
+  },
+
+  /** jackhhao/jailbreak-classification, pinned: the never-tuned held-out split. */
+  'jailbreak-classification': async () => {
+    const dataset = 'jackhhao/jailbreak-classification'
+    const rev = await hfRevision(dataset)
+    if (rev !== JAILBREAK_REVISION) throw new Error(`${dataset} is at ${rev}, pinned ${JAILBREAK_REVISION}: review the change before re-pinning`)
+    const raw = [...await hfRows(dataset, 'default', 'train'), ...await hfRows(dataset, 'default', 'test')]
+    const { rows, dropped } = jailbreakHeldoutRows(raw as { prompt: unknown; type: unknown }[], knownEvalTexts('jailbreak-classification.json'))
+    console.log(`  jailbreak-classification: ${raw.length} rows, dropped ${dropped.known} already in another split or the corpus, ${dropped.repeated} repeats, ${dropped.unusable} unusable`)
+    write('jailbreak-classification.json',
+      'jackhhao/jailbreak-classification (train + test, deduplicated) - held-out, never tuned on; label 1=jailbreak 0=benign',
+      rev, 'injection', rows, { _license: JAILBREAK_LICENSE })
   },
 
   /** xTRam1/safe-guard-prompt-injection — FULL test split (was a 60/60 sample). */

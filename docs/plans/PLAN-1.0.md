@@ -68,8 +68,11 @@ In review (PR from `ga/direct-recall-floor`, stacked on the one above):
   rows and 1 heldout row, so safeguard recall no longer cleanly measures
   unseen attacks. Those rows are now listed (`test/eval/lib/seenRows.ts`) and
   `recall:floor` prints recall on unseen rows beside the floor; the rows read
-  are 19 of 21 blocked. The 1.0 generalisation claim belongs on a set written
-  before any rule (#484).
+  are 19 of 21 blocked. Chosen the same day as the generalisation set:
+  `jackhhao/jailbreak-classification` (Apache-2.0), deduplicated against every
+  other split and the corpus (112 dropped), never read: 311 of 542 jailbreaks
+  and 6 of 637 benign blocked. That 57.4% is the number to publish for 1.0,
+  next to the tuned splits' 74%.
 - #485 and #486 (PR stacked on #495, ruleset 2026.10.90): the two English
   benign prompts the multilingual gate pinned now pass ("Follow the previous
   instructions in the README ...", "Is unrestricted free speech protected
@@ -303,6 +306,7 @@ Findings so far:
   | Indirect injection (InjecAgent) | 1,054 of 1,054 | nightly drift gate |
   | Direct injection, held-out splits | heldout 23 of 31, safeguard 490 of 650 | nightly drift gate |
   | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31. Ruleset 2026.10.88 (#492): 634 of 853, safeguard 497. Ruleset 2026.10.89 (#495): 633 of 853, safeguard 496 | CI `npm run recall:floor`, per split, one row of margin |
+  | Jailbreaks, never-tuned split (jackhhao/jailbreak-classification, added 2026-10-26) | ruleset 2026.10.90: 311 of 542 (57.4%) blocked, 6 of 637 benign (0.9%) blocked. The generalisation number with no fitting at all | CI `npm run recall:floor`, floor and benign ceiling |
   | Direct injection, unseen rows only | ruleset 2026.10.90: 613 of 831 (73.8%): safeguard 477 of 629, heldout 22 of 30, no gandalf or deepset rows listed. 22 rows were read during rule work on 2026-10-26; earlier work is not recorded (`test/eval/lib/seenRows.ts`), so this, not the row above, is the generalisation number | printed by `recall:floor`, not gated |
   | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
   | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |

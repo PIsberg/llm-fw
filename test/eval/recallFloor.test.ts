@@ -8,10 +8,11 @@ import { evaluateRecallFloor, DIRECT_RECALL_FLOORS, countUnseen } from './lib/re
  * drift gate stayed green. Its arithmetic and its failure modes are pinned here.
  */
 
-const split = (blocked: number, attacks: number) => ({ blocked, attacks })
+const split = (blocked: number, attacks: number, benignBlocked?: number, benign?: number) =>
+  benign === undefined ? { blocked, attacks } : { blocked, attacks, benignBlocked, benign }
 
 const atFloor = () => Object.fromEntries(
-  Object.entries(DIRECT_RECALL_FLOORS).map(([name, f]) => [name, split(f.minBlocked, f.attacks)]),
+  Object.entries(DIRECT_RECALL_FLOORS).map(([name, f]) => [name, split(f.minBlocked, f.attacks, f.benign?.maxBlocked, f.benign?.rows)]),
 )
 
 describe('evaluateRecallFloor', () => {
@@ -65,10 +66,26 @@ describe('evaluateRecallFloor', () => {
     expect(verdict.improved).toEqual(['gandalf-ignore-instructions'])
   })
 
-  it('covers the four direct-injection splits the GA criteria name', () => {
+  it('covers the four direct-injection splits the GA criteria name, and the never-tuned jailbreak split', () => {
     expect(Object.keys(DIRECT_RECALL_FLOORS).sort()).toEqual([
-      'deepset-prompt-injections', 'gandalf-ignore-instructions', 'heldout', 'safeguard-prompt-injection',
+      'deepset-prompt-injections', 'gandalf-ignore-instructions', 'heldout', 'jailbreak-classification', 'safeguard-prompt-injection',
     ])
+  })
+
+  it('fails when a split with a benign ceiling blocks one benign row more than it allows', () => {
+    const counts = atFloor()
+    const jb = DIRECT_RECALL_FLOORS['jailbreak-classification']!
+    counts['jailbreak-classification'] = split(jb.minBlocked, jb.attacks, jb.benign!.maxBlocked + 1, jb.benign!.rows)
+    const verdict = evaluateRecallFloor(counts, DIRECT_RECALL_FLOORS)
+    expect(verdict.passed).toBe(false)
+    expect(verdict.failures.join('\n')).toContain('benign')
+  })
+
+  it('fails a benign ceiling measured on a different number of benign rows', () => {
+    const counts = atFloor()
+    const jb = DIRECT_RECALL_FLOORS['jailbreak-classification']!
+    counts['jailbreak-classification'] = split(jb.minBlocked, jb.attacks, 0, jb.benign!.rows - 1)
+    expect(evaluateRecallFloor(counts, DIRECT_RECALL_FLOORS).passed).toBe(false)
   })
 })
 
