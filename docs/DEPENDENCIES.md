@@ -47,6 +47,17 @@ To check by hand: `npm pack --dry-run`, and
 | --- | --- | --- | --- |
 | `@huggingface/transformers` | `~4.2.0` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. 4.3.1 was tried and reverted: 14 of 27,912 eval verdicts changed and the `heldout` recall floor went red (#511). |
 
+### Known install warning: `boolean@3.2.0` is deprecated
+
+`npm i llm-fw` prints `npm warn deprecated boolean@3.2.0`. The chain is
+`@huggingface/transformers@4.2.0` to `onnxruntime-node@1.24.3` to `global-agent@^3` to
+`boolean`. This repository's `overrides` replace `global-agent` with 4.x, which has no
+`boolean`, so a checkout installs clean. npm honours `overrides` only from the root
+project, so a user's install does not. A direct `global-agent@^4` dependency would not
+help, because `onnxruntime-node` would still get its own nested 3.x. The fix is
+`@huggingface/transformers` 4.3.1 (`onnxruntime-node@1.30.0` requires `global-agent@^4.1.3`),
+held back by #511.
+
 ### Transitive, and why they are there
 
 These are not chosen by llm-fw. They arrive with `@huggingface/transformers`:
