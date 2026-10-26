@@ -113,7 +113,7 @@ export class EventBus {
   subscribe(res: ServerResponse): void {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
     this.subscribers.push(res)
-    for (const event of this.ring) res.write('data: ' + JSON.stringify(event) + '\n\n')
+    for (const event of this.listed()) res.write('data: ' + JSON.stringify(event) + '\n\n')
     for (const me of this.moduleEvents) res.write('event: module\ndata: ' + JSON.stringify(me) + '\n\n')
     res.on('close', () => { this.subscribers = this.subscribers.filter(r => r !== res) })
   }
@@ -143,12 +143,24 @@ export class EventBus {
     return [...this.trafficRing].reverse().slice(0, limit)
   }
 
+  /**
+   * The ring, preceded by the blocked events it has already evicted, oldest
+   * first. The ring is first in, first out, so an evicted event is older than
+   * everything still in it. An agent session emits passed and warned events by
+   * the hundred an hour, so a block, or a would-block under observe, left the
+   * list in about 15 minutes while the bus still held it (#488).
+   */
+  private listed(): BlockEvent[] {
+    const inRing = new Set(this.ring.map(e => e.id))
+    return [...[...this.blocked.values()].filter(e => !inRing.has(e.id)), ...this.ring]
+  }
+
   getRecent(limit: number, page: number): BlockEvent[] {
-    const all = [...this.ring].reverse()
+    const all = this.listed().reverse()
     return all.slice(page * limit, page * limit + limit)
   }
 
-  getAll(): BlockEvent[] { return [...this.ring].reverse() }
+  getAll(): BlockEvent[] { return this.listed().reverse() }
 
   /** An event by id: any buffered event, or one of the last maxEvents blocked ones. */
   find(id: string): BlockEvent | undefined {
@@ -162,7 +174,7 @@ export class EventBus {
    * entry, or null if no event with that id is currently buffered.
    */
   whitelist(id: string, reason?: string): WhitelistEntry | null {
-    const event = this.ring.find(e => e.id === id)
+    const event = this.find(id)
     if (!event) return null
 
     const entries = this.readWhitelist()

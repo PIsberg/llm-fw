@@ -184,3 +184,54 @@ describe('EventBus — SSE heartbeat', () => {
     bus.destroy()
   })
 })
+
+// #488: the ring keeps the last maxEvents of everything, and an agent session
+// emits passed and warned events by the hundred an hour, so a block, or a
+// would-block under observe, left the event list in about 15 minutes while
+// the bus still held it for "Mark false positive". The list now shows it.
+describe('EventBus: blocked events outlive the ring in the event list', () => {
+  const small = { ...DEFAULT_CONFIG.dashboard, maxEvents: 5 }
+  const traffic = (bus: EventBus, n: number) => {
+    for (let i = 0; i < n; i++) {
+      bus.emit({ stage: 'none', score: 0, similarity: 0, target: 'mcp', method: 'POST', path: '/mcp', payload_preview: `tool result ${i}`, payload_full: `tool result ${i}`, action: 'warned' })
+    }
+  }
+
+  it('lists a blocked event after more than maxEvents other events', () => {
+    const bus = new EventBus(small)
+    const blocked = seedEvent(bus)
+    traffic(bus, 12)
+    expect(bus.getAll().map(e => e.id)).toContain(blocked.id)
+    expect(bus.getRecent(50, 0).map(e => e.id)).toContain(blocked.id)
+    bus.destroy()
+  })
+
+  it('keeps the list newest first, with the retained block in its place', () => {
+    const bus = new EventBus(small)
+    const blocked = seedEvent(bus)
+    traffic(bus, 12)
+    const all = bus.getAll()
+    expect(all[0]!.payload_preview).toBe('tool result 11')
+    expect(all.at(-1)!.id).toBe(blocked.id)
+    expect(all).toHaveLength(6)
+    bus.destroy()
+  })
+
+  it('replays the retained block to a new stream subscriber', () => {
+    const bus = new EventBus(small)
+    const blocked = seedEvent(bus)
+    traffic(bus, 12)
+    const written: string[] = []
+    const res = { writeHead: vi.fn(), write: vi.fn((s: string) => { written.push(s) }), on: vi.fn(), writableEnded: false, destroyed: false }
+    bus.subscribe(res as never)
+    expect(written.join('')).toContain(blocked.id)
+    bus.destroy()
+  })
+
+  it('still bounds blocked events to maxEvents', () => {
+    const bus = new EventBus(small)
+    for (let i = 0; i < 9; i++) seedEvent(bus, `blocked ${i}`)
+    expect(bus.getAll().filter(e => e.action === 'blocked')).toHaveLength(5)
+    bus.destroy()
+  })
+})

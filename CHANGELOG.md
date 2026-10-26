@@ -74,6 +74,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Blocks and observe-mode would-blocks stay in the dashboard's event list.** The list showed the
+  last `dashboard.maxEvents` (100) events of every kind, and an agent session emits passed MCP and
+  warned events by the hundred an hour, so a would-block left the list in about 15 minutes: after an
+  hour of observe mode, `/metrics` counted 4 would-blocks and none was still listed. The last 100
+  blocked events were already kept apart for "Mark false positive"; `/api/events` and the live
+  stream now show them too, in their place by time. Still in memory only: a restart forgets them;
+  for a durable record, turn on the audit log (`audit.enabled`, off by default) (#488).
 - **A taint warning is recorded once per session and host, not on every connection.** A development
   session names github.com in tool results all the time, so every later `api.github.com` connection
   warned: in one hour of observe mode, 59 of the dashboard's last 100 events were that one warning,
