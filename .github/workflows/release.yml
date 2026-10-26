@@ -87,6 +87,12 @@ jobs:
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@11.20.0
 
+      # The tests and build have run; the published manifest does not need the
+      # tooling that ran them. npmjs.org lists devDependencies, so drop them from
+      # the copy that gets uploaded (this runner's checkout is discarded).
+      - name: Drop devDependencies from the published manifest
+        run: node scripts/strip-dev-manifest.mjs
+
       - name: Publish to npmjs.com
         run: npm publish --provenance --access public
 

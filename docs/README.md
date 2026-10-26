@@ -38,6 +38,7 @@ The [README](../README.md) is the pitch and the quick start; this is the rest.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System context, components, sequence and class diagrams |
 | [DESIGN-mcp-response.md](DESIGN-mcp-response.md) | Design for correct inbound MCP response interception |
 | [TESTING.md](TESTING.md) | Unit, integration, E2E and mutation testing |
+| [DEPENDENCIES.md](DEPENDENCIES.md) | Every third-party package: why it is used, and what ships to users |
 
 ## Measurements
 
