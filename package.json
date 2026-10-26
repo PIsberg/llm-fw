@@ -93,6 +93,7 @@
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.72.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^5.0.3",
     "eslint": "^10.8.1",
     "fast-check": "^4.9.0",
@@ -100,7 +101,7 @@
     "knip": "^6.43.0",
     "tesseract.js": "^7.0.0",
     "tsx": "^4.23.12",
-    "typescript": "^6.0.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^5.0.3"
   },
   "//overrides": "READ THIS BEFORE TRUSTING AN ENTRY HERE. npm honours `overrides` only from the ROOT project, so every entry below cleans this repo's own node_modules and CI and nothing else. Anyone who installs llm-fw as a dependency still resolves the parent's original pin. Verified with `npm install <tarball> --omit=dev --dry-run`, which still yields sharp 0.34.5, adm-zip 0.5.18 and global-agent 3.0.0. A consumer-visible fix has to come from the parent's own range, so treat a cleared `npm audit` here as a statement about this repo, not about what users install. Drop an entry once the parent's range covers the fix.",
