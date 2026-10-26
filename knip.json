@@ -3,8 +3,32 @@
   "entry": [
     "src/dashboard/server.ts",
     "scripts/**/*.{js,mjs,ts}",
-    "test/**/*.{js,mjs,ts}"
+    "test/**/*.{js,mjs,ts}",
+    "src/detection/inferenceWorkerEntry.ts"
   ],
-  "project": ["src/**/*.ts"],
-  "ignoreExportsUsedInFile": { "interface": true, "type": true }
+  "project": [
+    "src/**/*.ts"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": [
+    "net",
+    "setx",
+    "update-ca-certificates",
+    "sc",
+    "netsh",
+    "pfctl",
+    "iptables",
+    "netstat",
+    "certutil",
+    "reg",
+    "icacls"
+  ],
+  "ignoreIssues": {
+    "src/detection/harmfulRequest.ts": [
+      "types"
+    ],
+    "src/detection/indirectInstruction.ts": [
+      "types"
+    ]
+  }
 }

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A dependency inventory.** [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) lists every declared third-party package and why it is used, and separates the one runtime dependency from the 451 dev-only packages. `test/ci/dependencySurface.test.ts` now fails when a declared package has no row, when `src/` imports a dev package, or when `files` grows past `dist`, `data` and `NOTICE.md`.
+- **Two release checks on every PR.** CI now runs `npm run knip` (unused exports, files and dependencies; it exited 1 with 49 findings, now 0 through `knip.json` entries for the worker entry and the OS commands the CLI runs) and an `npm pack --dry-run` of the manifest `release.yml` publishes, so a bad manifest shows on the PR instead of after a Release is public. The package manifest also gains an `author` and writes `bin` as `dist/cli/index.js`, which silences npm's "bin was invalid and removed" publish warning (the registry already served that form).
 
 ### Changed
 

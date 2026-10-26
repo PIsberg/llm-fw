@@ -162,3 +162,28 @@ describe('the published manifest carries no dev dependencies', () => {
     expect(strip).toBeLessThan(wf.indexOf('npm publish'))
   })
 })
+
+// `npm publish` rewrites a `./`-prefixed bin and warns that it "was invalid and
+// removed", which reads as a broken CLI. The registry serves the normalised form,
+// so the manifest says it that way, and CI packs the stripped manifest and runs
+// knip on every PR instead of finding out when a Release is already public.
+describe('npm publish hygiene', () => {
+  const CI = readFileSync(fileURLToPath(new URL('.github/workflows/ci.yml', ROOT)), 'utf8')
+  const FULL = PKG as unknown as { bin: Record<string, string>; author?: { name?: string } }
+
+  it('writes bin paths without a leading ./', () => {
+    for (const target of Object.values(FULL.bin)) expect(target.startsWith('./')).toBe(false)
+  })
+
+  it('names an author', () => {
+    expect(FULL.author?.name).toBeTruthy()
+  })
+
+  it('runs knip, then a pack dry run of the stripped manifest, in CI', () => {
+    const knip = CI.indexOf('npm run knip')
+    const strip = CI.indexOf('scripts/strip-dev-manifest.mjs')
+    expect(knip).toBeGreaterThan(-1)
+    expect(strip).toBeGreaterThan(knip)
+    expect(CI.indexOf('npm pack --dry-run', strip)).toBeGreaterThan(strip)
+  })
+})
