@@ -38,6 +38,7 @@ const PASSED_ENV = new Set(['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', '
 
 // Measured on 30 days of Claude Code traffic: p50 5.6 ms, p99 55 ms a call.
 const CONCURRENCY = 8
+// How long a new lean-ctx has to answer /health before its starts fail open.
 const STARTUP_MS = 10_000
 const RETRY_MS = 60_000
 // A config.json edit flips `enabled` on the module's config without telling
@@ -76,7 +77,7 @@ class Sidecar {
   private readonly token: string
   private readonly onExit = (): void => { this.child.kill() }
 
-  private constructor(launch: LeanCtxSpawn, binary: string, port: number, onStop: (reason: string, detail: Record<string, string>) => void) {
+  private constructor(launch: LeanCtxSpawn, binary: string, port: number, onStop: (reason: string, detail: Record<string, string>) => void, startupMs: number) {
     this.url = `http://127.0.0.1:${port}`
     this.token = randomBytes(24).toString('hex')
 
@@ -114,15 +115,15 @@ class Sidecar {
       this.child.once('error', err => done(err.message))
       this.child.once('exit', code => done(`exit ${String(code)}`))
     })
-    this.ready = Promise.race([exited, this.healthy(Date.now() + STARTUP_MS)])
+    this.ready = Promise.race([exited, this.healthy(Date.now() + startupMs)])
   }
 
-  static async start(launch: LeanCtxSpawn, onStop: (reason: string, detail: Record<string, string>) => void): Promise<Sidecar> {
+  static async start(launch: LeanCtxSpawn, onStop: (reason: string, detail: Record<string, string>) => void, startupMs: number): Promise<Sidecar> {
     // From the process environment only, like LLM_FW_DIR: a project config
     // file comes with whatever repository llm-fw is started in, and must not
     // choose a program for it to run.
     const binary = process.env.LLM_FW_LEAN_CTX_BIN || 'lean-ctx'
-    return new Sidecar(launch, binary, await freePort(), onStop)
+    return new Sidecar(launch, binary, await freePort(), onStop, startupMs)
   }
 
   private async healthy(deadline: number): Promise<boolean> {
@@ -202,12 +203,16 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
   private lastStop = ''
   private readonly launch: LeanCtxSpawn
   private readonly idleMs: number
+  private readonly startupMs: number
   private idleTimer: NodeJS.Timeout | undefined
 
-  constructor(config?: LeanCtxConfig, launch: LeanCtxSpawn = spawn, idleMs = IDLE_MS) {
+  // idleMs and startupMs are for tests: under a full parallel test run a
+  // child process took longer than STARTUP_MS to answer (#493).
+  constructor(config?: LeanCtxConfig, launch: LeanCtxSpawn = spawn, idleMs = IDLE_MS, startupMs = STARTUP_MS) {
     super(config ?? structuredClone(DEFAULT_CONFIG.modules!.leanCtx!))
     this.launch = launch
     this.idleMs = idleMs
+    this.startupMs = startupMs
   }
 
   override get enabled(): boolean {
@@ -264,7 +269,7 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
       this.lastStop = reason
       log.warn('lean-ctx stopped; shell output is forwarded as is', { reason, ...detail })
     }
-    this.sidecar = Sidecar.start(this.launch, onStop).catch((err: unknown) => {
+    this.sidecar = Sidecar.start(this.launch, onStop, this.startupMs).catch((err: unknown) => {
       onStop(String(err), {})
       return null
     })

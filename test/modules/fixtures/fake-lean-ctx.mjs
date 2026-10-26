@@ -6,7 +6,8 @@
 // Compression: a message of more than four lines keeps its first two and
 // gets lean-ctx's omission line plus the retrieve instruction lean-ctx
 // appends to a lossy result. Text containing SLOW is answered after 1.5 s
-// the first time it is seen.
+// the first time it is seen. FAKE_LEAN_CTX_LISTEN_DELAY_MS holds off
+// listening, like a lean-ctx that is slow to start.
 import { createServer } from 'node:http'
 import { appendFileSync } from 'node:fs'
 
@@ -26,7 +27,7 @@ const compress = async (text) => {
     '[lean-ctx CCR: full original elided to save tokens — call the retrieve tool with hash=0123456789abcdef01234567, or read /state/tee/proxy_0123456789abcdef.log locally]'
 }
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   if (req.url === '/health') return void res.end('ok')
   if (req.method !== 'POST' || req.url !== '/v1/compress') return void res.writeHead(404).end()
   if (req.headers.authorization !== `Bearer ${process.env.LEAN_CTX_PROXY_TOKEN}`) return void res.writeHead(401).end()
@@ -41,4 +42,5 @@ createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ messages, stats: {} }))
   })
-}).listen(port, '127.0.0.1')
+})
+setTimeout(() => server.listen(port, '127.0.0.1'), Number(process.env.FAKE_LEAN_CTX_LISTEN_DELAY_MS ?? 0))
