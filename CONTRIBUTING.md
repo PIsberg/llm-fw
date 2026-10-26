@@ -249,9 +249,11 @@ blocked rows changes is a moved verdict wearing the same number.
 2. Make the change, with tests (see [Testing requirements](#testing-requirements)).
 3. Run `npx tsc --noEmit`, `npm run lint`, `npm run build`, and
    `npm run test:run` locally. **If you touched detection, also run
-   `npm run fpr` and `npm run scorecard`**: both are required status checks on
-   `main`, and `fpr` fails on the *first* false positive in any category that
-   currently has none. See [Testing requirements](#testing-requirements).
+   `npm run fpr`, `npm run recall:floor` and `npm run scorecard`**: all three
+   gate `main` in the Load Tests check, `fpr` fails on the *first* false
+   positive in any category that currently has none, and `recall:floor` fails
+   when a held-out direct-injection split blocks fewer attacks than its floor.
+   See [Testing requirements](#testing-requirements).
 4. Update the docs the change makes wrong (see above).
 5. Open the PR against `main`. Describe *why* the change is needed and how you
    verified it; the diff already shows *what* changed.

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A recall floor for direct injection, checked on every PR.** `npm run recall:floor` runs the
+  four held-out direct-injection splits (gandalf, safeguard, deepset, heldout) through the default
+  pipeline and fails when one blocks fewer attacks than its floor (today 627 of 853 are blocked;
+  each floor is that split's count minus one row). Nothing caught it when 8 of the 853 stopped
+  being blocked between 2026-10-10 and 2026-10-25 (#480): 7 Mongo Tom style persona prompts had
+  been blocked only by an obfuscation bonus that a pig-latin or URL-decoded copy of the same
+  text earned by accident, removed on 2026-10-11 (de41987), and 1 fell under the embedding line
+  when three output-format benign anchors were added the same day (ruleset 2026.10.36).
+
 - **Every Prompt Testing playground example is now tested.** The example buttons moved from the
   page's inline script to `src/dashboard/playgroundExamples.ts`, which the page embeds, and
   `test/dashboard/playground-examples.test.ts` sends all 35 through `/api/test` against the
