@@ -84,11 +84,10 @@ const HELDOUT_RECALL_MIN = 0.275
 // that starts blocking on another machine is not a regression. The two
 // "forget" rows are #484.
 const KNOWN_COVERED_PIPELINE_MISSES = new Set(['devmode|nl', 'forget|az', 'forget|th'])
-// Benign prompts the cheap pipeline blocks today. Both are English and
-// predate this gate: "Follow the previous instructions in the README ..."
-// (embedding, #485) and "Is unrestricted free speech protected ...?" (the
-// `unrestricted` rule, #486).
-const KNOWN_BENIGN_BLOCKS = ['b-readme|en', 'b-unrestricted|en']
+// Benign prompts the cheap pipeline blocks today: none. The two English ones
+// this gate started with pass since #485 ("Follow the previous instructions
+// in the README ...") and #486 ("Is unrestricted free speech protected ...?").
+const KNOWN_BENIGN_BLOCKS: string[] = []
 
 // The `examples` set is the playground's own Injection, RAG and DLP examples
 // (src/dashboard/playgroundExamples.ts), translated the way its Translate

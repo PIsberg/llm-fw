@@ -64,6 +64,10 @@ In review (PR from `ga/direct-recall-floor`, stacked on the one above):
   held-out row for it: safeguard 497 to 496 (row 862), direct injection 633
   of 853, safeguard floor 495. No benign eval row contains the phrase, so
   `fpr` cannot show the gain; the corpus now holds two benign role-play rows.
+- #485 and #486 (PR stacked on #495, ruleset 2026.10.90): the two English
+  benign prompts the multilingual gate pinned now pass ("Follow the previous
+  instructions in the README ...", "Is unrestricted free speech protected
+  ...?"). 0 of 26,733 eval verdicts changed.
 
 Waiting on a maintainer decision:
 
