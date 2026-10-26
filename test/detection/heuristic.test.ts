@@ -1281,7 +1281,9 @@ describe('HeuristicScorer — expanded attack classes', () => {
     // Compared with the same scorer on 200 KB of plain words rather than a
     // fixed budget: the scorer alone takes a few hundred ms on 200 KB, and a
     // loaded machine pushed an absolute 1.5 s check over (1,657 ms in a full
-    // local run). A quadratic pattern costs seconds and still fails.
+    // local run). A quadratic pattern costs seconds and still fails. Each case
+    // is four scorer passes, about 1 s alone; under a full parallel run one
+    // took over 30 s, so the timeout leaves room and the ratio decides.
     const KB200 = 200 * 1024
     const fill = (unit: string): string => unit.repeat(Math.ceil(KB200 / unit.length)).slice(0, KB200)
     const fastest = (text: string): number => {
@@ -1304,7 +1306,7 @@ describe('HeuristicScorer — expanded attack classes', () => {
       const text = make()
       const baseline = fastest(fill('the quick brown fox '))
       expect(fastest(text)).toBeLessThan(3 * baseline + 100)
-    }, 30_000)
+    }, 120_000)
   })
 
   // #495: "stay in character" asks a model to keep up a role; it does not say
