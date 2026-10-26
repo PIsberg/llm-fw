@@ -164,6 +164,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.89 ("stay in character" no longer counts as an
+  // unconstrained persona; measured, no row moved).
   // Held at ruleset 2026.10.88 (third-person refusal suppression paired with
   // an unconstrained persona; an unset null field is not a disabled control;
   // measured, no row moved).
