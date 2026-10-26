@@ -451,7 +451,8 @@ export class ProxyServer {
       // inspected hosts.)
       if (!bypass && this.config.taint?.enabled) {
         const sessionKey = normalizeIp(clientSocket.remoteAddress) ?? 'unknown'
-        const findings = this.taint.checkSink(sessionKey, hostname, Date.now())
+        const now = Date.now()
+        const findings = this.taint.checkSink(sessionKey, hostname, now)
         if (findings.length) {
           const f = findings[0]!
           const detail = `Outbound connection to a host named in untrusted content: ${maskToken(f.token)}`
@@ -470,13 +471,17 @@ export class ProxyServer {
             })
             return
           }
-          this.eventBus.emit({
-            stage: 'none', score: 50, similarity: 0,
-            target: hostname, method: 'CONNECT', path: '/',
-            payload_preview: detail, payload_full: hostname,
-            action: 'warned', kind: 'taint',
-            sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
-          })
+          // Audit mode reports a host once per session while its taint is live
+          // (#489): a git remote's host tainted every later API connection.
+          if (this.taint.firstReport(sessionKey, hostname, f.token, now)) {
+            this.eventBus.emit({
+              stage: 'none', score: 50, similarity: 0,
+              target: hostname, method: 'CONNECT', path: '/',
+              payload_preview: detail, payload_full: hostname,
+              action: 'warned', kind: 'taint',
+              sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
+            })
+          }
           // audit mode: fall through to normal tunnel handling
         }
       }
@@ -860,12 +865,15 @@ export class ProxyServer {
             })
             return
           }
-          emitEvent({
-            stage: 'none', score: 50, similarity: 0,
-            target: hostname, method, path: dlpPath,
-            payload_preview: detail, payload_full: `${method} ${hostname}${dlpPath}`,
-            action: 'warned', kind: 'taint',
-          })
+          // Once per session, host and token while the taint is live (#489).
+          if (this.taint.firstReport(sessionKey, hostname, f.token, now)) {
+            emitEvent({
+              stage: 'none', score: 50, similarity: 0,
+              target: hostname, method, path: dlpPath,
+              payload_preview: detail, payload_full: `${method} ${hostname}${dlpPath}`,
+              action: 'warned', kind: 'taint',
+            })
+          }
         }
         const taintParser = getParser(dlpPath)
         if (taintParser) {

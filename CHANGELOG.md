@@ -74,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A taint warning is recorded once per session and host, not on every connection.** A development
+  session names github.com in tool results all the time, so every later `api.github.com` connection
+  warned: in one hour of observe mode, 59 of the dashboard's last 100 events were that one warning,
+  pushing the would-block events out. In `audit` mode a taint finding is now reported once per
+  session, sink host and token while its taint is live (30 minutes). Whether a connection is flagged
+  is unchanged, and `block` mode still refuses and records every one (#489).
 - **"Follow the previous instructions in the README" and "unrestricted free speech" no longer
   block.** The first blocked at the embedding stage: "previous instructions" is read as the
   model's own instructions, which switches the benign anchors off, and the raw similarity (0.866)

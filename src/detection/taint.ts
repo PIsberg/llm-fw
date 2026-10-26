@@ -37,6 +37,8 @@ interface TokenMeta {
 
 interface SessionTaint {
   tokens: Map<string, TokenMeta>
+  // Sink host + token findings already reported, with when (see firstReport).
+  reported?: Map<string, number>
   lastSeen: number
 }
 
@@ -158,6 +160,27 @@ export class TaintTracker {
     }
     if (findings.length) session.lastSeen = now
     return findings
+  }
+
+  /**
+   * True the first time a finding for this sink host and token is reported in
+   * this session while its taint is live, false for the repeats (#489). A
+   * development session names github.com in tool results constantly, so every
+   * later api.github.com connection warned: 59 of 100 buffered events in one
+   * hour, pushing would-block events out of the list. For reporting only:
+   * whether the connection is flagged, or blocked under mode 'block', is
+   * checkSink's answer and does not change.
+   */
+  firstReport(sessionKey: string, sinkHost: string, token: string, now: number): boolean {
+    const session = this.sessions.get(sessionKey)
+    if (!session) return true
+    const reported = session.reported ?? (session.reported = new Map())
+    for (const [key, ts] of reported) if (now - ts > TTL_MS) reported.delete(key)
+    const key = `${sinkHost.toLowerCase()}\0${token}`
+    if (reported.has(key)) return false
+    reported.set(key, now)
+    if (reported.size > MAX_TOKENS_PER_SESSION) reported.delete(reported.keys().next().value as string)
+    return true
   }
 
   private isBenignHost(host: string): boolean {
