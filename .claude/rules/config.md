@@ -60,9 +60,13 @@ digest, so a new default also needs `RULESET_DIGEST` re-pinned.
 ## CLI flags
 
 `src/cli/index.ts` is a plain `switch` on `process.argv[2]`, and flags are
-matched with `args.includes(...)`. There is no arg parser.
+matched with `args.includes(...)`. There is no arg parser, only a check
+of each subcommand's arguments against a table before it runs.
 
-If you add a flag, add it to `USAGE` in `src/cli/usage.ts`. That is enforced,
+If you add a flag, add it to `KNOWN_OPTIONS` in `src/cli/options.ts`, or the
+dispatcher refuses it before the subcommand runs: a misspelt flag used to be
+ignored, and `start --obeserve` enforced instead of observing. Add it to
+`USAGE` in `src/cli/usage.ts` too. That is enforced,
 not remembered: `test/cli/usage.test.ts` asserts every dispatched subcommand
 and every real flag appears in the help text. `--gateway` and `--observe` were
 shipped, tested and documented in the README while being absent from it, so the

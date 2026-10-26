@@ -78,7 +78,7 @@ using a per-host cert signed by the local CA. No hosts file modification require
 
 ### Mode B — DNS Sinkhole (Advanced, Requires Admin)
 
-Add to system hosts file (handled by `llm-fw setup --mode sinkhole`):
+Add to system hosts file (handled by `llm-fw setup --sinkhole`):
 ```
 127.0.0.1 api.anthropic.com
 127.0.0.1 generativelanguage.googleapis.com

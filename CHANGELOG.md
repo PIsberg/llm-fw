@@ -74,6 +74,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A misspelt flag stops the command instead of being ignored.** Every subcommand read its flags
+  with `args.includes(...)` and dropped anything else, so `llm-fw start --obeserve` started the
+  firewall in enforce mode and refused the operator's own Claude Code traffic they had asked it
+  only to watch. Each subcommand now checks its arguments before it runs (`src/cli/options.ts`):
+  an unknown one prints `llm-fw start: unknown option "--obeserve" (did you mean --observe?)` and
+  exits 1, and `--help` or `-h` after a subcommand prints the usage text instead of running it.
+  A script that passed an argument a subcommand never read now fails where it used to run.
 - **Blocks and observe-mode would-blocks stay in the dashboard's event list.** The list showed the
   last `dashboard.maxEvents` (100) events of every kind, and an agent session emits passed MCP and
   warned events by the hundred an hour, so a would-block left the list in about 15 minutes: after an

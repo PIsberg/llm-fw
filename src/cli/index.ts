@@ -2,6 +2,20 @@
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
+// Before any subcommand runs: a misspelt flag used to be ignored, so
+// `start --obeserve` enforced instead of observing (see options.ts).
+const { checkOptions, wantsHelp } = await import('./options.js');
+if (command && wantsHelp(args)) {
+  const { USAGE } = await import('./usage.js');
+  console.log(USAGE);
+  process.exit(0);
+}
+const optionError = command ? checkOptions(command, args) : undefined;
+if (optionError) {
+  console.error(optionError);
+  process.exit(1);
+}
+
 switch (command) {
   case 'setup': {
     const { run } = await import('./setup.js');
