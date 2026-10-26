@@ -496,7 +496,8 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
         payload_preview: `Tool invoked by LLM: tool${i}`, action: 'passed',
       })
     }
-    expect(eventBus.getAll().some(e => e.id === ev.id)).toBe(false)
+    // Out of the ring, and since #488 still listed with the retained blocks.
+    expect(eventBus.getAll().some(e => e.id === ev.id)).toBe(true)
 
     const res = await req(server, 'POST', '/api/feedback', JSON.stringify({ eventId: ev.id }))
     expect(res.status).toBe(200)

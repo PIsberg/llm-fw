@@ -287,7 +287,9 @@ Findings so far:
   events and a would-block was evicted in about 15 minutes, so 4 would-blocks
   could not be traced (#488); 59 of those 100 events were one taint warning on
   every `api.github.com` connection (#489, fixed 2026-10-26: reported once per
-  session, host and token).
+  session, host and token). #488 fixed the same day: blocked events stay
+  listed beside the ring; still in memory only (the audit log, off by
+  default, is the durable record).
 - [ ] Failure modes: upstream down, Ollama down, OOM kill, restart keeps the CA,
   in-place upgrade from 0.8.
 
