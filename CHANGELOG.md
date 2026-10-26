@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-26
+
 ### Added
 
 - **A recall floor for direct injection, checked on every PR.** `npm run recall:floor` runs the
@@ -3179,7 +3181,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/PIsberg/llm-fw/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...v0.9.1
 [0.8.0]: https://github.com/PIsberg/llm-fw/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/PIsberg/llm-fw/compare/v0.6.0...v0.7.0

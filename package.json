@@ -1,6 +1,6 @@
 {
   "name": "llm-fw",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Local LLM prompt injection firewall",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
