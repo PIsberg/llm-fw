@@ -26,6 +26,17 @@ Three things keep the dev group out of the release, each pinned by a test:
    would be a module-not-found for every user. The one deliberate exception is
    `tesseract.js`, loaded through a dynamic import that degrades when it is absent.
 
+### Why npmjs.org lists Playwright and the other dev packages
+
+The npm page for `llm-fw` shows a "Dev Dependencies" list (Playwright, Vitest, ESLint,
+Stryker, knip and the rest). That list is the `devDependencies` field of the published
+`package.json`, which npm always uploads as written. It is metadata for contributors and
+for dependency scanners: `npm i llm-fw` ignores it, so none of those packages are
+downloaded or installed. `@huggingface/transformers` is listed because it is the one real
+runtime dependency. We do not strip `devDependencies` at publish time: the registry
+manifest would then differ from the repository's, and the gain is a shorter list on a web
+page, not a smaller install.
+
 To check by hand: `npm pack --dry-run`, and
 `npm install ./llm-fw-*.tgz --omit=dev --dry-run` in an empty directory.
 
