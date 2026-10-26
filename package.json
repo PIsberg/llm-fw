@@ -59,6 +59,7 @@
     "scorecard": "node --import tsx/esm scripts/gen-scorecard.ts",
     "ruleset:digest": "node --import tsx/esm scripts/ruleset-digest.ts",
     "fpr": "node --import tsx/esm test/eval/fpr.ts",
+    "recall:floor": "node --import tsx/esm test/eval/recallFloor.ts",
     "scan-server": "node --import tsx/esm scripts/scan-server.ts",
     "bench:competitors": "node --import tsx/esm test/eval/competitors/run.ts",
     "bench:trend": "node --import tsx/esm scripts/bench-trend.ts",

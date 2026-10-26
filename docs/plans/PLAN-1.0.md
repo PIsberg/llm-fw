@@ -12,7 +12,7 @@ stability decisions. Phase 3 needs the published container image from Phase 2.
 Legend: `[x]` done, `[ ]` open, `[~]` prepared and waiting on a maintainer
 action (a merge, a publish, a setting, a purchase).
 
-## Where it stands (2026-10-25)
+## Where it stands (2026-10-26)
 
 Done on 2026-10-25, merged to main the same day:
 
@@ -37,6 +37,20 @@ In review (PR from `detection/multilingual-playground`, ruleset 2026.10.87):
   oasst1): 1 new block, the probe English blocks too. `npm run fpr` gates a
   70-language Aya sample (0 of 2,795). Leftovers are under "Multilingual
   coverage" in Phase 4.
+
+In review (PR from `ga/direct-recall-floor`, stacked on the one above):
+
+- #480 explained and gated. The 8 lost direct injections trace to two
+  commits of 2026-10-11 (`npm run verdicts:diff`, 8 of 23,938 rows moved, all
+  safeguard, all block to pass or warn): 7 persona prompts ("Mongo Tom",
+  "Skynet", "CHAR=SJ is amoral") had scored 50 only because a pig-latin or
+  URL-decoded copy of the text re-matched its own rule and earned the +20
+  obfuscation bonus, which de41987 stopped; they now score 30 from
+  `unconstrained-persona` alone. 1 fell from embedding block (0.8617) to warn
+  (0.8524) when 5ed7539 added three output-format benign anchors. Both were
+  fixes for real false positives; neither lost row was blocked for a reason
+  the rules meant. `npm run recall:floor` now fails CI when a split blocks
+  fewer attacks than its floor (measured count minus one row).
 
 Waiting on a maintainer decision:
 
@@ -265,7 +279,7 @@ Findings so far:
   | Dolly-15k and oasst1 samples blocked | 0 of 2,000 each | CI `npm run fpr` |
   | Indirect injection (InjecAgent) | 1,054 of 1,054 | nightly drift gate |
   | Direct injection, held-out splits | heldout 23 of 31, safeguard 490 of 650 | nightly drift gate |
-  | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31 | none; publish it |
+  | Direct injection, all four splits | 627 of 853 (73.5%): gandalf 97 of 112, safeguard 490 of 650, deepset 17 of 60, heldout 23 of 31 | CI `npm run recall:floor`, per split, one row of margin |
   | Real sessions ended by a block, outside llm-fw | 10 of 245 | none; the per-session replay, run before the rc |
   | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |
   | Proposed, ruleset 2026.10.87: human-written prompts in 70 languages blocked | 0 of 2,795 (Aya sample) | CI `npm run fpr` |
@@ -276,7 +290,7 @@ Findings so far:
   73.5% row above, published as a number rather than closed. It was 635 of
   853 on 2026-10-10 (the table in `docs/guides/tuning.md`), so 8 direct
   injections were lost between then and ruleset 2026.10.86 without any gate
-  failing (#480); a floor is what would catch the next one. #273 (embedding
+  failing (#480); `npm run recall:floor` now catches the next one. #273 (embedding
   false positives) is held by the `fpr` rows: the two of its families fixed
   in #286 stay fixed, and a regression fails CI. #287 (decide by surface)
   shipped its first two pieces: `wordingAction: warn` (opt-in) and
@@ -349,8 +363,8 @@ steps apply to the release that is the 1.0 candidate.
 
 - [ ] At the first release after the hardening branch: confirm the new `sbom`
   job attached `llm-fw-vX.Y.Z.cdx.json` to the GitHub Release (it cannot run
-  before one), and that dev-only fast-uri has moved to 3.1.9 or later (its
-  fix clears the 7-day cooldown on 2026-10-26).
+  before one). Dev-only fast-uri is already 3.1.9 in the lockfile on main
+  (checked 2026-10-26).
 - [ ] `1.0.0-rc.1` on the `next` dist-tag, about two weeks of daily use, fixes
   as `rc.N`.
 - [ ] 1.0.0 cut with the `release` skill; tag and publish are the maintainer's.

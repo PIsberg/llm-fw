@@ -16,6 +16,12 @@
 
 Unlike the load test (which *samples* under concurrency through the proxy), this gate is **deterministic and exhaustive** — every corpus entry runs every time — and it executes as part of `npm run test:run`, so CI fails on any detection change that silently regresses coverage. **Grow the corpus, not the thresholds**, when adding a detector or fixing a miss; lower a threshold only with a deliberate, documented reason.
 
+### Direct-injection recall floor
+
+`npm run recall:floor` (`test/eval/recallFloor.ts`) runs the four held-out direct-injection splits (gandalf, safeguard, deepset, heldout, 853 attacks) through the same cheap pipeline and fails when any split blocks fewer attacks than its floor in `test/eval/lib/recallFloor.ts`. It runs in CI's Load Tests job on every PR; locally it took 7 seconds. The corpus gate above cannot see these splits, and the nightly drift gate compares each run with the median of the last 7, so between 2026-10-10 and 2026-10-25 8 of the 853 stopped being blocked a row or two at a time and nothing failed (#480).
+
+Each floor is the measured count minus one row, because the embedding stage lands a row or two differently on Linux and Windows (safeguard: 491 and 490). The gate prints a notice when a split clears its floor by more than that: raise the floor in the same PR. A loss that is a deliberate trade for a false positive lowers the floor in the PR that makes it, with the rows named by `npm run verdicts:dump` and `npm run verdicts:diff`.
+
 ### Playground examples
 
 `test/dashboard/playground-examples.test.ts` sends every example button of the Prompt Testing playground (all categories, from `src/dashboard/playgroundExamples.ts`, which the page embeds) to `/api/test` on a real dashboard server backed by the real default pipeline, building each request the way the page does. A danger example must be caught and a `safe` one must pass, so an example listed under "Examples llm-fw catches" that stops being caught fails the build.
