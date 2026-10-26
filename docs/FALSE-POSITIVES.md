@@ -73,7 +73,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.87
+## Result, ruleset 2026.10.88
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** Measured row by row, 7 of 26,733 eval
+verdicts changed, all of them safeguard persona jailbreaks going from pass to
+block (#492): 497 of 650 safeguard attacks block, up from 490. The ruleset
+also stops `policy-puppetry` reading a `null` value as a control switched off:
+every OpenAI chat completion carries `"refusal": null`, so a pasted API
+response, or a tool result printing one, blocked. No eval row relied on it.
+
+## Ruleset 2026.10.87
 
 **2.68% overall (9 of 336), unchanged in every category; Dolly and oasst1
 samples 0 of 2,000 each; 0 of 23,938 eval verdicts changed; held-out recall

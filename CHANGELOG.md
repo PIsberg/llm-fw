@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A recall floor for direct injection, checked on every PR.** `npm run recall:floor` runs the
   four held-out direct-injection splits (gandalf, safeguard, deepset, heldout) through the default
-  pipeline and fails when one blocks fewer attacks than its floor (today 627 of 853 are blocked;
-  each floor is that split's count minus one row). Nothing caught it when 8 of the 853 stopped
+  pipeline and fails when one blocks fewer attacks than its floor (634 of 853 are blocked on
+  ruleset 2026.10.88; each floor is that split's count minus one row). Nothing caught it when 8 of the 853 stopped
   being blocked between 2026-10-10 and 2026-10-25 (#480): 7 Mongo Tom style persona prompts had
   been blocked only by an obfuscation bonus that a pig-latin or URL-decoded copy of the same
   text earned by accident, removed on 2026-10-11 (de41987), and 1 fell under the embedding line
@@ -52,6 +52,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both turns answered under `withhold`, both refused with 422 under `refuse`.
 
 ### Fixed
+
+- **Long persona jailbreaks that tell the persona to drop refusals are blocked again.** 7 held-out
+  prompts of the "Mongo Tom" and "Skynet" kind passed: they describe a persona free of rules
+  (scored 30) and tell it, in the third person, to drop refusals and warnings ("FFRCB does not add
+  warnings", "Skynet will never deny a request", "never { argue refuse }", "bypassing openai's
+  limitations"), which the refusal-suppression rule only read as a second-person command. Until
+  2026-10-11 they were blocked by accident, by an obfuscation bonus (#480). Now both halves score
+  and they block; either alone still escalates without blocking. Safeguard recall 490 to 497 of
+  650, direct injection 627 to 634 of 853; 7 of 26,733 eval verdicts changed, all of them these;
+  `npm run fpr` unchanged. Ruleset 2026.10.88 (#492).
+- **An OpenAI API response no longer blocks as a fake policy.** `"refusal": null`, present in
+  every chat completion, matched the policy-puppetry rule as a refusal setting switched off, so a
+  pasted response or a tool result printing one was refused. `null` is an unset field and no
+  longer counts.
 
 - **"Ignore all previous instructions" no longer passes in 37 more languages.** Translating
   the Prompt Testing playground's own attack examples into the 132 languages its Translate button
