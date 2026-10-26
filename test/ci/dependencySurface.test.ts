@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // A default `npm i llm-fw` used to pull ~50 MB and 13 extra packages for OCR,
@@ -129,5 +132,33 @@ describe('devDependencies never reach the release', () => {
 
   it('ships only dist, data and NOTICE.md, so no test, script or fixture is packed', () => {
     expect([...(PKG.files ?? [])].sort()).toEqual(['NOTICE.md', 'data', 'dist'])
+  })
+})
+
+// npmjs.org lists the  field of the published manifest under
+// "Dev Dependencies", so Playwright, Vitest and Stryker looked like part of the
+// package even though npm never installs them. The release workflow rewrites the
+// manifest it publishes; the repository's own package.json keeps the field.
+describe('the published manifest carries no dev dependencies', () => {
+  const STRIP = fileURLToPath(new URL('scripts/strip-dev-manifest.mjs', ROOT))
+
+  it('removes devDependencies and keeps everything a consumer reads', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'llm-fw-manifest-'))
+    const file = join(dir, 'package.json')
+    writeFileSync(file, JSON.stringify(PKG))
+    execFileSync(process.execPath, [STRIP, file])
+    const out = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+    expect(out.devDependencies).toBeUndefined()
+    expect(Object.keys(PKG.devDependencies ?? {}).length).toBeGreaterThan(0)
+    for (const key of ['name', 'version', 'bin', 'exports', 'files', 'dependencies', 'peerDependencies', 'peerDependenciesMeta', 'engines']) {
+      expect(out[key], key).toEqual((PKG as Record<string, unknown>)[key])
+    }
+  })
+
+  it('runs in the release workflow before npm publish', () => {
+    const wf = readFileSync(fileURLToPath(new URL('.github/workflows/release.yml', ROOT)), 'utf8')
+    const strip = wf.indexOf('scripts/strip-dev-manifest.mjs')
+    expect(strip).toBeGreaterThan(-1)
+    expect(strip).toBeLessThan(wf.indexOf('npm publish'))
   })
 })
