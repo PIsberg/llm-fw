@@ -446,6 +446,12 @@ export const DEFAULT_CONFIG: Config = {
     usageMeter: {
       enabled: true,
     },
+    // Stores what people type, so it is opt-in. Memory only, secrets redacted.
+    promptMonitor: {
+      enabled: false,
+      maxEntries: 500,
+      maxChars: 4000,
+    },
   },
   // Every major AI provider's API host — the proxy TLS-inspects these and the
   // sinkhole redirects them. Sourced from the provider registry (providers.ts)
@@ -860,6 +866,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_CACHE_CONTROL_ENABLED: (c, v) => { if (c.modules?.cacheControl) c.modules.cacheControl.enabled = v === 'true'; },
   LLM_FW_RESPONSE_CACHE_ENABLED: (c, v) => { if (c.modules?.responseCache) c.modules.responseCache.enabled = v === 'true'; },
   LLM_FW_USAGE_METER_ENABLED: (c, v) => { if (c.modules?.usageMeter) c.modules.usageMeter.enabled = v === 'true'; },
+  LLM_FW_PROMPT_MONITOR_ENABLED: (c, v) => { if (c.modules?.promptMonitor) c.modules.promptMonitor.enabled = v === 'true'; },
   // Task C5 — config.json hot-reload toggle (see src/config/hotReload.ts).
   LLM_FW_HOT_RELOAD: (c, v) => { c.hotReload = v === 'true'; },
 };

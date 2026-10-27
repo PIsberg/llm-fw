@@ -322,7 +322,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_109 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_110 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -400,6 +400,7 @@ _109 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_NONTEXT_TRANSCRIBE` | `nonText.transcribe` | `false` |
 | `LLM_FW_OLLAMA_URL` | `detection.ollamaUrl` | `http://localhost:11434` |
 | `LLM_FW_PROGRESS_COLLAPSE_ENABLED` | `modules.progressCollapse.enabled` | `false` |
+| `LLM_FW_PROMPT_MONITOR_ENABLED` | `modules.promptMonitor.enabled` | `false` |
 | `LLM_FW_PROMPT_OLDER_TURNS` | `detection.surfaces.prompt` |  |
 | `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` |  |
 | `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |

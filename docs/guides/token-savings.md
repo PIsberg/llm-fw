@@ -328,6 +328,7 @@ In pipeline order, which is also the order of the cards:
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
+| `prompt-monitor` | `modules.promptMonitor` | nothing; keeps the prompts users type for the Prompts tab (off by default) |
 
 ### Tool result pruner
 
@@ -785,6 +786,47 @@ sends `stream_options.include_usage`; the
 [stream usage reporter](#stream-usage-reporter) adds it), the Responses API `response.completed`
 event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
 is not metered, so a large download is never held in memory twice.
+
+### Prompt monitor
+
+`modules.promptMonitor.enabled` (`LLM_FW_PROMPT_MONITOR_ENABLED`), **off by
+default**: it stores what people type, so you opt in. It saves no tokens and
+changes no request. It feeds the dashboard's **Prompts** tab, which lists the
+prompts newest first and lets you search and filter them:
+
+- **Search**: every word you type must appear in the prompt, in any case.
+- **Filters**: target host, model, client (the address a prompt came from on the
+  proxy, or the tenant on the gateway) and a time range (last hour, 24 hours,
+  7 days). They combine with the search.
+- **Clear** forgets everything held and leaves the monitor on.
+
+What it keeps:
+
+- The newest user message of each request. An agent resends the whole
+  conversation after every tool result, so the history would repeat each earlier
+  prompt; the same prompt arriving again from the same client is stored once.
+  Tool results, system text and assistant turns are never kept, and neither is
+  a `<system-reminder>` part an agent appends to the user turn.
+- Anthropic, OpenAI chat, the Responses API and Gemini request shapes.
+- The text after the DLP redactor has run on it with the default detectors,
+  whatever `dlp.mode` is, so a key pasted into a prompt is not kept in the clear.
+  The redactor misses what no detector matches: treat the list as sensitive.
+- At most `maxChars` characters of each prompt (default 4000; the row says how
+  long the prompt was) and the newest `maxEntries` prompts (default 500).
+
+Opting in and out is live: the **Monitoring** switch on the Prompts tab, the
+module card, `POST /api/modules` and a config hot reload all take effect on the
+next request. **Switching it off drops every held prompt**, and so does
+stopping the process: nothing is written to disk. It sits under Token Economy
+like every module, so with Token Economy off nothing is recorded. It records
+requests on the proxy and the gateway, before detection runs, so it also holds
+a prompt that was then refused; look in Events for what happened to it.
+
+`GET /api/prompts` returns the same list as JSON (`q`, `target`, `model`,
+`session`, `since`, `until`, `limit` up to 500, `offset`), and
+`POST /api/prompts/clear` empties it. Both sit behind the dashboard's auth; the
+clear is also same-origin only. Anyone who can open the dashboard can read the
+prompts, so do not bind it beyond loopback without a token.
 
 ### History window
 

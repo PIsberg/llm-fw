@@ -198,6 +198,9 @@ const HOT_PATHS: Path[] = [
   ['modules', 'responseCache', 'maxEntries'],
   ['modules', 'responseCache', 'maxEntryBytes'],
   ['modules', 'usageMeter', 'enabled'],
+  ['modules', 'promptMonitor', 'enabled'],
+  ['modules', 'promptMonitor', 'maxEntries'],
+  ['modules', 'promptMonitor', 'maxChars'],
 ]
 
 // COLD keys (Task C5) — changing any of these while the process is running

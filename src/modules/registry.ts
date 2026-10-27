@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig, PromptMonitorConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -18,6 +18,7 @@ import { StreamUsageModule } from './builtin/streamUsage.js'
 import { CacheControlModule } from './builtin/cacheControl.js'
 import { ResponseCacheModule } from './builtin/responseCache.js'
 import { UsageMeterModule } from './builtin/usageMeter.js'
+import { PromptMonitorModule } from './builtin/promptMonitor.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 import { PayloadModule, parsePayload } from './base.js'
 import { createLogger } from '../logger.js'
@@ -52,6 +53,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
   { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
+  { key: 'promptMonitor', create: cfg => new PromptMonitorModule(cfg as PromptMonitorConfig) },
 ]
 
 /** One editable option of a built-in module, as the dashboard renders it. */
@@ -81,6 +83,8 @@ const OPTION_RULES: Record<string, Pick<ModuleOption, 'min' | 'max' | 'values'>>
   'responseCache.maxEntries': { min: 1, max: 1_000_000 },
   'responseCache.maxEntryBytes': { min: 1, max: 1_073_741_824 },
   'cacheControl.ttl': { values: ['5m', '1h'] },
+  'promptMonitor.maxEntries': { min: 1, max: 100_000 },
+  'promptMonitor.maxChars': { min: 20, max: 1_000_000 },
 }
 const NUMBER_MAX = 1_000_000_000
 const STRING_MAX = 200

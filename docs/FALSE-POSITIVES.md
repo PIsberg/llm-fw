@@ -73,7 +73,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.10.92
+## Result, ruleset 2026.10.93
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 12,901 eval verdicts changed** (the rows
+a clean checkout of the previous tree can run; the gitignored full datasets were
+not in it). Nothing in detection moved. The version was cut because the default
+for the new Prompt Monitor module sits in `config.ts`, which the ruleset digest
+covers; `npm run recall:floor` is at or above every floor.
+
+## Ruleset 2026.10.92
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
 each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed.** The
