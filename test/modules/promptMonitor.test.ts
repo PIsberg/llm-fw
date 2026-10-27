@@ -48,6 +48,40 @@ describe('PromptMonitorModule', () => {
     expect(mod.query({}).total).toBe(2)
   })
 
+  // Two agent sessions on one machine share a client address, so their
+  // resent prompts alternate: telling a resend from a new prompt by "same as
+  // the last one" stored each of them again on every tool turn (live test).
+  it('records a prompt once even when another session on the same client interleaves', () => {
+    const mod = new PromptMonitorModule(cfg())
+    const toolLoop = (prompt: string) => anthropic([
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+    ])
+    run(mod, anthropic([{ role: 'user', content: 'session A prompt' }]))
+    run(mod, anthropic([{ role: 'user', content: 'session B prompt' }]))
+    run(mod, toolLoop('session A prompt'))
+    run(mod, toolLoop('session B prompt'))
+    run(mod, toolLoop('session A prompt'))
+    expect(mod.query({}).entries.map(e => e.text)).toEqual(['session B prompt', 'session A prompt'])
+  })
+
+  it('records a prompt typed twice in a row, since each arrives as the newest message', () => {
+    const mod = new PromptMonitorModule(cfg())
+    run(mod, anthropic([{ role: 'user', content: 'continue' }]))
+    run(mod, anthropic([{ role: 'user', content: 'continue' }]))
+    expect(mod.query({}).total).toBe(2)
+  })
+
+  it('records a prompt typed after a tool result in the same turn', () => {
+    const mod = new PromptMonitorModule(cfg())
+    run(mod, anthropic([
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }, { type: 'text', text: 'actually, stop' }] },
+    ]))
+    expect(mod.query({}).entries.map(e => e.text)).toEqual(['actually, stop'])
+  })
+
   it('skips a system-reminder part appended to the user turn', () => {
     const mod = new PromptMonitorModule(cfg())
     run(mod, anthropic([{ role: 'user', content: [{ type: 'text', text: 'the real prompt' }, { type: 'text', text: '<system-reminder>noise</system-reminder>' }] }]))

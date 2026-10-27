@@ -802,9 +802,11 @@ prompts newest first and lets you search and filter them:
 
 What it keeps:
 
-- The newest user message of each request. An agent resends the whole
-  conversation after every tool result, so the history would repeat each earlier
-  prompt; the same prompt arriving again from the same client is stored once.
+- The newest user message of each request, and only when nothing follows it. An
+  agent resends the whole conversation after every tool result, so a prompt
+  followed by a tool result or an assistant turn was already stored when it was
+  first sent. A prompt typed twice in a row is stored twice, and so is a client
+  retry of the same request.
   Tool results, system text and assistant turns are never kept, and neither is
   a `<system-reminder>` part an agent appends to the user turn.
 - Anthropic, OpenAI chat, the Responses API and Gemini request shapes.

@@ -46,9 +46,6 @@ export interface PromptPage {
 
 const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 500
-// Sessions remembered for the resend check; an address that went quiet ages out.
-const MAX_SESSIONS = 1000
-
 // An agent appends its own notes to the user turn in a part of its own.
 const injected = (text: string): boolean => text.trimStart().startsWith('<system-reminder>')
 
@@ -68,11 +65,12 @@ const parseTime = (value: string | undefined): number | undefined => {
  * Keeps what the user typed, so the dashboard can list, search and filter it.
  * Reads requests only and changes nothing.
  *
- * It stores the newest user message of each request: an agent resends the
- * whole conversation after every tool result, so the history would repeat
- * every earlier prompt, and the same prompt arriving again from the same
- * client is not stored twice. Tool results, system text and assistant turns
- * are never stored. Prompts are held in memory only, run through the DLP
+ * It stores the newest user message of each request, and only when nothing
+ * follows it: an agent resends the whole conversation after every tool
+ * result, so a prompt followed by a tool result or an assistant turn was
+ * stored when it was first sent. Telling a resend by "same as the client's
+ * last prompt" fails when two sessions share an address and alternate. Tool
+ * results, system text and assistant turns are never stored. Prompts are held in memory only, run through the DLP
  * redactor first whatever the DLP mode is, cut to `maxChars`, and dropped
  * when the module is switched off or the process stops.
  */
@@ -88,8 +86,6 @@ export class PromptMonitorModule implements GatewayModule {
   // Oldest first.
   private held: PromptEntry[] = []
   private recorded = 0
-  // Session to the last prompt stored for it.
-  private readonly last = new Map<string, string>()
 
   constructor(config?: PromptMonitorConfig) {
     this.cfg = config ?? { enabled: false, maxEntries: 500, maxChars: 4000 }
@@ -108,7 +104,7 @@ export class PromptMonitorModule implements GatewayModule {
   // every entry point checks the switch itself.
   private forgetIfOff(): boolean {
     if (this.cfg.enabled) return false
-    if (this.held.length > 0 || this.last.size > 0) this.clear()
+    if (this.held.length > 0) this.clear()
     return true
   }
 
@@ -118,15 +114,14 @@ export class PromptMonitorModule implements GatewayModule {
     const payload = parsePayload(body)
     if (!payload) return unchanged
 
-    const prompts = collectTextSlots(payload).filter(s => s.kind === 'prompt' && s.role === 'user' && s.text.trim() !== '' && !injected(s.text))
-    const text = prompts[prompts.length - 1]?.text
-    if (text === undefined) return unchanged
-
+    const slots = collectTextSlots(payload)
+    let at = slots.length - 1
+    while (at >= 0 && !(slots[at]!.kind === 'prompt' && slots[at]!.role === 'user' && slots[at]!.text.trim() !== '' && !injected(slots[at]!.text))) at--
+    if (at < 0) return unchanged
+    // Something after the prompt means the client is carrying it forward.
+    if (slots.slice(at + 1).some(s => s.kind === 'tool_result' || (s.kind === 'prompt' && s.role !== 'user'))) return unchanged
+    const text = slots[at]!.text
     const session = ctx.tenant ?? ctx.sessionKey ?? 'unknown'
-    if (this.last.get(session) === text) return unchanged
-    this.last.delete(session)
-    this.last.set(session, text)
-    if (this.last.size > MAX_SESSIONS) this.last.delete(this.last.keys().next().value!)
 
     const clean = this.dlp.redact(text, this.dlp.scan(text))
     const maxChars = Math.max(1, this.cfg.maxChars)
@@ -187,7 +182,6 @@ export class PromptMonitorModule implements GatewayModule {
   /** Forget every held prompt; the switch is left alone. */
   clear(): void {
     this.held = []
-    this.last.clear()
   }
 
   getStats(): ModuleStats {
