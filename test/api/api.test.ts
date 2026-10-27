@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import fs from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createFirewall } from '../../src/index.js'
 import type { Firewall } from '../../src/index.js'
 
@@ -13,13 +16,29 @@ import type { Firewall } from '../../src/index.js'
 // the beforeAll hook, which vitest.config.ts already gives a 120s allowance.
 describe('createFirewall (programmatic scan API)', () => {
   let fw: Firewall
+  let dir: string
+  const savedDir = process.env.LLM_FW_DIR
+  const savedModelDir = process.env.LLM_FW_MODEL_DIR
 
+  // createFirewall() loads <LLM_FW_DIR>/config.json like the proxy does. Left
+  // at the default it read the developer's own ~/.llm-fw/config.json: one that
+  // enables the classifier made the heuristic block below report stage
+  // 'classifier', so two cases failed locally and passed in CI. An empty
+  // directory pins the shipped defaults. The model cache stays where it is.
   beforeAll(async () => {
+    dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-api-'))
+    process.env.LLM_FW_DIR = dir
+    process.env.LLM_FW_MODEL_DIR ??= join(savedDir ?? join(process.env.USERPROFILE ?? process.env.HOME ?? '', '.llm-fw'), 'models')
     fw = await createFirewall()
   })
 
   afterAll(async () => {
     await fw.close()
+    if (savedDir === undefined) delete process.env.LLM_FW_DIR
+    else process.env.LLM_FW_DIR = savedDir
+    if (savedModelDir === undefined) delete process.env.LLM_FW_MODEL_DIR
+    else process.env.LLM_FW_MODEL_DIR = savedModelDir
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 
   it('blocks a known prompt injection at the heuristic stage', async () => {
