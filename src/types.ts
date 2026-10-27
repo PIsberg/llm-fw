@@ -554,6 +554,13 @@ export interface HistoryWindowConfig extends ModuleSwitchConfig {
   step: number;
 }
 
+export interface PromptMonitorConfig extends ModuleSwitchConfig {
+  /** Prompts kept; the oldest goes first. */
+  maxEntries: number;
+  /** Characters of one prompt kept; the rest is cut (its full length is still shown). */
+  maxChars: number;
+}
+
 export interface ResponseCacheConfig extends ModuleSwitchConfig {
   /** Seconds a stored response may be replayed. */
   ttlSeconds: number;
@@ -605,6 +612,8 @@ export interface ModulesConfig {
   responseCache?: ResponseCacheConfig;
   /** Adds up provider-reported usage from responses. On by default: it changes nothing. */
   usageMeter?: ModuleSwitchConfig;
+  /** Keeps the user's own prompts in memory for the dashboard to search. Off by default: it stores what people type. */
+  promptMonitor?: PromptMonitorConfig;
 }
 
 export interface ModuleEvent {

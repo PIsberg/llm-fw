@@ -19,6 +19,7 @@ import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
 import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, isLoopbackHostHeader, tokenMatches as matchesToken, generateToken } from '../auth.js'
 import { ModuleManager, TOKEN_ECONOMY_ID } from '../modules/registry.js'
+import { PromptMonitorModule } from '../modules/builtin/promptMonitor.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
 
@@ -302,6 +303,13 @@ const HTML = `<!DOCTYPE html>
   .btn:active { transform: translateY(1px); box-shadow: none; }
   .btn:disabled { opacity: 0.55; cursor: not-allowed; }
   .btn-sm { padding: 5px 12px; font-size: 0.78rem; margin-top: 0; }
+  .prompts-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .prompts-bar input[type=text] { flex: 1 1 240px; min-width: 160px; }
+  .prompts-bar .prompts-spacer { flex: 1 1 auto; }
+  .prompts-note { padding: 18px; color: var(--text-2); font-size: 0.84rem; }
+  .prompt-text { max-width: 720px; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+  .prompt-text.is-clipped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .prompt-meta { color: var(--text-3); font-size: 0.74rem; }
   .btn-ghost { background: var(--bg-elev); color: var(--text); border-color: var(--line-strong); box-shadow: none; }
   .btn-ghost:hover { background: var(--bg-sunken); color: var(--text); box-shadow: none; }
 
@@ -650,6 +658,7 @@ const HTML = `<!DOCTYPE html>
     <button class="tab-btn" onclick="showTab('playground', this)">Prompt Testing</button>
     <button class="tab-btn" onclick="showTab('traffic', this)">Live Traffic</button>
     <button class="tab-btn" onclick="showTab('mcp', this)">MCP Traffic <span id="mcp-count" class="count">0</span></button>
+    <button class="tab-btn" onclick="showTab('prompts', this)">Prompts</button>
     <button class="tab-btn" onclick="showTab('modules', this)">Modules</button>
     <button class="tab-btn" onclick="showTab('settings', this)">Settings</button>
   </nav>
@@ -692,6 +701,37 @@ const HTML = `<!DOCTYPE html>
         <tbody id="mcp-body"></tbody>
       </table>
     </div>
+  </div>
+
+  <div id="tab-prompts" class="tab-panel">
+    <p class="panel-intro">What users typed, newest first. The Prompt Monitor keeps the newest user message of each request in memory only, with secrets redacted, and forgets everything when you switch it off or the process stops. Tool results, system text and assistant turns are never kept.</p>
+    <div class="prompts-bar">
+      <label><input type="checkbox" id="prompts-toggle"> Monitoring</label>
+      <span class="prompts-spacer"></span>
+      <span id="prompts-count" class="prompt-meta"></span>
+      <button type="button" class="btn btn-sm" id="prompts-refresh">Refresh</button>
+      <button type="button" class="btn btn-sm" id="prompts-clear">Clear</button>
+    </div>
+    <div class="prompts-bar" id="prompts-filters">
+      <input type="text" id="prompts-search" placeholder="Search prompts (every word must match)" aria-label="Search prompts">
+      <select id="prompts-target" aria-label="Filter by target"><option value="">All targets</option></select>
+      <select id="prompts-model" aria-label="Filter by model"><option value="">All models</option></select>
+      <select id="prompts-session" aria-label="Filter by client"><option value="">All clients</option></select>
+      <select id="prompts-range" aria-label="Filter by time">
+        <option value="">Any time</option>
+        <option value="3600000">Last hour</option>
+        <option value="86400000">Last 24 hours</option>
+        <option value="604800000">Last 7 days</option>
+      </select>
+    </div>
+    <div id="prompts-off" class="prompts-note" hidden>Prompt monitoring is off. Switch it on to start keeping the prompts users type.</div>
+    <div class="table-wrap">
+      <table class="tlog" id="prompts-table">
+        <thead><tr><th>Time</th><th>Client</th><th>Target</th><th>Model</th><th>Prompt</th></tr></thead>
+        <tbody id="prompts-body"></tbody>
+      </table>
+    </div>
+    <div class="prompts-bar"><button type="button" class="btn btn-sm" id="prompts-more" hidden>Load more</button></div>
   </div>
 
   <div id="tab-modules" class="tab-panel">
@@ -835,6 +875,7 @@ function showTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
+  if (name === 'prompts') loadPrompts(true);
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -1381,6 +1422,100 @@ async function loadModuleStats() {
   } catch(_) {}
 }
 loadModuleStats();
+
+// ── Prompts tab ──────────────────────────────────────────────────────────────
+// Text goes in through textContent only: a prompt is whatever a user typed.
+const PROMPT_PAGE = 100;
+let promptShown = 0;
+let promptTimer = null;
+const promptEl = id => document.getElementById(id);
+
+function promptQuery(offset) {
+  const p = new URLSearchParams();
+  const set = (k, v) => { if (v) p.set(k, v); };
+  set('q', promptEl('prompts-search').value.trim());
+  set('target', promptEl('prompts-target').value);
+  set('model', promptEl('prompts-model').value);
+  set('session', promptEl('prompts-session').value);
+  const range = Number(promptEl('prompts-range').value);
+  if (range) p.set('since', new Date(Date.now() - range).toISOString());
+  p.set('limit', String(PROMPT_PAGE));
+  p.set('offset', String(offset));
+  return p.toString();
+}
+
+function fillPromptFilter(id, values) {
+  const sel = promptEl(id);
+  const keep = sel.value;
+  const all = sel.options[0];
+  sel.replaceChildren(all, ...values.sort().map(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; return o; }));
+  sel.value = values.includes(keep) ? keep : '';
+}
+
+function promptRow(e) {
+  const tr = document.createElement('tr');
+  const cell = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; tr.appendChild(td); return td; };
+  cell(e.timestamp.slice(0, 19).replace('T', ' ') + 'Z', 'td-time');
+  cell(e.session);
+  cell(e.target);
+  cell(e.model);
+  const td = cell(e.text, 'prompt-text is-clipped');
+  td.title = 'Click to expand';
+  td.onclick = () => td.classList.toggle('is-clipped');
+  if (e.truncated) {
+    const m = document.createElement('div');
+    m.className = 'prompt-meta';
+    m.textContent = 'Cut: ' + e.chars.toLocaleString() + ' characters in all';
+    td.appendChild(m);
+  }
+  return tr;
+}
+
+async function loadPrompts(reset) {
+  const body = promptEl('prompts-body');
+  const offset = reset ? 0 : promptShown;
+  try {
+    const res = await fetch('/api/prompts?' + promptQuery(offset));
+    if (!res.ok) return;
+    const data = await res.json();
+    promptEl('prompts-toggle').checked = data.enabled;
+    promptEl('prompts-off').hidden = data.enabled;
+    promptEl('prompts-filters').hidden = !data.enabled;
+    if (reset) { body.replaceChildren(); promptShown = 0; }
+    for (const e of data.entries) body.appendChild(promptRow(e));
+    promptShown += data.entries.length;
+    promptEl('prompts-count').textContent = data.enabled ? promptShown.toLocaleString() + ' of ' + data.total.toLocaleString() + ' shown' : '';
+    promptEl('prompts-more').hidden = promptShown >= data.total;
+    fillPromptFilter('prompts-target', data.facets.targets);
+    fillPromptFilter('prompts-model', data.facets.models);
+    fillPromptFilter('prompts-session', data.facets.sessions);
+  } catch (_) {}
+}
+
+promptEl('prompts-search').oninput = () => { clearTimeout(promptTimer); promptTimer = setTimeout(() => loadPrompts(true), 200); };
+for (const id of ['prompts-target', 'prompts-model', 'prompts-session', 'prompts-range']) promptEl(id).onchange = () => loadPrompts(true);
+promptEl('prompts-refresh').onclick = () => loadPrompts(true);
+promptEl('prompts-more').onclick = () => loadPrompts(false);
+promptEl('prompts-toggle').onchange = async function () {
+  const box = this;
+  try {
+    const res = await fetch('/api/modules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'prompt-monitor', enabled: box.checked }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch (_) { box.checked = !box.checked; }
+  loadPrompts(true);
+  loadModuleStats();
+};
+promptEl('prompts-clear').onclick = async () => {
+  try { await fetch('/api/prompts/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch (_) {}
+  loadPrompts(true);
+};
+// New prompts arrive while the tab is open; keep the first page fresh unless the reader is searching or paged in.
+setInterval(() => {
+  if (promptEl('tab-prompts').classList.contains('active') && !document.hidden && promptShown <= PROMPT_PAGE && document.activeElement !== promptEl('prompts-search')) loadPrompts(true);
+}, 5000);
 
 // ── Playground ────────────────────────────────────────────────────────────────
 // Per-category descriptions + curated examples that llm-fw actually catches.
@@ -2740,6 +2875,46 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'request read error' }))
       })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/api/prompts') {
+      const monitor = modManager.getModule('prompt-monitor')
+      if (!(monitor instanceof PromptMonitorModule)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'prompt monitor is not available' }))
+        return
+      }
+      const param = (name: string): string | undefined => url.searchParams.get(name) || undefined
+      const num = (name: string): number | undefined => {
+        const n = parseInt(url.searchParams.get(name) ?? '', 10)
+        return Number.isNaN(n) ? undefined : n
+      }
+      const page = monitor.query({
+        q: param('q'), target: param('target'), model: param('model'), session: param('session'),
+        since: param('since'), until: param('until'), limit: num('limit'), offset: num('offset'),
+      })
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify({ enabled: monitor.enabled, ...page }))
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/prompts/clear') {
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
+      const monitor = modManager.getModule('prompt-monitor')
+      if (!(monitor instanceof PromptMonitorModule)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'prompt monitor is not available' }))
+        return
+      }
+      monitor.clear()
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
       return
     }
 
