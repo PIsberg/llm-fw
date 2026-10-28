@@ -63,7 +63,7 @@ const BARE_DOMAIN_RE = /(?<![a-z0-9-])-*\b((?:[a-z0-9-]+\.)+[a-z][a-z0-9-]{1,23}
 const SECRET_TOKEN_RE = /[A-Za-z0-9_-]{20,}/g
 
 function hasLetter(s: string): boolean { return /[A-Za-z]/.test(s) }
-function hasDigit(s: string): boolean { return /[0-9]/.test(s) }
+function hasDigit(s: string): boolean { return /\d/.test(s) }
 
 /**
  * Pull distinctive tokens out of untrusted text. Deliberately conservative —
@@ -174,7 +174,11 @@ export class TaintTracker {
   firstReport(sessionKey: string, sinkHost: string, token: string, now: number): boolean {
     const session = this.sessions.get(sessionKey)
     if (!session) return true
-    const reported = session.reported ?? (session.reported = new Map())
+    let reported = session.reported
+    if (!reported) {
+      reported = new Map()
+      session.reported = reported
+    }
     for (const [key, ts] of reported) if (now - ts > TTL_MS) reported.delete(key)
     const key = `${sinkHost.toLowerCase()}\0${token}`
     if (reported.has(key)) return false

@@ -212,7 +212,7 @@ export function addProfileEnvVars(
     // content-based discrimination as the HTTPS_PROXY line above.
     if (t.startsWith('export NO_PROXY=') && t.includes('127.0.0.1')) return false;
     return true;
-  }).join('\n').replace(/\n+$/, '');
+  }).join('\n').replace(/(?<!\n)\n+$/, '');
 
   const block = `# llm-fw env\nexport HTTPS_PROXY=${proxyUrl}\nexport NO_PROXY=${noProxy}\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n`;
   return (kept ? kept + '\n\n' : '') + block;
@@ -385,9 +385,7 @@ export async function run(args: string[]): Promise<void> {
       // re-running setup never stacks duplicate entries — same helper
       // uninstall uses for the full cleanup.
       const cleanHosts = stripSinkholeBlock(original, config.targets);
-      if (original !== cleanHosts) {
-        fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
-      } else if (!fs.existsSync(hostsPath + '.llm-fw.bak')) {
+      if (original !== cleanHosts || !fs.existsSync(hostsPath + '.llm-fw.bak')) {
         fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
       }
       

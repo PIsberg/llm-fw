@@ -52,7 +52,8 @@ const save = (): void => writeFileSync(PATH, JSON.stringify(fixture, null, 1) + 
 // drops its translations, and the test fails until this script has run.
 // Source 'auto', as the playground's Translate button sends it (one example is
 // already Spanish).
-const examples = (fixture.sets.examples ??= { label: 1, sourceLanguage: 'auto', source: {}, translations: {} })
+fixture.sets.examples ??= { label: 1, sourceLanguage: 'auto', source: {}, translations: {} }
+const examples = fixture.sets.examples
 const current = translatableExamples()
 for (const id of Object.keys(examples.source)) {
   if (examples.source[id] !== current[id]) {
@@ -65,7 +66,8 @@ for (const [id, text] of Object.entries(current)) examples.source[id] = text
 const jobs: Array<{ set: FixtureSet; id: string; lang: string }> = []
 for (const set of Object.values(fixture.sets)) {
   for (const id of Object.keys(set.source)) {
-    const done = (set.translations[id] ??= {})
+    set.translations[id] ??= {}
+    const done = set.translations[id]
     for (const { code } of TRANSLATE_LANGUAGES) {
       if (code !== 'en' && (refresh || done[code] === undefined)) jobs.push({ set, id, lang: code })
     }
@@ -79,7 +81,8 @@ while (jobs.length > 0) {
   if (!job) break
   try {
     const { translated } = await translateText(job.set.source[job.id] ?? '', job.lang, job.set.sourceLanguage ?? 'en')
-    const row = (job.set.translations[job.id] ??= {})
+    job.set.translations[job.id] ??= {}
+    const row = job.set.translations[job.id]
     row[job.lang] = translated
     jobs.shift()
     if (++fetched % 50 === 0) {

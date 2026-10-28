@@ -112,5 +112,7 @@ export function detectHiddenChars(text: string): HiddenCharResult {
 // stripping here never erases evidence of the attack. Covers: zero-width
 // (200B–200D, 2060, FEFF), bidi controls (202A–202E, 2066–2069), variation
 // selectors (FE00–FE0F + plane-14 E0100–E01EF), and the Tags block (E0000–E007F).
-export const HIDDEN_CHAR_STRIP_RE =
-  /[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{202A}-\u{202E}\u{2066}-\u{2069}\u{FE00}-\u{FE0F}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu
+/* oxlint-disable no-misleading-character-class */
+// biome-ignore lint/suspicious/noMisleadingCharacterClass: intentional code-point-level stripping of variation selectors and zero-width chars
+export const HIDDEN_CHAR_STRIP_RE = /[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{202A}-\u{202E}\u{2066}-\u{2069}\u{FE00}-\u{FE0F}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu
+/* oxlint-enable no-misleading-character-class */

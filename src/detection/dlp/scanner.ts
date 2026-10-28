@@ -21,7 +21,7 @@ const SECRET_KEYWORDS = /\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|
 // with a SPACE separator, which the assignment pattern above does not catch.
 // The `Bearer` keyword is itself a strong signal, so (unlike the generic
 // keyword pattern) no entropy gate is required — only a length floor.
-const BEARER_TOKEN = /\bbearer\s+([A-Za-z0-9._~+/=-]{20,})/gi
+const BEARER_TOKEN = /\bbearer\s+([a-z0-9._~+/=-]{20,})/gi
 
 const ENTROPY_THRESHOLD = 4.0
 
@@ -36,7 +36,7 @@ for (let cp = 0x80, zero = -1; cp <= 0xffff; cp++) {
   if (zero < 0 || cp - zero > 9) zero = cp
   DIGIT_VALUE.set(ch, String(cp - zero))
 }
-const NON_ASCII_DIGIT = /(?![0-9])\p{Nd}/gu
+const NON_ASCII_DIGIT = /(?!\d)\p{Nd}/gu
 
 /** `text` with every BMP decimal digit written as its ASCII digit, same length. */
 export function asciiDigits(text: string): string {
@@ -69,12 +69,13 @@ export class DlpScanner {
     for (const rule of DLP_RULES) {
       if (!this.active(rule.detector)) continue
       rule.regex.lastIndex = 0
-      let m: RegExpExecArray | null
-      while ((m = rule.regex.exec(text)) !== null) {
+      let m = rule.regex.exec(text)
+      while (m !== null) {
         if (!isDocumentedExample(m[0])) {
           findings.push({ type: rule.type, label: rule.label, match: m[0], index: m.index })
         }
         if (m.index === rule.regex.lastIndex) rule.regex.lastIndex++
+        m = rule.regex.exec(text)
       }
     }
 
@@ -91,20 +92,21 @@ export class DlpScanner {
       // still point into the original text.
       const ascii = asciiDigits(text)
       CREDIT_CARD_CANDIDATE.lastIndex = 0
-      let m: RegExpExecArray | null
-      while ((m = CREDIT_CARD_CANDIDATE.exec(ascii)) !== null) {
+      let m = CREDIT_CARD_CANDIDATE.exec(ascii)
+      while (m !== null) {
         if (/^[2-6]/.test(m[0]) && luhnValid(m[0])) {
           findings.push({ type: 'CREDIT_CARD', label: 'Credit Card Number', match: text.slice(m.index, m.index + m[0].length), index: m.index })
         }
         if (m.index === CREDIT_CARD_CANDIDATE.lastIndex) CREDIT_CARD_CANDIDATE.lastIndex++
+        m = CREDIT_CARD_CANDIDATE.exec(ascii)
       }
     }
 
     // Strategy 2: entropy-based generic-secret detection.
     if (this.active('entropy')) {
       SECRET_KEYWORDS.lastIndex = 0
-      let m: RegExpExecArray | null
-      while ((m = SECRET_KEYWORDS.exec(text)) !== null) {
+      let m = SECRET_KEYWORDS.exec(text)
+      while (m !== null) {
         const value = m[2]
         if (value && value.length > 20 && calculateEntropy(value) > ENTROPY_THRESHOLD) {
           findings.push({
@@ -116,12 +118,13 @@ export class DlpScanner {
           })
         }
         if (m.index === SECRET_KEYWORDS.lastIndex) SECRET_KEYWORDS.lastIndex++
+        m = SECRET_KEYWORDS.exec(text)
       }
 
       // Bearer tokens (space-separated, no entropy gate — keyword is the signal).
       BEARER_TOKEN.lastIndex = 0
-      let b: RegExpExecArray | null
-      while ((b = BEARER_TOKEN.exec(text)) !== null) {
+      let b = BEARER_TOKEN.exec(text)
+      while (b !== null) {
         const value = b[1]
         if (value && value.length >= 20) {
           findings.push({
@@ -132,6 +135,7 @@ export class DlpScanner {
           })
         }
         if (b.index === BEARER_TOKEN.lastIndex) BEARER_TOKEN.lastIndex++
+        b = BEARER_TOKEN.exec(text)
       }
     }
 

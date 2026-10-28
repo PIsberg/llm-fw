@@ -206,10 +206,12 @@ function derName(attrs: Array<{ oid: string; value: string }>): Buffer {
   return derSeq(...attrs.map(a => derSet(derSeq(derOid(a.oid), derUtf8String(a.value)))));
 }
 
-function derExtension(oid: string, critical: boolean, extnValue: Buffer): Buffer {
-  return critical
-    ? derSeq(derOid(oid), derBool(true), derOctetString(extnValue))
-    : derSeq(derOid(oid), derOctetString(extnValue));
+function derCriticalExtension(oid: string, extnValue: Buffer): Buffer {
+  return derSeq(derOid(oid), derBool(true), derOctetString(extnValue));
+}
+
+function derNonCriticalExtension(oid: string, extnValue: Buffer): Buffer {
+  return derSeq(derOid(oid), derOctetString(extnValue));
 }
 
 function toPem(label: string, der: Buffer): string {
@@ -285,6 +287,7 @@ export function computeSubjectKeyIdentifier(publicKey: KeyObject): Buffer {
   if (!bitString || bitString.tag !== 0x03 || bitString.value.length < 2) {
     throw new Error('Invalid SubjectPublicKeyInfo BIT STRING');
   }
+  // eslint-disable-next-line sonarjs/hashing -- RFC 5280 section 4.2.1.2 method-1 SKI requires SHA-1
   return createHash('sha1').update(bitString.value.subarray(1)).digest();
 }
 
@@ -374,14 +377,14 @@ export function issueInMemoryCA(commonName = 'llm-fw Local CA', crlUrl?: string)
 
   const exts: Buffer[] = [
     // basicConstraints: cA=TRUE
-    derExtension('2.5.29.19', true, derSeq(derBool(true))),
+    derCriticalExtension('2.5.29.19', derSeq(derBool(true))),
     // keyUsage: keyCertSign (bit 5) | cRLSign (bit 6) => 0x06, 1 unused bit
-    derExtension('2.5.29.15', true, derBitString(Buffer.from([0x06]), 1)),
+    derCriticalExtension('2.5.29.15', derBitString(Buffer.from([0x06]), 1)),
     // subjectKeyIdentifier: OCTET STRING of 20-byte SHA-1
-    derExtension('2.5.29.14', false, derOctetString(skiBytes)),
+    derNonCriticalExtension('2.5.29.14', derOctetString(skiBytes)),
   ];
   if (crlUrl) {
-    exts.push(derExtension('2.5.29.31', false, cdpSequence(crlUrl)));
+    exts.push(derNonCriticalExtension('2.5.29.31', cdpSequence(crlUrl)));
   }
 
   const tbsDer = derSeq(
@@ -469,16 +472,16 @@ function issueHostCertFromLoadedCa(
 
   const exts: Buffer[] = [
     // basicConstraints: cA=FALSE (empty SEQUENCE per DER default)
-    derExtension('2.5.29.19', true, derSeq()),
+    derCriticalExtension('2.5.29.19', derSeq()),
     // keyUsage: digitalSignature (bit 0) | keyEncipherment (bit 2) => 0xa0, 5 unused bits
-    derExtension('2.5.29.15', true, derBitString(Buffer.from([0xa0]), 5)),
+    derCriticalExtension('2.5.29.15', derBitString(Buffer.from([0xa0]), 5)),
     // extKeyUsage: id-kp-serverAuth (1.3.6.1.5.5.7.3.1)
-    derExtension('2.5.29.37', false, derSeq(derOid('1.3.6.1.5.5.7.3.1'))),
-    derExtension('2.5.29.17', false, sanValue),
-    derExtension('2.5.29.35', false, akiValue),
+    derNonCriticalExtension('2.5.29.37', derSeq(derOid('1.3.6.1.5.5.7.3.1'))),
+    derNonCriticalExtension('2.5.29.17', sanValue),
+    derNonCriticalExtension('2.5.29.35', akiValue),
   ];
   if (crlUrl) {
-    exts.push(derExtension('2.5.29.31', false, cdpSequence(crlUrl)));
+    exts.push(derNonCriticalExtension('2.5.29.31', cdpSequence(crlUrl)));
   }
 
   const tbsDer = derSeq(

@@ -145,8 +145,7 @@ export function detectMemoryPoisoning(text: string): MemoryPoisoningFinding | nu
   for (const [kind, patterns] of FAMILIES) {
     for (const pattern of patterns) {
       const re = new RegExp(pattern.source, pattern.flags + 'g')
-      let m: RegExpExecArray | null
-      while ((m = re.exec(text)) !== null) {
+      for (let m = re.exec(text); m !== null; m = re.exec(text)) {
         const start = m.index
         const end = start + m[0].length
         spans ??= quotedSpans(text)
@@ -181,7 +180,7 @@ const MEMORY_ENVELOPE_RE =
 
 /** Markdown-heading form, e.g. "## Memory" or "### Recalled context". */
 const MEMORY_HEADING_RE =
-  /^#{1,6}\s*(?:recalled\s+context|long[-\s]term\s+memory|memor(?:y|ies)|user\s+memory|agent\s+memory)\s*$([\s\S]*?)(?=^#{1,6}\s|\Z)/gim
+  /^#{1,6}[ \t]*(?:recalled\s+context|long[-\s]term\s+memory|memor(?:y|ies)|user\s+memory|agent\s+memory)[ \t]*\r?$([\s\S]*?)(?=^#{1,6}\s|(?![\s\S]))/gim
 
 /**
  * Pull recalled-memory blocks out of a larger text. Returns [] when there is
@@ -192,14 +191,13 @@ export function extractMemoryBlocks(text: string): string[] {
   const blocks: string[] = []
 
   MEMORY_ENVELOPE_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = MEMORY_ENVELOPE_RE.exec(text)) !== null) {
+  for (let m = MEMORY_ENVELOPE_RE.exec(text); m !== null; m = MEMORY_ENVELOPE_RE.exec(text)) {
     const body = (m[2] ?? '').trim()
     if (body) blocks.push(body)
   }
 
   MEMORY_HEADING_RE.lastIndex = 0
-  while ((m = MEMORY_HEADING_RE.exec(text)) !== null) {
+  for (let m = MEMORY_HEADING_RE.exec(text); m !== null; m = MEMORY_HEADING_RE.exec(text)) {
     const body = (m[1] ?? '').trim()
     if (body) blocks.push(body)
   }

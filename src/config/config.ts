@@ -22,6 +22,7 @@ export const DEFAULT_CONFIG: Config = {
     // a tighter DoS backstop and only expect streaming traffic.
     upstreamTimeoutMs: 120000,
     maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
+    // eslint-disable-next-line sonarjs/no-hardcoded-ip -- default public DNS resolvers to bypass local /etc/hosts sinkhole
     dnsServers: ['1.1.1.1', '8.8.8.8'],
     // Tenant/regional API domain suffixes the proxy TLS-intercepts in
     // addition to `targets`. Sourced from the provider registry.
@@ -537,7 +538,7 @@ function readProjectConfig(): Partial<Config> {
  * cannot be used surfaces as a rejection, not a synchronous throw.
  */
 export function loadConfig(): Promise<Config> {
-  return new Promise(resolve => { resolve(buildConfig()); });
+  return Promise.resolve().then(() => buildConfig());
 }
 
 function buildConfig(): Config {
@@ -558,7 +559,7 @@ function buildConfig(): Config {
   // without this clone an env var can permanently corrupt DEFAULT_CONFIG for
   // the rest of the process (surfaced by Task B3's surfaces override, but a
   // latent risk for every existing in-place env override too).
-  let config = deepMerge<Config>(
+  const config = deepMerge<Config>(
     deepMerge<Config>(structuredClone(DEFAULT_CONFIG), projectConfig),
     userConfig
   );

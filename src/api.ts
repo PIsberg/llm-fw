@@ -121,7 +121,7 @@ function wrapText(text: string, surface: ScanSource): string {
           content: [{ type: 'document', source: { type: 'base64', media_type: 'text/plain', data: Buffer.from(text, 'utf-8').toString('base64') } }],
         }],
       })
-    case 'prompt':
+
     default:
       return JSON.stringify({ model: PLACEHOLDER_MODEL, max_tokens: 1, messages: [{ role: 'user', content: text }] })
   }

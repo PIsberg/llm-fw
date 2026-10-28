@@ -48,6 +48,36 @@ function toolResultText(content: unknown): string {
 // stringified, so opaque base64 never reaches the entropy and decoding checks.
 const THIRD_PARTY_TEXT_KEYS = new Set(['text', 'title', 'data', 'stdout', 'stderr', 'content'])
 
+function extractRawTools(body: string): any[] {
+  try {
+    const data = JSON.parse(body)
+    return Array.isArray(data.tools) ? data.tools : []
+  } catch { return [] }
+}
+
+function extractNormalizedFunctionTools(body: string): any[] {
+  try {
+    const data = JSON.parse(body)
+    if (!Array.isArray(data.tools)) return []
+    return data.tools.map((t: any) => {
+      const fn = t && typeof t === 'object' ? t.function : undefined
+      if (fn && typeof fn === 'object') return { name: fn.name, ...fn }
+      return t
+    })
+  } catch { return [] }
+}
+
+function pushWrappedFunctionCall(call: any, results: { toolName: string; args: any }[]): void {
+  const fn = call?.function
+  if (fn && typeof fn.name === 'string') {
+    let parsedArgs: any = fn.arguments
+    if (typeof fn.arguments === 'string') {
+      try { parsedArgs = JSON.parse(fn.arguments) } catch { /* leave as raw string */ }
+    }
+    results.push({ toolName: fn.name, args: parsedArgs })
+  }
+}
+
 /** The readable text inside a server-tool result or search result, in document order. */
 function thirdPartyText(value: unknown, key = 'content'): string[] {
   if (typeof value === 'string') return THIRD_PARTY_TEXT_KEYS.has(key) ? [value] : []
@@ -124,10 +154,7 @@ class AnthropicParser implements PayloadParser {
   }
 
   extractTools(body: string): any[] {
-    try {
-      const data = JSON.parse(body)
-      return Array.isArray(data.tools) ? data.tools : []
-    } catch { return [] }
+    return extractRawTools(body)
   }
 
   extractToolResults(body: string): ToolResultItem[] {
@@ -363,18 +390,10 @@ class OpenAIParser implements PayloadParser {
   }
 
   extractTools(body: string): any[] {
-    try {
-      const data = JSON.parse(body)
-      if (!Array.isArray(data.tools)) return []
-      // Normalize {type:'function', function:{name,…}} (Chat) and the flat
-      // Responses shape {type:'function', name,…} so the MCP scanner — which
-      // reads `tool.name` — can enforce its blocklist uniformly.
-      return data.tools.map((t: any) => {
-        const fn = t && typeof t === 'object' ? t.function : undefined
-        if (fn && typeof fn === 'object') return { name: fn.name, ...fn }
-        return t
-      })
-    } catch { return [] }
+    // Normalize {type:'function', function:{name,…}} (Chat) and the flat
+    // Responses shape {type:'function', name,…} so the MCP scanner — which
+    // reads `tool.name` — can enforce its blocklist uniformly.
+    return extractNormalizedFunctionTools(body)
   }
 
   extractToolResults(body: string): ToolResultItem[] {
@@ -446,16 +465,7 @@ class OpenAIParser implements PayloadParser {
     try {
       const data = JSON.parse(body)
       const results: { toolName: string; args: any }[] = []
-      const pushCall = (call: any) => {
-        const fn = call?.function
-        if (fn && typeof fn.name === 'string') {
-          let parsedArgs: any = fn.arguments
-          if (typeof fn.arguments === 'string') {
-            try { parsedArgs = JSON.parse(fn.arguments) } catch { /* leave as raw string */ }
-          }
-          results.push({ toolName: fn.name, args: parsedArgs })
-        }
-      }
+      const pushCall = (call: any) => pushWrappedFunctionCall(call, results)
 
       // Chat response: choices[].message.tool_calls[]
       if (Array.isArray(data.choices)) {
@@ -642,16 +652,8 @@ class CohereParser implements PayloadParser {
   }
 
   extractTools(body: string): any[] {
-    try {
-      const data = JSON.parse(body)
-      if (!Array.isArray(data.tools)) return []
-      // v1 tools are flat {name,…}; v2 use {type:'function', function:{name,…}}.
-      return data.tools.map((t: any) => {
-        const fn = t && typeof t === 'object' ? t.function : undefined
-        if (fn && typeof fn === 'object') return { name: fn.name, ...fn }
-        return t
-      })
-    } catch { return [] }
+    // v1 tools are flat {name,…}; v2 use {type:'function', function:{name,…}}.
+    return extractNormalizedFunctionTools(body)
   }
 
   extractToolResults(body: string): ToolResultItem[] {
@@ -700,7 +702,7 @@ class CohereParser implements PayloadParser {
           if (msg.role !== 'tool') continue
           const resText = toolResultText(msg.content)
           const call = typeof msg.tool_call_id === 'string' ? calls.get(msg.tool_call_id) : undefined
-          results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText, ...(call ?? {}) })
+          results.push({ toolUseId: msg.tool_call_id || 'unknown', result: resText, ...call })
         }
       }
 
@@ -725,16 +727,7 @@ class CohereParser implements PayloadParser {
         }
       }
       // v2: OpenAI-like {function:{name, arguments}} with stringified arguments.
-      const pushWrapped = (call: any) => {
-        const fn = call?.function
-        if (fn && typeof fn.name === 'string') {
-          let parsedArgs: any = fn.arguments
-          if (typeof fn.arguments === 'string') {
-            try { parsedArgs = JSON.parse(fn.arguments) } catch { /* leave as raw string */ }
-          }
-          results.push({ toolName: fn.name, args: parsedArgs })
-        }
-      }
+      const pushWrapped = (call: any) => pushWrappedFunctionCall(call, results)
 
       pushFlat(data.tool_calls)                  // v1 response, v1 request echo
       pushFlat(data.message?.tool_calls)         // v2 response
@@ -832,10 +825,7 @@ class GeminiParser implements PayloadParser {
   }
 
   extractTools(body: string): any[] {
-    try {
-      const data = JSON.parse(body)
-      return Array.isArray(data.tools) ? data.tools : []
-    } catch { return [] }
+    return extractRawTools(body)
   }
 
   extractToolResults(body: string): ToolResultItem[] {
@@ -1049,7 +1039,7 @@ class BedrockParser implements PayloadParser {
               results.push({
                 toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
                 result: toolResultText(tr.content ?? tr),
-                ...(call ?? {}),
+                ...call,
               })
             }
           }

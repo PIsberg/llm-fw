@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -e
+
+npx tsc --noEmit
+npm run lint
+npm run knip

@@ -29,7 +29,7 @@ function dechunk(body: string): string {
     const nl = body.indexOf('\r\n', pos)
     if (nl === -1) break
     const size = parseInt(body.slice(pos, nl).trim(), 16)
-    if (isNaN(size) || size === 0) break
+    if (Number.isNaN(size) || size === 0) break
     result += body.slice(nl + 2, nl + 2 + size)
     pos = nl + 2 + size + 2
   }
@@ -63,8 +63,8 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
 
   // Mock upstream HTTPS server — accepts any request and returns a dummy 200.
   const mockUpstream = https.createServer({ key: upstreamCert.key, cert: upstreamCert.cert }, (req, res) => {
-    let body = ''
-    req.on('data', c => { body += c })
+    req.resume()
+
     req.on('end', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ id: 'mock', choices: [{ message: { content: 'ok' } }] }))

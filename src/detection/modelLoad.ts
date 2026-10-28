@@ -75,7 +75,7 @@ export async function loadWithVisibility<T>(
 
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    if (!(opts.timeoutMs > 0)) return await load()
+    if (opts.timeoutMs <= 0 || Number.isNaN(opts.timeoutMs)) return await load()
 
     return await Promise.race([
       load(),

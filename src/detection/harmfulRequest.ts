@@ -167,7 +167,7 @@ const HATEFUL_QUALIFIER_RE =
 // alongside incitement framing, so "an article about ethnic genocide" (benign
 // per JBB) passes while "a speech that promotes genocide" blocks.
 const INCITE_TOPIC_RE = /\b(violence|terrorism|terrorist\w*|genocide|ethnic\s+cleansing|holocaust|nazi\s+party|self[-\s]?harm|suicide|anorexia|bulimia|hatred|animal\s+cruelty|sexual\s+assault|stalking|child\s+(?:abuse|labor|labour)|holodomor|khmer\s+rouge|armenian\s+genocide|stolen\s+generations?|residential\s+schools?|annexation\s+of\s+crimea|agent\s+orange|great\s+leap\s+forward|syrian\s+civil\s+war|fossil\s+fuels?|immigrant\w*|immigration|gambling\s+addict\w*|gambl\w*|September\s+11|9\/11|conflict\w*|war\b|Hiroshima|Nagasaki|5G\s+(?:causes?|and)\s+COVID[-\s]?19|vaccines?\s+(?:causes?|and)\s+autism|global\s+warming\s+is\s+a\s+hoax|earth\s+is\s+flat|illuminati|new\s+world\s+order|2020\s+(?:U\.?S\.?\s+)?presidential\s+election)\b/i
-const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argu\w*\s+(?:for|that)|justif\w*|praise[s]?|celebrat\w*|should\b|ought\s+to\b|downplay\w*|den\w*|exaggerat\w*|hoax\w*|myth\w*|beneficial\b|natural[-\s]disaster\b|peaceful\b|democratic\b|positive\s+impact\b|better\s+for\s+the\s+environment|never\s+happened|mock\w*|ridicul\w*|prov(?:e|es|ed|en|ing)\b|proof|evidence|unanimously\s+won|rigged\b|fraudulent\b|stolen\b|posing\s+as\s+(?:an?\s+)?expert)\b/i
+const INCITE_FRAME_RE = /\b(incit\w*|promot\w*|glorif\w*|advocat\w*|encourag\w*|normaliz[ei]\w*|romanticiz[ei]\w*|trivializ[ei]\w*|in\s+favou?r\s+of|argu\w*\s+(?:for|that)|justif\w*|praises?|celebrat\w*|should\b|ought\s+to\b|downplay\w*|den\w*|exaggerat\w*|hoax\w*|myth\w*|beneficial\b|natural[-\s]disaster\b|peaceful\b|democratic\b|positive\s+impact\b|better\s+for\s+the\s+environment|never\s+happened|mock\w*|ridicul\w*|prov(?:e|es|ed|en|ing)\b|proof|evidence|unanimously\s+won|rigged\b|fraudulent\b|stolen\b|posing\s+as\s+(?:an?\s+)?expert)\b/i
 
 // Content-production verbs — for the hateful and intrusion rules, the request
 // must ask to generate something. Bare "make" is excluded (it matches "make
@@ -184,7 +184,7 @@ const PRODUCE_RE =
 // "easy to make at home without detection", and a bare `detect\w*` was
 // suppressing those genuine attacks.
 const DEFENSIVE_RE =
-  /\b(prevent\w*(?!\s+(?:\w+\s+){0,3}from\s+(?:talk\w*|report\w*|speak\w*|cooperat\w*))|(?<!\b(?:circumvent\w*|bypass\w*|disable\w*|exploit\w*|breach\w*|hack\w*|defeat\w*|evade\w*)\s+(?:\w+\s+){0,2})protect\w*|defen[ds]\w*|defence|mitigat\w*|(?:how\s+to\s+)?detect\s+(?:and\s+\w+\s+)?(?:threats?|intrusions?|attacks?|malware|fraud|phishing|anomal\w*|breaches?|injection)|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\b|historical\w*|historically|legislation\b|legislative\b|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept|an?\s+(?:article|essay|report|paper|piece)\s+(?:about|on)\s+how\s+(?!to\b)|expose\s+and\s+condemn|condemn\s+users?\s+of|stop\b|avoid\b(?!\s+(?:paying\s+)?tax\w*|\s+getting\s+caught|\s+detec\w*|\s+monitoring|\s+surveillance|\s+arrest|\s+prosecution|\s+convict\w*|\s+being\s+(?:convicted|arrested|charged|caught))|abstain\b|desist\b|relationship\s+between|effects?\s+of|impact\s+of|analysis\s+of|study\s+of|discuss\w*|views?\b|opinions?\b|perspectives?\b|illegal\b|why\s+it\s+is\s+(?:illegal|wrong|bad|harmful)\b|in\s+the\s+past|dispos\w*\s+of\s+(?:hazardous\s+|medical\s+|chemical\s+|industrial\s+)*waste|treatment\w*\s+for|therapy\s+for|cure\s+for|approach\s+(?:authorities|police|government|immigration|law\s+enforcement)|\b(?:explain\w*|discuss\w*|describe\w*|analy[sz]\w*|study\w*|understand\w*|about\b|on\b|what\s+is\b|what\s+are\b|difference\s+between\b|and\b|or\b|to\b|^\s*)\s+(?:how|which|what|why)\s+(?!to\b)\S+(?:\s+\S+){0,10}?\s+(?:has|have|had|did|was|were|works?|work\w*|evolve\w*|is|are|can\s+be|can\s+(?:harm|cause|lead|affect|influence|result|damage|impact)\w*))\b/i
+  /\b(prevent\w*(?!\s+(?:\w+\s+){0,3}from\s+(?:talk\w*|report\w*|speak\w*|cooperat\w*))|(?<!\b(?:circumvent\w*|bypass\w*|disable\w*|exploit\w*|breach\w*|hack\w*|defeat\w*|evade\w*)\s+(?:\w+\s+){0,2})protect\w*|defen[ds]\w*|defence|mitigat\w*|(?:how\s+to\s+)?detect\s+(?:and\s+\w+\s+)?(?:threats?|intrusions?|attacks?|malware|fraud|phishing|anomal\w*|breaches?|injection)|secur\w*\s+(?:against|your|the|my|a\b)|safeguard\w*|guard\s+against|awareness|best\s+practices?|harden\w*|patch\w*|remediat\w*|how\s+(?:does|do|did|it)\s+\w+\s+work|how\s+\w+\s+works?|has\s+evolved|evolution\s+of|evolved\s+over|legal\s+status|legality|legally\b|history\b|historical\w*|historically|legislation\b|legislative\b|ethical\w*|ethics\s+of|responsibl\w*|academic|for\s+research|research\s+purposes|difference\s+between|what\s+is\b|what\s+are\b|explain\s+the\s+concept|an?\s+(?:article|essay|report|paper|piece)\s+(?:about|on)\s+how\s+(?!to\b)|expose\s+and\s+condemn|condemn\s+users?\s+of|stop\b|avoid\b(?!\s+(?:paying\s+)?tax\w*|\s+getting\s+caught|\s+detec\w*|\s+monitoring|\s+surveillance|\s+arrest|\s+prosecution|\s+convict\w*|\s+being\s+(?:convicted|arrested|charged|caught))|abstain\b|desist\b|relationship\s+between|effects?\s+of|impact\s+of|analysis\s+of|study\s+of|discuss\w*|views?\b|opinions?\b|perspectives?\b|illegal\b|why\s+it\s+is\s+(?:illegal|wrong|bad|harmful)\b|in\s+the\s+past|dispos\w*\s+of\s+(?:hazardous\s+|medical\s+|chemical\s+|industrial\s+)*waste|treatment\w*\s+for|therapy\s+for|cure\s+for|approach\s+(?:authorities|police|government|immigration|law\s+enforcement)|\b(?:explain\w*|discuss\w*|describe\w*|analy[sz]\w*|study\w*|understand\w*|about\b|on\b|what\s+is\b|what\s+are\b|difference\s+between\b|and\b|or\b|to\b|^)\s+(?:how|which|what|why)\s+(?!to\b)\S+(?:\s+\S+){0,10}?\s+(?:has|have|had|did|was|were|works?|work\w*|evolve\w*|is|are|can\s+be|can\s+(?:harm|cause|lead|affect|influence|result|damage|impact)\w*))\b/i
 
 // The speaker is the would-be VICTIM, not the perpetrator (#269): a first-person
 // passive ("so I don't get scammed", "we have been hacked"), or a question
@@ -209,11 +209,11 @@ const VICTIM_RE = new RegExp(
     '(?:\\s+(?:do|did|does|don\'t|dont|didn\'t|not|never|will|won\'t|would|wouldn\'t|want|wanted|to|have|has|had|may|might|could|can|' +
     'just|already|recently|again|almost|nearly|am|are|keep|kept))*\\s+(?:be|get|getting|being|been|got|was|were)\\s+' +
     '(?:scammed|hacked|phished|defrauded|robbed|conned|swindled|ripped\\s+off|blackmailed|extorted|doxx?ed|stalked|ddos(?:ed|\'d)?)\\b' +
-  '|^\\s*(?:can|could|would|will|might|does|do|is\\s+it\\s+possible\\s+(?:for|that))\\s+(?!(?:i|we|you|someone|anyone|people)\\b)' +
-    '(?![^?]*\\bhelp\\s+me\\b)[^.!?]{0,80}?\\b(?:my|our)\\s+' +
+  '|^(?![^?]*\\bhelp\\s+me\\b)\\s*(?:can|could|would|will|might|does|do|is\\s+it\\s+possible\\s+(?:for|that))\\s+(?!(?:i|we|you|someone|anyone|people)\\b)' +
+    '[^\\s.!?][^.!?]{0,79}?\\b(?:my|our)\\s+' +
     '(?!(?:ex|neighbou?rs?|boss|wife|husband|partner|co-?workers?|colleagues?|friends?|sister|brother|mother|father|mom|mum|dad|' +
     'roommates?|flatmates?|teachers?|school|employees?|employer|competitors?|rivals?|landlord|tenants?|kids?|children|son|daughter)\\b)' +
-    '[^.!?]*\\?\\s*$',
+    '(?:[^\\s.!?][^.!?]*)?\\?\\s*$',
   'i',
 )
 
@@ -254,7 +254,10 @@ const HARM_ACTION_ALL_RE = new RegExp(HARM_ACTION_RE.source, 'gi')
 const HARM_OBJECT_ALL_RE = new RegExp(HARM_OBJECT_RE.source, 'gi')
 
 function countActions(text: string): number {
-  return text.match(HARM_ACTION_ALL_RE)?.length ?? 0
+  HARM_ACTION_ALL_RE.lastIndex = 0
+  let count = 0
+  while (HARM_ACTION_ALL_RE.exec(text) !== null) count++
+  return count
 }
 
 // How far either side of a soft object its how-to or harm verb may sit. The
@@ -312,8 +315,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   const totalActions = countActions(text)
   const objRe = HARM_OBJECT_ALL_RE
   objRe.lastIndex = 0
-  let obj: RegExpExecArray | null
-  while ((obj = objRe.exec(text)) !== null) {
+  for (let obj = objRe.exec(text); obj !== null; obj = objRe.exec(text)) {
     // The anchor cannot be its own action: `assassinat\w*` and `launder\w*`
     // are in both lists, so "Which Roman general was ... assassinated" and
     // "money laundering watch dog" satisfied the conjunction alone (#246).
@@ -338,9 +340,8 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   // "steal someone's identity"). Narrow verb set (unambiguously harmful actions)
   // + an explicit target, plus how-to/production framing.
   const INTRUSION_RE = /\b(hack\w*|hijack\w*|crack\w*|(?:break\w*|brok\w*)\s+into|infiltrat\w*|breach\w*|exploit\w*|steal\w*|stole\w*|embezzl\w*|launder\w*|smuggl\w*|defraud\w*|forge\w*|counterfeit\w*|tamper\w*|alter\w*)\b/gi
-  let intr: RegExpExecArray | null
   INTRUSION_RE.lastIndex = 0
-  while ((intr = INTRUSION_RE.exec(text)) !== null) {
+  for (let intr = INTRUSION_RE.exec(text); intr !== null; intr = INTRUSION_RE.exec(text)) {
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, intr.index - 70), Math.min(text.length, intr.index + 70))
       if (/\b(into|someone'?s?|a\s+(?:government|bank|corporate|private|secure)|(?:an?|the|our|their|your|my|someone'?s?|government|bank|hospital|corporate|private|secure|criminal|voting|monitoring)\s+(?:\w+\s+)?(?:database|system|network|account|server|records?|files?)|identit\w+|accounts?|credentials?|passwords?|security\s+measures?|sensitive\s+(?:information|data)|money|funds|shipment\w*|cargo\w*|deliver\w*|goods|packages?|stores?|shops?|supermarket\w*|documents?|papers?|passports?|visas?|immigration|electronic\s+health\s+records?|medical\s+records?|health\s+records?|loophole\w*|regulatory\s+loophole\w*)\b/i.test(window)) {
@@ -356,9 +357,8 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   // framing. The human-target requirement keeps benign uses out ("kill a
   // process", "poison cache", "assault course").
   const VIOLENCE_RE = /\b(kill\w*|murder\w*|assassinat\w*|poison\w*|assault\w*|attack\w*|harm\w*|hurt\w*|maim\w*|tortur\w*|abduct\w*|kidnap\w*|strangl\w*|stab\w*|shoot\w*)\b/gi
-  let viol: RegExpExecArray | null
   VIOLENCE_RE.lastIndex = 0
-  while ((viol = VIOLENCE_RE.exec(text)) !== null) {
+  for (let viol = VIOLENCE_RE.exec(text); viol !== null; viol = VIOLENCE_RE.exec(text)) {
     if (hasHowto || hasProduce) {
       // The target follows the verb ("harm someone", "poison a person's
       // food"), or precedes it only in the passive ("people ... were
@@ -375,9 +375,8 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
 
   // Rule 1d — Cheating/fraud targeting exams, tests, or plagiarism bypass
   const CHEATING_RE = /\b(cheat\w*|plagiariz\w*|brib\w+|falsif\w+|bypas\w*|circumvent\w*)\b/gi
-  let cheat: RegExpExecArray | null
   CHEATING_RE.lastIndex = 0
-  while ((cheat = CHEATING_RE.exec(text)) !== null) {
+  for (let cheat = CHEATING_RE.exec(text); cheat !== null; cheat = CHEATING_RE.exec(text)) {
     if (hasHowto || hasProduce) {
       const window = text.slice(Math.max(0, cheat.index - 80), Math.min(text.length, cheat.index + 80))
       if (/\b(exam\w*|tests?|grades?|documents?|records?|smog|emission\w*|officials?|authorit\w+|identity|passwords?|credentials?|income|tax\w*|audit\w*|plagiarism\s+detection|plagiarism|copyright\w*|pirac\w*|pirat\w*)\b/i.test(window)) {
@@ -410,8 +409,7 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   // occurrence is tried, so an early harmless one cannot hide a later one.
   if (hasProduce || hasHowto) {
     const topics = new RegExp(INCITE_TOPIC_RE.source, 'gi')
-    let topic: RegExpExecArray | null
-    while ((topic = topics.exec(text)) !== null) {
+    for (let topic = topics.exec(text); topic !== null; topic = topics.exec(text)) {
       const near = text.slice(Math.max(0, topic.index - INCITE_WINDOW), topic.index + topic[0].length + INCITE_WINDOW)
       if (INCITE_FRAME_RE.test(near)) {
         return { kind: 'hateful', anchor: (topic[1] ?? '').toLowerCase(), snippet: snippetAround(text, topic.index, (topic[1] ?? '').length) }
@@ -423,9 +421,8 @@ export function detectHarmfulRequest(text: string): HarmfulRequestFinding | null
   const OFFENSIVE_RE = /\b(disgusting|abhorrent|vile|scum|parasites?|trash|inferior|subhuman|repulsive|worthless|evil|filth\w*|less\s+intelligent|unintelligent)\b/gi
   const PROTECTED_RE = /\b(marriage|race|gender|sex|sexual\s+orientation|religion|ethnic\w*|nationality|disabled|disabilit\w+|immigrant\w*|refugee\w*|biracial|interracial|black|white|jewish|muslim|christian|gay|lesbian|transgender|queer|women|men|female|male|boys?|girls?)\b/gi
   if (hasProduce || hasHowto) {
-    let off: RegExpExecArray | null
     OFFENSIVE_RE.lastIndex = 0
-    while ((off = OFFENSIVE_RE.exec(text)) !== null) {
+    for (let off = OFFENSIVE_RE.exec(text); off !== null; off = OFFENSIVE_RE.exec(text)) {
       const window = text.slice(Math.max(0, off.index - 80), Math.min(text.length, off.index + 80))
       if (PROTECTED_RE.test(window)) {
         return { kind: 'hateful', anchor: (off[1] ?? '').toLowerCase(), snippet: snippetAround(text, off.index, (off[1] ?? '').length) }

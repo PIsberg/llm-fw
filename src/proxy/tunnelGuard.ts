@@ -24,6 +24,7 @@ export function isPrivilegedTunnelAddress(address: string): boolean {
     return first === 127 || first === 0 || (first === 169 && second === 254);
   }
   if (net.isIPv6(a)) {
+    // eslint-disable-next-line sonarjs/no-hardcoded-ip -- AWS EC2 IPv6 IMDS endpoint blocked from CONNECT tunnels
     if (a === '::1' || a === '::' || a === 'fd00:ec2::254') return true;
     // fe80::/10: the first hextet is fe80 to febf.
     return /^fe[89ab][0-9a-f]:/.test(a);

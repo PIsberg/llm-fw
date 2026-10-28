@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
 import https from 'node:https'
-import http from 'node:http'
+
 import net from 'node:net'
 import tls from 'node:tls'
 import fs from 'node:fs'
@@ -27,7 +27,7 @@ function dechunkBody(body: string): string {
     const nextLineSep = body.indexOf('\r\n', pos)
     if (nextLineSep === -1) break
     const size = parseInt(body.slice(pos, nextLineSep).trim(), 16)
-    if (isNaN(size) || size === 0) break
+    if (Number.isNaN(size) || size === 0) break
     const chunkStart = nextLineSep + 2
     result += body.slice(chunkStart, chunkStart + size)
     pos = chunkStart + size + 2

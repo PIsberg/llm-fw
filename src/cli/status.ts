@@ -24,7 +24,7 @@ async function reportStatus(): Promise<void> {
   }
 
   const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-  if (isNaN(pid)) {
+  if (Number.isNaN(pid)) {
     console.log('llm-fw: stopped (invalid PID file)');
     return;
   }
@@ -60,8 +60,10 @@ async function reportStatus(): Promise<void> {
   console.log(`llm-fw: running`);
   console.log(`  PID:         ${pid}`);
   console.log(`  Enforcement: ${enforcementLine(state)}`);
-  console.log(`  Proxy:       ${state?.proxyUrl ?? `http://127.0.0.1:${config.proxy.port}`}  — HTTPS_PROXY tools (curl, Python, …)`);
+  const proxyUrl = state?.proxyUrl ?? `http://127.0.0.1:${config.proxy.port}`;
+  console.log(`  Proxy:       ${proxyUrl}  — HTTPS_PROXY tools (curl, Python, …)`);
   console.log(`  Sinkhole:    ${sinkholeActive ? 'active — Node.js & native tools (Claude Code, SDKs, …)' : 'off — run "llm-fw setup" elevated to enable'}`);
   if (state) console.log(`  Gateway:     ${state.gatewayUrl ?? 'off'}`);
-  console.log(`  Dashboard:   ${state?.dashboardUrl ?? `http://127.0.0.1:${config.dashboard.port}`}`);
+  const dashUrl = state?.dashboardUrl ?? `http://127.0.0.1:${config.dashboard.port}`;
+  console.log(`  Dashboard:   ${dashUrl}`);
 }

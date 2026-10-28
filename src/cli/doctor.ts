@@ -81,11 +81,11 @@ export interface DoctorProbe {
 // ── pure helpers ────────────────────────────────────────────────────────────
 
 function normalizeUrl(u: string | null): string {
-  return (u ?? '').trim().replace(/\/+$/, '').toLowerCase()
+  return (u ?? '').trim().replace(/(?<!\/)\/+$/, '').toLowerCase()
 }
 
 function samePath(a: string, b: string, os: OS): boolean {
-  const norm = (s: string) => s.trim().replace(/[\\/]+/g, '/').replace(/\/+$/, '')
+  const norm = (s: string) => s.trim().replace(/[\\/]+/g, '/').replace(/(?<!\/)\/+$/, '')
   const x = norm(a)
   const y = norm(b)
   return os === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y
@@ -390,11 +390,12 @@ export function parseCaStorePresent(output: string): boolean {
  * by comparing the on-disk cert to what's installed in the trust store.
  */
 export function certFingerprintSha1(pem: string): string | null {
-  const m = pem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/)
+  const m = /-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/.exec(pem)
   if (!m?.[1]) return null
   try {
     const der = Buffer.from(m[1].replace(/\s+/g, ''), 'base64')
     if (der.length === 0) return null
+    // eslint-disable-next-line sonarjs/hashing -- X.509 SHA-1 thumbprint matching OS trust-store output
     return crypto.createHash('sha1').update(der).digest('hex')
   } catch { return null }
 }
@@ -410,14 +411,14 @@ export function parseStoreCaFingerprints(os: OS, output: string): string[] {
   const norm = (h: string) => h.replace(/[^0-9a-fA-F]/g, '').toLowerCase()
   const out: string[] = []
   if (os === 'win32') {
-    for (const block of output.split(/={4,}\s*Certificate/i)) {
+    for (const block of output.split(/(?<!=)={4,}\s*Certificate/i)) {
       if (!/llm-fw Local CA/i.test(block)) continue
-      const h = block.match(/Cert Hash\(sha1\)\s*:\s*([0-9a-fA-F ]+)/i)
+      const h = /Cert Hash\(sha1\)\s*:\s*([0-9a-f ]+)/i.exec(block)
       if (h?.[1]) out.push(norm(h[1]))
     }
     return out
   }
-  for (const m of output.matchAll(/SHA-1 hash:\s*([0-9a-fA-F]+)/gi)) {
+  for (const m of output.matchAll(/SHA-1 hash:\s*([0-9a-f]+)/gi)) {
     if (m[1]) out.push(norm(m[1]))
   }
   return out
@@ -443,7 +444,7 @@ export function parsePortRedirect(os: OS, output: string, httpsPort: number): bo
   }
   if (os === 'darwin') {
     // pf: "... port = 443 -> 127.0.0.1 port 8443"
-    return /port\s*=?\s*443\b/.test(output) && hasToken(output, port)
+    return /port\s*(?:=\s*)?443\b/.test(output) && hasToken(output, port)
   }
   // iptables: "... --dport 443 -j REDIRECT --to-ports 8443"
   return /--dport\s+443\b/.test(output) && /--to-ports?\b/.test(output) && hasToken(output, port)
@@ -458,7 +459,7 @@ export function parsePortRedirect(os: OS, output: string, httpsPort: number): bo
 /** The data of `reg query HKCU\Environment /v <name>`, or null when absent. */
 export function parseRegQueryValue(output: string, name: string): string | null {
   for (const line of output.split(/\r?\n/)) {
-    const m = /^\s+(\S+)\s+REG_(?:EXPAND_)?SZ\s+(.*)$/.exec(line)
+    const m = /^\s+(\S+)\s+REG_(?:EXPAND_)?SZ\s+(\S.*)?$/.exec(line)
     if (m && m[1]?.toLowerCase() === name.toLowerCase()) return (m[2] ?? '').trim() || null
   }
   return null
@@ -469,7 +470,7 @@ export function parseProfileEnv(text: string, home: string): { httpsProxy: strin
   // One literal pattern for every export line; the last assignment wins, as in a shell.
   const exports = new Map<string, string>()
   for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
+    const m = /^\s*export\s+([A-Za-z_]\w*)=(.*)$/.exec(line)
     if (m?.[1]) exports.set(m[1], (m[2] ?? '').trim())
   }
   const value = (name: string): string | null => {
@@ -590,7 +591,7 @@ async function probe(): Promise<DoctorProbe> {
   let pid: number | null = null
   try {
     const raw = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10)
-    if (!isNaN(raw)) {
+    if (!Number.isNaN(raw)) {
       pid = raw
       try { process.kill(raw, 0); running = true } catch { running = false }
     }

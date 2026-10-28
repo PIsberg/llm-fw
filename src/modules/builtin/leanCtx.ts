@@ -71,13 +71,14 @@ async function by<T>(promise: Promise<T>, deadline: number, fallback: T): Promis
 /** A private `lean-ctx proxy` on a loopback port, used only for POST /v1/compress. */
 class Sidecar {
   alive = true
-  readonly ready: Promise<boolean>
+  ready: Promise<boolean> = Promise.resolve(false)
+  private readonly exited: Promise<boolean>
   private readonly child: ChildProcess
   private readonly url: string
   private readonly token: string
   private readonly onExit = (): void => { this.child.kill() }
 
-  private constructor(launch: LeanCtxSpawn, binary: string, port: number, onStop: (reason: string, detail: Record<string, string>) => void, startupMs: number) {
+  private constructor(launch: LeanCtxSpawn, binary: string, port: number, onStop: (reason: string, detail: Record<string, string>) => void) {
     this.url = `http://127.0.0.1:${port}`
     this.token = randomBytes(24).toString('hex')
 
@@ -115,7 +116,7 @@ class Sidecar {
       this.child.once('error', err => done(err.message))
       this.child.once('exit', code => done(`exit ${String(code)}`))
     })
-    this.ready = Promise.race([exited, this.healthy(Date.now() + startupMs)])
+    this.exited = exited
   }
 
   static async start(launch: LeanCtxSpawn, onStop: (reason: string, detail: Record<string, string>) => void, startupMs: number): Promise<Sidecar> {
@@ -123,7 +124,9 @@ class Sidecar {
     // file comes with whatever repository llm-fw is started in, and must not
     // choose a program for it to run.
     const binary = process.env.LLM_FW_LEAN_CTX_BIN || 'lean-ctx'
-    return new Sidecar(launch, binary, await freePort(), onStop, startupMs)
+    const sidecar = new Sidecar(launch, binary, await freePort(), onStop)
+    sidecar.ready = Promise.race([sidecar.exited, sidecar.healthy(Date.now() + startupMs)])
+    return sidecar
   }
 
   private async healthy(deadline: number): Promise<boolean> {

@@ -136,7 +136,7 @@ export class ResponseCacheModule implements GatewayModule {
 
   private event(ctx: GatewayModuleContext, saved: number): ModuleEvent {
     const event: ModuleEvent = {
-      id: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: `mod-${Date.now()}-${crypto.randomUUID().slice(0, 5)}`,
       timestamp: new Date().toISOString(),
       moduleId: this.id,
       moduleName: this.name,

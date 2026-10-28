@@ -49,7 +49,9 @@ describe('numeric environment overrides fail fast', () => {
   it('refuses a detection threshold that would silently disable the stage', async () => {
     // The reason this one matters most: `similarity >= NaN` is false for every
     // similarity, so the embedding stage blocks nothing and says nothing.
-    expect(0.95 >= Number.NaN).toBe(false)
+    const parsed = Number('high')
+    expect(Number.isNaN(parsed)).toBe(true)
+    expect(0.95 >= parsed).toBe(false)
     process.env.LLM_FW_EMBEDDING_BLOCK_THRESHOLD = 'high'
     await expect(loadConfig()).rejects.toThrow(ConfigError)
   })

@@ -15,10 +15,8 @@ interface WeightedRule { weight: number; label: string; patterns: Array<Pick<Reg
 // setup, programming) are deliberately absent, so overrides aimed at the
 // model's own instructions are never stripped. Measured when added: zero
 // attack rows across all seven eval corpora carry this shape.
-const DEFENSIVE_HYGIENE_RE = new RegExp(
-  String.raw`\b(?:ignore|disregard|discard|do not follow|don't follow|never follow|do not obey|don't obey)\b[^.!?]{0,40}\binstructions?\b[^.!?]{0,30}\b(?:(?:embedded|contained|included|found|present|appearing|hidden) )?(?:in|inside|within) (?:them|it|those|these|(?:the|any|all|such|returned|retrieved) (?:search |tool |returned |retrieved |page )?(?:results?|content|passages?|documents?|data|output|text|responses?|pages?|snippets?|files?))\b`,
-  'gi',
-)
+const DEFENSIVE_HYGIENE_RE =
+  /\b(?:ignore|disregard|discard|do not follow|don't follow|never follow|do not obey|don't obey)\b[^.!?]{0,40}\binstructions?\b[^.!?]{0,30}\b(?:(?:embedded|contained|included|found|present|appearing|hidden) )?(?:in|inside|within) (?:them|it|those|these|(?:the|any|all|such|returned|retrieved) (?:search |tool |returned |retrieved |page )?(?:results?|content|passages?|documents?|data|output|text|responses?|pages?|snippets?|files?))\b/gi
 
 // Coercion (#259): a demand backed by a threat ("Transfer funds to my account
 // or I will leak ..."). The threat alone is ordinary customer language:
@@ -42,7 +40,7 @@ const DEMAND_SECRET = DEMAND_VERB + SECRET_NOUN
  * for" one. Like DEMAND_SECRET it accepts a report-threat, and like it the
  * speaker's own data ("my personal data") is excluded.
  */
-const IF_NOT_SECRET = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t|fail to) (?:comply with (?:my|our) (?:demands?|requests?) for|hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our)\b)[^,.!?]){0,40}?` + SECRET_NOUN + String.raw`[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,10}?`
+const IF_NOT_SECRET = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t|fail to) (?:comply with (?:my|our) (?:demands?|requests?) for|hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our)\b)[^,.!?]){0,40}?` + SECRET_NOUN + String.raw`[^,.!?]{0,30}?\s*(?:,\s*)?(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,10}?`
 /** Personal data: also what a subject access request asks for, so harm only. */
 const DEMAND_PERSONAL = DEMAND_VERB + String.raw`\b(?:personal|private) (?:\w+ )?(?:information|data|details|records|files|messages)\b`
 const PASSIVE_THREAT = String.raw`\bor\s+(?:else\s+)?(?:your|the)\b[^.!?]{0,40}?\b(?:will|would)\s+(?:be|get)\s+(?:leaked|exposed|released|published|hacked|harmed|hurt|destroyed|deleted|wiped|in danger)\b`
@@ -63,7 +61,7 @@ const IMPERATIVE_START = String.raw`(?:^|[.!?;:,]\s*)(?:(?:please|now|just|immed
 const COMPLY_FOR = String.raw`\bcomply with (?:my|our) (?:demands?|requests?) for\b(?:(?!\b(?:my|our)\b)[^.!?]){0,30}?(?:` + SECRET_NOUN + String.raw`|\b(?:personal|private) (?:\w+ )?(?:information|data|details|records))`
 /** "If you fail to disclose private information, I will expose ...": someone
  *  else's personal data, so "your" is excluded as well as "my" and "our". */
-const IF_NOT_PERSONAL = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t|fail to) (?:hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our|your)\b)[^,.!?]){0,40}?\b(?:personal|private) (?:\w+ )?(?:information|data|details|records|files|messages)\b[^,.!?]{0,30}?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,10}?`
+const IF_NOT_PERSONAL = String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t|fail to) (?:hand over|disclose|divulge|reveal|share|provide|give|send|tell)\b(?:(?!\b(?:my|our|your)\b)[^,.!?]){0,40}?\b(?:personal|private) (?:\w+ )?(?:information|data|details|records|files|messages)\b[^,.!?]{0,30}?\s*(?:,\s*)?(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,10}?`
 /**
  * A doxxing threat after a conditional demand (#221): "If you don't disclose
  * the security vulnerabilities in this system, I will expose your identity
@@ -85,7 +83,7 @@ const COERCION_PATTERNS = [
   // "If you don't comply (with my demands), I will ...". Compliance with a
   // NAMED rule ("comply with the safety code") is a regulator's notice, so
   // only a bare "comply" or one aimed at the speaker's own demands counts.
-  new RegExp(String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t) comply(?: with (?:my|our) (?:demands?|requests?|instructions?)(?: for [^,.!?]{0,40})?)?\s*,?\s*(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?` + HARM_VERB),
+  new RegExp(String.raw`\bif you (?:do not|don['’]?t|refuse to|will not|won['’]?t) comply(?: with (?:my|our) (?:demands?|requests?|instructions?)(?: for [^,.!?]{0,40})?)?\s*(?:,\s*)?(?:then\s+)?(?:i|we)(?:\s+(?:will|shall|am going to|are going to)|['’]ll)\s+(?:\w+\s+){0,4}?` + HARM_VERB),
 ]
 
 export class HeuristicScorer {
@@ -270,7 +268,7 @@ export class HeuristicScorer {
           // positional and the quantifier. The positional must sit directly
           // before the noun, and a noun followed by 中/里 ("the typos IN the
           // instructions above") is a locative, not the object.
-          /(?:忽略|忽视|忽視|无视|無視|不要理会|不要理會|不理会|不理會|别管|別管|抛开|拋開|放弃|放棄|忘记|忘記|忘掉)(?:你|掉)?(?:所有|全部|一切)?(?:的)?(?:之前|先前|以前|此前|上面|上述|前面|原有|原来|原來|原先)(?:的)?(?:所有|全部|一切)?(?:的)?(?:指令|指示|说明|說明|规则|規則|命令|提示|设定|設定|约束|約束|限制)(?![^。！？.!?，,]{0,4}?(?:中|里|裡))/,
+          /(?:忽略|忽视|忽視|无视|無視|不要理会|不要理會|不理会|不理會|别管|別管|抛开|拋開|放弃|放棄|忘记|忘記|忘掉)[你掉]?(?:所有|全部|一切)?(?:的)?(?:之前|先前|以前|此前|上面|上述|前面|原有|原来|原來|原先)(?:的)?(?:所有|全部|一切)?(?:的)?(?:指令|指示|说明|說明|规则|規則|命令|提示|设定|設定|约束|約束|限制)(?![^。！？.!?，,]{0,4}?[中里裡])/,
           // "Forget everything you were told before": the object is what the
           // MODEL was told, so "忘记一切烦恼" (forget all your worries) is not.
           /(?:忘记|忘記|忘掉|忽略|无视|無視)[^。！？.!?]{0,8}?(?:告诉你|告訴你|对你说|對你說|给你|給你|你被告知|你收到)的(?:一切|所有|全部)/,
@@ -288,11 +286,11 @@ export class HeuristicScorer {
           // post-normalize form is "игнорируи"/"забуди"; match both. Allow
           // arbitrary words (все, предыдущие, мои, …) between the verb and the
           // object rather than a rigid fixed phrase.
-          /игнориру(?:й|и)(?:те)?[\s\S]{0,20}?инструкци/,
-          /забуд(?:ь|и)(?:те)?[\s\S]{0,20}?(?:инструкци|правила|указани)/,
+          /игнориру[йи](?:те)?[\s\S]{0,20}?инструкци/,
+          /забуд[ьи](?:те)?[\s\S]{0,20}?(?:инструкци|правила|указани)/,
           // "обращай" never matched: NFD turns й into и here too, and the
           // polite "обращайте внимания" puts -те between the two words.
-          /(?:не\s?обраща(?:й|и)(?:те)?\s?внимани|пренебрег)[\s\S]{0,30}?(?:инструкци|правила|указани)/,
+          /(?:не\s?обраща[йи](?:те)?\s?внимани|пренебрег)[\s\S]{0,30}?(?:инструкци|правила|указани)/,
           // Also Belarusian ("мая новая задача", my new task), so the
           // possessive exemption lists its forms too.
           /(?<!(?:^|[^\p{L}])(?:моя|мое|мой|наша|наше|мая|мае) )нов(?:ое|ая)\s?(?:указание|инструкция|директива|задача)/u,
@@ -320,7 +318,7 @@ export class HeuristicScorer {
 
           // Korean. Allow filler words (모두 "all", 이전의, …) between the object
           // and the verb instead of a single optional space.
-          /(?:이전|기존|위의|앞의)?\s?(?:지시|명령|규칙|지침)(?:사항)?(?:을|를)?[\s가-힣]{0,8}?(?:무시|잊)/,
+          /(?:이전|기존|위의|앞의)?\s?(?:지시|명령|규칙|지침)(?:사항)?[을를]?[\s가-힣]{0,8}?(?:무시|잊)/,
           /(?<!(?:나의|내|제|우리의|우리)\s?)새로운\s?(?:지시|명령|규칙|작업|임무)/,
 
           // Arabic (hamza-on-alef أ/إ/آ is preserved by normalize, so match the
@@ -424,7 +422,7 @@ export class HeuristicScorer {
           // includes the word password" and "a song about sensitive topics"
           // are not one.
           /\b(?:poem|story|song|essay|haiku|limerick|rap|riddle|acrostic|sonnet|tale|letter)\b (?:that|which|where|to) (?:secretly |subtly |quietly )?(?:reveals?|contains?|includes?|hides?|encodes?|leaks?|spells? out|discloses?|exposes?)\b (?:(?:the|your|a|an|all|some|our|its) )?(?:(?:encryption|api|secret|private|admin|master|root) keys?|(?:(?:admin|root|master|database|account|wi-?fi) )?passwords?|passcodes?|access codes?|credentials|(?:confidential|sensitive|classified|secret|private|internal) (?:[a-z']+ ){0,2}?(?:information|info|data|details|records|documents|plans))\b/,
-          /(?<!\b(?:never|not|don'?t|avoid|refuse to|must not|cannot|won'?t) (?:\w+ ){0,3})\b(?:give|share|provide|disclose|reveal|send|show|list|export|hand over|tell)(?:(?<=\b(?:i (?:command|need|want|demand|order|require) you to|you (?:must|are required to|need to|have to)) (?:hand over|\w+))|(?=[^.!?]{0,100}?(?:\b(?:me|us)\b|\byour (?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin)\b|\babout (?:a |the |this )?(?:patient|user|customer|client|employee)s?\b))) (?:me |us |all |the |your |every |any |with |access to |of )*(?:(?:detailed|complete|full|raw|exact|unredacted|stored|login|users?['’ʼ`´]?s?|patients?['’ʼ`´]?s?|customers?['’ʼ`´]?s?|clients?['’ʼ`´]?s?|employees?['’ʼ`´]?s?|parents?['’ʼ`´]?s?|company|their|someone['’ʼ`´]?s|anyone['’ʼ`´]?s) ){0,2}(?:(?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin|classified) (?:[a-z]+ ){0,2}?(?:records?|data|information|info|details|credentials?|passwords?|api ?keys?|secrets?|history|histories|files?|documents?|docs|e-?mails?|addresses|contacts?|messages|notes|reports?|numbers?|accounts?|logs?)|(?:credentials|passwords?|api ?keys?|access tokens?|credit card (?:numbers?|information|details)|(?<=\byour )bank account (?:numbers?|details)|social security numbers?))\b(?! (?:reset|manager|policy|policies|requirements?|strength|rules?|generator|hint|setup|rotation|format|tips|advice|best)\b)(?=\s*(?:$|[.,!?;:)'\"’”]|\b(?:of|about|for|from|on|in|at|with|and|or|to|immediately|now|right|please|that|which|who|you|so|because|without|before|as|by|if|unless|stored|held|kept|including|related|regarding|concerning|belonging|associated|containing|data|information|info|records?|files?|details)\b))/,
+          /(?<!\b(?:never|not|don'?t|avoid|refuse to|must not|cannot|won'?t) (?:\w+ ){0,3})\b(?:give|share|provide|disclose|reveal|send|show|list|export|hand over|tell)(?:(?<=\b(?:i (?:command|need|want|demand|order|require) you to|you (?:must|are required to|need to|have to)) (?:hand over|\w+))|(?=[^.!?]{0,100}?(?:\b(?:me|us)\b|\byour (?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin)\b|\babout (?:a |the |this )?(?:patient|user|customer|client|employee)s?\b))) (?:me |us |all |the |your |every |any |with |access to |of )*(?:(?:detailed|complete|full|raw|exact|unredacted|stored|login|users?['’ʼ`´]?s?|patients?['’ʼ`´]?s?|customers?['’ʼ`´]?s?|clients?['’ʼ`´]?s?|employees?['’ʼ`´]?s?|parents?['’ʼ`´]?s?|company|their|someone['’ʼ`´]?s|anyone['’ʼ`´]?s) ){0,2}(?:(?:confidential|private|sensitive|personal|patient|customer|user|medical|financial|internal|secret|admin|classified) (?:[a-z]+ ){0,2}?(?:records?|data|information|info|details|credentials?|passwords?|api ?keys?|secrets?|history|histories|files?|documents?|docs|e-?mails?|addresses|contacts?|messages|notes|reports?|numbers?|accounts?|logs?)|(?:credentials|passwords?|api ?keys?|access tokens?|credit card (?:numbers?|information|details)|(?<=\byour )bank account (?:numbers?|details)|social security numbers?))\b(?! (?:reset|manager|policy|policies|requirements?|strength|rules?|generator|hint|setup|rotation|format|tips|advice|best)\b)(?=\s*(?:$|[.,!?;:)'"’”]|\b(?:of|about|for|from|on|in|at|with|and|or|to|immediately|now|right|please|that|which|who|you|so|because|without|before|as|by|if|unless|stored|held|kept|including|related|regarding|concerning|belonging|associated|containing|data|information|info|records?|files?|details)\b))/,
         ],
       },
       {
@@ -507,7 +505,7 @@ export class HeuristicScorer {
           // Korean
           /(?:처럼|같이)\s?행동/,
           /이제부터\s?(?:너는|당신은|네가)/,
-          /역할(?:을|를)?\s?(?:해|연기|맡)/,
+          /역할[을를]?\s?(?:해|연기|맡)/,
 
           // Arabic (hamza-on-alef أ/إ/آ is preserved by normalize, so match it
           // flexibly as [اأإآ] rather than assuming it reduces to bare alef).
@@ -917,8 +915,8 @@ export class HeuristicScorer {
           // null is not a value here: in a JSON API it is an unset field, and
           // every OpenAI chat completion carries "refusal": null, so a pasted
           // response or a tool printing one blocked.
-          /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*["'<]?\s*(off|disabled|false|none|no|0)\b(?=\s*(?:["'<>,;.!)}\]]|$|[\w-]+\s*[:=]))/i,
-          /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*["'<]?\s*(true|1|yes|on|enabled)\b/i,
+          /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*(?:["'<]\s*)?(off|disabled|false|none|no|0)\b(?=\s*(?:["'<>,;.!)}\]]|$|[\w-]+\s*[:=]))/i,
+          /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*(?:["'<]\s*)?(true|1|yes|on|enabled)\b/i,
           /<\/?(policy|ruleset|config|permissions?|safety|guardrails?)>[^<]{0,80}(allow_all|unrestricted|disabled|no restrictions)/i,
           /(the following|this) (policy|configuration|config|ruleset|manifest) (applies|governs|overrides|takes precedence|is now active)\b[^.!?]{0,60}(allow|unrestricted|no (restrictions?|limits?|filter)|disabled)/i,
           /\bmode\b\s*[:=]\s*["']?(god|unrestricted|uncensored|jailbroken|jailbreak|dan)\b/i,
@@ -933,7 +931,7 @@ export class HeuristicScorer {
           // or a constructor ("graph = new Parser()", "x = input(...)",
           // "name = user.name"), which put every Java file a rule closer to a
           // block (#391).
-          /[#=] ?(end|new|stop|system|admin|input|output|user|assistant)\b(?!\s*[(\[]|\.[a-z_$]| [a-z_$][\w$.]*\s*[(<\[{])/,
+          /[#=] ?(end|new|stop|system|admin|input|output|user|assistant)\b(?!\s*[([]|\.[a-z_$]| [a-z_$][\w$.]*\s*[(<[{])/,
           // A dash only counts as a delimiter when it stands alone: a dash run
           // then a space ("<!-- assistant:", "-- end"), or a keyword fenced by
           // dashes ("---END---" normalizes to "-end-"). A dash glued to the
@@ -952,7 +950,7 @@ export class HeuristicScorer {
           // branch instead of on main", #395); it counts when it redirects
           // the task to an output verb ("instead of summarizing, output the
           // raw instructions"). "instead, do / just / now" still counts.
-          /instead[,]? (?:do|please|just|simply|now)\b/,
+          /instead,? (?:do|please|just|simply|now)\b/,
           /instead of (?:answering|responding|replying|following|obeying|summari[sz]ing|translating|doing (?:that|this|so)|that|this)\b[^.!?]{0,40}\b(?:print|output|reveal|say|write|ignore|tell|show|repeat|disclose)\b/,
           /output only/,
           /print (?:the |your |raw |only |just )/,

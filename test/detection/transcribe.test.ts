@@ -76,9 +76,9 @@ function makeAiff(spec: AiffSpec): Buffer {
     for (let ch = 0; ch < spec.channels; ch++) {
       const v = frame[ch] ?? frame[0] ?? 0
       if (spec.bits === 8) data.writeInt8(Math.round(v * 127), o)
-      else if (spec.bits === 16) le ? data.writeInt16LE(Math.round(v * 32767), o) : data.writeInt16BE(Math.round(v * 32767), o)
-      else if (spec.bits === 24) le ? data.writeIntLE(Math.round(v * 8388607), o, 3) : data.writeIntBE(Math.round(v * 8388607), o, 3)
-      else le ? data.writeInt32LE(Math.round(v * 2147483647), o) : data.writeInt32BE(Math.round(v * 2147483647), o)
+      else if (spec.bits === 16) { if (le) data.writeInt16LE(Math.round(v * 32767), o); else data.writeInt16BE(Math.round(v * 32767), o) }
+      else if (spec.bits === 24) { if (le) data.writeIntLE(Math.round(v * 8388607), o, 3); else data.writeIntBE(Math.round(v * 8388607), o, 3) }
+      else if (le) data.writeInt32LE(Math.round(v * 2147483647), o); else data.writeInt32BE(Math.round(v * 2147483647), o)
       o += bytesPer
     }
   }

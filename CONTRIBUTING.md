@@ -108,16 +108,20 @@ gate runs the cheap pipeline (judge off) by default.
 
 - **TypeScript**, strict and type-checked. `src/**/*.ts` runs under
   `@typescript-eslint`'s `recommended` and `recommended-type-checked` rule
-  sets (see `eslint.config.js`); `scripts/**/*.ts` runs the syntax-only subset.
-- No unused vars (`_`-prefixed args are exempt), no floating promises, and
-  `no-explicit-any` is a warning, not an error — avoid it where you
-  reasonably can.
+  sets plus `eslint-plugin-sonarjs` (see `eslint.config.js`); `scripts/**/*.ts`
+  runs the syntax-only and SonarJS subset.
+- `npm run lint` runs ESLint (`lint:eslint`), Oxlint (`lint:oxlint`, warnings
+  denied), and Biome (`lint:biome`, linter only with formatting off). All three
+  must exit clean before you open a PR (`npm run lint:fix` applies safe fixes).
+- No unused vars (`_`-prefixed args are exempt) and no floating promises.
 - There's no Prettier or other auto-formatter in this repo; match the
   formatting already present in the file you're editing.
-- `npm run lint` (or `npm run lint:fix` for auto-fixable issues) must be clean
-  before you open a PR.
 - `npm run knip` finds unused exports/files/dependencies. CI runs it on Node 22,
   so a new unused export fails the PR.
+- `npm install` configures `.githooks/pre-commit` automatically (via `prepare`),
+  running `npx tsc --noEmit`, `npm run lint`, and `npm run knip` before every
+  commit. CI also runs Semgrep (`.github/workflows/semgrep.yml`) and CodeQL
+  (`.github/workflows/codeql.yml`).
 
 ## Testing requirements
 

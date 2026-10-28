@@ -37,7 +37,7 @@ function dechunkBody(body: string): string {
       continue
     }
     const size = parseInt(hexSize, 16)
-    if (isNaN(size)) break
+    if (Number.isNaN(size)) break
     if (size === 0) break
     
     const chunkStart = nextLineSep + 2

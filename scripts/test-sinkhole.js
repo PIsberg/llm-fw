@@ -1,7 +1,7 @@
-import fs from 'fs';
-import https from 'https';
-import { homedir } from 'os';
-import { join } from 'path';
+import fs from 'node:fs';
+import https from 'node:https';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 // Manual smoke test against a running `llm-fw start`. It talks to the proxy's
 // HTTPS listener, which presents a certificate minted by llm-fw's own CA, so

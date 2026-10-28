@@ -135,13 +135,26 @@ export interface SseGate {
  * terminates cleanly. The tool name is present in `content_block_start`, so the
  * decision is made before any argument bytes are forwarded.
  */
-export class SseToolGate implements SseGate {
-  private buf = ''
-  private readonly suppressedIndexes = new Set<number>()
-  private readonly emittedTools = new Set<string>()
-  private blockedAny = false
+abstract class BufferedSseGate implements SseGate {
+  protected buf = ''
+  protected readonly suppressedIndexes = new Set<number>()
+  protected readonly emittedTools = new Set<string>()
+  protected blockedAny = false
 
-  constructor(private readonly mcp: McpScanner) {}
+  abstract push(text: string): SsePushResult
+
+  /** Forward any trailing buffered text once the stream ends. */
+  flush(): string {
+    const rest = this.buf
+    this.buf = ''
+    return rest
+  }
+}
+
+export class SseToolGate extends BufferedSseGate {
+  constructor(private readonly mcp: McpScanner) {
+    super()
+  }
 
   push(text: string): SsePushResult {
     this.buf += text
@@ -157,13 +170,6 @@ export class SseToolGate implements SseGate {
       sep = this.buf.indexOf('\n\n')
     }
     return { forward: forwardParts.join(''), decisions }
-  }
-
-  /** Forward any trailing buffered text once the stream ends. */
-  flush(): string {
-    const rest = this.buf
-    this.buf = ''
-    return rest
   }
 
   private handleEvent(raw: string): { forward: string; decision: ToolDecision | null } {
@@ -232,13 +238,10 @@ function parseSseData(raw: string): Record<string, unknown> | null {
  * terminating `finish_reason` from `tool_calls` to `stop` so the agent ends its
  * turn cleanly. `data: [DONE]` and any non-tool chunk are forwarded verbatim.
  */
-export class OpenAiSseToolGate implements SseGate {
-  private buf = ''
-  private readonly suppressedIndexes = new Set<number>()
-  private readonly emittedTools = new Set<string>()
-  private blockedAny = false
-
-  constructor(private readonly mcp: McpScanner) {}
+export class OpenAiSseToolGate extends BufferedSseGate {
+  constructor(private readonly mcp: McpScanner) {
+    super()
+  }
 
   push(text: string): SsePushResult {
     this.buf += text
@@ -254,12 +257,6 @@ export class OpenAiSseToolGate implements SseGate {
       sep = this.buf.indexOf('\n\n')
     }
     return { forward: forwardParts.join(''), decisions }
-  }
-
-  flush(): string {
-    const rest = this.buf
-    this.buf = ''
-    return rest
   }
 
   private handleEvent(raw: string): { forward: string; decisions: ToolDecision[] } {

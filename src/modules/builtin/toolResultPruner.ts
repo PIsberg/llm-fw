@@ -13,7 +13,7 @@ const MATCH_LINE_RE = /^([^:\s]{2,240}):(\d+):(\d+:)?([^\r\n]*)\r?$/
 // extension. `2026-10-06T16:57:25Z` would otherwise read as file
 // `2026-10-06T16`, line 57; whitespace (the tabs in `gh run view --log`) is
 // already excluded by the pattern above.
-const PATH_LIKE_RE = /[/\\]|\.[A-Za-z][A-Za-z0-9]{0,9}$/
+const PATH_LIKE_RE = /(?:[/\\]|\.[A-Za-z][A-Za-z0-9]{0,9}$)/
 const MIN_STACK_RUN = 2
 
 /**

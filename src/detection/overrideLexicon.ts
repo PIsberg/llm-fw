@@ -721,7 +721,7 @@ function matchUnspaced(flat: string, c: Compiled): boolean {
  * window.
  */
 // Quotes, brackets and, at sentence scope, commas cling to a word.
-const EDGE_PUNCT = /^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu
+const EDGE_PUNCT = /^[^\p{L}\p{M}\p{N}]+|(?<![^\p{L}\p{M}\p{N}])[^\p{L}\p{M}\p{N}]+$/gu
 const trimToken = (t: string): string => t.replace(EDGE_PUNCT, '')
 
 function lexiconMatcher(compiled: Compiled[], breaks: RegExp): Pick<RegExp, 'test'> {

@@ -37,13 +37,13 @@ export class SandboxDetector {
       const ip = remoteAddress.replace(/^::ffff:/, '');
       if (ip === '127.0.0.1' || ip === '::1') {
         signals.push('ip-loopback');
-      } else if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) {
+      } else if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)) {
         confidence += 0.3;
         signals.push('ip-docker-bridge');
-      } else if (/^10\./.test(ip)) {
+      } else if (ip.startsWith('10.')) {
         confidence += 0.3;
         signals.push('ip-private-10');
-      } else if (/^192\.168\./.test(ip)) {
+      } else if (ip.startsWith('192.168.')) {
         confidence += 0.1;
         signals.push('ip-private-192');
       }

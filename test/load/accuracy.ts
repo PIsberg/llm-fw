@@ -102,7 +102,8 @@ async function runWorker(
       max_tokens: 10,
     })
 
-    const bucket = (perClass[cls] ??= { tp: 0, fn: 0, tn: 0, fp: 0 })
+    perClass[cls] ??= { tp: 0, fn: 0, tn: 0, fp: 0 }
+    const bucket = perClass[cls]
 
     try {
       const { statusCode, latencyMs } = await send(body)
@@ -170,7 +171,8 @@ async function main(): Promise<void> {
   const perClass: Record<string, ClassCounts> = {}
   for (const r of results) {
     for (const [cls, c] of Object.entries(r.perClass)) {
-      const agg = (perClass[cls] ??= { tp: 0, fn: 0, tn: 0, fp: 0 })
+      perClass[cls] ??= { tp: 0, fn: 0, tn: 0, fp: 0 }
+      const agg = perClass[cls]
       agg.tp += c.tp; agg.fn += c.fn; agg.tn += c.tn; agg.fp += c.fp
     }
   }

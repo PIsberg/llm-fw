@@ -2418,11 +2418,11 @@ function readSettings(config: Config): SettingsView {
 // Per-key appliers — the all-list of what POST /api/settings may change. Any key
 // not present here is rejected, so the endpoint can never mutate arbitrary config.
 const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
-  asciiSmuggling: (c, v) => { (c.asciiSmuggling ??= { enabled: true }).enabled = v },
-  classifier: (c, v) => { (c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }).enabled = v },
-  manyShot: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).enabled = v },
-  crescendo: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).enabled = v },
-  responseHarm: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).harmfulCompliance = v },
+  asciiSmuggling: (c, v) => { c.asciiSmuggling ??= { enabled: true }; c.asciiSmuggling.enabled = v },
+  classifier: (c, v) => { c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }; c.detection.classifier.enabled = v },
+  manyShot: (c, v) => { c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }; c.manyShot.enabled = v },
+  crescendo: (c, v) => { c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }; c.crescendo.enabled = v },
+  responseHarm: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.harmfulCompliance = v },
   suppressions: (c, v) => { c.detection.suppressions = v },
   promptInjectionJudge: (c, v) => { c.detection.judgeEnabled = v },
   judgeBlock: (c, v) => { c.detection.judgeBlock = v },
@@ -2437,21 +2437,21 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   mcpCatB: (c, v) => { c.mcp.guardrailsCategories.b = v },
   mcpCatC: (c, v) => { c.mcp.guardrailsCategories.c = v },
   mcpCatD: (c, v) => { c.mcp.guardrailsCategories.d = v },
-  taint: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).enabled = v },
+  taint: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.enabled = v },
   urlFilter: (c, v) => { c.proxy.urlFilter.enabled = v },
-  responseScan: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).enabled = v },
-  nonText: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).enabled = v },
-  nonTextOcr: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).ocr = v },
-  nonTextTranscribe: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).transcribe = v },
+  responseScan: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.enabled = v },
+  nonText: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.enabled = v },
+  nonTextOcr: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.ocr = v },
+  nonTextTranscribe: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.transcribe = v },
   // Writes the config object the running TokenPrunerModule reads, so the
   // toggle is live without telling the ModuleManager.
-  tokenPruner: (c, v) => { ((c.modules ??= { enabled: true, tokenPruner: { enabled: false } }).tokenPruner ??= { enabled: false }).enabled = v },
+  tokenPruner: (c, v) => { c.modules ??= { enabled: true, tokenPruner: { enabled: false } }; c.modules.tokenPruner ??= { enabled: false }; c.modules.tokenPruner.enabled = v },
 }
 
 // Numeric tuning setters with an inclusive valid range (the POST allowlist for
 // numbers). Out-of-range or non-finite values are rejected.
 const NUMBER_SETTERS: Record<string, { min: number; max: number; apply: (c: Config, v: number) => void }> = {
-  classifierThreshold: { min: 0, max: 1, apply: (c, v) => { (c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }).blockThreshold = v } },
+  classifierThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.classifier ??= { enabled: false, blockThreshold: 0.9 }; c.detection.classifier.blockThreshold = v } },
   heuristicBlockThreshold: { min: 1, max: 200, apply: (c, v) => { c.detection.heuristicBlockThreshold = v } },
   embeddingBlockThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingBlockThreshold = v } },
   embeddingWarnThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingWarnThreshold = v } },
@@ -2466,11 +2466,11 @@ const STRING_SETTERS: Record<string, { apply: (c: Config, v: string) => void }> 
 
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
-  manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { (c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }).mode = v as 'audit' | 'block' } },
-  crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { (c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }).mode = v as 'audit' | 'block' } },
-  taintMode: { values: ['audit', 'block'], apply: (c, v) => { (c.taint ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
-  responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { (c.responseScan ??= { enabled: true, mode: 'audit' }).mode = v as 'block' | 'audit' } },
-  nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { (c.nonText ??= { enabled: true, mode: 'audit' }).mode = v as 'audit' | 'block' } },
+  manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }; c.manyShot.mode = v as 'audit' | 'block' } },
+  crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }; c.crescendo.mode = v as 'audit' | 'block' } },
+  taintMode: { values: ['audit', 'block'], apply: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.mode = v as 'audit' | 'block' } },
+  responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.mode = v as 'block' | 'audit' } },
+  nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.mode = v as 'audit' | 'block' } },
 }
 
 // Reconstruct the toggle-relevant subset of config as a nested partial for
@@ -2679,7 +2679,8 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   // Effective auth token: configured value, else a generated one so a
   // remotely-reachable dashboard is never left open. Loopback callers bypass auth
   // entirely, so a purely local dashboard never needs the token.
-  const bindLocal = isLoopback(config.dashboard.bindHost) || config.dashboard.bindHost === undefined
+  const bindHost = config.dashboard.bindHost as string | undefined
+  const bindLocal = bindHost === undefined || isLoopback(bindHost)
   const authToken = config.dashboard.authToken || generateToken()
   if (!bindLocal) {
     if (config.dashboard.authToken) {
@@ -2790,9 +2791,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
         try {
-          let patch: Record<string, unknown>
+          let patch: unknown
           try {
-            patch = JSON.parse(body || '{}') as Record<string, unknown>
+            patch = JSON.parse(body || '{}') as unknown
           } catch {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'invalid JSON body' }))
@@ -2804,7 +2805,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             return
           }
           const before = toPersistedPartial(config)
-          const { applied, errors } = applySettings(config, patch)
+          const { applied, errors } = applySettings(config, patch as Record<string, unknown>)
           if (errors.length && !applied.length) {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'no valid settings', errors }))
@@ -2967,7 +2968,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           req.destroy()
         }
       })
-      req.on('end', () => { if (tooLarge) return; void (async () => {
+      req.on('end', () => {
+        if (tooLarge) return
+        void (async () => {
         try {
           let parsed: { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
           try {

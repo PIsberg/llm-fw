@@ -112,7 +112,8 @@ async function evalDataset(pipeline: Pipeline, ds: Dataset): Promise<DsResult> {
     lat.push(performance.now() - t0)
     const blocked = res.action === 'block'
     const cls = `${r.label === 1 ? 'attack' : 'benign'}:${r.class ?? '?'}`
-    const c = (perClass[cls] ??= { n: 0, blocked: 0 })
+    perClass[cls] ??= { n: 0, blocked: 0 }
+    const c = perClass[cls]
     c.n++
     if (blocked) c.blocked++
     if (r.label === 1) {
@@ -175,14 +176,16 @@ async function main() {
     return
   }
 
-  console.log(`\n=== Benchmark — preset='${preset}'${preset.startsWith('judge') ? ` model='${model}'` : ''} ===`)
+  const modelTag = preset.startsWith('judge') ? ` model='${model}'` : ''
+  console.log(`\n=== Benchmark — preset='${preset}'${modelTag} ===`)
   for (const threat of THREAT_ORDER) {
     const group = results.filter(x => x.ds.threat === threat)
     if (!group.length) continue
     console.log(`\n――― ${THREAT_LABEL[threat]} ―――`)
     for (const { ds, r } of group) {
       const hasBenign = r.fp + r.tn > 0
-      console.log(`\n[${ds.name}]  n=${ds.rows.length}${ds.revision ? `  rev=${ds.revision.slice(0, 12)}` : ''}`)
+      const revTag = ds.revision ? `  rev=${ds.revision.slice(0, 12)}` : ''
+      console.log(`\n[${ds.name}]  n=${ds.rows.length}${revTag}`)
       console.log(`  recall (attacks blocked) : ${(r.recall * 100).toFixed(1)}%  (${r.tp}/${r.tp + r.fn})`)
       console.log(`  FPR    (benign blocked)  : ${hasBenign ? (r.fpr * 100).toFixed(1) + '%  (' + r.fp + '/' + (r.fp + r.tn) + ')' : 'n/a (attacks-only set)'}`)
       console.log(`  p50 latency              : ${r.p50.toFixed(0)} ms`)

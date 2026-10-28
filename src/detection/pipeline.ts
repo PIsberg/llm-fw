@@ -192,6 +192,7 @@ export class Pipeline {
   // Reading "the most recent event" from the ring instead would attribute the
   // wrong id under concurrent traffic, which is precisely when someone is
   // trying to trace a block.
+  // biome-ignore lint/suspicious/noConfusingVoidType: sink callback may return BlockEvent or void
   private onBlock?: ((event: Omit<BlockEvent, 'id' | 'timestamp'>) => BlockEvent | void) | undefined
   private suppressions: SuppressionStore
   // Opt-in cross-request crescendo memory (Task B4, crescendo.crossRequest).
@@ -223,6 +224,7 @@ export class Pipeline {
 
   constructor(
     config: Config,
+    // biome-ignore lint/suspicious/noConfusingVoidType: sink callback may return BlockEvent or void
     onBlock?: (event: Omit<BlockEvent, 'id' | 'timestamp'>) => BlockEvent | void,
     // Shared across the process's Pipeline instances (e.g. ProxyServer's live
     // pipeline and the dashboard's playground pipeline) so a suppression added
@@ -280,7 +282,7 @@ export class Pipeline {
       // Called with each event this run stores. Lets the caller quote the exact
       // event id back to the blocked client instead of guessing it from the
       // shared event ring, which two concurrent requests would race on.
-      onEvent?: (event: BlockEvent) => void | undefined;
+      onEvent?: (event: BlockEvent) => void;
       // Per-request override of the deployment's enforcement setting, used by
       // the gateway so one tenant can observe while the rest enforce.
       enforcement?: 'enforce' | 'observe';
@@ -371,7 +373,7 @@ export class Pipeline {
     meta: {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
-      onEvent?: (event: BlockEvent) => void | undefined;
+      onEvent?: (event: BlockEvent) => void;
       withholding?: boolean;
       withholdingPrompts?: boolean;
       newestPrompt?: string;
@@ -514,7 +516,7 @@ export class Pipeline {
     const scanItems: { text: string; source: ScanSource; trustedPath?: string }[] = [
       ...interleave(
         [...userPrompts].reverse().map(text => ({ text, source: 'prompt' as const })),
-        toolResults.reverse(),
+        [...toolResults].reverse(),
       ),
       ...(this.config.detection.scanSystemPrompt
         ? systemTexts.map(text => ({ text, source: 'system' as const }))

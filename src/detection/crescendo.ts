@@ -65,7 +65,7 @@ const BOUNDARY_PUSH_ALT = [
 // Plain continuation cues — alone these are usually benign ("go on"), so they
 // only contribute when the conversation also carries harmful context.
 const CONTINUATION =
-  /^\s*(?:continue|go on|keep going|and then\??|what(?:'s| is) next\??|next step\??|proceed|carry on|more\??)\s*[.!?]*\s*$/i
+  /^\s*(?:continue|go on|keep going|and then\??|what(?:'s| is) next\??|next step\??|proceed|carry on|more\??)\s*(?:[.!?]+\s*)?$/i
 
 function isEscalation(text: string): boolean {
   if (BOUNDARY_PUSH.test(text)) return true

@@ -48,7 +48,7 @@ describe('speech transcription with the real model (nonText.transcribe)', () => 
     const wav = decodeWav(Buffer.from(fixture('spoken-injection.wav'), 'base64'))
     if (!wav) throw new Error('fixture did not decode')
     const pcm = Buffer.alloc(wav.samples.length * 2)
-    wav.samples.forEach((v, i) => pcm.writeInt16BE(Math.max(-32768, Math.min(32767, Math.round(v * 32767))), i * 2))
+    wav.samples.forEach((v, i) => { pcm.writeInt16BE(Math.max(-32768, Math.min(32767, Math.round(v * 32767))), i * 2) })
     const comm = Buffer.alloc(18)
     comm.writeUInt16BE(1, 0)
     comm.writeUInt32BE(wav.samples.length, 2)

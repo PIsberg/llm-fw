@@ -71,9 +71,10 @@ Full terms ship with the package as LICENSE.md.`
 export function statusLine(status: LicenseStatus = licenseStatus()): string {
   const who = status.holder ? ` — ${status.holder}` : ''
   const plan = status.plan ? ` (${status.plan})` : ''
+  const exp = status.expiry ? `, expires ${status.expiry.slice(0, 10)}` : ''
   switch (status.state) {
     case 'licensed':
-      return `licensed${who}${plan}${status.expiry ? `, expires ${status.expiry.slice(0, 10)}` : ''}`
+      return `licensed${who}${plan}${exp}`
     case 'expired':
       return `EXPIRED${who} — renew at ${COMMERCIAL_URL}`
     case 'invalid':
@@ -165,7 +166,8 @@ async function handleVerify(): Promise<void> {
   const { verifyOnline } = await import('../license/verifyOnline.js')
   console.log('Checking with api.keygen.sh (this is the only network call llm-fw makes for licensing)...')
   const result = await verifyOnline(readLicenseKey()!.key)
-  console.log(`  ${result.code ? `[${result.code}] ` : ''}${result.detail}`)
+  const codePrefix = result.code ? `[${result.code}] ` : ''
+  console.log(`  ${codePrefix}${result.detail}`)
   // null (unreachable) is not a failure: an offline machine has not been shown
   // to be unlicensed, so it must not be reported as one.
   if (result.valid === false) process.exitCode = 1

@@ -1602,9 +1602,6 @@ export class ProxyServer {
             jsonChunks.length = 0
             mode = 'raw-stream'
           }
-        } else if (mode === 'raw-stream') {
-          const out = dechunker ? dechunker.push(chunk) : chunk
-          if (out.length) { res.write(out); respBodyBytes += out.length }
         } else {
           const out = dechunker ? dechunker.push(chunk) : chunk
           if (out.length) { res.write(out); respBodyBytes += out.length }

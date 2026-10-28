@@ -21,9 +21,9 @@ export interface ExfilFinding {
 }
 
 // `!\[alt\](url)` — markdown image. URL stops at whitespace, ')' or '>'.
-const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)>?[^)]*\)/gi
+const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
 // `\[text\](url)` — markdown link (not preceded by '!', which is the image form).
-const MD_LINK_RE = /(?<!!)\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)>?[^)]*\)/gi
+const MD_LINK_RE = /(?<!!)\[[^[\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
 // `<img ... src="url">` — HTML image (some renderers allow raw HTML).
 const HTML_IMG_RE = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
 
@@ -55,10 +55,12 @@ export function scanResponseExfil(
 
   const scan = (re: RegExp, kind: ExfilFinding['kind']) => {
     re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
+    for (let m = re.exec(text); m !== null; m = re.exec(text)) {
       const url = m[1]
-      if (!url) { if (m.index === re.lastIndex) re.lastIndex++; continue }
+      if (!url) {
+        if (m.index === re.lastIndex) re.lastIndex++
+        continue
+      }
       const parsed = parseUrl(url)
       if (parsed && isExfil(parsed.hostname, parsed.path)) {
         const key = kind + '|' + url

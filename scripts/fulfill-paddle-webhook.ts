@@ -31,7 +31,8 @@ function parseOpts(args: string[]): Record<string, string> {
 function req(opts: Record<string, string>, key: string, envFallback?: string): string {
   const v = opts[key] ?? (envFallback ? process.env[envFallback] : undefined)
   if (!v || !v.trim()) {
-    console.error(`missing required option --${key}${envFallback ? ` (or ${envFallback})` : ''}`)
+    const fallbackNote = envFallback ? ` (or ${envFallback})` : ''
+    console.error(`missing required option --${key}${fallbackNote}`)
     process.exit(2)
   }
   return v.trim()

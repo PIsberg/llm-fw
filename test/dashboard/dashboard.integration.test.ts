@@ -150,8 +150,8 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
   // design uses system font stacks and inline SVG instead.
   it('GET / references no external stylesheet, font, image or script', async () => {
     const res = await req(server, 'GET', '/')
-    expect(res.body).not.toMatch(/<(link|script|img|iframe)[^>]*(href|src)=["']?(https?:)?\/\//i)
-    expect(res.body).not.toMatch(/@import|url\(\s*["']?(https?:)?\/\//i)
+    expect(res.body).not.toMatch(/<(link|script|img|iframe)\b[^>]*\b(href|src)=["']?(https?:)?\/\//i)
+    expect(res.body).not.toMatch(/@import\b|url\(\s*["']?(https?:)?\/\//i)
   })
 
   // The page is self-contained (see above), and the policy tells the browser
@@ -629,7 +629,7 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(m?.path).toBe('/v1/messages')
     expect(m?.requestBody).toContain('claude-3-haiku')
     // Secret header values must never be forwarded verbatim.
-    expect((m?.reqHeaders as Record<string, string>).authorization).toBe('«redacted»')
+    expect((m?.reqHeaders as Record<string, string> | undefined)?.authorization).toBe('«redacted»')
   })
 
   // ── Settings (live defense toggles) ─────────────────────────────────────────

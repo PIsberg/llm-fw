@@ -180,7 +180,7 @@ const FIXTURES: [string, PayloadParser, unknown][] = [
 function collectPaths(node: unknown, prefix: (string | number)[], out: (string | number)[][]): void {
   out.push(prefix)
   if (Array.isArray(node)) {
-    node.forEach((child, i) => collectPaths(child, [...prefix, i], out))
+    node.forEach((child, i) => { collectPaths(child, [...prefix, i], out) })
   } else if (node !== null && typeof node === 'object') {
     for (const key of Object.keys(node as Record<string, unknown>)) {
       collectPaths((node as Record<string, unknown>)[key], [...prefix, key], out)

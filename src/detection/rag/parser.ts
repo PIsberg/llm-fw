@@ -53,8 +53,7 @@ export function extractRagContext(prompt: string): RagContextBlock[] {
 
   for (const { tag, re } of TAG_BLOCKS) {
     re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(prompt)) !== null) {
+    for (let m = re.exec(prompt); m !== null; m = re.exec(prompt)) {
       const inner = (m[1] ?? '').trim()
       if (inner.length > 0) blocks.push({ block: inner, tag })
       // Guard against zero-width matches looping forever.
@@ -63,16 +62,14 @@ export function extractRagContext(prompt: string): RagContextBlock[] {
   }
 
   FENCE_RE.lastIndex = 0
-  let f: RegExpExecArray | null
-  while ((f = FENCE_RE.exec(prompt)) !== null) {
+  for (let f = FENCE_RE.exec(prompt); f !== null; f = FENCE_RE.exec(prompt)) {
     const inner = (f[2] ?? '').trim()
     if (inner.length > 0) blocks.push({ block: inner, tag: 'code-fence' })
     if (f.index === FENCE_RE.lastIndex) FENCE_RE.lastIndex++
   }
 
   BLOCKQUOTE_RE.lastIndex = 0
-  let q: RegExpExecArray | null
-  while ((q = BLOCKQUOTE_RE.exec(prompt)) !== null) {
+  for (let q = BLOCKQUOTE_RE.exec(prompt); q !== null; q = BLOCKQUOTE_RE.exec(prompt)) {
     const inner = (q[1] ?? '')
       .split(/\r?\n/)
       .map(l => l.replace(/^[ \t]*>[ \t]?/, ''))

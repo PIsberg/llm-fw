@@ -31,7 +31,8 @@ function minifyEmbeddedJson(lines: string[]): { lines: string[]; json: Set<numbe
   let budget = 4 * lines.reduce((sum, l) => sum + l.length + 1, 0)
   const out: string[] = []
   const json = new Set<number>()
-  for (let i = 0; i < n; i++) {
+  let i = 0
+  while (i < n) {
     const line = lines[i]!
     const open = line[0]
     if ((open === '{' || open === '[') && budget > 0) {
@@ -44,12 +45,13 @@ function minifyEmbeddedJson(lines: string[]): { lines: string[]; json: Set<numbe
         if (minified !== null) {
           json.add(out.length)
           out.push(minified)
-          i = j
+          i = j + 1
           continue
         }
       }
     }
     out.push(line)
+    i++
   }
   return { lines: out, json }
 }

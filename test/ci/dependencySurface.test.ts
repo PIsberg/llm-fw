@@ -119,7 +119,7 @@ describe('devDependencies never reach the release', () => {
         else if (e.name.endsWith('.ts')) {
           const text = readFileSync(child, 'utf8')
           for (const d of dev) {
-            if (new RegExp(String.raw`(from|import\()\s*['"]${d.replace(/[/.]/g, '\$&')}(/[^'"]*)?['"]`).test(text)) {
+            if (new RegExp(String.raw`(from|import\()\s*['"]${d.replace(/[/.]/g, '\\$&')}(/[^'"]*)?['"]`).test(text)) {
               offenders.push(`${fileURLToPath(child)} -> ${d}`)
             }
           }
