@@ -758,4 +758,14 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.body).toContain('ASCII Smuggling')
     expect(res.body).toContain('s-ascii')
   })
+
+  it('GET / HTML exposes GitHub issue and email bug-report links in header and event drawer (#469)', async () => {
+    const res = await req(server, 'GET', '/')
+    expect(res.status).toBe(200)
+    expect(res.body).toContain('https://github.com/PIsberg/llm-fw/issues/new')
+    expect(res.body).toContain('mailto:isberg.peter@gmail.com')
+    expect(res.body).toContain('buildEventBugLinks')
+    expect(res.body).toContain('Report on GitHub')
+    expect(res.body).toContain('Report by email')
+  })
 })
