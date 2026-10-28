@@ -1,0 +1,10 @@
+---
+ignore-paths:
+  - node_modules
+  - dist
+  - coverage
+  - reports
+  - test
+  - .github
+  - scratch
+  - test-results

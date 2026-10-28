@@ -41,3 +41,7 @@ test/eval/data/local/
 # customer documents, not source.
 *.pem
 *.lfw-license
+
+# Diagnostic / SAST scan outputs
+.clinic/
+results.sarif

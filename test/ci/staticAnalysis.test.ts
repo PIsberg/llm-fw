@@ -66,6 +66,7 @@ describe('static analysis suite (#522)', () => {
     expect(rawHook).toContain('npx tsc --noEmit')
     expect(rawHook).toContain('npm run lint')
     expect(rawHook).toContain('npm run knip')
+    expect(rawHook).toContain('npm run audit')
 
     // prepare must no-op cleanly when .git is absent (e.g. Docker build or tarball install).
     const prepare = PKG.scripts?.prepare ?? ''
@@ -108,5 +109,75 @@ describe('static analysis suite (#522)', () => {
     const codeql = read('.github/workflows/codeql.yml')
     expect(codeql).toContain('github/codeql-action/analyze')
     expect(codeql).toContain('pull_request:')
+  })
+})
+
+describe('static security & analysis suite (#523)', () => {
+  it('wires npm audit into package.json, pre-commit hook, pre-commit config, and CI', () => {
+    expect(PKG.scripts?.audit).toBeDefined()
+    expect(PKG.scripts?.audit).toContain('npm audit')
+
+    const rawHook = readFileSync(join(ROOT, '.githooks/pre-commit'), 'utf8')
+    expect(rawHook).toContain('npm run audit')
+
+    const preCommitConfig = read('.pre-commit-config.yaml')
+    expect(preCommitConfig).toContain('id: audit')
+    expect(preCommitConfig).toContain('entry: npm run audit')
+
+    const ci = read('.github/workflows/ci.yml')
+    expect(ci).toContain('npm run audit')
+  })
+
+  it('configures Socket supply-chain security workflow', () => {
+    expect(existsSync(join(ROOT, '.github/workflows/socket.yml'))).toBe(true)
+    const socketWf = read('.github/workflows/socket.yml')
+    expect(socketWf).toContain('step-security/harden-runner')
+    expect(socketWf).toContain('@socketsecurity/cli')
+    expect(socketWf).toContain('pull_request:')
+  })
+
+  it('configures Snyk vulnerability & logic flaws workflow', () => {
+    expect(existsSync(join(ROOT, '.github/workflows/snyk.yml'))).toBe(true)
+    const snykWf = read('.github/workflows/snyk.yml')
+    expect(snykWf).toContain('step-security/harden-runner')
+    expect(snykWf).toContain('snyk')
+    expect(snykWf).toContain('pull_request:')
+  })
+
+  it('configures NodeJSScan (njsscan) static taint analysis with dedicated config', () => {
+    expect(existsSync(join(ROOT, '.github/workflows/njsscan.yml'))).toBe(true)
+    const njsscanWf = read('.github/workflows/njsscan.yml')
+    expect(njsscanWf).toContain('step-security/harden-runner')
+    expect(njsscanWf).toContain('njsscan')
+    expect(njsscanWf).toContain('github/codeql-action/upload-sarif')
+
+    expect(existsSync(join(ROOT, '.njsscan'))).toBe(true)
+    const njsscanCfg = read('.njsscan')
+    expect(njsscanCfg).toContain('node_modules')
+    expect(njsscanCfg).toContain('dist')
+    expect(njsscanCfg).toContain('reports')
+    expect(njsscanCfg).toContain('test')
+  })
+
+  it('configures Clinic.js diagnostic profiling without vulnerable devDependencies', () => {
+    expect(PKG.scripts?.['perf:clinic']).toBeDefined()
+    expect(PKG.scripts?.['perf:clinic']).toContain('clinic doctor')
+
+    const ci = read('.github/workflows/ci.yml')
+    expect(ci).toContain('npm run perf:clinic')
+    expect(ci).toContain('clinic-doctor-data')
+
+    const gitignore = read('.gitignore')
+    expect(gitignore).toContain('.clinic/')
+  })
+
+  it('keeps Knip configured and clean', () => {
+    expect(PKG.devDependencies).toHaveProperty('knip')
+    expect(PKG.scripts?.knip).toBe('knip')
+
+    const knipJson = JSON.parse(read('knip.json')) as { ignoreBinaries?: string[] }
+    expect(knipJson.ignoreBinaries).toContain('socket')
+    expect(knipJson.ignoreBinaries).toContain('snyk')
+    expect(knipJson.ignoreBinaries).toContain('njsscan')
   })
 })

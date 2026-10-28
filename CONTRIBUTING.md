@@ -118,10 +118,12 @@ gate runs the cheap pipeline (judge off) by default.
   formatting already present in the file you're editing.
 - `npm run knip` finds unused exports/files/dependencies. CI runs it on Node 22,
   so a new unused export fails the PR.
+- `npm run audit` checks for known dependency vulnerabilities.
 - `npm install` configures `.githooks/pre-commit` automatically (via `prepare`),
-  running `npx tsc --noEmit`, `npm run lint`, and `npm run knip` before every
-  commit. CI also runs Semgrep (`.github/workflows/semgrep.yml`) and CodeQL
-  (`.github/workflows/codeql.yml`).
+  running `npx tsc --noEmit`, `npm run lint`, `npm run knip`, and `npm run audit`
+  before every commit. CI also runs Semgrep (`.github/workflows/semgrep.yml`),
+  CodeQL (`.github/workflows/codeql.yml`), njsscan (`.github/workflows/njsscan.yml`),
+  Socket (`.github/workflows/socket.yml`), and Snyk (`.github/workflows/snyk.yml`).
 
 ## Testing requirements
 
