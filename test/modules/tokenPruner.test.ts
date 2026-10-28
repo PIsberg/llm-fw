@@ -113,6 +113,31 @@ Please check authorization.`
   })
 })
 
+describe('pruneText — markdown table condensation (#360)', () => {
+  it('condenses markdown table cell padding and separator dashes while preserving alignment colons', () => {
+    const input = [
+      'Summary table:',
+      '| Name               | Left         | Right        | Center       |',
+      '| ------------------ | :----------- | -----------: | :----------: |',
+      '| Alice   Smith      | foo          | 100          | yes          |',
+      '| Bob                | bar  baz     | 200          | no           |',
+      'Done.',
+    ].join('\n')
+    expect(pruneText(input)).toBe([
+      'Summary table:',
+      '|Name|Left|Right|Center|',
+      '|---|:---|---:|:---:|',
+      '|Alice Smith|foo|100|yes|',
+      '|Bob|bar baz|200|no|',
+      'Done.',
+    ].join('\n'))
+  })
+
+  it('leaves pipe characters in ordinary prose alone when there is no table separator row', () => {
+    expect(pruneText('Run A | B | C in the shell.')).toBe('Run A | B | C in the shell.')
+  })
+})
+
 describe('TokenPrunerModule — payload transformation', () => {
   const dummyCtx: GatewayModuleContext = {
     target: 'api.openai.com',

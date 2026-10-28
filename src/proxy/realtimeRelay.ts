@@ -198,11 +198,13 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
       let raw: Buffer = Buffer.concat(message.map(m => m.raw))
       const read = readEvent(message, raw)
       if (!read) { if (refused) return; continue }
-      const { event, text } = read
-      const plan = protocol.plan(event, audio.seconds > 0)
+      let { event } = read
+      const { text } = read
+      const outOpcode = message[0]?.opcode === OPCODE.binary ? OPCODE.binary : OPCODE.text
+      let plan = protocol.plan(event, audio.seconds > 0)
 
       // DLP, as for an HTTP request body. Redaction re-encodes the event as a
-      // new text frame.
+      // new frame.
       if (plan.dlp && config.dlp.enabled) {
         const findings = dlp.scan(text)
         if (findings.length) {
@@ -214,7 +216,14 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
             action: config.dlp.mode === 'block' ? 'blocked' : 'warned', kind: 'dlp', dlpType: findings[0]!.type,
           })
           if (mode === 'block') { endSession(`llm-fw blocked this message: sensitive data detected (${types}, event ${id}).`, id); return }
-          if (mode === 'redact') raw = encodeFrame(OPCODE.text, Buffer.from(dlp.redact(text, findings), 'utf8'), true)
+          if (mode === 'redact') {
+            const redacted = dlp.redact(text, findings)
+            raw = encodeFrame(outOpcode, Buffer.from(redacted, 'utf8'), true)
+            try {
+              event = JSON.parse(redacted) as Record<string, unknown>
+              plan = protocol.plan(event, audio.seconds > 0)
+            } catch { /* keep parsed event */ }
+          }
         }
       }
 
@@ -228,15 +237,37 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
         audio.append(chunk.data)
       }
 
+      let withheld = false
       for (const decision of plan.scans) {
         if (decision.kind === 'audio') {
           if (!await scanAudio('spoken turn')) return
         } else if (decision.kind === 'body') {
           const what = { tool_result: 'tool output', 'audio-item': 'audio item', video: 'video frame', prompt: 'message' }[decision.surface]
-          if (!await scan(decision.body, what)) return
+          if (decision.surface === 'tool_result' && decision.withhold) {
+            let eventId = ''
+            const inspected = await pipeline.inspect('/v1/chat/completions', decision.body, {
+              target, method: 'WS', path, sessionKey, onEvent: (e) => { eventId = e.id },
+              ...(tenant ? { tenant: tenant.id } : {}),
+              ...(tenant?.enforcement ? { enforcement: tenant.enforcement } : {}),
+            })
+            if (inspected.result.action === 'block') {
+              refuse(inspected.result, eventId, what)
+              return
+            }
+            if (inspected.withheld > 0) {
+              if (!decision.withhold(inspected.body)) {
+                refuse(inspected.result, eventId, what)
+                return
+              }
+              withheld = true
+            }
+          } else if (!await scan(decision.body, what)) {
+            return
+          }
         }
       }
       if (refused) return
+      if (withheld) raw = encodeFrame(outOpcode, Buffer.from(JSON.stringify(event), 'utf8'), true)
       upstream.write(raw)
 
       if (audio.seconds >= REALTIME_AUDIO_WINDOW_S) {

@@ -23,12 +23,6 @@
 // stated threat model is injection-first, so operators who want a pure
 // injection firewall can disable it (config or LLM_FW_HARMFUL_REQUEST_ENABLED).
 
-export interface HarmfulRequestConfig {
-  enabled: boolean
-  /** 'block' refuses the request; 'audit' only ever warns. */
-  mode: 'audit' | 'block'
-}
-
 export interface HarmfulRequestFinding {
   /** Which rule fired: operational how-to vs harmful-intent content. */
   kind: 'operational' | 'hateful'

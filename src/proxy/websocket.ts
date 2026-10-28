@@ -155,7 +155,13 @@ export class RealtimeAudioBuffer {
 export type RealtimeScan =
   | { kind: 'none' }
   | { kind: 'audio' }
-  | { kind: 'body'; body: string; surface: 'prompt' | 'tool_result' | 'audio-item' | 'video' }
+  | {
+      kind: 'body'
+      body: string
+      surface: 'prompt' | 'tool_result' | 'audio-item' | 'video'
+      /** Replace the flagged tool output in the client event with the withheld body from pipeline.inspect(). */
+      withhold?: (rewrittenBody: string) => boolean
+    }
 
 /** One streamed audio chunk, base64 PCM16. */
 export interface AudioChunk { data: string; sampleRate: number }
@@ -272,12 +278,37 @@ function geminiClientContent(turns: unknown[]): RealtimeScan[] {
 }
 
 function geminiToolResponse(responses: unknown[]): RealtimeScan[] {
-  const messages = responses.map(f => {
-    const fr = asRecord(f) ?? {}
-    const id = typeof fr.id === 'string' ? fr.id : typeof fr.name === 'string' ? fr.name : 'gemini-live'
-    return { role: 'tool', tool_call_id: id, content: JSON.stringify(fr.response ?? {}) }
+  const records = responses.map(f => asRecord(f))
+  const messages = records.map(fr => {
+    const id = typeof fr?.id === 'string' ? fr.id : typeof fr?.name === 'string' ? fr.name : 'gemini-live'
+    return { role: 'tool', tool_call_id: id, content: JSON.stringify(fr?.response ?? {}) }
   })
-  return messages.length ? [{ kind: 'body', surface: 'tool_result', body: chatBody(messages) }] : []
+  if (!messages.length) return []
+  return [{
+    kind: 'body',
+    surface: 'tool_result',
+    body: chatBody(messages),
+    withhold(rewrittenBody) {
+      try {
+        const parsed = JSON.parse(rewrittenBody) as { messages?: Array<{ content?: unknown }> }
+        const nextMessages = parsed.messages
+        if (!Array.isArray(nextMessages) || nextMessages.length !== records.length) return false
+        let changed = false
+        for (let i = 0; i < records.length; i++) {
+          const fr = records[i]
+          const next = nextMessages[i]?.content
+          if (!fr || typeof next !== 'string') return false
+          if (next !== messages[i]!.content) {
+            fr.response = { output: next }
+            changed = true
+          }
+        }
+        return changed
+      } catch {
+        return false
+      }
+    },
+  }]
 }
 
 function imagePart(mimeType: string, data: string): unknown {
@@ -342,7 +373,22 @@ export function realtimeScansFor(event: Record<string, unknown>, audioBuffered: 
 function itemScan(item: Record<string, unknown> | undefined): RealtimeScan {
   if (!item || typeof item !== 'object') return { kind: 'none' }
   if (item.type === 'function_call_output' && typeof item.output === 'string') {
-    return { kind: 'body', surface: 'tool_result', body: JSON.stringify({ model: 'realtime', messages: [{ role: 'tool', tool_call_id: typeof item.call_id === 'string' ? item.call_id : 'realtime', content: item.output }] }) }
+    return {
+      kind: 'body',
+      surface: 'tool_result',
+      body: JSON.stringify({ model: 'realtime', messages: [{ role: 'tool', tool_call_id: typeof item.call_id === 'string' ? item.call_id : 'realtime', content: item.output }] }),
+      withhold(rewrittenBody) {
+        try {
+          const parsed = JSON.parse(rewrittenBody) as { messages?: Array<{ content?: unknown }> }
+          const next = parsed.messages?.[0]?.content
+          if (typeof next !== 'string') return false
+          item.output = next
+          return true
+        } catch {
+          return false
+        }
+      },
+    }
   }
   if (item.type !== 'message' || item.role !== 'user' || !Array.isArray(item.content)) return { kind: 'none' }
   const parts: unknown[] = []

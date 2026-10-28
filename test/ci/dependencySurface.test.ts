@@ -186,4 +186,35 @@ describe('npm publish hygiene', () => {
     expect(strip).toBeGreaterThan(knip)
     expect(CI.indexOf('npm pack --dry-run', strip)).toBeGreaterThan(strip)
   })
+
+  it('carries no ignoreIssues suppressions in knip.json (#513)', () => {
+    const knipConfig = JSON.parse(readFileSync(fileURLToPath(new URL('knip.json', ROOT)), 'utf8')) as {
+      ignoreIssues?: Record<string, unknown>
+    }
+    expect(knipConfig.ignoreIssues ?? {}).toEqual({})
+  })
+
+  it('keeps docs/images/09-pipeline-state-machine.svg aligned with docs/ARCHITECTURE.md section 9 (#478)', () => {
+    const svg = readFileSync(fileURLToPath(new URL('docs/images/09-pipeline-state-machine.svg', ROOT)), 'utf8')
+    for (const expected of [
+      'ExtractPrompts',
+      'NoPrompt',
+      'Normalize',
+      'Stage1',
+      'Stage2',
+      'Block',
+      'Withhold',
+      'Warn',
+      'Pass',
+      'JudgeAsync',
+      'the item is a tool result, onBlock=withhold',
+      'the item is an earlier user message, olderTurns=withhold',
+      'rescan with a notice in its place',
+      'max_similarity ≥ 0.86',
+      '0.80 ≤ max_similarity &lt; 0.86',
+      'HTTP 422 + dashboard event',
+    ]) {
+      expect(svg, expected).toContain(expected)
+    }
+  })
 })

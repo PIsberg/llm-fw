@@ -324,6 +324,7 @@ export class ProxyServer {
   }
 
   private sinkholeServer: tls.Server | null = null
+  private sessions = new Set<Duplex>()
 
   async init(): Promise<void> {
     // Generate the shared host key now, while startup is already slow, so the
@@ -335,6 +336,8 @@ export class ProxyServer {
 
   start(): void {
     this.server.on('connect', (req, socket, head) => {
+      this.sessions.add(socket)
+      socket.once('close', () => this.sessions.delete(socket))
       void this.handleConnect(req, socket as net.Socket, head)
     })
     // Plain proxied HTTP is not supported: this listener answers CONNECT only,
@@ -372,6 +375,8 @@ export class ProxyServer {
     })
 
     sinkholeServer.on('secureConnection', (tlsSocket: tls.TLSSocket) => {
+      this.sessions.add(tlsSocket)
+      tlsSocket.once('close', () => this.sessions.delete(tlsSocket))
       const hostname = tlsSocket.servername || this.config.targets[0] || 'api.anthropic.com'
       const innerServer = http.createServer()
       innerServer.on('upgrade', (req: http.IncomingMessage, socket: Duplex, head: Buffer) => { void this.handleUpgrade(hostname, 443, req, socket, head) })
@@ -395,6 +400,8 @@ export class ProxyServer {
   }
 
   stop(): Promise<void> {
+    for (const socket of this.sessions) socket.destroy()
+    this.server.closeAllConnections()
     const closes: Promise<void>[] = [
       new Promise(resolve => this.server.close(() => resolve())),
       // Task C3 — terminates the shared inference worker thread if one was

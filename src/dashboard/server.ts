@@ -627,6 +627,8 @@ const HTML = `<!DOCTYPE html>
     </div>
     <div class="header-right">
       <div id="mode-chips" class="mode-chips"></div>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/PIsberg/llm-fw/issues/new" target="_blank" rel="noopener noreferrer" title="Open a bug report or false-positive issue on GitHub">Report on GitHub</a>
+      <a class="btn btn-ghost btn-sm" href="mailto:isberg.peter@gmail.com?subject=llm-fw%20bug%20report" title="Email a bug report directly">Report by email</a>
       <span class="live-pill" title="Connected to the event stream"><span class="live-dot"></span>Live</span>
       <button id="theme-toggle" class="icon-btn" type="button" title="Switch between light and dark" aria-label="Switch between light and dark" onclick="toggleTheme()">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -1003,6 +1005,7 @@ function toggleDrawer(id, ev) {
   const simHtml = ev.similarity != null && ev.similarity > 0
     ? '<span class="sim-value">' + Number(ev.similarity).toFixed(4) + '</span>'
     : '<span class="muted">—</span>';
+  const bugLinks = buildEventBugLinks(ev);
 
   const drawerHtml =
     '<tr class="drawer-row" id="drawer-' + id + '"><td colspan="9">' +
@@ -1038,15 +1041,17 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section">' +
         '<h4>Nearest Attack Template</h4>' + nearestHtml +
       '</div>' +
-      '<div class="drawer-section drawer-full">' +
+      '<div class="drawer-section drawer-full drawer-actions">' +
         '<button class="btn btn-ghost btn-sm" id="wl-btn-' + esc(id) + '" title="Records the event in whitelist.json for review. It does not change what future requests get">Record as false positive (audit only)</button>' +
         '<span id="wl-status-' + esc(id) + '" class="status-ok"></span>' +
         // Only a block about one scanned text carries a suppressionKey; on a
         // DLP, URL or rate block the button would store an entry nothing reads.
         (ev.action === 'blocked' && ev.suppressionKey
-          ? '<button class="btn btn-sm" id="fp-btn-' + esc(id) + '" style="margin-left:12px" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
+          ? '<button class="btn btn-sm" id="fp-btn-' + esc(id) + '" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
             '<span id="fp-status-' + esc(id) + '" class="status-ok"></span>'
           : '') +
+        '<a class="btn btn-ghost btn-sm" id="gh-bug-' + esc(id) + '" href="' + esc(bugLinks.github) + '" target="_blank" rel="noopener noreferrer" title="Open a pre-filled GitHub issue for this event">Report on GitHub</a>' +
+        '<a class="btn btn-ghost btn-sm" id="mail-bug-' + esc(id) + '" href="' + esc(bugLinks.mailto) + '" title="Email a pre-filled report for this event">Report by email</a>' +
       '</div>' +
     '</div>' +
     '</td></tr>';
@@ -1061,6 +1066,33 @@ function toggleDrawer(id, ev) {
     const fpBtn = document.getElementById('fp-btn-' + id);
     if (fpBtn) fpBtn.onclick = () => suppressEvent(id, fpBtn);
   }
+}
+
+function buildEventBugLinks(ev) {
+  const title = '[Detection report] ' + (ev.action || 'event') + ' at stage ' + (ev.stage || 'none') + ' (' + (ev.method || '') + ' ' + (ev.path || '') + ')';
+  const matches = ev.heuristicMatches && ev.heuristicMatches.length ? ev.heuristicMatches.join(', ') : 'none';
+  const preview = String(ev.payload_preview || '').slice(0, 400);
+  const body = [
+    '### Event details',
+    '- **Action**: ' + (ev.action || '') + (ev.withheld ? ' (withheld)' : ''),
+    '- **Stage**: ' + (ev.stage || 'none'),
+    '- **Score**: ' + (ev.score != null ? Number(ev.score).toFixed(1) : 'n/a'),
+    '- **Similarity**: ' + (ev.similarity != null ? Number(ev.similarity).toFixed(4) : 'n/a'),
+    '- **Heuristic matches**: ' + matches,
+    '- **Target / Path**: ' + (ev.target || '') + ' ' + (ev.method || '') + ' ' + (ev.path || ''),
+    '',
+    '### Expected vs actual verdict',
+    '- **Expected**: ',
+    '',
+    '### Redacted preview (check before sending)',
+    '~~~',
+    preview,
+    '~~~',
+  ].join('\\n');
+  return {
+    github: 'https://github.com/PIsberg/llm-fw/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body),
+    mailto: 'mailto:isberg.peter@gmail.com?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body),
+  };
 }
 
 // ── Suppress (false-positive feedback loop, distinct from Whitelist above:
