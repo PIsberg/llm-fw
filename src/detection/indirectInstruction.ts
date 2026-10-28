@@ -27,12 +27,6 @@
 // than any verb anywhere. A descriptive review that merely contains the word
 // "send" ("they send great updates") is not an imperative and does not fire.
 
-export interface IndirectInstructionConfig {
-  enabled: boolean
-  /** 'block' acts on a detected instruction; 'audit' only ever warns. */
-  mode: 'audit' | 'block'
-}
-
 export interface IndirectInstructionOptions {
   /** See `indirectInstruction.trustedRecipientDomains` in src/types.ts. */
   trustedRecipientDomains?: readonly string[]

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The npm package no longer lists dev dependencies.** npmjs.org showed Playwright, Vitest and the rest under "Dev Dependencies" because the published `package.json` still carried the field. The release workflow now strips it before `npm publish`. Installs are unchanged: npm never installed them.
+- **Single definitions for `HarmfulRequestConfig` and `IndirectInstructionConfig` (#513).** Removed the unused duplicate interfaces from `src/detection/harmfulRequest.ts` and `src/detection/indirectInstruction.ts` in favour of the canonical declarations in `src/types.ts`, and dropped the `ignoreIssues` suppressions from `knip.json` (ruleset 2026.10.94; no verdict changes).
 
 ## [0.9.2] - 2026-10-26
 

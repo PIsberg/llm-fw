@@ -186,4 +186,11 @@ describe('npm publish hygiene', () => {
     expect(strip).toBeGreaterThan(knip)
     expect(CI.indexOf('npm pack --dry-run', strip)).toBeGreaterThan(strip)
   })
+
+  it('carries no ignoreIssues suppressions in knip.json (#513)', () => {
+    const knipConfig = JSON.parse(readFileSync(fileURLToPath(new URL('knip.json', ROOT)), 'utf8')) as {
+      ignoreIssues?: Record<string, unknown>
+    }
+    expect(knipConfig.ignoreIssues ?? {}).toEqual({})
+  })
 })

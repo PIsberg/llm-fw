@@ -22,13 +22,5 @@
     "certutil",
     "reg",
     "icacls"
-  ],
-  "ignoreIssues": {
-    "src/detection/harmfulRequest.ts": [
-      "types"
-    ],
-    "src/detection/indirectInstruction.ts": [
-      "types"
-    ]
-  }
+  ]
 }
