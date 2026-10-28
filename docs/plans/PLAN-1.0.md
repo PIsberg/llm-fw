@@ -82,10 +82,6 @@ Waiting on a maintainer decision:
 - Make the GHCR package public after the first release (Phase 3).
 - The repository setting "Allow GitHub Actions to create and approve pull
   requests" for the lock freshness workflow (#432, Phase 0).
-- #478: rendering the architecture diagrams (`docs/images/0*-*.svg`) needs
-  `@mermaid-js/mermaid-cli`, which downloads a headless Chromium, and a drift
-  check in CI. A dependency and CI-cost decision; the mermaid source in
-  `docs/ARCHITECTURE.md` is current, the rendered SVGs are not.
 
 Blocked on something other than a decision:
 
