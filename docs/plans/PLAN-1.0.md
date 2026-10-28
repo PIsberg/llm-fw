@@ -86,9 +86,6 @@ Waiting on a maintainer decision:
   `@mermaid-js/mermaid-cli`, which downloads a headless Chromium, and a drift
   check in CI. A dependency and CI-cost decision; the mermaid source in
   `docs/ARCHITECTURE.md` is current, the rendered SVGs are not.
-- #475: Realtime WebSocket sessions still refuse a blocked tool output where
-  the proxy and gateway withhold it. A documented asymmetry; changing it is a
-  behaviour change.
 
 Blocked on something other than a decision:
 

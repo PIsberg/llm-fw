@@ -75,8 +75,10 @@ Rules that must not regress:
   every turn, and a changing notice breaks the provider's prompt cache from
   that point on. When the text cannot be found in the body, refuse; never
   forward a body that still holds it. Pinned by
-  `test/detection/pipeline-withhold.test.ts` and Case 4a2 in
-  `test/proxy/proxy.e2e.test.ts`.
+  `test/detection/pipeline-withhold.test.ts`, Case 4a2 in
+  `test/proxy/proxy.e2e.test.ts`, `test/proxy/proxy-realtime.e2e.test.ts` and
+  `test/gateway/gateway-realtime.e2e.test.ts` (Realtime `function_call_output`
+  and Gemini Live `toolResponse` withhold the same way, #475).
 - So is a blocked user message that is not the newest, under
   `detection.surfaces.prompt.olderTurns: 'withhold'` (the default, #476); the
   newest message still refuses. Withholding must never change the newest
@@ -86,10 +88,6 @@ Rules that must not regress:
 
 These are real and load-bearing. If you change one, it is a behaviour change
 that needs a changelog entry, not a cleanup.
-
-- **Realtime WebSocket sessions refuse a blocked tool output.** The relay
-  (`src/proxy/realtimeRelay.ts`) calls `pipeline.run`, not `inspect`, so a
-  flagged `function_call_output` ends the session rather than being withheld.
 
 - **Response-side scanning is proxy-only.** The gateway runs the request-side
   pipeline and streams responses through untouched. A response the module

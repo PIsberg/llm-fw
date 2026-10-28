@@ -183,7 +183,9 @@ commits them (`input_audio_buffer.commit`, or `response.create` with audio
 buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and
 `nonText.mode` apply as above; user text, whether added with
 `conversation.item.create` or passed as `response.create` input, is scanned as
-a prompt and `function_call_output` as a tool result. `session.update` and
+a prompt and `function_call_output` as a tool result (honouring
+`detection.surfaces.tool_result.onBlock`, so under `'withhold'` its output is
+replaced with a notice and the session stays open). `session.update` and
 `response.create` instructions and `system`-role items are developer-authored
 and pass, like a system prompt. Every text event except audio chunks goes
 through DLP as a request body would (`redact` rewrites the event). A binary
