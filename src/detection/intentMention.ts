@@ -46,7 +46,7 @@ const LIVE_OVERRIDE_RE =
 // Translation / localization request: the injection vocabulary is the OBJECT of
 // a translate verb, so it is data to be rendered in another language.
 const TRANSLATION_RE =
-  /\b(translat\w+|localiz\w+|render\s+(?:this|the following|it)\s+in(?:to)?|how\s+(?:do|would)\s+you\s+say|what\s+is\s+.{0,40}\s+in\s+(?:french|german|spanish|italian|portuguese|japanese|chinese|korean|arabic|russian|hindi|dutch|swedish|polish)\b)/i
+  /\b(translat\w+|localiz\w+|render\s+(?:this|the following|it)\s+in(?:to)?|how\s+(?:do|would)\s+you\s+say|what\s+is\s+\S.{0,39}?\s+in\s+(?:french|german|spanish|italian|portuguese|japanese|chinese|korean|arabic|russian|hindi|dutch|swedish|polish)\b)/i
 
 // Documentation / meta-discussion: the prompt is ABOUT injection/security as a
 // topic (writing docs, explaining a concept, outlining categories), not
@@ -76,16 +76,15 @@ export function quotedSpans(text: string): Array<[number, number]> {
     // NOT preceded by a letter/digit, and require the closing `'` not be
     // immediately followed by a letter (so "It's simple: … let's go" does not
     // get read as a quoted span from the first `'s` to the last `'`).
-    /(?<![\p{L}\p{N}])'[^']{1,400}'(?![\p{L}])/gu,
+    /(?<![\p{L}\p{N}])'[^']{1,400}'(?!\p{L})/gu,
     /`[^`]{1,400}`/g,
     /“[^”]{1,400}”/g, // “ … ”
     /‘[^’]{1,400}’/g, // ‘ … ’
     /«[^»]{1,400}»/g, // « … »
   ]
   for (const re of patterns) {
-    let m: RegExpExecArray | null
     re.lastIndex = 0
-    while ((m = re.exec(text)) !== null) {
+    for (let m = re.exec(text); m !== null; m = re.exec(text)) {
       spans.push([m.index, m.index + m[0].length])
       if (m.index === re.lastIndex) re.lastIndex++ // guard against zero-width
     }

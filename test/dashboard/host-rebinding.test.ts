@@ -23,7 +23,7 @@ describe('dashboard: loopback trust needs a loopback Host', () => {
 
   const send = (path: string, opts: { host?: string; method?: string; body?: string; headers?: Record<string, string> } = {}): Promise<{ status: number; body: string }> =>
     new Promise((resolve, reject) => {
-      const headers: Record<string, string> = { ...(opts.headers ?? {}) }
+      const headers: Record<string, string> = { ...opts.headers }
       if (opts.host !== undefined) headers.Host = opts.host
       if (opts.body) headers['Content-Type'] = 'application/json'
       const req = http.request({ host: '127.0.0.1', port, path, method: opts.method ?? 'GET', headers, setHost: opts.host === undefined }, res => {

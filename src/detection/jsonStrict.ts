@@ -19,14 +19,16 @@ export function duplicateKey(body: string): string | null {
     if (c === 0x22 /* " */) {
       const start = i
       let escaped = false
-      for (i++; i < n; i++) {
+      i++
+      while (i < n) {
         const d = body.charCodeAt(i)
         if (d === 0x5c /* \ */) {
           escaped = true
-          i++
-        } else if (d === 0x22) {
-          break
+          i += 2
+          continue
         }
+        if (d === 0x22) break
+        i++
       }
       const keys = stack[stack.length - 1]
       if (expectKey && keys) {

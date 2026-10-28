@@ -5,6 +5,7 @@ node_modules
 dist
 .git
 .github
+.githooks
 test
 docs
 reports

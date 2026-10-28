@@ -135,7 +135,7 @@ export class GatewayServer {
   get auth(): AuthPolicy { return this.authPolicy; }
 
   /** Slugs that have an operator-held upstream key, for the startup banner. */
-  get custodySlugs(): string[] { return Object.keys(this.apiKeys).sort(); }
+  get custodySlugs(): string[] { return Object.keys(this.apiKeys).sort((a, b) => a.localeCompare(b)); }
 
   /** Configured tenant ids, for the startup banner. */
   get tenantIds(): string[] { return this.tenants.ids; }
@@ -165,7 +165,7 @@ export class GatewayServer {
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
-      const url = new URL(req.url ?? '/', 'http://gateway.local');
+      const url = new URL(req.url ?? '/', 'https://gateway.local');
       const pathname = url.pathname;
 
       // Probes answer before auth: a Kubernetes kubelet cannot present a
@@ -200,7 +200,7 @@ export class GatewayServer {
       if (!route) {
         return this.json(res, 404, {
           error: 'no route for path',
-          detail: `Use /<provider>/<path> (e.g. /anthropic/v1/messages) or a provider-shaped path. Known providers: ${Object.keys(this.providers).sort().join(', ')}`,
+          detail: `Use /<provider>/<path> (e.g. /anthropic/v1/messages) or a provider-shaped path. Known providers: ${Object.keys(this.providers).sort((a, b) => a.localeCompare(b)).join(', ')}`,
         });
       }
 
@@ -333,27 +333,29 @@ export class GatewayServer {
       client.end(`HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(json)}\r\n${extra}Connection: close\r\n\r\n${json}`);
     };
     try {
-      const url = new URL(req.url ?? '/', 'http://gateway.local');
+      const url = new URL(req.url ?? '/', 'https://gateway.local');
       const { tenant, authIsInternal, authorised } = this.authenticate(req);
       if (!authorised) {
-        return answer(401, 'Unauthorized', {
+        answer(401, 'Unauthorized', {
           error: 'authentication required',
           detail: 'Present the gateway token as X-Llm-Fw-Key or Authorization: Bearer.',
         }, 'WWW-Authenticate: Bearer realm="llm-fw gateway"\r\n');
+        return;
       }
       const route = resolveRoute(url.pathname, {
         defaultProvider: this.config.gateway?.defaultProvider ?? 'openai',
         providers: this.providers,
       });
-      if (!route) return answer(404, 'Not Found', { error: 'no route for path' });
+      if (!route) { answer(404, 'Not Found', { error: 'no route for path' }); return; }
       const protocol = realtimeProtocolFor(route.upstreamPath);
-      if (!protocol) return answer(501, 'Not Implemented', { error: 'websocket not inspectable', detail: WS_NOT_INSPECTABLE });
+      if (!protocol) { answer(501, 'Not Implemented', { error: 'websocket not inspectable', detail: WS_NOT_INSPECTABLE }); return; }
 
       if (tenant) {
         if (!this.tenants.allowsProvider(tenant, route.slug)) {
-          return answer(403, 'Forbidden', {
+          answer(403, 'Forbidden', {
             error: 'provider not permitted for this tenant', tenant: tenant.id, provider: route.slug, allowed: tenant.providers,
           });
+          return;
         }
         const quota = this.tenants.charge(tenant, Date.now());
         if (!quota.allowed) {
@@ -363,9 +365,10 @@ export class GatewayServer {
             payload_full: `tenant ${tenant.id} exceeded ${quota.limit} requests/minute`,
             action: 'blocked', kind: 'dos', dosReason: 'tenant-quota', tenant: tenant.id,
           });
-          return answer(429, 'Too Many Requests', {
+          answer(429, 'Too Many Requests', {
             error: 'tenant quota exceeded', tenant: tenant.id, limit_per_minute: quota.limit, retry_after_seconds: quota.retryAfterSeconds,
           }, `Retry-After: ${quota.retryAfterSeconds}\r\n`);
+          return;
         }
       }
 

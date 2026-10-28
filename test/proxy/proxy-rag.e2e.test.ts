@@ -32,7 +32,7 @@ function dechunk(body: string): string {
     const sep = body.indexOf('\r\n', pos)
     if (sep === -1) break
     const size = parseInt(body.slice(pos, sep).trim(), 16)
-    if (isNaN(size) || size === 0) break
+    if (Number.isNaN(size) || size === 0) break
     const start = sep + 2
     result += body.slice(start, start + size)
     pos = start + size + 2

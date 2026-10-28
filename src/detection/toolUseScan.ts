@@ -130,7 +130,6 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
           openAiByIndex.set(idx, entry)
         }
       }
-      continue
     }
   }
 
@@ -178,8 +177,7 @@ export function extractArgUrls(text: string): string[] {
   if (!text) return []
   const found = new Set<string>()
   URL_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = URL_RE.exec(text)) !== null) {
+  for (let m = URL_RE.exec(text); m !== null; m = URL_RE.exec(text)) {
     found.add(m[0])
     if (m.index === URL_RE.lastIndex) URL_RE.lastIndex++
   }

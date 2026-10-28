@@ -57,7 +57,7 @@ export async function run(): Promise<void> {
   if (installedModels.length === 0) {
     info('No models installed yet — one will be pulled in the next step.')
   } else {
-    installedModels.forEach(m => info(m))
+    for (const m of installedModels) info(m)
   }
 
   // ── Step 3: Choose model ──────────────────────────────────────────────────
@@ -153,7 +153,7 @@ export async function run(): Promise<void> {
   const updated = {
     ...existing,
     detection: {
-      ...(existing.detection as Record<string, unknown> ?? {}),
+      ...(existing.detection as Record<string, unknown> | undefined),
       judgeEnabled: true,
       judgeModel: chosenModel,
       judgeBlock,

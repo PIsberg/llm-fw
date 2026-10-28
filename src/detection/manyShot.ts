@@ -39,7 +39,7 @@ export interface ManyShotResult {
 //   "Human:", "Assistant:", "Q:", "A:", "### Human", "[Assistant]", "<user>".
 // Capture the role word so it can be classified as user- or assistant-side.
 const TURN_LABEL_RE =
-  /^[ \t>#*\-\[]*<?\b(human|user|usuario|assistant|ai|a\.i\.|bot|gpt|chatbot|model|system|q|a|question|answer|prompt|response|reply)\b>?\s*[:\]>.。]/i
+  /^[ \t>#*\-[]*<?\b(human|user|usuario|assistant|ai|a\.i\.|bot|gpt|chatbot|model|system|q|a|question|answer|prompt|response|reply)\b>?\s*[:\]>.。]/i
 
 const ASSISTANT_ROLES = new Set([
   'assistant', 'ai', 'a.i.', 'bot', 'gpt', 'chatbot', 'model', 'a', 'answer', 'response', 'reply',

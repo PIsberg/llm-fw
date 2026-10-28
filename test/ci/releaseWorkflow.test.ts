@@ -66,7 +66,7 @@ describe('release workflow: SBOM', () => {
     const start = WORKFLOW.search(new RegExp(`^  ${name}:\\s*$`, 'm'))
     if (start === -1) return ''
     const rest = WORKFLOW.slice(start + 1)
-    const next = rest.search(/^  [a-z][\w-]*:\s*$/m)
+    const next = rest.search(/^ {2}[a-z][\w-]*:\s*$/m)
     const text = next === -1 ? WORKFLOW.slice(start) : WORKFLOW.slice(start, start + 1 + next)
     return text.split(/\r?\n/).filter(line => !line.trim().startsWith('#')).join('\n')
   }

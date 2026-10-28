@@ -24,7 +24,7 @@ export async function run(options: StopOptions = {}): Promise<void> {
   }
 
   const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-  if (isNaN(pid)) {
+  if (Number.isNaN(pid)) {
     log('llm-fw is not running (invalid PID file).');
     return;
   }
@@ -84,7 +84,7 @@ export function killPreviousInstance(pidFile: string): number | null {
   if (!fs.existsSync(pidFile)) return null;
   const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
   let replaced: number | null = null;
-  if (!isNaN(pid) && pid !== process.pid && isAlive(pid)) {
+  if (!Number.isNaN(pid) && pid !== process.pid && isAlive(pid)) {
     try { process.kill(pid, 'SIGKILL'); replaced = pid; } catch { /* exited meanwhile */ }
   }
   try { fs.unlinkSync(pidFile); } catch { /* already gone */ }

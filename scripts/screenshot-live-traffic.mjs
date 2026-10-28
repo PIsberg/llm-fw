@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const OUT = path.join(__dirname, '..', 'docs', 'images', 'ss-05-live-traffic.png')

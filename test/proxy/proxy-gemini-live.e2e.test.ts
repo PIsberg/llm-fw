@@ -37,7 +37,7 @@ function pcm16k(file: string): string {
   const d = decodeWav(fs.readFileSync(join(AUDIO, file)))!
   expect(d.sampleRate).toBe(16_000)
   const out = Buffer.alloc(d.samples.length * 2)
-  d.samples.forEach((s, i) => out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(s * 32767))), i * 2))
+  d.samples.forEach((s, i) => { out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(s * 32767))), i * 2) })
   return out.toString('base64')
 }
 

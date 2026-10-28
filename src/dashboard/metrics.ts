@@ -46,7 +46,7 @@ export class MetricsRegistry {
   private eventsTotal = new Map<string, number>()
   // Cumulative bucket counts, parallel to DURATION_BUCKETS_MS: index i counts
   // every observation <= DURATION_BUCKETS_MS[i].
-  private durationBucketCounts = new Array<number>(DURATION_BUCKETS_MS.length).fill(0)
+  private durationBucketCounts = Array.from({ length: DURATION_BUCKETS_MS.length }, () => 0)
   private durationSum = 0
   private durationCount = 0
 

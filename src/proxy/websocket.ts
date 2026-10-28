@@ -79,14 +79,14 @@ export class FrameReader {
       const total = offset + (masked ? 4 : 0) + len
       if (this.buf.length < total) break
       const raw = this.buf.subarray(0, total)
-      let payload = Buffer.from(this.buf.subarray(offset + (masked ? 4 : 0), total))
+      const payload = Buffer.from(this.buf.subarray(offset + (masked ? 4 : 0), total))
       if (masked) {
         const key = this.buf.subarray(offset, offset + 4)
         for (let i = 0; i < payload.length; i++) payload[i] = (payload[i] ?? 0) ^ (key[i % 4] ?? 0)
       }
       frames.push({ fin: (b0 & 0x80) !== 0, opcode: b0 & 0x0f, payload, raw: Buffer.from(raw) })
       this.buf = this.buf.subarray(total)
-      payload = Buffer.alloc(0)
+
     }
     return frames
   }

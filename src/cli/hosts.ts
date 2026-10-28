@@ -46,5 +46,5 @@ export function stripSinkholeBlock(hostsText: string, targets: string[]): string
     out.push(line);
   }
 
-  return out.join('\n').replace(/\n+$/, '\n').replace(/^\n+/, '');
+  return out.join('\n').replace(/(?<!\n)\n+$/, '\n').replace(/^\n+/, '');
 }

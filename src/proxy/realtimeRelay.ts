@@ -87,7 +87,7 @@ export function relayRealtimeSession(
     const rest = headBuf.subarray(end + 4)
     if (rest.length) client.write(rest)
     upstream.pipe(client)
-    if (!/^HTTP\/1\.1 101/.test(headBuf.subarray(0, headBuf.indexOf('\r\n')).toString('latin1'))) return
+    if (!headBuf.subarray(0, headBuf.indexOf('\r\n')).toString('latin1').startsWith('HTTP/1.1 101')) return
     relayClient(deps, session, client, upstream, head)
   }
   upstream.on('data', onHead)
@@ -197,7 +197,10 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
       fragments = []
       let raw: Buffer = Buffer.concat(message.map(m => m.raw))
       const read = readEvent(message, raw)
-      if (!read) { if (refused) return; continue }
+      if (!read) {
+        if (refused) return
+        continue
+      }
       let { event } = read
       const { text } = read
       const outOpcode = message[0]?.opcode === OPCODE.binary ? OPCODE.binary : OPCODE.text

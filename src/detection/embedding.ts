@@ -368,7 +368,7 @@ export class EmbeddingChecker {
     // A word longer than the budget could never fit a window; cut it first.
     const hasLongWord = split.some(w => w.length > MAX_WORD_CHARS)
     const words = hasLongWord
-      ? split.flatMap(w => (w.length > MAX_WORD_CHARS ? w.match(MAX_WORD_PIECE) ?? [w] : [w]))
+      ? split.flatMap(w => (w.length > MAX_WORD_CHARS ? Array.from(w.matchAll(MAX_WORD_PIECE), m => m[0]) : [w]))
       : split
     const estimated = words.length * 1.3
     if (estimated <= this.config.chunkTokenLimit && text.length <= MAX_CHUNK_CHARS) {

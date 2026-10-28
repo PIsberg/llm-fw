@@ -271,7 +271,8 @@ function chartThroughputTimeSeries(d: PerfResult): string {
       ...ts.map((t, i): [number, number] => [xv(i), yv(t.rps)]),
       [xv(ts.length - 1), oy + ch],
     ]
-    const areaPath = `M ${areaPoints.map(([x, y]) => `${x},${y}`).join(' L ')}`
+    const areaCoords = areaPoints.map(([x, y]) => `${x},${y}`).join(' L ')
+    const areaPath = `M ${areaCoords}`
     out.push(`<path d="${areaPath}" fill="${C.blueLight}" opacity="0.5" />`)
 
     // Main line

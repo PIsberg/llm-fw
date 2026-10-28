@@ -258,14 +258,14 @@ function subdomainLabels(host: string): string[] {
 // ("1password", "x10hosting", "covid19vaccine") or are pronounceable.
 export function isDgaLabel(label: string): boolean {
   if (label.length < 12 || !/^[a-z0-9]+$/.test(label)) return false
-  const digits = label.replace(/[^0-9]/g, '').length
+  const digits = label.replace(/\D/g, '').length
   const letters = label.length - digits
   if (digits < 3 || letters < 3) return false
   const vowels = label.replace(/[^aeiou]/g, '').length
   if (vowels / letters > 0.2) return false
   let transitions = 0
   for (let i = 1; i < label.length; i++) {
-    if (/[0-9]/.test(label[i - 1] ?? '') !== /[0-9]/.test(label[i] ?? '')) transitions++
+    if (/\d/.test(label[i - 1] ?? '') !== /\d/.test(label[i] ?? '')) transitions++
   }
   return transitions >= 6
 }

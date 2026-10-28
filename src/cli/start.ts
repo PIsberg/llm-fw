@@ -102,7 +102,7 @@ function killPortOwner(port: number): void {
       const out = execSync('netstat -ano', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       for (const line of out.split('\n')) {
         if (!line.includes('LISTENING')) continue;
-        const m = line.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
+        const m = /:(\d+)\s+\S+\s+LISTENING\s+(\d+)/.exec(line);
         // Neither group is optional, so a successful match always has both; the
         // fallbacks parse to NaN, which fails the port comparison and the pid
         // truthiness check, so the unreachable branch is also the inert one.

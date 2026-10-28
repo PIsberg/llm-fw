@@ -173,7 +173,7 @@ export interface IssuedKeygenLicense {
 export async function issueKeygenLicense(options: IssueKeygenLicenseOptions): Promise<IssuedKeygenLicense> {
   const accountId = options.accountId ?? keygenAccountId()
   const publicKeyHex = options.publicKeyHex ?? keygenPublicKey()
-  const baseUrl = (options.apiBaseUrl ?? 'https://api.keygen.sh').replace(/\/+$/, '')
+  const baseUrl = (options.apiBaseUrl ?? 'https://api.keygen.sh').replace(/(?<!\/)\/+$/, '')
   const fetchFn = options.fetchImpl ?? fetch
 
   const metadata: Record<string, string> = {

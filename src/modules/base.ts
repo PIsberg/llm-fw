@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { GatewayModule, GatewayModuleContext, ModuleTransformResult, ModuleStats } from './types.js'
 import type { ModuleEvent } from '../types.js'
 import { collectTextSlots, type SlotKind, type TextSlot } from './payload.js'
@@ -182,7 +183,7 @@ export abstract class PayloadModule<C extends ModuleSwitch = ModuleSwitch> imple
       : 0
 
     const event: ModuleEvent = {
-      id: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: `mod-${Date.now()}-${randomUUID().slice(0, 5)}`,
       timestamp: new Date().toISOString(),
       moduleId: this.id,
       moduleName: this.name,

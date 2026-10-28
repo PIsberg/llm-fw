@@ -55,9 +55,8 @@ export function detectHarmfulCompliance(text: string): HarmComplianceFinding | n
   if (!text || text.length < 8) return null
 
   harmfulRe.lastIndex = 0
-  let m: RegExpExecArray | null
   const re = new RegExp(harmfulRe.source, 'gi')
-  while ((m = re.exec(text)) !== null) {
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
     const term = m[1] ?? m[0]
     const start = Math.max(0, m.index - 200)
     const end = Math.min(text.length, m.index + term.length + 200)

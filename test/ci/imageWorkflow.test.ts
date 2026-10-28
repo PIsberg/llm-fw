@@ -16,7 +16,7 @@ function job(wf: string, name: string): string {
   const start = wf.search(new RegExp(`^  ${name}:\\s*$`, 'm'))
   if (start === -1) return ''
   const rest = wf.slice(start + 1)
-  const next = rest.search(/^  [a-z][\w-]*:\s*$/m)
+  const next = rest.search(/^ {2}[a-z][\w-]*:\s*$/m)
   const text = next === -1 ? wf.slice(start) : wf.slice(start, start + 1 + next)
   return text.split('\n').filter(line => !line.trim().startsWith('#')).join('\n')
 }

@@ -53,7 +53,7 @@ const PATH_KEYS = ['file_path', 'absolute_path', 'path', 'filePath'] as const
 const THIRD_PARTY_DIRS: ReadonlySet<string> = new Set([
   'node_modules', 'bower_components', 'vendor', 'third_party', 'site-packages', '.venv', 'venv', '.git',
 ])
-const dirName = (seg: string) => seg.replace(/[. ]+$/, '').toLowerCase()
+const dirName = (seg: string) => seg.replace(/(?<![. ])[. ]+$/, '').toLowerCase()
 
 const DRIVE_RE = /^[a-z]:\//i
 
@@ -70,7 +70,7 @@ function normalise(p: string): string | null {
   const drive = DRIVE_RE.test(slashed)
   if (!drive && (!slashed.startsWith('/') || slashed.startsWith('//'))) return null
   if (drive && (slashed.slice(2).includes(':') || /~\d/.test(slashed))) return null
-  const norm = path.posix.normalize(slashed).replace(/\/+$/, '')
+  const norm = path.posix.normalize(slashed).replace(/(?<!\/)\/+$/, '')
   return drive ? norm.toLowerCase() : norm
 }
 
@@ -241,8 +241,16 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
       if (value === undefined) return null
       if (kind === true && !COUNT.test(value)) return null
       if (kind === 'encoding' && !ENCODING.test(value)) return null
-      if (kind === 'script') { if (verb !== 'sed' || !SED_RANGE.test(value) || sedScript !== null) return null; sedScript = value; continue }
-      if (kind === 'path') { if (file !== null) return null; file = value; continue }
+      if (kind === 'script') {
+        if (verb !== 'sed' || !SED_RANGE.test(value) || sedScript !== null) return null
+        sedScript = value
+        continue
+      }
+      if (kind === 'path') {
+        if (file !== null) return null
+        file = value
+        continue
+      }
       continue
     }
     if (file !== null) return null

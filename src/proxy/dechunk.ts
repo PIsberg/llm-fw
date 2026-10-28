@@ -42,7 +42,7 @@ export class ChunkedDecoder {
       const sizeHex = (this.buf.subarray(0, idx).toString('ascii').split(';')[0] ?? '').trim()
       const size = parseInt(sizeHex, 16)
       this.buf = this.buf.subarray(idx + 2)
-      if (isNaN(size) || size === 0) { this.finished = true; break }
+      if (Number.isNaN(size) || size === 0) { this.finished = true; break }
       this.need = size
     }
     return out.length ? Buffer.concat(out) : Buffer.alloc(0)

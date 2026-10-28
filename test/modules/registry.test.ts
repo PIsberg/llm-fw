@@ -12,7 +12,7 @@ class DummyUppercaseModule implements GatewayModule {
   enabled = true
   invocations = 0
 
-  transformRequest(body: string, ctx: GatewayModuleContext): ModuleTransformResult {
+  transformRequest(body: string, _ctx: GatewayModuleContext): ModuleTransformResult {
     this.invocations++
     return {
       body: body.toUpperCase(),
@@ -62,7 +62,7 @@ describe('ModuleManager', () => {
     const seen: Array<Record<string, string | string[] | undefined> | undefined> = []
     const stub = (id: string, headers?: Record<string, string>): GatewayModule => ({
       id, name: id, description: '', enabled: true,
-      transformRequest(body: string, ctx: GatewayModuleContext): ModuleTransformResult {
+      transformRequest(body: string, _ctx: GatewayModuleContext): ModuleTransformResult {
         seen.push(ctx.headers)
         return headers ? { body, modified: true, headers } : { body, modified: false }
       },

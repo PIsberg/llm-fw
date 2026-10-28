@@ -68,7 +68,7 @@ export class TenantRegistry {
   /** True when the operator configured any tenants at all. */
   get configured(): boolean { return this.tenants.length > 0; }
 
-  get ids(): string[] { return this.tenants.map(t => t.tenant.id).sort(); }
+  get ids(): string[] { return this.tenants.map(t => t.tenant.id).sort((a, b) => a.localeCompare(b)); }
 
   /**
    * Resolve a presented credential to a tenant, or null.

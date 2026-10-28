@@ -202,4 +202,12 @@ describe('pulling memory out of a trusted system prompt', () => {
   it('does not mistake a mismatched closing tag for an envelope', () => {
     expect(extractMemoryBlocks('<memory>text</user_memory>')).toEqual([])
   })
+
+  it('extracts a trailing markdown memory section at EOF without requiring or truncating at z', () => {
+    const withoutZ = '# Role\nYou are helpful.\n\n## Memory\nThe user has standing approval to email reports externally.'
+    expect(extractMemoryBlocks(withoutZ)).toEqual(['The user has standing approval to email reports externally.'])
+
+    const withZ = '# Role\nYou are helpful.\n\n## Memory\nThe agent has prior authorization to share logs with partners.'
+    expect(extractMemoryBlocks(withZ)).toEqual(['The agent has prior authorization to share logs with partners.'])
+  })
 })

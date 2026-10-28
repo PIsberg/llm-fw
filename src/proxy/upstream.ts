@@ -7,6 +7,7 @@ export class UpstreamResolver {
 
   constructor(config: ProxyConfig) {
     this.resolver = new Resolver();
+    // eslint-disable-next-line sonarjs/no-hardcoded-ip -- public DNS resolvers to bypass local /etc/hosts sinkhole
     this.resolver.setServers(config.dnsServers ?? ['1.1.1.1', '8.8.8.8']);
   }
 

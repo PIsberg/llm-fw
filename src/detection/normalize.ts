@@ -64,7 +64,7 @@ function decodeBase64Candidates(text: string): { text: string; source: string }[
     if (match.length < 8) continue
     try {
       const decoded = Buffer.from(match, 'base64').toString('utf-8')
-      if (/[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x20-\x7E\s\u0400-\u04FF\u4E00-\u9FFF]+$/.test(decoded)) {
+      if (/[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x21-\x7E\s\u0400-\u04FF\u4E00-\u9FFF]+$/.test(decoded)) {
         results.push({ text: decoded, source: 'base64' })
       }
     } catch {}
@@ -76,7 +76,7 @@ function decodeBase64Candidates(text: string): { text: string; source: string }[
 // is confined to printable ASCII + common scripts (Latin-1, Cyrillic, CJK). The
 // same gate the base64/hex decoders use, factored out for the new decoders.
 function looksLikeText(decoded: string): boolean {
-  return /[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x20-\x7E\sЀ-ӿ一-鿿]+$/.test(decoded)
+  return /[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x21-\x7E\sЀ-ӿ一-鿿]+$/.test(decoded)
 }
 
 // RFC 4648 base32. Attackers uppercase or lowercase freely, so match both and
@@ -87,7 +87,7 @@ function decodeBase32Candidates(text: string): { text: string; source: string }[
   const results: { text: string; source: string }[] = []
   const matches = text.match(/\b[A-Za-z2-7]{8,}={0,6}/g) || []
   for (const match of matches) {
-    const clean = match.replace(/=+$/, '').toUpperCase()
+    const clean = match.replace(/(?<!=)=+$/, '').toUpperCase()
     if (clean.length < 8) continue
     let bits = 0, value = 0
     const out: number[] = []
@@ -198,11 +198,11 @@ const MORSE_MAP: Record<string, string> = {
 }
 
 function decodeMorseCandidates(text: string): { text: string; source: string }[] {
-  let normalized = text.replace(/\*/g, '.').replace(/_/g, '-')
+  const normalized = text.replace(/\*/g, '.').replace(/_/g, '-')
   const matches = normalized.match(/(?:[.\-\s/]{10,})/g) || []
   const results: { text: string; source: string }[] = []
   for (const match of matches) {
-    const words = match.trim().split(/\s{3,}|\s*\/\s*/)
+    const words = match.trim().split(/\s{3,}|(?<!\s)\s*\/\s*/)
     const decodedWords: string[] = []
     for (const word of words) {
       const chars = word.trim().split(/\s+/)
@@ -299,7 +299,7 @@ function decodePigLatin(text: string): string[] {
     'pr', 'tr', 'dr', 'cr', 'gr', 'br', 'fr', 'pl', 'cl', 'fl', 'gl', 'bl', 'sl', 'sp', 'st', 'sc', 'sk', 'sm', 'sn', 'sw', 'ch', 'sh', 'th', 'wh', 'ph'
   ]
   const decodeWord = (word: string): string[] => {
-    const match = word.match(/^([a-zA-Z]+)ay$/i)
+    const match = /^([a-z]+)ay$/i.exec(word)
     if (!match) return [word]
     // Group 1 is not optional in the pattern above, so a match always has it.
     const body = match[1]
@@ -307,7 +307,7 @@ function decodePigLatin(text: string): string[] {
     if (body.toLowerCase().endsWith('w')) {
       return [body.slice(0, -1)]
     }
-    const matchCons = body.match(/([^aeiouAEIOU]+)$/)
+    const matchCons = /(?<![^aeiouAEIOU])([^aeiouAEIOU]+)$/.exec(body)
     if (matchCons) {
       const cons = (matchCons[1] ?? '').toLowerCase()
       const decodings: string[] = []
@@ -419,7 +419,7 @@ export function normalize(text: string): string {
   result = dropInvisibles(result);
 
   // Prevents zero-width character injection to split tokens invisibly
-  result = result.replace(/[​‌‍﻿­]/g, '');
+  result = result.replace(/[\u200B-\u200D\uFEFF\u00AD]/gu, '');
 
   // Strips invisible smuggling channels (Unicode Tags, bidi controls, variation
   // selectors) so a hidden payload cannot fragment tokens for the heuristic /
@@ -469,7 +469,7 @@ export function normalizeSemantic(text: string): string {
   let result = dropInvisibles(text.normalize('NFKC'))
   // Zero-width characters and invisible smuggling channels (Tags, bidi,
   // variation selectors) — never legitimate, safe to drop for any language.
-  result = result.replace(/[​‌‍﻿­]/g, '')
+  result = result.replace(/[\u200B-\u200D\uFEFF\u00AD]/gu, '')
   result = result.replace(HIDDEN_CHAR_STRIP_RE, '')
   // Collapse runs of repeated punctuation and whitespace padding.
   result = result.replace(/([^\p{L}\p{N}\s])\1{2,}/gu, '$1')
@@ -477,7 +477,7 @@ export function normalizeSemantic(text: string): string {
   return result.toLowerCase()
 }
 
-const NON_ASCII_LETTER_RE = /[^\x00-\x7F\P{L}]/u
+const NON_ASCII_LETTER_RE = /(?![A-Za-z])\p{L}/u
 const wordsOf = (s: string): string => s.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
 /**

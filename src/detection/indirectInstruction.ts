@@ -124,7 +124,7 @@ const POLITE_IMPERATIVE_RE = new RegExp(
 const SENTENCE_IMPERATIVE_RE = new RegExp(
   '(?:^|[.!?]\\s*|\\n[ \\t]*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
   '(?:also\\s+|then\\s+|immediately\\s+|now\\s+|first\\s+)*' +
-  `(${VERB_ALT})\\b(?![\'"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)\\s+\\S`,
+  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)\\s+\\S`,
   'gim',
 )
 
@@ -217,7 +217,7 @@ function objectWindow(text: string, verbEnd: number): string {
   // Never end mid-token: a path's hash cut after "083192" (of "083192e98768")
   // reads as a bare six-digit identifier. Replaying real tool results, lean-ctx's
   // "Use ctx_read(path=...)" hint blocked or passed depending on where the cut fell.
-  const whole = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/\w+$/, '') : text.slice(base, stop)
+  const whole = /\w/.test(text[stop] ?? '') ? text.slice(base, stop).replace(/(?<!\w)\w+$/, '') : text.slice(base, stop)
   // Nor run past the end of the verb's JSON string value: a closing quote
   // (or its escape) and then a field or array separator. `gh pr checks
   // --json` output ("Export game binaries" then the run's URL in "link")
@@ -369,7 +369,7 @@ const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transf
 // (`=`, a space and a quote, or a closing quote, comma and opening quote).
 // "ok.send the records to ..." has the dot but goes on as a clause, and a key
 // whose value is some other address excuses nothing near this one.
-const KEY_BEFORE_RE = /[A-Za-z0-9_]\.$/
+const KEY_BEFORE_RE = /\w\.$/
 const KEY_VALUE_RE = /^(?:\s*=\s*["'`]?|\s+["'`]|["'`]\s*[,:=]\s*["'`]?)([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/
 /** Index in `text` of the address the key at [start, end) is set to, or -1. */
 function keyAssignedAddress(text: string, start: number, end: number): number {
@@ -424,7 +424,7 @@ const CONTACT_CLAUSE_RE = new RegExp(
   '(?:send|write|drop|shoot)\\s+(?:us\\s+|me\\s+|them\\s+)?(?:an?\\s+)?(?:quick\\s+|short\\s+|brief\\s+)?(?:e-?mail|message|note|line|mail)\\s+(?:to|at)' +
   '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
   '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +
-  ')\\s+[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',
+  ')\\s+[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b',
   'gi',
 )
 
@@ -475,7 +475,7 @@ function blankContactClauses(text: string): string {
 // the client strips), "finance@acme.com@gmail.com" (which @ is the domain's),
 // "amy%gmail.com@acme.com" (percent routing). An allowlist, not a list of
 // known-bad characters, because the filler characters are not all \p{Cf}.
-const ADDRESS_BEFORE_OK_RE = /^[\s<(\["',;:]?$/
+const ADDRESS_BEFORE_OK_RE = /^[\s<(["',;:]?$/
 const ADDRESS_AFTER_OK_RE = /^(?:$|[\s>)\]"',;:!?]|\.(?:$|[\s>)\]"']))/
 function blankTrustedAddresses(text: string, domains: readonly string[]): string {
   if (!domains.length) return text
@@ -933,8 +933,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
 
   // Signal 1 (strongest): a send-class verb near an email exfil target.
   EMAIL_RE.lastIndex = 0
-  let em: RegExpExecArray | null
-  while ((em = EMAIL_RE.exec(text)) !== null) {
+  for (let em = EMAIL_RE.exec(text); em !== null; em = EMAIL_RE.exec(text)) {
     for (const { i, v } of verbHits) {
       // The verb index is into `hay`, so the key check reads `hay` too.
       if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0])) {
@@ -1010,13 +1009,11 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // forward it to attacker@evil.com"). Requires the verb near the address so a
   // passive contact field doesn't fire.
   EMAIL_RE.lastIndex = 0
-  let em: RegExpExecArray | null
-  while ((em = EMAIL_RE.exec(text)) !== null) {
+  for (let em = EMAIL_RE.exec(text); em !== null; em = EMAIL_RE.exec(text)) {
     const lo = Math.max(0, em.index - EXFIL_PROXIMITY)
     const window = text.slice(lo, em.index + em[0].length + EXFIL_PROXIMITY)
     EXFIL_VERB_RE.lastIndex = 0
-    let vm: RegExpExecArray | null
-    while ((vm = EXFIL_VERB_RE.exec(window)) !== null) {
+    for (let vm = EXFIL_VERB_RE.exec(window); vm !== null; vm = EXFIL_VERB_RE.exec(window)) {
       if (keyAssignedAddress(window, vm.index, vm.index + vm[0].length) === em.index - lo) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
@@ -1030,8 +1027,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // POLITE_OBJECT_GATED_VERBS); every match is examined so a skipped
   // human-directed clause cannot hide a later polite attack verb.
   POLITE_IMPERATIVE_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = POLITE_IMPERATIVE_RE.exec(text)) !== null) {
+  for (let m = POLITE_IMPERATIVE_RE.exec(text); m !== null; m = POLITE_IMPERATIVE_RE.exec(text)) {
     /* v8 ignore next */ // m[1] is always captured by the verb group
     const verb = (m[1] ?? '').toLowerCase()
     if (POLITE_OBJECT_GATED_VERBS.has(verb)) {
@@ -1056,7 +1052,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // is examined, not just the first, so an instruction later in a long document
   // is still caught.
   SENTENCE_IMPERATIVE_RE.lastIndex = 0
-  while ((m = SENTENCE_IMPERATIVE_RE.exec(text)) !== null) {
+  for (let m = SENTENCE_IMPERATIVE_RE.exec(text); m !== null; m = SENTENCE_IMPERATIVE_RE.exec(text)) {
     // The window opens at the verb, not at the end of the match: the match
     // runs on through `\s+\S`, which would swallow a line break after the verb
     // and hide it from objectWindow's split rules.
@@ -1073,7 +1069,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
 
   // "you should/must … <verb>" directive form.
   DIRECTIVE_RE.lastIndex = 0
-  while ((m = DIRECTIVE_RE.exec(text)) !== null) {
+  for (let m = DIRECTIVE_RE.exec(text); m !== null; m = DIRECTIVE_RE.exec(text)) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     if (onlyTrustedObject(end)) continue

@@ -16,7 +16,7 @@ function job(yaml: string, name: string): string | undefined {
   const start = yaml.search(new RegExp(`^  ${name}:\\s*$`, 'm'))
   if (start < 0) return undefined
   const rest = yaml.slice(start + 1)
-  const next = rest.search(/^  [a-z][\w-]*:\s*$/m)
+  const next = rest.search(/^ {2}[a-z][\w-]*:\s*$/m)
   return next < 0 ? yaml.slice(start) : yaml.slice(start, start + 1 + next)
 }
 

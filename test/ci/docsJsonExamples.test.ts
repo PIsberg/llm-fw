@@ -17,8 +17,7 @@ function jsonBlocks(): { where: string; body: string }[] {
   for (const file of files) {
     const text = readFileSync(`${ROOT}${file}`, 'utf8').replace(/\r\n/g, '\n')
     const fence = /^([ \t]*)```json[ \t]*\n([\s\S]*?)^\1```/gm
-    let m: RegExpExecArray | null
-    while ((m = fence.exec(text)) !== null) {
+    for (const m of text.matchAll(fence)) {
       blocks.push({ where: `${file}:${text.slice(0, m.index).split('\n').length}`, body: m[2] ?? '' })
     }
   }

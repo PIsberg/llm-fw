@@ -40,8 +40,11 @@ on the held-out direct-injection splits: the accuracy gate grades its own
 corpus, and the nightly drift gate compares with a moving median, so 8 of 853
 direct injections were lost a row or two at a time with both green (#480).
 
+`npm run lint` runs ESLint (with `@typescript-eslint` and `eslint-plugin-sonarjs`),
+Oxlint (`--deny-warnings`), and Biome (`--error-on-warnings`, linter only).
 `npm run knip` (unused exports, files and dependencies) runs in CI on Node 22; its
-exceptions for OS commands and the worker entry live in `knip.json`. Not in CI:
+exceptions for OS commands and the worker entry live in `knip.json`. Both also run
+in `.githooks/pre-commit` alongside `npx tsc --noEmit`. Not in CI:
 `npm run mutation` (Stryker, weekly on a schedule instead).
 
 ## Where a test goes

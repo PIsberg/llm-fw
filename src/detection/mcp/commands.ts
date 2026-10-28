@@ -46,7 +46,9 @@ function runsFile(rest: string, target: string): boolean {
 export function stripDataHeredocs(command: string): string {
   const lines = command.split('\n')
   const out: string[] = []
-  for (let i = 0; i < lines.length; i++) {
+  let next = 0
+  while (next < lines.length) {
+    const i = next++
     const line = lines[i] ?? ''
     out.push(line)
     const opened = [...line.matchAll(HEREDOC)]
@@ -64,7 +66,7 @@ export function stripDataHeredocs(command: string): string {
     const rest = lines.slice(end + 1).join('\n')
     if (targets.some((t) => runsFile(rest, t))) continue
     out.push(lines[end] ?? '')
-    i = end
+    next = end + 1
   }
   return out.join('\n')
 }
@@ -85,7 +87,9 @@ const WRITES_TEXT = new Set(['set-content', 'add-content', 'out-file'])
 export function stripDataHereStrings(command: string): string {
   const lines = command.split('\n')
   const out: string[] = []
-  for (let i = 0; i < lines.length; i++) {
+  let next = 0
+  while (next < lines.length) {
+    const i = next++
     const line = lines[i] ?? ''
     out.push(line)
     const open = /@(['"])\s*$/.exec(line)
@@ -112,7 +116,7 @@ export function stripDataHereStrings(command: string): string {
     if (targets.some((t) => rest.includes(t.replace(/^.*[\\/]/, '')))) continue
     if (/\$\(|`|<\(|(?:^|[\s;|])[&.]\s/.test(rest) || words(rest).some((w) => RUNS_INPUT.test(w) || RUNS_TEXT.test(w))) continue
     out.push(lines[end] ?? '')
-    i = end
+    next = end + 1
   }
   return out.join('\n')
 }
@@ -132,8 +136,8 @@ export class CommandScanner {
         // artifact (`rm -rf ~/.m2/repository/...`) were refused. The target must
         // now BE root, home, a bare glob, a Git Bash drive root (/c/) or a
         // top-level system directory, optionally quoted and globbed.
-        /rm\s+(?:-{1,2}[a-z]+\s+)*-{1,2}[a-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*["']?(?:\/(?:bin|boot|dev|etc|home|lib|lib64|opt|proc|root|run|sbin|srv|sys|usr|var|Users|System|Library|Applications|Windows)\/?\*?|\/[a-z]\/?\*?|\/\*?|~\/?\*?|\$\{?HOME\}?\/?\*?|\*)["']?(?=\s|$|[;&|)])/i,
-        /del\s+\/s\s+\/q\s+[A-Za-z]:\\*/i,
+        /rm\s+(?:-{1,2}[a-qst-z]+\s+)*-{1,2}[a-qst-z]*r[a-z]*\s+(?:-{1,2}[a-z-]+\s+)*["']?(?:\/(?:bin|boot|dev|etc|home|lib|lib64|opt|proc|root|run|sbin|srv|sys|usr|var|Users|System|Library|Applications|Windows)\/?\*?|\/[a-z]\/?\*?|\/\*?|~\/?\*?|\$\{?HOME\}?\/?\*?|\*)["']?(?=\s|$|[;&|)])/i,
+        /del\s+\/s\s+\/q\s+[a-z]:\\*/i,
         /mkfs\..*/i,
         // Raw-disk overwrite (disk wipe) — match writing to a block device
         // regardless of arg order, plus zero/random sources piped to any `of=`.
@@ -149,13 +153,13 @@ export class CommandScanner {
     b: {
       name: 'Reverse Shells & Network Pivots',
       patterns: [
-        /curl\s+.*\|\s*(?:bash|sh|zsh|ksh|dash|fish)\b/i,
-        /wget\s+.*\|\s*(?:bash|sh|zsh|ksh|dash|fish)\b/i,
+        /curl\s+(?:\S.*)?\|\s*(?:bash|sh|zsh|ksh|dash|fish)\b/i,
+        /wget\s+(?:\S.*)?\|\s*(?:bash|sh|zsh|ksh|dash|fish)\b/i,
         // Process substitution: `bash <(curl evil)` / `sh <(wget evil)`.
         /\b(?:bash|sh|zsh|ksh|dash)\s+<\(\s*(?:curl|wget)\b/i,
         /nc\s+-e\s+\/bin\/sh/i,
         /netcat\s+-c/i,
-        /curl\s+.*(?:-d|-F|--data|--form|-X\s*POST).*(\/etc\/passwd|\.env|\.git\/config)/i,
+        /curl\s+(?:\S[^\r\n]*?)?(?:-d|-F|--data|--form|-X\s*POST)[^\r\n]*?(?:\/etc\/passwd|\.env|\.git\/config)/i,
       ],
     },
     c: {
@@ -164,7 +168,7 @@ export class CommandScanner {
         // Fork bomb of any function name, tolerant of whitespace:
         // `:(){ :|:& };:` and `: () { :|:& };:`. The backreference ties the
         // recursive calls to the function's own name.
-        /([:\w]+)\s*\(\s*\)\s*\{\s*\1\s*\|\s*\1\s*&\s*\}\s*;\s*\1/,
+        /(?<![:\w])([:\w]+)\s*\(\s*\)\s*\{\s*\1\s*\|\s*\1\s*&\s*\}\s*;\s*\1/,
         /%0\|%0/i,
         /killall\s+-9\s+.*/i,
         /pkill\s+-9\s+.*/i,
@@ -197,7 +201,7 @@ export class CommandScanner {
         /DROP\s+TABLE/i,
         /TRUNCATE\s+TABLE/i,
         /terraform\s+destroy/i,
-        /aws\s+.*delete-.*/i,
+        /aws\s+(?:\S.*)?delete-/i,
       ],
     },
   };

@@ -101,8 +101,11 @@ None of these ship. Versions are in `package.json`.
 | `@stryker-mutator/core` | Weekly mutation testing (`npm run mutation`) |
 | `@stryker-mutator/vitest-runner` | Lets Stryker run the vitest suite |
 | `eslint` | Lint (`npm run lint`) |
+| `eslint-plugin-sonarjs` | Bug, security and regex-backtracking lint rules in `eslint.config.js` |
 | `@typescript-eslint/eslint-plugin` | TypeScript lint rules |
 | `@typescript-eslint/parser` | Parses TypeScript for eslint |
+| `oxlint` | Rust-based JS/TS linter (`npm run lint:oxlint`, part of `npm run lint`) |
+| `@biomejs/biome` | Rust-based JS/TS static analysis (`npm run lint:biome`, part of `npm run lint`; formatter disabled) |
 | `knip` | Finds unused exports and dependencies (`npm run knip`), a CI gate on Node 22 |
 | `hyparquet` | Reads the Parquet benign-traffic datasets that `scripts/fetch-eval-data.ts` downloads for the false-positive evaluation |
 | `tesseract.js` | The same package as the optional peer above, installed in development so the OCR tests and build resolve it |

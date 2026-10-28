@@ -31,7 +31,7 @@ export const FAMILIES: { name: string; test: (t: string) => boolean }[] = [
   // deployments see.
   { name: 'prefix-completion', test: t => /\b(?:start|starts|starting|begin|begins|beginning)\s+with\s+['"“‘]/i.test(t) },
   { name: 'coercion', test: t => /\bor\s+(?:else\b|(?:i|we)\s+will\b|(?:your|the)\b[^.!?]{0,40}\bwill\s+be\b)|\bif\s+you\s+(?:do\s+not|don'?t|refuse\s+to)\s+comply\b/i.test(t) },
-  { name: 'persona-data-demand', test: t => /\b(?:you\s+are|as\s+an?|as\s+the)\b[^]{0,120}?\b(?:give|provide|share|reveal|disclose|send|show)\b[^.!?]{0,60}\b(?:records?|data|information|credentials?|passwords?|details)\b/i.test(t) },
+  { name: 'persona-data-demand', test: t => /\b(?:you\s+are|as\s+an?|as\s+the)\b[\s\S]{0,120}?\b(?:give|provide|share|reveal|disclose|send|show)\b[^.!?]{0,60}\b(?:records?|data|information|credentials?|passwords?|details)\b/i.test(t) },
   { name: 'long-form-jailbreak', test: t => t.length > 250 },
   { name: 'override-verb', test: t => /\b(?:ignore|disregard|forget|discard|override|vergiss|ignoriere|olvida|ignora|oublie)\w*\b/i.test(t) },
   { name: 'prompt-extraction-question', test: t => /\b(?:what|which|tell|show|reveal|repeat|print|spell|give)\b[^.!?]{0,40}\b(?:instructions?|prompt|password|secret)\b/i.test(t) },
@@ -62,8 +62,12 @@ async function main(): Promise<void> {
       if (res.action === 'block') continue
       missed++
       const fam = familyOf(row.text)
-      ;(table[fam] ??= {})[ds.name] = ((table[fam] ??= {})[ds.name] ?? 0) + 1
-      if ((samples[fam] ??= []).length < examples) samples[fam].push(`[${ds.name}] ${row.text.replace(/\s+/g, ' ').slice(0, 100)}`)
+      let famRow = table[fam]
+      if (!famRow) { famRow = {}; table[fam] = famRow }
+      famRow[ds.name] = (famRow[ds.name] ?? 0) + 1
+      let famSamples = samples[fam]
+      if (!famSamples) { famSamples = []; samples[fam] = famSamples }
+      if (famSamples.length < examples) famSamples.push(`[${ds.name}] ${row.text.replace(/\s+/g, ' ').slice(0, 100)}`)
     }
   }
   await pipeline.close()

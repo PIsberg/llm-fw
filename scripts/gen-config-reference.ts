@@ -29,7 +29,7 @@ const END = '<!-- CONFIG-REFERENCE-END -->';
 export function parseEnvOverrides(source: string): { name: string; path: string }[] {
   const table = source.slice(source.indexOf('const ENV_OVERRIDES'));
   const lines = table.split(/\r?\n/);
-  const ENTRY = /^\s{2}(LLM_FW_[A-Z0-9_]+):\s*\(([\w]+),/;
+  const ENTRY = /^\s{2}(LLM_FW_[A-Z0-9_]+):\s*\((\w+),/;
   const out: { name: string; path: string }[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -40,7 +40,7 @@ export function parseEnvOverrides(source: string): { name: string; path: string 
     // threshold), so the body runs to the next entry or the end of the table.
     // Reading only the declaration line reported those three as having no key.
     let body = lines[i];
-    for (let j = i + 1; j < lines.length && !ENTRY.test(lines[j]) && !/^\};/.test(lines[j]); j++) {
+    for (let j = i + 1; j < lines.length && !ENTRY.test(lines[j]) && !lines[j].startsWith('};'); j++) {
       body += ' ' + lines[j];
     }
     // Regex literals only: the last assignment onto the config parameter is

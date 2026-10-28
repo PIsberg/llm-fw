@@ -32,7 +32,7 @@ export const DLP_RULES: DlpRule[] = [
     label: 'AWS Secret Access Key',
     // 40-char base64 secret, only matched when adjacent to an aws-secret keyword
     // (a bare 40-char base64 string is far too common to flag on its own).
-    regex: /aws(?:.{0,20})?(?:secret|sk)(?:.{0,20})?["' :=]+([A-Za-z0-9/+]{40})\b/gi,
+    regex: /aws.{0,20}(?:secret|sk).{0,20}["' :=]+([a-z0-9/+]{40})\b/gi,
     marker: '[REDACTED_AWS_SECRET]',
   },
   {
@@ -173,7 +173,7 @@ export const DLP_RULES: DlpRule[] = [
     detector: 'github',
     type: 'GITHUB_FINE_GRAINED_PAT',
     label: 'GitHub Fine-Grained PAT',
-    regex: /github_pat_[0-9A-Za-z_]{22,}/g,
+    regex: /github_pat_\w{22,}/g,
     marker: '[REDACTED_GITHUB_TOKEN]',
   },
   {
@@ -426,7 +426,7 @@ export const CREDIT_CARD_CANDIDATE = /\b(?:\d[ -]?){12,18}\d\b/g
  * ignored). Returns false for input with no digits or fewer than 13 digits.
  */
 export function luhnValid(digits: string): boolean {
-  const cleaned = digits.replace(/[^0-9]/g, '')
+  const cleaned = digits.replace(/\D/g, '')
   if (cleaned.length < 13 || cleaned.length > 19) return false
   let sum = 0
   let double = false

@@ -183,13 +183,18 @@ export class ModuleManager {
       // dashboard toggle reach the running module (see PayloadModule.cfg).
       // Without a config, each module gets a private copy of its defaults.
       const defaults = DEFAULT_CONFIG.modules!
-      const modules: ModulesConfig = config
-        ? (config.modules ??= structuredClone(defaults))
-        : structuredClone(defaults)
+      let modules: ModulesConfig
+      if (config) {
+        config.modules ??= structuredClone(defaults)
+        modules = config.modules
+      } else {
+        modules = structuredClone(defaults)
+      }
       this.economy = modules
       const slots = modules as unknown as Record<BuiltinKey, ModuleSwitchConfig | undefined>
       for (const { key, create } of BUILTINS) {
-        const cfg = (slots[key] ??= structuredClone(defaults[key]) ?? { enabled: false })
+        slots[key] ??= structuredClone(defaults[key]) ?? { enabled: false }
+        const cfg = slots[key]
         const mod = create(cfg, modules)
         this.keys.set(mod.id, key)
         this.register(mod)

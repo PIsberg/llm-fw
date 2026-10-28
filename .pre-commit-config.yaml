@@ -3,10 +3,26 @@ repos:
   rev: v8.16.3
   hooks:
   - id: gitleaks
-- repo: https://github.com/pre-commit/mirrors-eslint
-  rev: v8.38.0
+- repo: local
   hooks:
-  - id: eslint
+  - id: typecheck
+    name: TypeScript type-check
+    entry: npx tsc --noEmit
+    language: system
+    types_or: [ts, javascript]
+    pass_filenames: false
+  - id: lint
+    name: Static analysis (ESLint + SonarJS, Oxlint, Biome)
+    entry: npm run lint
+    language: system
+    types_or: [ts, javascript, json]
+    pass_filenames: false
+  - id: knip
+    name: Unused exports and dependencies (Knip)
+    entry: npm run knip
+    language: system
+    types_or: [ts, javascript, json]
+    pass_filenames: false
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.4.0
   hooks:

@@ -1,7 +1,7 @@
 name: Semgrep
 on:
   push:
-    branches: ["main"]
+    branches-ignore: [gh-pages, 'dependabot/**']
   pull_request:
     # NOT restricted to main: `Scan` is a required status check, so a stacked
     # pull request whose base is a feature branch could never satisfy it.

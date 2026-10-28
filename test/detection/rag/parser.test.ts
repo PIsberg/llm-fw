@@ -183,6 +183,7 @@ describe('ragInjectionScore — code and config are not instructions', () => {
   const pasted = [
     'Here is my .env.example, does it look right?\n```\nDATABASE_URL=postgres://localhost:5432/app\nAPI_KEY=your-api-key-here\n```',
     'Which of these should not be committed?\n```\nNODE_ENV=production\nPORT=3000\nJWT_SECRET=changeme\nS3_BUCKET=my-app-uploads\n```',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal TS snippet fixture
     'Why does this 404?\n```ts\nconst res = await fetch(`https://api.example.com/v2/users/${id}?fields=name,email`)\n```',
     'Is this nginx block right?\n```nginx\nlocation /api/ { proxy_pass http://127.0.0.1:3000/; }\n```',
     'Can you explain this regex?\n```\n^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$\n```',

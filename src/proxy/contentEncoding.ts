@@ -50,6 +50,7 @@ function decodeOne(buf: Buffer, encoding: string, maxOutput: number): Buffer {
 export function decodeContentEncoding(buf: Buffer, header: string, maxOutput: number): Buffer {
   const encodings = header.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
   let out = buf;
-  for (const enc of encodings.reverse()) out = decodeOne(out, enc, maxOutput);
+  encodings.reverse();
+  for (const enc of encodings) out = decodeOne(out, enc, maxOutput);
   return out;
 }

@@ -186,9 +186,9 @@ describe('loadConfig env overrides', () => {
 
   it('LLM_FW_TRUSTED_PATHS sets the trusted roots for file reads, keeping other tool_result overrides', async () => {
     process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD = '70'
-    process.env.LLM_FW_TRUSTED_PATHS = 'C:\dev\private, /home/dev/projects ,'
+    process.env.LLM_FW_TRUSTED_PATHS = 'C:\\dev\\private, /home/dev/projects ,'
     const cfg = await loadConfig()
-    expect(cfg.detection.surfaces?.tool_result).toEqual({ onBlock: 'withhold', heuristicBlockThreshold: 70, trustedPaths: ['C:\dev\private', '/home/dev/projects'] })
+    expect(cfg.detection.surfaces?.tool_result).toEqual({ onBlock: 'withhold', heuristicBlockThreshold: 70, trustedPaths: ['C:\\dev\\private', '/home/dev/projects'] })
     delete process.env.LLM_FW_TRUSTED_PATHS
     delete process.env.LLM_FW_TOOL_RESULT_HEURISTIC_THRESHOLD
   })

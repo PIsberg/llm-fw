@@ -223,7 +223,8 @@ async function main(): Promise<void> {
   console.log('\n--- go/no-go ---')
   console.log(`out-of-table attack margins: [${oovAttackMargins.map(fmt).join(', ')}]  (min ${fmt(minOovAttackMargin)})`)
   console.log(`all benign margins:          [${allBenignMargins.map(fmt).join(', ')}]  (max ${fmt(maxBenignMargin)})`)
-  console.log(`zero-FP threshold exists: ${zeroFpThresholdExists}${zeroFpThresholdExists ? ` (any margin in (${fmt(maxBenignMargin)}, ${fmt(minOovAttackMargin)}])` : ''}`)
+  const marginNote = zeroFpThresholdExists ? ` (any margin in (${fmt(maxBenignMargin)}, ${fmt(minOovAttackMargin)}])` : ''
+  console.log(`zero-FP threshold exists: ${zeroFpThresholdExists}${marginNote}`)
 }
 
 main().catch(err => {
