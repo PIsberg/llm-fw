@@ -915,9 +915,10 @@ would write the marker, so leave it off for agents that edit such files.
 
 `modules.tokenPruner.enabled` (`LLM_FW_TOKEN_PRUNER_ENABLED`). Collapses
 interior runs of spaces and tabs to one space, runs of blank lines to one, and
-trailing whitespace, and minifies multiline JSON embedded in the text, keeping
-every number and string byte for byte. Leading indentation and fenced code are
-kept.
+trailing whitespace, condenses Markdown table cell padding and separator dashes
+(preserving alignment colons), and minifies multiline JSON embedded in the
+text, keeping every number and string byte for byte. Leading indentation and
+fenced code are kept.
 
 It rewrites user, assistant and system text in OpenAI chat, the OpenAI
 Responses API (`input`, `instructions`), Anthropic (`messages`, `system`) and
