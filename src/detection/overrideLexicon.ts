@@ -319,12 +319,17 @@ export const OVERRIDE_LEXICONS: Record<string, Lexicon> = {
 // and the second half of the playground's "Developer Mode" example): a
 // disable verb next to a safety- or content-filter noun, in either order and
 // with no positional. Nouns name the filter itself, so "disable the spell
-// checker" or "turn off notifications" do not match. Two verbs are left out on
-// purpose: Vietnamese "tắt" normalizes to "tat", the same as "tất" (all), and
-// Dutch "schakel" also opens "schakel de filters in" (turn them ON).
+// checker" or "turn off notifications" do not match. Vietnamese "tắt" is left
+// out because it normalizes to "tat", the same as "tất" (all); Dutch "schakel"
+// and German "schalte/schalten" split the verb around the object and only mean
+// "turn off" when paired with their particle ("uit" / "aus", "ab"), so they go
+// through `separableVerbs` + `particles` (#487).
 interface DisableLexicon {
   verbs: string[]
   nouns: string[]
+  separableVerbs?: string[]
+  particles?: string[]
+  breakers?: string[]
   notBefore?: string[]
   unspaced?: boolean
 }
@@ -332,7 +337,7 @@ interface DisableLexicon {
 export const DISABLE_LEXICONS: Record<string, DisableLexicon> = {
   es: { verbs: ['desactiv*', 'deshabilit*', 'apag*'], nouns: ['filtros de seguridad', 'filtro de seguridad', 'filtros de contenido', 'filtro de contenido'], notBefore: ['no'] },
   fr: { verbs: ['désactiv*', 'coupe*', 'supprim*'], nouns: ['filtres de sécurité', 'filtre de sécurité', 'filtres de contenu', 'filtre de contenu'], notBefore: ['ne', 'pas'] },
-  de: { verbs: ['deaktivier*', 'abschalt*', 'ausschalt*', 'schalte', 'schalten'], nouns: ['sicherheitsfilter*', 'inhaltsfilter*', 'schutzfilter*'], notBefore: ['nicht'] },
+  de: { verbs: ['deaktivier*', 'abschalt*', 'ausschalt*'], separableVerbs: ['schalte', 'schaltet', 'schalten'], particles: ['aus', 'ab'], nouns: ['sicherheitsfilter*', 'inhaltsfilter*', 'schutzfilter*'], breakers: ['nicht'], notBefore: ['nicht'] },
   it: { verbs: ['disabilit*', 'disattiv*'], nouns: ['filtri di sicurezza', 'filtro di sicurezza', 'filtri dei contenuti', 'filtri di contenuto'], notBefore: ['non'] },
   pt: { verbs: ['desativ*', 'desabilit*', 'deslig*'], nouns: ['filtros de segurança', 'filtro de segurança', 'filtros de conteúdo', 'filtro de conteúdo'], notBefore: ['não'] },
   ru: { verbs: ['отключ*', 'выключ*', 'деактивир*'], nouns: ['защитн* фильтр*', 'фильтр* безопасности', 'фильтр* контента', 'фильтр* защиты'], notBefore: ['не'] },
@@ -349,7 +354,7 @@ export const DISABLE_LEXICONS: Record<string, DisableLexicon> = {
   sv: { verbs: ['inaktivera', 'avaktivera', 'stäng av', 'slå av'], nouns: ['säkerhetsfilt*', 'innehållsfilt*', 'skyddsfilt*'] },
   da: { verbs: ['deaktiver', 'slå fra', 'sluk for'], nouns: ['sikkerhedsfilt*', 'indholdsfilt*'] },
   no: { verbs: ['deaktiver', 'slå av', 'skru av'], nouns: ['sikkerhetsfilt*', 'innholdsfilt*'] },
-  nl: { verbs: ['uitschakel*', 'deactiveer*'], nouns: ['veiligheidsfilter*', 'inhoudsfilter*', 'beveiligingsfilter*'] },
+  nl: { verbs: ['uitschakel*', 'deactiveer*'], separableVerbs: ['schakel*'], particles: ['uit'], nouns: ['veiligheidsfilter*', 'inhoudsfilter*', 'beveiligingsfilter*'], breakers: ['niet'], notBefore: ['niet'] },
   id: { verbs: ['nonaktifkan', 'matikan'], nouns: ['filter keamanan', 'filter konten', 'penyaring keamanan'], notBefore: ['jangan'] },
   ms: { verbs: ['lumpuhkan', 'matikan', 'nyahaktifkan'], nouns: ['penapis keselamatan', 'penapis kandungan', 'penapis keselamatan'], notBefore: ['jangan'] },
   tl: { verbs: ['huwag paganahin', 'i-disable', 'patayin'], nouns: ['filter ng kaligtasan', 'filter ng seguridad'] },
@@ -422,6 +427,9 @@ function compile(l: Lexicon): Compiled {
 const COMPILED: Compiled[] = [
   ...Object.values(OVERRIDE_LEXICONS).map(compile),
   ...Object.values(DISABLE_LEXICONS).map(d => compile({ ...d, order: 'any', positionals: [], window: d.unspaced ? 20 : 6 })),
+  ...Object.values(DISABLE_LEXICONS)
+    .filter((d): d is DisableLexicon & { separableVerbs: string[]; particles: string[] } => Boolean(d.separableVerbs && d.particles))
+    .map(d => compile({ ...d, verbs: d.separableVerbs, positionals: d.particles, order: 'VO', window: 6 })),
 ]
 
 function tokMatch(token: string, pat: string): boolean {

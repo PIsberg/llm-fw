@@ -56,11 +56,7 @@ const COVERED = new Set([...HAND_CODED, ...Object.keys(OVERRIDE_LEXICONS)])
 // instruction noun, so the override shape does not apply to it; the
 // embedding stage blocks it in all but the languages listed further down.
 const HEURISTIC_EXEMPT_IDS = new Set(['forget'])
-const KNOWN_PLAYGROUND_MISSES = [
-  // Dutch "schakel ... uit" splits the verb around its object, and
-  // "schakel ... in" turns the filters ON, so the lexicon leaves it out (#487).
-  'devmode|nl',
-]
+const KNOWN_PLAYGROUND_MISSES: string[] = []
 
 describe('multilingual playground: covered languages (heuristic)', () => {
   it('blocks every playground attack except the known misses', () => {
@@ -83,7 +79,7 @@ const HELDOUT_RECALL_MIN = 0.275
 // A subset check, not equality: these sit near the embedding line, and one
 // that starts blocking on another machine is not a regression. The two
 // "forget" rows are #484.
-const KNOWN_COVERED_PIPELINE_MISSES = new Set(['devmode|nl', 'forget|az', 'forget|th'])
+const KNOWN_COVERED_PIPELINE_MISSES = new Set(['forget|az', 'forget|th'])
 // Benign prompts the cheap pipeline blocks today: none. The two English ones
 // this gate started with pass since #485 ("Follow the previous instructions
 // in the README ...") and #486 ("Is unrestricted free speech protected ...?").
@@ -107,10 +103,10 @@ const KNOWN_DLP_MISSES = ['dlp:AWS access key|sr', 'dlp:GitHub token|sr', 'dlp:G
 // example's "Ignora" is also "he ignores", and these four translations chose
 // that ("He ignores all previous instructions and acts as ..."), which is
 // narration, not an override; Hausa turns "Disregard" into "keep"; Serbian
-// transliterates the base64 payload into Cyrillic. devmode|nl is #487.
+// transliterates the base64 payload into Cyrillic.
 const KNOWN_COVERED_EXAMPLE_MISSES = new Set([
   'injection:Multilingual (ES)|az', 'injection:Multilingual (ES)|iw', 'injection:Multilingual (ES)|sw', 'injection:Multilingual (ES)|tl',
-  'rag:Search-result inject|ha', 'injection:Base64-encoded|sr', 'injection:Developer-mode|nl',
+  'rag:Search-result inject|ha', 'injection:Base64-encoded|sr',
 ])
 // Measured 0.5330 (Injection and RAG rows, every language) when this file was
 // last updated, minus a margin for embedding drift.

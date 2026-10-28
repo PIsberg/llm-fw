@@ -115,8 +115,6 @@ Blocked on something other than a decision:
 
 Can be done without anyone, not started:
 
-- #487: Dutch "Schakel veiligheidsfilters uit" passes; the disable lexicon
-  needs separable verbs. It would stack on #503.
 - #477: a withheld tool result takes its useful output with it; the model
   only sees the notice. Needs a design for what, if anything, to keep.
 
