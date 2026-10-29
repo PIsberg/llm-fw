@@ -25,8 +25,12 @@
  * model: Ollama tag for judge presets (default qwen2.5:3b)
  * --json:  print machine-readable results (single JSON object) to stdout
  * --only:  comma-separated dataset names to run (default: all)
+ * --isolate / --no-isolate: run each split in its own Node process with an
+ *          8 GB heap, or not. Default: isolated for the classifier presets
+ *          over more than one split, which otherwise run out of memory (#538)
  */
 import { readFileSync, readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join, dirname, resolve } from 'node:path'
 import { Pipeline } from '../src/detection/pipeline.js'
@@ -136,6 +140,62 @@ const THREAT_LABEL: Record<Threat, string> = {
   'harmful-content': 'HARMFUL CONTENT / JAILBREAK REQUESTS (different threat model — do not average with injection)',
 }
 
+/** One split's result in the `--json` shape, which an isolated child also prints. */
+interface JsonDataset {
+  name: string; threat: Threat; revision: string | undefined; n: number
+  tp: number; fn: number; tn: number; fp: number
+  recall: number; fpr: number | null; p50Ms: number
+  perClass: Record<string, { n: number; blocked: number; rate: number }>
+  // Row text, only under --verbose: held-out rows must not land in a report
+  // unasked (see test/eval/lib/seenRows.ts).
+  missed?: string[]; falsePos?: string[]
+}
+
+function toJson(ds: Dataset, r: DsResult, verbose: boolean): JsonDataset {
+  return {
+    name: ds.name,
+    threat: ds.threat,
+    revision: ds.revision,
+    n: ds.rows.length,
+    tp: r.tp, fn: r.fn, tn: r.tn, fp: r.fp,
+    recall: r.recall,
+    fpr: r.fp + r.tn > 0 ? r.fpr : null,
+    p50Ms: Math.round(r.p50),
+    perClass: Object.fromEntries(Object.entries(r.perClass).map(([k, c]) => [k, { n: c.n, blocked: c.blocked, rate: c.blocked / c.n }])),
+    ...(verbose ? { missed: r.missed, falsePos: r.falsePos } : {}),
+  }
+}
+
+/**
+ * Whether each split runs in its own Node process (#538). The classifier
+ * presets hold the ONNX classifier beside the embedding model and ran out of
+ * memory, silently, part way through the full suite in one process; a fresh
+ * process per split with a larger heap finishes. The cheap presets stay in
+ * one process, where the model loads once. `--isolate` / `--no-isolate`
+ * override; `--child` marks a split's own process, which never spawns again.
+ */
+export function shouldIsolate(preset: string, argv: readonly string[], datasets: number): boolean {
+  if (argv.includes('--child') || argv.includes('--no-isolate')) return false
+  if (argv.includes('--isolate')) return datasets > 0
+  return preset.startsWith('classifier') && datasets > 1
+}
+
+/** Heap for a split's own process: the classifier split OOMed at the default. */
+const CHILD_HEAP_MB = 8192
+
+function runChild(preset: string, model: string, name: string, verbose: boolean): JsonDataset {
+  const args = [`--max-old-space-size=${CHILD_HEAP_MB}`, '--import', 'tsx/esm', fileURLToPath(import.meta.url),
+    preset, model, '--json', '--child', `--only=${name}`, ...(verbose ? ['--verbose'] : [])]
+  const child = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] })
+  if (child.status !== 0) {
+    throw new Error(`split ${name} failed in its own process (exit ${child.status ?? child.signal}); an OOM shows as a signal or exit 134`)
+  }
+  const out = JSON.parse(child.stdout) as { datasets: JsonDataset[] }
+  const ds = out.datasets[0]
+  if (!ds) throw new Error(`split ${name} printed no result`)
+  return ds
+}
+
 async function main() {
   const positional = process.argv.slice(2).filter(a => !a.startsWith('-'))
   const preset = positional[0] ?? 'cheap'
@@ -144,34 +204,31 @@ async function main() {
   const asJson = process.argv.includes('--json')
   const only = process.argv.find(a => a.startsWith('--only='))?.slice('--only='.length).split(',')
 
-  const config = buildConfig(preset, model)
-  const pipeline = new Pipeline(config)
-  await pipeline.init()
-
   let datasets = loadAll()
   if (only) datasets = datasets.filter(d => only.includes(d.name))
+  const isolated = shouldIsolate(preset, process.argv, datasets.length)
 
-  const results: { ds: Dataset; r: DsResult }[] = []
-  for (const ds of datasets) {
-    if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length}) …\n`)
-    results.push({ ds, r: await evalDataset(pipeline, ds) })
+  const results: JsonDataset[] = []
+  if (isolated) {
+    for (const ds of datasets) {
+      if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length}) in its own process …\n`)
+      results.push(runChild(preset, model, ds.name, verbose))
+    }
+  } else {
+    const pipeline = new Pipeline(buildConfig(preset, model))
+    await pipeline.init()
+    for (const ds of datasets) {
+      if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length}) …\n`)
+      results.push(toJson(ds, await evalDataset(pipeline, ds), verbose))
+    }
   }
 
   if (asJson) {
     console.log(JSON.stringify({
       preset,
       model: preset.startsWith('judge') ? model : undefined,
-      datasets: results.map(({ ds, r }) => ({
-        name: ds.name,
-        threat: ds.threat,
-        revision: ds.revision,
-        n: ds.rows.length,
-        tp: r.tp, fn: r.fn, tn: r.tn, fp: r.fp,
-        recall: r.recall,
-        fpr: r.fp + r.tn > 0 ? r.fpr : null,
-        p50Ms: Math.round(r.p50),
-        perClass: Object.fromEntries(Object.entries(r.perClass).map(([k, c]) => [k, { n: c.n, blocked: c.blocked, rate: c.blocked / c.n }])),
-      })),
+      isolated,
+      datasets: results,
     }, null, 2))
     return
   }
@@ -179,23 +236,22 @@ async function main() {
   const modelTag = preset.startsWith('judge') ? ` model='${model}'` : ''
   console.log(`\n=== Benchmark — preset='${preset}'${modelTag} ===`)
   for (const threat of THREAT_ORDER) {
-    const group = results.filter(x => x.ds.threat === threat)
+    const group = results.filter(r => r.threat === threat)
     if (!group.length) continue
     console.log(`\n――― ${THREAT_LABEL[threat]} ―――`)
-    for (const { ds, r } of group) {
-      const hasBenign = r.fp + r.tn > 0
-      const revTag = ds.revision ? `  rev=${ds.revision.slice(0, 12)}` : ''
-      console.log(`\n[${ds.name}]  n=${ds.rows.length}${revTag}`)
+    for (const r of group) {
+      const revTag = r.revision ? `  rev=${r.revision.slice(0, 12)}` : ''
+      console.log(`\n[${r.name}]  n=${r.n}${revTag}`)
       console.log(`  recall (attacks blocked) : ${(r.recall * 100).toFixed(1)}%  (${r.tp}/${r.tp + r.fn})`)
-      console.log(`  FPR    (benign blocked)  : ${hasBenign ? (r.fpr * 100).toFixed(1) + '%  (' + r.fp + '/' + (r.fp + r.tn) + ')' : 'n/a (attacks-only set)'}`)
-      console.log(`  p50 latency              : ${r.p50.toFixed(0)} ms`)
+      console.log(`  FPR    (benign blocked)  : ${r.fpr !== null ? (r.fpr * 100).toFixed(1) + '%  (' + r.fp + '/' + (r.fp + r.tn) + ')' : 'n/a (attacks-only set)'}`)
+      console.log(`  p50 latency              : ${r.p50Ms.toFixed(0)} ms`)
       const classes = Object.entries(r.perClass).filter(([k]) => k.split(':')[1] !== '?')
       if (classes.length > 1) {
         console.log('  per class (blocked/n):')
         for (const [k, c] of classes.sort()) console.log(`    ${k.padEnd(40)} ${c.blocked}/${c.n}  (${(c.blocked / c.n * 100).toFixed(0)}%)`)
       }
-      if (verbose && r.missed.length) console.log(`  missed:\n    ${r.missed.slice(0, 20).join('\n    ')}`)
-      if (verbose && r.falsePos.length) console.log(`  false positives:\n    ${r.falsePos.slice(0, 20).join('\n    ')}`)
+      if (verbose && r.missed?.length) console.log(`  missed:\n    ${r.missed.slice(0, 20).join('\n    ')}`)
+      if (verbose && r.falsePos?.length) console.log(`  false positives:\n    ${r.falsePos.slice(0, 20).join('\n    ')}`)
     }
   }
 }
