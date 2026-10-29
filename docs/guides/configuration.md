@@ -133,7 +133,8 @@ that blocks but is not the newest one is replaced with `[llm-fw withheld this
 earlier message: it matched the <stage> rule. Its content was not passed on to
 the model.]` and the rest is forwarded, recorded once as WITHHELD. The newest
 message still refuses, so a blocked message is refused once, on the turn it
-was sent. Claude Code puts skill bodies and compaction summaries in user turns
+was sent. The newest message is the last user turn, never the system prompt,
+which some providers place after the turns (fixed in #528). Claude Code puts skill bodies and compaction summaries in user turns
 and resends them, so before this one such block refused the rest of the
 session (#476). The newest message is forwarded exactly as typed or the request
 is refused: if withholding would change it, it refuses. `refuse` keeps
