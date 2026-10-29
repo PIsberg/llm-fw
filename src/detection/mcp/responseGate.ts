@@ -1,4 +1,5 @@
 import { McpScanner } from './scanner.js'
+import type { McpCheckResult } from './scanner.js'
 import { PayloadParser } from '../../types.js'
 import { OpenAIParser } from '../parsers.js'
 
@@ -10,7 +11,8 @@ import { OpenAIParser } from '../parsers.js'
  * — see DESIGN-mcp-response.md. This module holds the pure, socket-free logic so
  * it can be unit-tested directly:
  *   - non-streaming JSON: inspect the full body, then rewrite it tool-free.
- *   - streaming SSE: gate each `tool_use` content block at its start event.
+ *   - streaming SSE: gate each `tool_use` content block at its start event,
+ *     or, for an execution tool, once its streamed arguments are complete.
  */
 
 export interface ToolDecision {
@@ -129,11 +131,18 @@ export interface SseGate {
  * Incremental gate for an Anthropic SSE (`text/event-stream`) response.
  *
  * Feed it raw response text as it streams. It forwards every event verbatim
- * except `tool_use` content blocks whose name is blocked: those events (start,
+ * except `tool_use` content blocks that are blocked: those events (start,
  * deltas, stop) are swallowed, and the terminating `message_delta` has its
  * `stop_reason` downgraded from `tool_use` to `end_turn` so the agent's parser
- * terminates cleanly. The tool name is present in `content_block_start`, so the
- * decision is made before any argument bytes are forwarded.
+ * terminates cleanly.
+ *
+ * A tool blocked by name is decided at `content_block_start`, before any
+ * argument bytes are forwarded. An execution tool (`bash`, `shell`, ...) is
+ * decided by its command, which arrives in later `input_json_delta` frames:
+ * its start event carries `input: {}`, so deciding there scanned an empty
+ * command and passed every call (#529). Such a block, and every event after
+ * its start, is held until its `content_block_stop`, then checked on the
+ * assembled input and either dropped or released in order.
  */
 abstract class BufferedSseGate implements SseGate {
   protected buf = ''
@@ -149,9 +158,27 @@ abstract class BufferedSseGate implements SseGate {
     this.buf = ''
     return rest
   }
+
+  /** A pass decision is reported once per tool name per response. */
+  protected passDecision(name: string, result: McpCheckResult): ToolDecision | null {
+    if (this.emittedTools.has(name)) return null
+    this.emittedTools.add(name)
+    return { toolName: name, action: 'pass', audit: result.audit, reason: result.reason }
+  }
 }
 
+/** Parse streamed tool arguments; unparseable text is scanned as one string. */
+function assembledArgs(json: string, initial: unknown): unknown {
+  if (json === '') return initial
+  try { return JSON.parse(json) as unknown } catch { return json }
+}
+
+interface HeldEvent { raw: string; index: number | undefined }
+
 export class SseToolGate extends BufferedSseGate {
+  // The execution-tool block being held until its arguments are complete.
+  private held: { index: number; name: string; input: unknown; json: string; events: HeldEvent[] } | null = null
+
   constructor(private readonly mcp: McpScanner) {
     super()
   }
@@ -172,11 +199,31 @@ export class SseToolGate extends BufferedSseGate {
     return { forward: forwardParts.join(''), decisions }
   }
 
+  /**
+   * At end of stream a block still held never completed: decide on what
+   * arrived, so a cut stream cannot release a command nobody checked.
+   */
+  override flush(): string {
+    const released = this.held ? this.release().forward : ''
+    return released + super.flush()
+  }
+
   private handleEvent(raw: string): { forward: string; decision: ToolDecision | null } {
     const data = parseSseData(raw)
+    const type = data && typeof data.type === 'string' ? data.type : undefined
+    const index = data && typeof data.index === 'number' ? data.index : undefined
+
+    if (this.held) {
+      this.held.events.push({ raw, index })
+      if (index !== this.held.index) return { forward: '', decision: null }
+      const delta = data?.delta as Record<string, unknown> | undefined
+      if (type === 'content_block_delta' && delta?.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+        this.held.json += delta.partial_json
+      }
+      return type === 'content_block_stop' ? this.release() : { forward: '', decision: null }
+    }
+
     if (!data) return { forward: raw, decision: null }
-    const type = typeof data.type === 'string' ? data.type : undefined
-    const index = typeof data.index === 'number' ? data.index : undefined
 
     // A tool_use block starts: the name is known here, before its arguments.
     const block = data.content_block as Record<string, unknown> | undefined
@@ -188,11 +235,11 @@ export class SseToolGate extends BufferedSseGate {
         this.blockedAny = true
         return { forward: '', decision: { toolName: name, action: 'block', reason: result.reason } }
       }
-      const decision = this.emittedTools.has(name)
-        ? null
-        : { toolName: name, action: 'pass' as const, audit: result.audit, reason: result.reason }
-      this.emittedTools.add(name)
-      return { forward: raw, decision }
+      if (index !== undefined && this.mcp.scansArguments(name)) {
+        this.held = { index, name, input: block.input, json: '', events: [{ raw, index }] }
+        return { forward: '', decision: null }
+      }
+      return { forward: raw, decision: this.passDecision(name, result) }
     }
 
     // Swallow the deltas/stop of a suppressed tool block.
@@ -211,6 +258,20 @@ export class SseToolGate extends BufferedSseGate {
     }
 
     return { forward: raw, decision: null }
+  }
+
+  /** Decide the held block on its assembled input, then drop or release it. */
+  private release(): { forward: string; decision: ToolDecision | null } {
+    const held = this.held!
+    this.held = null
+    const result = this.mcp.checkToolInvocation(held.name, assembledArgs(held.json, held.input))
+    if (result.action === 'block') {
+      this.blockedAny = true
+      // Events of other blocks that arrived meanwhile (a ping) still go out.
+      const others = held.events.filter(e => e.index !== held.index).map(e => e.raw).join('')
+      return { forward: others, decision: { toolName: held.name, action: 'block', reason: result.reason } }
+    }
+    return { forward: held.events.map(e => e.raw).join(''), decision: this.passDecision(held.name, result) }
   }
 }
 
@@ -237,8 +298,19 @@ function parseSseData(raw: string): Record<string, unknown> | null {
  * suppress every later fragment for a blocked index, and downgrade the
  * terminating `finish_reason` from `tool_calls` to `stop` so the agent ends its
  * turn cleanly. `data: [DONE]` and any non-tool chunk are forwarded verbatim.
+ *
+ * An execution tool is decided by its arguments, which the name fragment
+ * carries empty (#529). From its name fragment on, every chunk is held until
+ * one carries a `finish_reason` (or `[DONE]`, or the stream ends); then each
+ * held call is checked on its assembled arguments, and the held chunks are
+ * released without the fragments of any call that blocked.
  */
 export class OpenAiSseToolGate extends BufferedSseGate {
+  // Held chunks, parsed (or raw when they were not rewritten), and the
+  // arguments assembled so far for each held execution-tool call, by index.
+  private held: Array<Record<string, unknown> | string> = []
+  private readonly heldCalls = new Map<number, { name: string; args: string }>()
+
   constructor(private readonly mcp: McpScanner) {
     super()
   }
@@ -259,21 +331,30 @@ export class OpenAiSseToolGate extends BufferedSseGate {
     return { forward: forwardParts.join(''), decisions }
   }
 
+  /** A call still held when the stream ends is decided on what arrived. */
+  override flush(): string {
+    const released = this.heldCalls.size > 0 ? this.release().forward : ''
+    return released + super.flush()
+  }
+
   private handleEvent(raw: string): { forward: string; decisions: ToolDecision[] } {
+    const holding = this.heldCalls.size > 0
     const dataLines: string[] = []
     for (const line of raw.split('\n')) {
       if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
     }
-    if (dataLines.length === 0) return { forward: raw, decisions: [] }
     const payload = dataLines.join('\n')
-    // OpenAI terminates the stream with the literal `data: [DONE]` sentinel.
-    if (payload === '[DONE]') return { forward: raw, decisions: [] }
-
-    let data: Record<string, unknown>
-    try { data = JSON.parse(payload) as Record<string, unknown> } catch { return { forward: raw, decisions: [] } }
-
-    const choices = Array.isArray(data.choices) ? (data.choices as Array<Record<string, unknown>>) : null
-    if (!choices) return { forward: raw, decisions: [] }
+    let data: Record<string, unknown> | null = null
+    if (dataLines.length > 0 && payload !== '[DONE]') {
+      try { data = JSON.parse(payload) as Record<string, unknown> } catch { /* forwarded as it came */ }
+    }
+    const choices = data && Array.isArray(data.choices) ? (data.choices as Array<Record<string, unknown>>) : null
+    if (!data || !choices) {
+      if (!holding) return { forward: raw, decisions: [] }
+      // OpenAI terminates the stream with the literal `data: [DONE]` sentinel.
+      this.held.push(raw)
+      return payload === '[DONE]' ? this.release() : { forward: '', decisions: [] }
+    }
 
     const decisions: ToolDecision[] = []
     let mutated = false
@@ -287,6 +368,7 @@ export class OpenAiSseToolGate extends BufferedSseGate {
           const idx = typeof call.index === 'number' ? call.index : -1
           const fn = call.function as Record<string, unknown> | undefined
           const name = fn && typeof fn.name === 'string' ? fn.name : ''
+          const args = fn && typeof fn.arguments === 'string' ? fn.arguments : ''
           if (name) {
             // First fragment for this tool call — the name is known, so decide now.
             const result = this.mcp.checkToolInvocation(name, fn?.arguments)
@@ -297,13 +379,19 @@ export class OpenAiSseToolGate extends BufferedSseGate {
               mutated = true
               continue
             }
-            if (!this.emittedTools.has(name)) decisions.push({ toolName: name, action: 'pass', audit: result.audit, reason: result.reason })
-            this.emittedTools.add(name)
+            if (this.mcp.scansArguments(name)) {
+              this.heldCalls.set(idx, { name, args })
+            } else {
+              const decision = this.passDecision(name, result)
+              if (decision) decisions.push(decision)
+            }
             kept.push(call)
           } else if (this.suppressedIndexes.has(idx)) {
             // Argument fragment belonging to a blocked call — drop it.
             mutated = true
           } else {
+            const heldCall = this.heldCalls.get(idx)
+            if (heldCall) heldCall.args += args
             kept.push(call)
           }
         }
@@ -322,19 +410,81 @@ export class OpenAiSseToolGate extends BufferedSseGate {
       }
     }
 
-    if (!mutated) return { forward: raw, decisions }
+    if (this.heldCalls.size > 0) {
+      this.held.push(mutated ? data : raw)
+      const finished = choices.some(c => c.finish_reason !== null && c.finish_reason !== undefined)
+      if (!finished) return { forward: '', decisions }
+      const released = this.release()
+      return { forward: released.forward, decisions: [...decisions, ...released.decisions] }
+    }
 
-    // Drop the event if nothing meaningful remains (all deltas empty, no terminal
-    // finish_reason); otherwise forward the rewritten chunk.
-    const empty = choices.every(c => {
-      const d = c.delta as Record<string, unknown> | undefined
-      const deltaEmpty = !d || Object.keys(d).length === 0
-      const fr = c.finish_reason
-      return deltaEmpty && (fr === null || fr === undefined)
-    })
-    if (empty) return { forward: '', decisions }
-    return { forward: `data: ${JSON.stringify(data)}\n\n`, decisions }
+    if (!mutated) return { forward: raw, decisions }
+    return { forward: serializeChunk(data), decisions }
   }
+
+  /** Decide every held call on its assembled arguments, then release the held chunks. */
+  private release(): { forward: string; decisions: ToolDecision[] } {
+    const decisions: ToolDecision[] = []
+    const blocked = new Set<number>()
+    for (const [idx, call] of this.heldCalls) {
+      const result = this.mcp.checkToolInvocation(call.name, call.args)
+      if (result.action === 'block') {
+        blocked.add(idx)
+        this.suppressedIndexes.add(idx)
+        this.blockedAny = true
+        decisions.push({ toolName: call.name, action: 'block', reason: result.reason })
+      } else {
+        const decision = this.passDecision(call.name, result)
+        if (decision) decisions.push(decision)
+      }
+    }
+    this.heldCalls.clear()
+    const held = this.held
+    this.held = []
+    if (blocked.size === 0) {
+      return { forward: held.map(e => typeof e === 'string' ? e : serializeChunk(e)).join(''), decisions }
+    }
+    const parts: string[] = []
+    for (const event of held) {
+      if (typeof event === 'string') {
+        const data = parseSseData(event)
+        if (!data || !Array.isArray(data.choices)) { parts.push(event); continue }
+        parts.push(serializeChunk(dropCalls(data, blocked)))
+        continue
+      }
+      parts.push(serializeChunk(dropCalls(event, blocked)))
+    }
+    return { forward: parts.join(''), decisions }
+  }
+}
+
+/** Remove the blocked calls' fragments from a chunk and end its turn without them. */
+function dropCalls(data: Record<string, unknown>, blocked: Set<number>): Record<string, unknown> {
+  for (const choice of data.choices as Array<Record<string, unknown>>) {
+    const delta = choice.delta as Record<string, unknown> | undefined
+    if (delta && Array.isArray(delta.tool_calls)) {
+      const kept = (delta.tool_calls as Array<Record<string, unknown>>).filter(c => !blocked.has(typeof c.index === 'number' ? c.index : -1))
+      if (kept.length > 0) delta.tool_calls = kept
+      else delete delta.tool_calls
+    }
+    if (choice.finish_reason === 'tool_calls') choice.finish_reason = 'stop'
+  }
+  return data
+}
+
+/**
+ * A rewritten chunk, or nothing when no choice has a delta or a terminal
+ * finish_reason left in it.
+ */
+function serializeChunk(data: Record<string, unknown>): string {
+  const choices = data.choices as Array<Record<string, unknown>>
+  const empty = choices.every(c => {
+    const d = c.delta as Record<string, unknown> | undefined
+    const deltaEmpty = !d || Object.keys(d).length === 0
+    const fr = c.finish_reason
+    return deltaEmpty && (fr === null || fr === undefined)
+  })
+  return empty ? '' : `data: ${JSON.stringify(data)}\n\n`
 }
 
 /**

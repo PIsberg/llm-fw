@@ -110,9 +110,21 @@ for each complete event:
     res.write(event)                        # forward text blocks / message events untouched
 ```
 
+Arguments-based policy (the command guardrails on execution tools) cannot be
+decided there: the start event carries `input: {}` and the command streams in
+`input_json_delta` frames. Deciding at the start scanned an empty command and
+forwarded every streamed one (#529). So when the name passes and
+`mcp.scansArguments(name)` is true, the gate holds that block and every event
+after it until the block's `content_block_stop`, checks the assembled input,
+and drops the block or releases the held events in order. The OpenAI gate holds
+from an execution tool's name fragment until a chunk carries `finish_reason`
+(or `[DONE]`), then removes the fragments of any call that blocked. At end of
+stream a held call is decided on whatever arrived.
+
 Key properties:
 - Text deltas (`type:"text"`) pass through with **zero added latency** — only
-  `tool_use` blocks are buffered/dropped.
+  `tool_use` blocks are buffered/dropped, and an execution tool's block holds
+  the events after it until its arguments are complete.
 - Memory is bounded by a single content block, never the whole stream.
 - After suppressing a tool block, emit a synthetic `message_delta` with
   `stop_reason:"end_turn"` + `message_stop` (see §5) so the agent's SSE parser

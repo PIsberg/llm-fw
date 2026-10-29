@@ -73,6 +73,17 @@ export class McpScanner {
     return { action: 'pass' }
   }
 
+  /**
+   * True when this tool's verdict depends on its arguments (the command
+   * guardrails), not on its name alone. A streaming gate has to hold such a
+   * call until its arguments are complete before it can decide (#529).
+   */
+  scansArguments(toolName: string): boolean {
+    if (!this.config.enabled || !(this.config.guardrailsEnabled ?? true)) return false
+    if (this.config.blockedTools.includes(toolName)) return false
+    return EXECUTION_TOOLS.includes(toolName.toLowerCase())
+  }
+
   checkToolInvocation(toolName: string, args: unknown): McpCheckResult {
     if (!this.config.enabled) return { action: 'pass' }
 

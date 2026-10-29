@@ -73,6 +73,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.98
+
+**Unchanged from 2026.10.97: no eval verdict can change.** The change is in the
+response-side MCP stream gate (`src/detection/mcp/responseGate.ts`), which now holds an
+execution tool's streamed call until its arguments are complete and runs the command
+guardrails on them (#529). The eval scripts scan requests, never responses, so it is outside
+every split this file reports; it is in the ruleset digest because a response-side block is
+a verdict too.
+
 ## Result, ruleset 2026.10.97
 
 **Unchanged from 2026.10.96: 0 of 27,912 eval verdicts changed, maximum similarity drift
