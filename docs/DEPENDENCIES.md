@@ -45,7 +45,7 @@ To check by hand: `npm pack --dry-run`, and
 
 | Package | Version | Licence | Why |
 | --- | --- | --- | --- |
-| `@huggingface/transformers` | `~4.2.0` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. 4.3.1 was tried and reverted: 14 of 27,912 eval verdicts changed and the `heldout` recall floor went red (#511). |
+| `@huggingface/transformers` | `~4.2.0` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. 4.3.1 was tried and reverted, and 4.3.2 re-measured on 2026-10-29 with the same result: 14 of 27,912 eval verdicts changed and the `heldout` recall floor went red (#511). |
 
 ### Known install warning: `boolean@3.2.0` is deprecated
 
@@ -77,6 +77,22 @@ These are not chosen by llm-fw. They arrive with `@huggingface/transformers`:
 repository's own tree and CI. npm applies `overrides` from the root project only, so a
 consumer still resolves the parents' ranges. Read the `//overrides` note there before
 relying on a clean `npm audit`.
+
+### Supply-chain scanner alerts
+
+[Socket](https://socket.dev/npm/package/llm-fw/alerts/0.9.1?tab=dependencies) reports
+three alerts on the published package (#507). All three are in transitive packages that
+`@huggingface/transformers` brings in; none is in llm-fw's own code, and none can be
+removed without dropping that dependency.
+
+| Alert | Package and chain | What it does | Why it is accepted |
+| --- | --- | --- | --- |
+| Shell access | `detect-libc`, from `sharp`, from transformers | Runs the fixed command `getconf GNU_LIBC_VERSION 2>&1 \|\| true; ldd --version 2>&1 \|\| true` through `child_process.execSync` to tell glibc from musl, when reading `/usr/bin/ldd` did not settle it. No input reaches the command | transformers' Node bundle imports `sharp` at load time (`import sharp from "sharp"` in `transformers.node.mjs`), so the check can run on Linux when llm-fw starts. It picks the right prebuilt libvips binary |
+| Uses eval | `@emnapi/runtime`, from `@img/sharp-wasm32`, from `sharp`'s optional `@img/sharp-webcontainers-wasm32` (cpu `wasm32`) and `@img/sharp-freebsd-wasm32` (os `freebsd`) | Builds JavaScript glue for the WebAssembly build of libvips with `Function` | Installed only where those optional packages match: WebContainers and FreeBSD. On Windows, macOS and Linux x64/arm64 npm skips them; checked on Windows with `npm ls @emnapi/runtime` (empty), not on the other platforms |
+| Socket optimized override available | 6 packages | Socket offers its own drop-in replacements for some small packages | Informational. An override would apply only to this repository's tree: npm honours `overrides` from the root project only, so a user's install would not get it |
+
+Re-check this table when `@huggingface/transformers` moves (#511): a new `sharp` may change
+the chain.
 
 ## Optional peer
 
