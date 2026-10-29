@@ -362,4 +362,5 @@ jobs:
         with:
           name: clinic-doctor-data
           path: .clinic/
+          retention-days: 7
           if-no-files-found: ignore

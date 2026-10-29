@@ -120,10 +120,12 @@ gate runs the cheap pipeline (judge off) by default.
   so a new unused export fails the PR.
 - `npm run audit` checks for known dependency vulnerabilities.
 - `npm install` configures `.githooks/pre-commit` automatically (via `prepare`),
-  running `npx tsc --noEmit`, `npm run lint`, `npm run knip`, and `npm run audit`
-  before every commit. CI also runs Semgrep (`.github/workflows/semgrep.yml`),
-  CodeQL (`.github/workflows/codeql.yml`), njsscan (`.github/workflows/njsscan.yml`),
-  Socket (`.github/workflows/socket.yml`), and Snyk (`.github/workflows/snyk.yml`).
+  running `npx tsc --noEmit`, `npm run lint`, and `npm run knip` before every
+  commit (and `npm run audit` when `package*.json` is staged). CI runs Semgrep
+  (`.github/workflows/semgrep.yml`), CodeQL (`.github/workflows/codeql.yml`),
+  njsscan (`.github/workflows/njsscan.yml`), and scans via Socket
+  (`.github/workflows/socket.yml`) and Snyk (`.github/workflows/snyk.yml`)
+  when secrets are present (skipped on fork PRs).
 
 ## Testing requirements
 

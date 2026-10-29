@@ -31,13 +31,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Skip when secret is absent
+        if: ${{ secrets.SNYK_TOKEN == '' }}
+        run: echo "SNYK_TOKEN secret is not configured; skipping Snyk vulnerability scan."
+
       - name: Run Snyk scan
+        if: ${{ secrets.SNYK_TOKEN != '' }}
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          if [ -n "$SNYK_TOKEN" ]; then
-            npx --yes snyk test
-          else
-            echo "SNYK_TOKEN secret is not configured; running Snyk CLI validation."
-            npx --yes snyk --version
-          fi
+        run: npx --yes snyk@1.1308.3 test
