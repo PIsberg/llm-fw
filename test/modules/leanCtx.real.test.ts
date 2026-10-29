@@ -37,6 +37,17 @@ function filesUnder(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? filesUnder(join(dir, e.name)) : [join(dir, e.name)])
 }
 
+// lean-ctx keeps running while the test reads its directory, and writes some
+// files atomically (cache/model-prices.json.tmp, then a rename). One listed
+// and renamed before the read is gone: its content is in the renamed file.
+// Failing on that ENOENT made this test flaky on CI.
+function readIfPresent(file: string): string {
+  try { return fs.readFileSync(file, 'utf8') } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return ''
+    throw err
+  }
+}
+
 describe.runIf(installed || required)('LeanCtxModule with the real lean-ctx', () => {
   const savedDir = process.env.LLM_FW_DIR
   const modules: LeanCtxModule[] = []
@@ -63,7 +74,7 @@ describe.runIf(installed || required)('LeanCtxModule with the real lean-ctx', ()
     // lib-137 is a line lean-ctx dropped: nothing it wrote may contain it.
     expect(out).not.toContain('lib-137-1.0.jar')
     for (const file of filesUnder(join(dir, 'lean-ctx'))) {
-      expect(fs.readFileSync(file, 'utf8').includes('lib-137-1.0.jar'), file).toBe(false)
+      expect(readIfPresent(file).includes('lib-137-1.0.jar'), file).toBe(false)
     }
   }, 60_000)
 
