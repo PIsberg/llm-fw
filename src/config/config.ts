@@ -258,6 +258,12 @@ export const DEFAULT_CONFIG: Config = {
       enabled: true,
       mode: 'audit',
     },
+    // System-prompt canary (#539). Off by default: it adds a line to every
+    // system prompt the proxy forwards. Also LLM_FW_RESPONSE_CANARY_ENABLED / _MODE.
+    canary: {
+      enabled: false,
+      mode: 'block',
+    },
   },
   // Non-text content blocks (issue #60). Text-bearing payloads (text/* docs,
   // JSON, data-URL files, PDFs with uncompressed text) are decoded and scanned
@@ -647,6 +653,7 @@ export function applyObserveMode(config: Config): void {
   if (config.responseScan) {
     config.responseScan.mode = 'audit';
     if (config.responseScan.toolUse) config.responseScan.toolUse.mode = 'audit';
+    if (config.responseScan.canary) config.responseScan.canary.mode = 'audit';
   }
   // The detection pipeline's own verdict is downgraded inside Pipeline.run()
   // (one choke point, so every caller — proxy, gateway, library — observes
@@ -821,6 +828,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   // Output-moderation classifier (Task B5). Guarded like the input-classifier
   // overrides: only applied when the section survived config merging, and the
   // numeric threshold ignores unparsable values.
+  LLM_FW_RESPONSE_CANARY_ENABLED: (c, v) => { if (c.responseScan?.canary) c.responseScan.canary.enabled = v === 'true'; },
+  LLM_FW_RESPONSE_CANARY_MODE: (c, v) => { if (c.responseScan?.canary && (v === 'block' || v === 'audit')) c.responseScan.canary.mode = v; },
   LLM_FW_RESPONSE_CLASSIFIER_ENABLED: (c, v) => { if (c.responseScan?.classifier) c.responseScan.classifier.enabled = v === 'true'; },
   LLM_FW_RESPONSE_CLASSIFIER_MODEL: (c, v) => { if (c.responseScan?.classifier) c.responseScan.classifier.model = v; },
   LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.responseScan?.classifier) c.responseScan.classifier.blockThreshold = n; },

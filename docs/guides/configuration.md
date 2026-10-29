@@ -325,7 +325,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_110 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_112 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -414,6 +414,8 @@ _110 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_RAG_ENABLED` | `rag.enabled` | `true` |
 | `LLM_FW_REPEAT_COLLAPSE_ENABLED` | `modules.repeatCollapse.enabled` | `false` |
 | `LLM_FW_RESPONSE_CACHE_ENABLED` | `modules.responseCache.enabled` | `false` |
+| `LLM_FW_RESPONSE_CANARY_ENABLED` | `responseScan.canary.enabled` | `false` |
+| `LLM_FW_RESPONSE_CANARY_MODE` | `responseScan.canary.mode` | `block` |
 | `LLM_FW_RESPONSE_CLASSIFIER_ENABLED` | `responseScan.classifier.enabled` | `false` |
 | `LLM_FW_RESPONSE_CLASSIFIER_MODEL` | `responseScan.classifier.model` | _unset_ |
 | `LLM_FW_RESPONSE_CLASSIFIER_THRESHOLD` | `responseScan.classifier.blockThreshold` | `0.9` |
