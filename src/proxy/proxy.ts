@@ -37,8 +37,8 @@ import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
-import { constants as bufferConstants } from 'node:buffer'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
+import { bodyCap } from './bodyCap.js'
 import { createLogger, urlForLog } from '../logger.js';
 
 const log = createLogger('proxy');
@@ -802,7 +802,7 @@ export class ProxyServer {
           innerRes.end(JSON.stringify({ error }))
         }
         try {
-          bodyBuf = decodeContentEncoding(bodyBuf, requestEncoding, maxBodyBytes > 0 ? maxBodyBytes : bufferConstants.MAX_LENGTH)
+          bodyBuf = decodeContentEncoding(bodyBuf, requestEncoding, bodyCap(maxBodyBytes))
         } catch (err) {
           if (err instanceof UnsupportedEncoding) refuse(415, `${err.message}; llm-fw cannot inspect it`)
           else if (err instanceof RangeError) refuse(413, 'request body too large once decompressed')
@@ -1163,7 +1163,7 @@ export class ProxyServer {
         // Before the tap, so the Usage Meter still sees the usage chunk (#421).
         if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
         const captured = moduleCtx && this.modules.wantsResponses()
-          ? tapResponse(innerRes, this.config.proxy.maxBodyBytes)
+          ? tapResponse(innerRes, bodyCap(this.config.proxy.maxBodyBytes))
           : null
         try {
           bytesReceived = await this.forwardRequest(hostname, port, innerReq, bodyBuf, innerRes, isLlmRequest, mcpInspectResponse, moduleHeaders)
@@ -1500,7 +1500,7 @@ export class ProxyServer {
       const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
       const responseScanActive = this.config.responseScan?.enabled === true
       const wantInspect = !passThrough && (mcpActive || responseScanActive)
-      const maxResp = this.config.proxy.maxBodyBytes
+      const maxResp = bodyCap(this.config.proxy.maxBodyBytes)
 
       let headersDone = false
       let rawHeaders = ''
@@ -1711,7 +1711,7 @@ export class ProxyServer {
     }
     let text: string
     try {
-      text = decompressBody(stored.body, (stored.headers['content-encoding'] ?? '').toLowerCase().trim(), this.config.proxy.maxBodyBytes).toString('utf8')
+      text = decompressBody(stored.body, (stored.headers['content-encoding'] ?? '').toLowerCase().trim(), bodyCap(this.config.proxy.maxBodyBytes)).toString('utf8')
     } catch {
       writeCapturedResponse(res, stored)
       return stored.body.length
