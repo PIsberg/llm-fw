@@ -73,6 +73,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.100
+
+**Unchanged from 2026.10.99: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed, maximum similarity drift
+0.0000.** The indirect-instruction detector reads an address that is the whole value of an
+email-type key, or the address in a quoted `"Name <address>"` value, as attribution, accepts
+`cat -A`'s `$` on git identity lines, and reads `export NAME=` as the shell keyword (#477).
+The benign corpora above hold no manifests, so the gain shows in the replay, not here: a live
+`claude -p` session reading a `pyproject.toml` had the read withheld on 2026.10.99 and passed
+on this ruleset. `npm run recall:floor` holds at 944 of 1,395.
+
 ## Result, ruleset 2026.10.99
 
 **Unchanged from 2026.10.98: no eval verdict can change.** `withholdText`, which rewrites a
