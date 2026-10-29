@@ -229,14 +229,19 @@ describe('Pipeline.inspect: an older blocked prompt is withheld, the newest stil
     expect(prompts(body)).toContain(NEWEST)
   })
 
-  it('refuses rather than alter the newest prompt when it is part of the older blocked text', async () => {
-    // withholdText replaces every leaf that is a part of the flagged text; the
-    // newest prompt must reach the model exactly as typed, or not at all.
+  it('withholds the older prompt and leaves the newest as typed when the older text contains it (#530)', async () => {
+    // withholdText used to replace every leaf found anywhere inside the flagged
+    // text, so a newest prompt quoted in an older blocked one was overwritten
+    // and the request refused. It now replaces only the message that holds
+    // the flagged text; the guard that refuses rather than alter the newest
+    // prompt stays in place.
     const newest = 'Now list the files in the notes folder, please.'
     const original = conversation(`${OVERRIDE} ${newest}`, newest)
     const { result, body, withheld } = await new Pipeline(promptConfig()).inspect('/v1/messages', original, META)
-    expect(result.action).toBe('block')
-    expect(withheld).toBe(0)
-    expect(body).toBe(original)
+    expect(result.action).not.toBe('block')
+    expect(withheld).toBe(1)
+    const [older, forwarded] = prompts(body)
+    expect(older).toContain('llm-fw withheld')
+    expect(forwarded).toBe(newest)
   })
 })
