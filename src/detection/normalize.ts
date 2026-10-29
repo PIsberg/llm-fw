@@ -13,10 +13,22 @@ function translateHomoglyphs(text: string): string {
   // char-by-char destroys it ("инструкции" → "ihctpykции") and breaks every
   // non-Latin heuristic pattern — which is exactly why Russian/Greek
   // injections were sailing through. Only translate a token that already
-  // contains a Latin letter.
-  return text.split(/(\s+)/).map(token => {
-    if (!/[a-zA-Z]/.test(token)) return token
-    return token.split('').map(char => homoglyphs[char] || char).join('')
+  // contains a Latin letter, or one made only of look-alike letters that sits
+  // between two Latin words: "і" (U+0456) for the pronoun in "і will destroy"
+  // has no Latin letter of its own (#557). In Cyrillic text the neighbours are
+  // Cyrillic, so "на", "о" and "с" stay Russian.
+  const tokens = text.split(/(\s+)/)
+  const latin = (i: number): boolean => /[a-zA-Z]/.test(tokens[i] ?? '')
+  const fold = (token: string): string => token.split('').map(char => homoglyphs[char] || char).join('')
+  return tokens.map((token, i) => {
+    if (/[a-zA-Z]/.test(token)) return fold(token)
+    const letters = token.match(/\p{L}/gu)
+    if (!letters || !letters.every(c => c in homoglyphs)) return token
+    // tokens alternate word, whitespace, word: the neighbouring words are i ± 2.
+    // At the start or end of the text the one neighbour there is has to be Latin.
+    const before = i - 2 < 0 || latin(i - 2)
+    const after = i + 2 >= tokens.length || latin(i + 2)
+    return before && after && (latin(i - 2) || latin(i + 2)) ? fold(token) : token
   }).join('')
 }
 
