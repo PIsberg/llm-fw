@@ -338,6 +338,14 @@ jobs:
       - name: "Scenario E: direct-injection recall floor (held-out splits)"
         run: npm run recall:floor
 
+      # Scenario F: the blocked attacks of the corpus, reworded (homoglyphs,
+      # leetspeak, a polite opener, synonyms, no punctuation, markdown
+      # framing), must still block, per rewording, at the floors in
+      # test/eval/lib/mutations.ts. A rule narrowed to one wording fails
+      # here first (#541).
+      - name: "Scenario F: mutation resilience"
+        run: npm run fuzz:rules
+
       - name: Upload false-positive report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
