@@ -70,6 +70,10 @@ jobs:
         if: matrix.node-version == 22
         run: npm run knip
 
+      - name: Audit dependencies (npm audit)
+        if: matrix.node-version == 22
+        run: npm run audit
+
       - name: Cache embedding model
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -289,6 +293,14 @@ jobs:
           LOAD_DURATION_S: '15'
           LOAD_P99_MS: '8000'
 
+      - name: Scenario A2 — Clinic.js diagnostics
+        continue-on-error: true
+        run: npm run perf:clinic
+        env:
+          LOAD_VUS: '2'
+          LOAD_DURATION_S: '5'
+          LOAD_P99_MS: '8000'
+
       - name: Scenario B — Accuracy (mixed traffic, small CI values)
         run: npm run test:load:accuracy
         env:
@@ -342,4 +354,12 @@ jobs:
           path: |
             docs/SCORECARD.md
             docs/load-results/scorecard-accuracy.json
+          if-no-files-found: ignore
+
+      - name: Upload Clinic.js diagnostic data
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clinic-doctor-data
+          path: .clinic/
           if-no-files-found: ignore

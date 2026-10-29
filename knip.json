@@ -21,6 +21,9 @@
     "netstat",
     "certutil",
     "reg",
-    "icacls"
+    "icacls",
+    "snyk",
+    "socket",
+    "njsscan"
   ]
 }

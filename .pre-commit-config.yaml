@@ -23,6 +23,12 @@ repos:
     language: system
     types_or: [ts, javascript, json]
     pass_filenames: false
+  - id: audit
+    name: Dependency vulnerability audit (npm audit)
+    entry: npm run audit
+    language: system
+    files: ^package(-lock)?\.json$
+    pass_filenames: false
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.4.0
   hooks:

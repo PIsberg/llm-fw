@@ -1,0 +1,43 @@
+name: Socket
+
+on:
+  push:
+    branches-ignore: [gh-pages, 'dependabot/**']
+  pull_request:
+    branches-ignore: [gh-pages]
+
+permissions:
+  contents: read
+
+jobs:
+  socket:
+    name: Supply-chain security (Socket)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run Socket security check
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+        run: |
+          if [ -n "$SOCKET_SECURITY_API_KEY" ]; then
+            npx --yes @socketsecurity/cli ci
+          else
+            echo "SOCKET_SECURITY_API_KEY secret is not configured; running Socket CLI validation."
+            npx --yes @socketsecurity/cli --version
+          fi
