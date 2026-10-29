@@ -165,7 +165,7 @@ for your use case, say so to the operator.
 | `404` | The path did not match any provider route |
 | `413` | Request body over the size limit (10 MiB by default) |
 | `429` | Tenant quota exceeded; honour `Retry-After` |
-| `502` / `504` | Upstream provider failed or timed out |
+| `502` / `504` | Upstream provider failed or timed out before answering. If it fails after the response has started, the connection is closed mid-stream instead |
 
 ---
 

@@ -719,14 +719,19 @@ export class GatewayServer {
           upRes.on('error', () => { res.destroy(); resolve(); });
         },
       );
+      // Once the client has the response headers, a 504 or 502 can no longer
+      // be written: end its connection so it sees a cut stream, not a hang
+      // (#531). json() alone returns silently when headers were sent.
       upstream.on('timeout', () => {
         upstream.destroy();
-        this.json(res, 504, { error: 'upstream timeout', upstream: route.provider.host });
+        if (res.headersSent) res.destroy();
+        else this.json(res, 504, { error: 'upstream timeout', upstream: route.provider.host });
         resolve();
       });
       upstream.on('error', (err) => {
         log.error(`upstream ${route.provider.host} — ${err.message}`);
-        this.json(res, 502, { error: 'upstream request failed', upstream: route.provider.host });
+        if (res.headersSent) res.destroy();
+        else this.json(res, 502, { error: 'upstream request failed', upstream: route.provider.host });
         resolve();
       });
       if (body.length) upstream.write(body);
