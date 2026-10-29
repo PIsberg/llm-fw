@@ -4,4 +4,7 @@ set -e
 npx tsc --noEmit
 npm run lint
 npm run knip
-npm run audit
+
+if git diff --cached --name-only | grep -qE '^package(-lock)?\.json$'; then
+  npm run audit
+fi

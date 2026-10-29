@@ -31,13 +31,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Skip when secret is absent
+        if: ${{ secrets.SOCKET_SECURITY_API_KEY == '' }}
+        run: echo "SOCKET_SECURITY_API_KEY secret is not configured; skipping Socket security scan."
+
       - name: Run Socket security check
+        if: ${{ secrets.SOCKET_SECURITY_API_KEY != '' }}
         env:
           SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
-        run: |
-          if [ -n "$SOCKET_SECURITY_API_KEY" ]; then
-            npx --yes @socketsecurity/cli ci
-          else
-            echo "SOCKET_SECURITY_API_KEY secret is not configured; running Socket CLI validation."
-            npx --yes @socketsecurity/cli --version
-          fi
+        run: npx --yes @socketsecurity/cli@1.10.0 ci

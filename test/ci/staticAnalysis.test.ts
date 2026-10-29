@@ -119,6 +119,7 @@ describe('static security & analysis suite (#523)', () => {
 
     const rawHook = readFileSync(join(ROOT, '.githooks/pre-commit'), 'utf8')
     expect(rawHook).toContain('npm run audit')
+    expect(rawHook).toContain('git diff --cached --name-only')
 
     const preCommitConfig = read('.pre-commit-config.yaml')
     expect(preCommitConfig).toContain('id: audit')
@@ -132,7 +133,9 @@ describe('static security & analysis suite (#523)', () => {
     expect(existsSync(join(ROOT, '.github/workflows/socket.yml'))).toBe(true)
     const socketWf = read('.github/workflows/socket.yml')
     expect(socketWf).toContain('step-security/harden-runner')
-    expect(socketWf).toContain('@socketsecurity/cli')
+    expect(socketWf).toMatch(/@socketsecurity\/cli@\d+\.\d+\.\d+ ci/)
+    expect(socketWf).not.toContain('@socketsecurity/cli --version')
+    expect(socketWf).toContain('secrets.SOCKET_SECURITY_API_KEY')
     expect(socketWf).toContain('pull_request:')
   })
 
@@ -140,7 +143,9 @@ describe('static security & analysis suite (#523)', () => {
     expect(existsSync(join(ROOT, '.github/workflows/snyk.yml'))).toBe(true)
     const snykWf = read('.github/workflows/snyk.yml')
     expect(snykWf).toContain('step-security/harden-runner')
-    expect(snykWf).toContain('snyk')
+    expect(snykWf).toMatch(/snyk@\d+\.\d+\.\d+ test/)
+    expect(snykWf).not.toContain('snyk --version')
+    expect(snykWf).toContain('secrets.SNYK_TOKEN')
     expect(snykWf).toContain('pull_request:')
   })
 
@@ -161,11 +166,12 @@ describe('static security & analysis suite (#523)', () => {
 
   it('configures Clinic.js diagnostic profiling without vulnerable devDependencies', () => {
     expect(PKG.scripts?.['perf:clinic']).toBeDefined()
-    expect(PKG.scripts?.['perf:clinic']).toContain('clinic doctor')
+    expect(PKG.scripts?.['perf:clinic']).toMatch(/clinic@\d+\.\d+\.\d+ doctor/)
 
     const ci = read('.github/workflows/ci.yml')
     expect(ci).toContain('npm run perf:clinic')
     expect(ci).toContain('clinic-doctor-data')
+    expect(ci).toContain('retention-days: 7')
 
     const gitignore = read('.gitignore')
     expect(gitignore).toContain('.clinic/')
