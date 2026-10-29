@@ -260,7 +260,8 @@ blocked rows changes is a moved verdict wearing the same number.
    `npm run fpr`, `npm run recall:floor` and `npm run scorecard`**: all three
    gate `main` in the Load Tests check, `fpr` fails on the *first* false
    positive in any category that currently has none, and `recall:floor` fails
-   when a held-out direct-injection split blocks fewer attacks than its floor.
+   when a held-out direct-injection split, or the identifier-free
+   indirect-injection probe, blocks fewer attacks than its floor.
    See [Testing requirements](#testing-requirements).
 4. Update the docs the change makes wrong (see above).
 5. Open the PR against `main`. Describe *why* the change is needed and how you
