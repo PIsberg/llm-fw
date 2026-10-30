@@ -28,6 +28,12 @@
  * --isolate / --no-isolate: run each split in its own Node process with an
  *          8 GB heap, or not. Default: isolated for the classifier presets
  *          over more than one split, which otherwise run out of memory (#538)
+ * --sweep=<surface>.<knob>=v1,v2,...  rerun the splits once per value of one
+ *          per-surface threshold and print recall/FPR per value: that
+ *          surface's operating points (#543). surface: tool_result | document;
+ *          knob: heuristicBlockThreshold | embeddingMarginThreshold |
+ *          classifierBlockThreshold. Pair it with --only= for the splits that
+ *          arrive on that surface (injecagent, indirect-identifier-free).
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -58,6 +64,41 @@ export function loadAll(): Dataset[] {
       return { name: f.replace('.json', ''), threat: j._threat ?? 'injection', revision: j._revision, rows: j.rows }
     })
     .filter(d => Array.isArray(d.rows) && d.rows.length > 0 && typeof d.rows[0]?.label === 'number')
+}
+
+const SWEEP_SURFACES = ['tool_result', 'document'] as const
+const SWEEP_KNOBS = ['heuristicBlockThreshold', 'embeddingMarginThreshold', 'classifierBlockThreshold'] as const
+export interface Sweep { surface: typeof SWEEP_SURFACES[number]; knob: typeof SWEEP_KNOBS[number]; values: number[] }
+
+/**
+ * The `--sweep=` argument, or undefined without one. Only the knobs the
+ * pipeline resolves per surface (resolveHeuristicBlockThreshold and its two
+ * siblings in src/detection/pipeline.ts) can be swept: the prompt surface takes
+ * no threshold override, and the embedding stage's absolute cosines are global
+ * calibration constants.
+ */
+export function parseSweep(argv: readonly string[]): Sweep | undefined {
+  const arg = argv.find(a => a.startsWith('--sweep='))
+  if (arg === undefined) return undefined
+  const m = /^--sweep=([a-z_]+)\.([A-Za-z]+)=(.*)$/.exec(arg)
+  if (!m) throw new Error(`--sweep takes <surface>.<knob>=v1,v2,..., got ${arg}`)
+  const [, surface = '', knob = '', list = ''] = m
+  if (!(SWEEP_SURFACES as readonly string[]).includes(surface)) throw new Error(`--sweep surface must be one of ${SWEEP_SURFACES.join(', ')}, got ${surface}`)
+  if (!(SWEEP_KNOBS as readonly string[]).includes(knob)) throw new Error(`--sweep knob must be one of ${SWEEP_KNOBS.join(', ')}, got ${knob}`)
+  if (!list.trim()) throw new Error('--sweep needs at least one value')
+  const values = list.split(',').map(v => {
+    const n = Number(v)
+    if (v.trim() === '' || !Number.isFinite(n)) throw new Error(`--sweep value is not a number: ${v}`)
+    return n
+  })
+  return { surface: surface as Sweep['surface'], knob: knob as Sweep['knob'], values }
+}
+
+/** Set the swept knob on its surface, keeping what that surface already held. */
+export function applySweepValue(c: Config, sweep: Sweep, value: number): void {
+  c.detection.surfaces ??= {}
+  const surfaces = c.detection.surfaces as Record<string, Record<string, unknown> | undefined>
+  surfaces[sweep.surface] = { ...surfaces[sweep.surface], [sweep.knob]: value }
 }
 
 function buildConfig(preset: string, model: string): Config {
@@ -183,9 +224,9 @@ export function shouldIsolate(preset: string, argv: readonly string[], datasets:
 /** Heap for a split's own process: the classifier split OOMed at the default. */
 const CHILD_HEAP_MB = 8192
 
-function runChild(preset: string, model: string, name: string, verbose: boolean): JsonDataset {
+function runChild(preset: string, model: string, name: string, verbose: boolean, sweepArg?: string): JsonDataset {
   const args = [`--max-old-space-size=${CHILD_HEAP_MB}`, '--import', 'tsx/esm', fileURLToPath(import.meta.url),
-    preset, model, '--json', '--child', `--only=${name}`, ...(verbose ? ['--verbose'] : [])]
+    preset, model, '--json', '--child', `--only=${name}`, ...(verbose ? ['--verbose'] : []), ...(sweepArg ? [sweepArg] : [])]
   const child = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] })
   if (child.status !== 0) {
     throw new Error(`split ${name} failed in its own process (exit ${child.status ?? child.signal}); an OOM shows as a signal or exit 134`)
@@ -207,21 +248,52 @@ async function main() {
   let datasets = loadAll()
   if (only) datasets = datasets.filter(d => only.includes(d.name))
   const isolated = shouldIsolate(preset, process.argv, datasets.length)
+  const sweep = parseSweep(process.argv)
 
-  const results: JsonDataset[] = []
-  if (isolated) {
-    for (const ds of datasets) {
-      if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length}) in its own process …\n`)
-      results.push(runChild(preset, model, ds.name, verbose))
+  // One run of every selected split, at one value of the swept knob (or none).
+  async function runAll(value?: number): Promise<JsonDataset[]> {
+    const out: JsonDataset[] = []
+    const sweepArg = sweep && value !== undefined ? `--sweep=${sweep.surface}.${sweep.knob}=${value}` : undefined
+    if (isolated) {
+      for (const ds of datasets) {
+        if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length}) in its own process …\n`)
+        out.push(runChild(preset, model, ds.name, verbose, sweepArg))
+      }
+      return out
     }
-  } else {
-    const pipeline = new Pipeline(buildConfig(preset, model))
+    const config = buildConfig(preset, model)
+    if (sweep && value !== undefined) applySweepValue(config, sweep, value)
+    const pipeline = new Pipeline(config)
     await pipeline.init()
+    const at = value !== undefined ? ' at ' + String(value) : ''
     for (const ds of datasets) {
-      if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length}) …\n`)
-      results.push(toJson(ds, await evalDataset(pipeline, ds), verbose))
+      if (!asJson) process.stderr.write(`running ${ds.name} (n=${ds.rows.length})${at} …\n`)
+      out.push(toJson(ds, await evalDataset(pipeline, ds), verbose))
     }
+    return out
   }
+
+  if (sweep && sweep.values.length > 1) {
+    const points: { value: number; datasets: JsonDataset[] }[] = []
+    for (const value of sweep.values) points.push({ value, datasets: await runAll(value) })
+    if (asJson) {
+      console.log(JSON.stringify({ preset, sweep: { surface: sweep.surface, knob: sweep.knob }, points }, null, 2))
+      return
+    }
+    console.log(`\n=== Operating points — preset='${preset}', detection.surfaces.${sweep.surface}.${sweep.knob} ===`)
+    for (const ds of datasets) {
+      console.log(`\n[${ds.name}]  n=${ds.rows.length}`)
+      for (const p of points) {
+        const r = p.datasets.find(d => d.name === ds.name)
+        if (!r) continue
+        const fpr = r.fpr !== null ? `${(r.fpr * 100).toFixed(1)}% (${r.fp}/${r.fp + r.tn})` : 'n/a'
+        console.log(`  ${String(p.value).padStart(6)}  recall ${(r.recall * 100).toFixed(1)}% (${r.tp}/${r.tp + r.fn})  FPR ${fpr}`)
+      }
+    }
+    return
+  }
+
+  const results = await runAll(sweep?.values[0])
 
   if (asJson) {
     console.log(JSON.stringify({

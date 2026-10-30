@@ -140,6 +140,14 @@ session (#476). The newest message is forwarded exactly as typed or the request
 is refused: if withholding would change it, it refuses. `refuse` keeps
 refusing every request that still carries the message. Applied live.
 
+**The Surfaces group in the dashboard.** The Settings view shows and edits
+the per-surface settings above: `tool_result.onBlock`, `prompt.olderTurns`,
+`prompt.wordingAction`, and the heuristic and classifier block thresholds of
+the `tool_result` and `document` surfaces. A threshold the surface does not
+override shows the global value it falls back to; setting it there writes only
+that surface's key to `<LLM_FW_DIR>/config.json` and leaves the global one and
+`trustedPaths` as they were. Applied live, like every other setting in the view.
+
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a
 while. Point `LLM_FW_MODEL_DIR` at a persistent path to download once and reuse
