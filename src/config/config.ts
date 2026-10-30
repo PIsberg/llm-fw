@@ -341,7 +341,8 @@ export const DEFAULT_CONFIG: Config = {
     // execution tool like `execute_command` the per-command Category A–D scan
     // never executes under the default config — it's already name-blocked. The
     // guardrails therefore protect the execution tools NOT on this list
-    // (`bash`, `ctx_shell`, `powershell`, `shell`, `run_shell_command`, in any
+    // (`bash`, `ctx_shell`, `powershell`, `shell`, `run_shell_command`, Codex's
+    // `shell_command`, `exec_command`, `local_shell` and `exec`, in any
     // capitalisation; this list itself is matched exactly). Drop a tool from
     // this list if you want its arguments scanned rather than the whole tool
     // refused.

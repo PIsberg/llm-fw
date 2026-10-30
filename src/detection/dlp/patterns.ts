@@ -13,6 +13,9 @@ export interface DlpRule {
   label: string
   regex: RegExp
   marker: string
+  // For a secret whose regex finds only its start: given the text and the end
+  // of the regex match, return where the secret really ends.
+  extend?: (text: string, end: number) => number
 }
 
 export const DLP_RULES: DlpRule[] = [
@@ -379,8 +382,13 @@ export const DLP_RULES: DlpRule[] = [
     detector: 'private_keys',
     type: 'PRIVATE_KEY',
     label: 'Private Key',
-    regex: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/g,
+    // Any `BEGIN ... PRIVATE KEY` header, including `ENCRYPTED PRIVATE KEY`
+    // and OpenPGP's `PGP PRIVATE KEY BLOCK`, which the old fixed list missed.
+    // The header is only where the secret starts: `extend` carries the match
+    // over the key body to END (GHSA-3hx2-682q-w4gw).
+    regex: /-----BEGIN (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----/g,
     marker: '[REDACTED_PRIVATE_KEY]',
+    extend: privateKeyBlockEnd,
   },
   {
     detector: 'mongodb',
@@ -409,6 +417,71 @@ export const DLP_RULES: DlpRule[] = [
 ]
 
 // Marker used for Luhn-validated credit-card candidates (PII detector).
+// The pieces of a private key block after its header. The scan runs on the
+// raw request body, so a line break is usually the escape `\n` (or `\\n` in a
+// tool result that was itself JSON), and a JSON encoder may write `/` as `\/`.
+// All are sticky: each is tried at one position and consumes what it matches,
+// so walking a block is linear in its length.
+const KEY_SEPARATOR = /(?:[ \t\r\n]|\\+[rnt])+/y
+const KEY_TOKEN = /(?:[A-Za-z0-9+=]|\\*\/)+/y
+// `Proc-Type: 4,ENCRYPTED`, `DEK-Info: ...`, PGP's `Version:` and `Comment:`.
+// The value stops at a line break, a JSON escape or the end of the string.
+const KEY_ARMOR_HEADER = /[A-Za-z][A-Za-z-]*: [^\r\n\\"]*/y
+const KEY_END = /-----END (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----/y
+// Tested unanchored, so it must not repeat: `\\+[rn]` restarted at every
+// backslash of a long run and took 65 s on 200 KB of them. The backslash
+// right before the letter is enough to mark an escaped break.
+const LINE_BREAK = /[\r\n]|\\[rn]/
+
+function stickyMatch(re: RegExp, text: string, at: number): number {
+  re.lastIndex = at
+  return re.test(text) ? re.lastIndex : -1
+}
+
+/**
+ * Where the private key block whose header ends at `start` ends. Through its
+ * END line when the block has one, whatever sits in between (body, armor
+ * headers, blank lines, even stray words). With no END line, a truncated
+ * paste, through the last piece that looks like key material: an armor
+ * header before the body, a token that fills its whole line, a token of 16
+ * or more characters that starts one (`MIIEowIBAAKCAQEA...`), or a token of
+ * 40 or more anywhere, which is how a key flattened onto one line splits.
+ * That stops before the prose that follows a truncated key.
+ */
+function privateKeyBlockEnd(text: string, start: number): number {
+  let pos = start
+  let lastKey = start
+  let bodySeen = false
+  let breakBefore = false
+  for (;;) {
+    const sepEnd = stickyMatch(KEY_SEPARATOR, text, pos)
+    if (sepEnd !== -1) {
+      breakBefore = LINE_BREAK.test(text.slice(pos, sepEnd))
+      pos = sepEnd
+    } else {
+      breakBefore = false
+    }
+    const endEnd = stickyMatch(KEY_END, text, pos)
+    if (endEnd !== -1) return endEnd
+    if (!bodySeen && breakBefore) {
+      const armorEnd = stickyMatch(KEY_ARMOR_HEADER, text, pos)
+      if (armorEnd !== -1) {
+        pos = lastKey = armorEnd
+        continue
+      }
+    }
+    const tokenEnd = stickyMatch(KEY_TOKEN, text, pos)
+    if (tokenEnd === -1) return lastKey
+    bodySeen = true
+    const nextSepEnd = stickyMatch(KEY_SEPARATOR, text, tokenEnd)
+    const breakAfter = nextSepEnd !== -1 && LINE_BREAK.test(text.slice(tokenEnd, nextSepEnd))
+    const atStringEnd = tokenEnd === text.length || text[tokenEnd] === '"' || text.startsWith('\\"', tokenEnd)
+    const length = tokenEnd - pos
+    if ((breakBefore && (breakAfter || atStringEnd || length >= 16)) || length >= 40) lastKey = tokenEnd
+    pos = tokenEnd
+  }
+}
+
 export const CREDIT_CARD_MARKER = '[REDACTED_CREDIT_CARD]'
 
 // Marker used for entropy-based generic secrets (Strategy 2).

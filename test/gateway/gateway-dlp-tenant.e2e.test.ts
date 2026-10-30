@@ -124,6 +124,16 @@ describe('Gateway DLP under per-tenant observe', { timeout: 60000 }, () => {
     expect(calls[0]!.body).not.toContain(SECRET)
   })
 
+  // GHSA-9986-fxc2-cx83: a token-counting request carries the same
+  // conversation, and went upstream unredacted.
+  it('redacts a token-counting request for an enforcing caller', async () => {
+    calls = []; events = []
+    const res = await post('/v1/responses/input_tokens', { model: 'test', input: body.messages[0]!.content }, { 'x-llm-fw-key': SHARED_TOKEN })
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.body).not.toContain(SECRET)
+  })
+
   it('forwards an observing tenant body byte-for-byte', async () => {
     calls = []; events = []
     const res = await post('/v1/chat/completions', body, { 'x-llm-fw-key': 'tok-observing' })

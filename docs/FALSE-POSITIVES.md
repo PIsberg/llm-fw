@@ -73,6 +73,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.109
+
+**Unchanged from 2026.10.108: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed, maximum similarity drift
+0.0000.** The 0.9.3 security fixes: DLP redacts a whole private key block (GHSA-3hx2-682q-w4gw),
+tool-call guardrails gate every parsed response and Codex CLI's untyped streams
+(GHSA-w3pg-mg4f-v836), and the response exfil scan reads each `<img>` tag once
+(GHSA-983r-9gmc-f3xr). None of them is an input wording rule, so no input verdict moved.
+`npm run recall:floor` holds at 944 of 1,395, the identifier-free probe at 8 of 40,
+`npm run fuzz:rules` at 2 escapes of 653, injecagent at 1,054 of 1,054.
+
 ## Result, ruleset 2026.10.108
 
 **Unchanged from 2026.10.107: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

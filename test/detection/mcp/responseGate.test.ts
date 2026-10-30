@@ -633,3 +633,117 @@ describe('OpenAiSseToolGate — execution tool arguments streamed after the name
     expect(forward).not.toContain('rm -rf')
   })
 })
+
+// ---------------------------------------------------------------------------
+// OpenAI Responses API streams (Codex CLI). Shapes captured live from Codex
+// 0.162.1 through the proxy: a tool call is an output item opened by
+// `response.output_item.added` and closed by `response.output_item.done`,
+// its arguments streamed in between, and `response.completed` repeats the
+// whole output. Codex's code mode calls one custom tool, `exec`, whose input
+// is JavaScript that runs `tools.exec_command({cmd: ...})`.
+// ---------------------------------------------------------------------------
+
+let seq = 0
+function rEvent(type: string, data: Record<string, unknown>): string {
+  return `event: ${type}\ndata: ${JSON.stringify({ type, sequence_number: seq++, ...data })}\n\n`
+}
+
+const MESSAGE_ITEM = { type: 'message', id: 'msg_1', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Running it.' }] }
+
+function responsesStream(item: Record<string, unknown>, deltas: { type: string; parts: string[] }): string {
+  const open = { ...item, status: 'in_progress', ...(item.type === 'custom_tool_call' ? { input: '' } : item.type === 'function_call' ? { arguments: '' } : {}) }
+  return [
+    rEvent('response.created', { response: { id: 'resp_1', status: 'in_progress', output: [] } }),
+    rEvent('response.output_item.added', { output_index: 0, item: { ...MESSAGE_ITEM, status: 'in_progress', content: [] } }),
+    rEvent('response.output_text.delta', { item_id: 'msg_1', output_index: 0, delta: 'Running it.' }),
+    rEvent('response.output_item.done', { output_index: 0, item: MESSAGE_ITEM }),
+    rEvent('response.output_item.added', { output_index: 1, item: open }),
+    ...deltas.parts.map((delta) => rEvent(deltas.type, { item_id: item.id, output_index: 1, delta })),
+    rEvent('response.output_item.done', { output_index: 1, item: { ...item, status: 'completed' } }),
+    rEvent('response.completed', { response: { id: 'resp_1', status: 'completed', output: [MESSAGE_ITEM, { ...item, status: 'completed' }] } }),
+  ].join('')
+}
+
+const execItem = (cmd: string) => ({
+  type: 'custom_tool_call', id: 'ctc_1', call_id: 'call_1', name: 'exec',
+  input: `const r = await tools.exec_command({cmd:${JSON.stringify(cmd)},shell:"powershell"});\ntext(r.output);\n`,
+})
+const execStream = (cmd: string) => {
+  const input = execItem(cmd).input
+  return responsesStream(execItem(cmd), { type: 'response.custom_tool_call_input.delta', parts: [input.slice(0, 20), input.slice(20, 47), input.slice(47)] })
+}
+
+describe('OpenAI Responses API stream gate (Codex CLI)', () => {
+  const parser = getParser('/backend-api/codex/responses')!
+
+  it('blocks a Codex code-mode exec call whose JavaScript runs a hard reset', () => {
+    const gate = createSseGate(parser, makeScanner(), '/backend-api/codex/responses')
+    const { forward, decisions } = gate.push(execStream('git reset --hard HEAD'))
+    const out = forward + gate.flush()
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'exec', action: 'block' })])
+    expect(out).not.toContain('reset --hard')
+    expect(out).not.toContain('custom_tool_call')
+    // The message item and the completion still go out, the call removed from both.
+    expect(out).toContain('Running it.')
+    expect(out).toContain('response.completed')
+  })
+
+  it('blocks a streamed shell_command function call', () => {
+    const item = { type: 'function_call', id: 'fc_1', call_id: 'call_2', name: 'shell_command', arguments: '{"command":"git reset --hard HEAD","workdir":"C:\\\\proj"}' }
+    const gate = createSseGate(parser, makeScanner(), '/v1/responses')
+    const args = item.arguments
+    const out = gate.push(responsesStream(item, { type: 'response.function_call_arguments.delta', parts: [args.slice(0, 15), args.slice(15)] })).forward + gate.flush()
+    expect(out).not.toContain('reset --hard')
+    expect(out).not.toContain('"function_call"')
+  })
+
+  it('blocks a local_shell_call by its command array', () => {
+    const item = { type: 'local_shell_call', id: 'lsh_1', call_id: 'call_3', action: { type: 'exec', command: ['powershell', '-Command', 'git reset --hard HEAD'] } }
+    const gate = createSseGate(parser, makeScanner(), '/v1/responses')
+    const { forward, decisions } = gate.push(responsesStream(item, { type: 'response.local_shell_call.in_progress', parts: [] }))
+    expect(decisions.some((d) => d.action === 'block')).toBe(true)
+    expect(forward + gate.flush()).not.toContain('reset --hard')
+  })
+
+  it('releases a harmless exec call unchanged and in order', () => {
+    const stream = execStream('git status --short')
+    const gate = createSseGate(parser, makeScanner(), '/backend-api/codex/responses')
+    const { forward, decisions } = gate.push(stream)
+    expect(forward + gate.flush()).toBe(stream)
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'exec', action: 'pass' })])
+  })
+
+  it('gives the same result when the stream arrives in small slices', () => {
+    const stream = execStream('git reset --hard HEAD')
+    const gate = createSseGate(parser, makeScanner(), '/backend-api/codex/responses')
+    let out = ''
+    for (let i = 0; i < stream.length; i += 9) out += gate.push(stream.slice(i, i + 9)).forward
+    out += gate.flush()
+    expect(out).not.toContain('reset --hard')
+    expect(out).toContain('Running it.')
+  })
+
+  it('does not release a held call when the stream ends before output_item.done', () => {
+    const stream = execStream('git reset --hard HEAD')
+    const gate = createSseGate(parser, makeScanner(), '/backend-api/codex/responses')
+    const cut = stream.slice(0, stream.indexOf('event: response.output_item.done', stream.indexOf('custom_tool_call')))
+    // The command is split across deltas, so look for a piece of one.
+    expect(gate.push(cut).forward + gate.flush()).not.toContain('--hard')
+  })
+
+  it('still uses the chat-completions gate for /v1/chat/completions', () => {
+    expect(createSseGate(getParser('/v1/chat/completions')!, makeScanner(), '/v1/chat/completions')).toBeInstanceOf(OpenAiSseToolGate)
+  })
+})
+
+describe('rewriteBlockedJsonResponse — OpenAI Responses body', () => {
+  it('removes a blocked call from output[] and adds a note message', () => {
+    const body = JSON.stringify({ id: 'resp_1', object: 'response', output: [MESSAGE_ITEM, execItem('git reset --hard HEAD')] })
+    const parser = getParser('/v1/responses')!
+    const { blockedNames } = inspectJsonResponse(body, parser, makeScanner())
+    expect([...blockedNames]).toEqual(['exec'])
+    const out = JSON.parse(rewriteBlockedJsonResponse(body, blockedNames)) as { output: Array<{ type: string }> }
+    expect(out.output.map((o) => o.type)).toEqual(['message', 'message'])
+    expect(JSON.stringify(out)).not.toContain('reset --hard')
+  })
+})

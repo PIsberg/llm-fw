@@ -36,8 +36,33 @@ const MD_LINK_RE = /(?<!!)\[[^[\]]*\]\(\s*<?((?:https?:)?\/\/[^\s)>]+)(?:>[^)]*|
 // nothing unless it points at one. The destination may follow on the next
 // line, after one line ending, raw or JSON-escaped.
 const MD_DEF_RE = /\]:[ \t]*(?:(?:\r?\n|\\r\\n|\\n)[ \t]*)?<?((?:https?:)?\/\/[^\s>"\\]+)/gi
-// `<img ... src="url">` — HTML image (some renderers allow raw HTML).
-const HTML_IMG_RE = /<img\b[^>]*?\bsrc\s*=\s*["']?((?:https?:)?\/\/[^"'\s>]+)/gi
+// `<img ... src="url">` — HTML image (some renderers allow raw HTML). Each tag
+// is read once, to its `>` outside quotes (imgTags), and its src taken from that
+// tag alone. One regex with a lazy attribute scan restarted at every `<img`
+// and ran to the end of the text when no URL followed: 400 KB of `<img src="`
+// took 10.5 s on the request thread (GHSA-983r-9gmc-f3xr). In a raw JSON body
+// the attribute's quote arrives escaped (`src=\"...\"`).
+const IMG_OPEN_RE = /<img\b/gi
+const SRC_ATTR_RE = /\bsrc\s*=\s*\\?["']?((?:https?:)?\/\/[^"'\s>\\]+)/gi
+
+/** The text of each `<img ...>` tag, each read once: linear in `text`. */
+function imgTags(text: string): string[] {
+  const tags: string[] = []
+  IMG_OPEN_RE.lastIndex = 0
+  for (let m = IMG_OPEN_RE.exec(text); m !== null; m = IMG_OPEN_RE.exec(text)) {
+    let i = m.index + m[0].length
+    let quote = ''
+    for (; i < text.length; i++) {
+      const c = text[i]
+      if (quote) { if (c === quote) quote = '' }
+      else if (c === '"' || c === "'") quote = c
+      else if (c === '>') break
+    }
+    tags.push(text.slice(m.index, i + 1))
+    IMG_OPEN_RE.lastIndex = i + 1
+  }
+  return tags
+}
 
 function parseUrl(u: string): { hostname: string; path: string } | null {
   try {
@@ -65,9 +90,9 @@ export function scanResponseExfil(
   const findings: ExfilFinding[] = []
   const seen = new Set<string>()
 
-  const scan = (re: RegExp, kind: ExfilFinding['kind']) => {
+  const scan = (re: RegExp, kind: ExfilFinding['kind'], input = text) => {
     re.lastIndex = 0
-    for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    for (let m = re.exec(input); m !== null; m = re.exec(input)) {
       const url = m[1]
       if (!url) {
         if (m.index === re.lastIndex) re.lastIndex++
@@ -87,7 +112,7 @@ export function scanResponseExfil(
 
   scan(MD_IMAGE_RE, 'markdown-image')
   scan(MD_DEF_RE, 'markdown-image')
-  scan(HTML_IMG_RE, 'html-image')
+  for (const tag of imgTags(text)) scan(SRC_ATTR_RE, 'html-image', tag)
   scan(MD_LINK_RE, 'markdown-link')
   return findings
 }

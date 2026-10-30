@@ -117,6 +117,41 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     })
   }
 
+  function responsesExecStream(cmd: string): string {
+    const ev = (type: string, data: Record<string, unknown>) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+    const input = `const r = await tools.exec_command({cmd:${JSON.stringify(cmd)},shell:"powershell"});\ntext(r.output);\n`
+    const item = { type: 'custom_tool_call', id: 'ctc_1', call_id: 'call_1', name: 'exec', input, status: 'completed' }
+    return [
+      ev('response.created', { response: { id: 'resp_1', status: 'in_progress', output: [] } }),
+      ev('response.output_item.added', { output_index: 0, item: { ...item, input: '', status: 'in_progress' } }),
+      ev('response.custom_tool_call_input.delta', { item_id: 'ctc_1', output_index: 0, delta: input.slice(0, 30) }),
+      ev('response.custom_tool_call_input.delta', { item_id: 'ctc_1', output_index: 0, delta: input.slice(30) }),
+      ev('response.output_item.done', { output_index: 0, item }),
+      ev('response.completed', { response: { id: 'resp_1', status: 'completed', output: [item] } }),
+    ].join('')
+  }
+
+  function responsesRequest(scenario: string): string {
+    return JSON.stringify({ model: 'gpt-5', scenario, stream: true, input: [{ role: 'user', content: [{ type: 'input_text', text: 'tidy up' }] }] })
+  }
+
+  // A follow-up turn as Claude Code 2.1 sends it: the tools went with the
+  // session's first request, and later ones carry a `thread` and no `tools`
+  // key, yet the model still calls them.
+  function followUpRequest(scenario: string): string {
+    return JSON.stringify({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 100,
+      scenario,
+      thread: { id: 'thread_test' },
+      messages: [
+        { role: 'user', content: 'tidy up the repo' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_prev', name: 'Bash', input: { command: 'git status --short' } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_prev', content: '' }] },
+      ],
+    })
+  }
+
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-mcp-e2e-'))
     process.env.LLM_FW_DIR = tempDir
@@ -194,6 +229,15 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
           res.write(sse('content_block_stop', { index: 1 }))
           res.write(sse('message_delta', { delta: { stop_reason: 'tool_use' } }))
           res.end(sse('message_stop', {}))
+        } else if (scenario === 'responses-untyped-exec' || scenario === 'responses-untyped-status') {
+          // Codex through ChatGPT: a Responses stream with NO Content-Type,
+          // the shell command inside the JavaScript input of `exec`.
+          const cmd = scenario === 'responses-untyped-exec' ? 'git reset --hard HEAD' : 'git status --short'
+          res.writeHead(200, {})
+          res.end(responsesExecStream(cmd))
+        } else if (scenario === 'untyped-text') {
+          res.writeHead(200, {})
+          res.end('plain words, not a stream')
         } else {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ id: 'msg_x', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'hi' }] }))
@@ -280,6 +324,58 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     const events = mcpEvents().filter((e) => e.action === 'blocked' && e.mcpTool === 'Bash')
     expect(events.length).toBeGreaterThan(0)
     expect(events[0].mcpRule).toContain('Category A')
+  })
+
+  // Live, Claude Code 2.1.314 sent `tools` only on the first request of a
+  // session; every response after that streamed unchecked, and a session asked
+  // to run `git reset --hard HEAD` ran it.
+  it('gates a streamed command in a follow-up turn whose request lists no tools', async () => {
+    const res = await send('/v1/messages', followUpRequest('sse-destructive'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -r')
+    expect(res.body).toContain('"stop_reason":"end_turn"')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'Bash' && e.path === '/v1/messages')).toBe(true)
+  })
+
+  it('gates a JSON tool call in a follow-up turn whose request lists no tools', async () => {
+    const res = await send('/v1/messages', followUpRequest('json-destructive-a'))
+    expect(res.statusCode).toBe(200)
+    const json = JSON.parse(res.body) as { content: Array<{ type: string; name?: string }> }
+    expect(json.content.filter((b) => b.type === 'tool_use').map((b) => b.name)).not.toContain('bash')
+  })
+
+  // Live, Codex CLI 0.162.1 through ChatGPT got no Content-Type on its
+  // Responses stream, so the proxy forwarded it unread, and its code-mode
+  // `exec` tool carried a hard reset that no gate parsed.
+  it('gates a Codex exec call in an untyped Responses stream', async () => {
+    const res = await send('/v1/responses', responsesRequest('responses-untyped-exec'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).not.toContain('--hard')
+    expect(res.body).not.toContain('custom_tool_call')
+    expect(res.body).toContain('response.completed')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'exec')).toBe(true)
+  })
+
+  it('forwards a harmless untyped Responses stream byte for byte', async () => {
+    const res = await send('/v1/responses', responsesRequest('responses-untyped-status'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe(responsesExecStream('git status --short'))
+  })
+
+  it('passes an untyped body that is neither SSE nor JSON through unchanged', async () => {
+    const res = await send('/v1/responses', responsesRequest('untyped-text'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe('plain words, not a stream')
+  })
+
+  it('still forwards a plain chat response with no tools in the request', async () => {
+    const res = await send('/v1/messages', JSON.stringify({
+      model: 'claude-3-haiku-20240307', max_tokens: 16, scenario: 'plain',
+      messages: [{ role: 'user', content: 'hi' }],
+    }))
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).content[0].text).toBe('hi')
   })
 
   it('blocks a destructive command in Category A (File System Devastation) from a non-streaming JSON response', async () => {

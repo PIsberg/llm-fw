@@ -38,6 +38,7 @@ import { realtimeProtocolFor, wsRefusal } from './websocket.js'
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
+import { isTokenCountRequest } from './tokenCount.js'
 import { bodyCap } from './bodyCap.js'
 import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT } from './canary.js'
 import { ExfilStreamHold } from './streamExfil.js'
@@ -790,11 +791,15 @@ export class ProxyServer {
       let body = bodyBuf.toString('utf-8')
 
       // Stage 0 — Data Loss Prevention. Only LLM JSON requests (those with a
-      // registered parser) are scanned, so binary/file uploads are skipped.
+      // registered parser) and token-counting requests are scanned, so
+      // binary/file uploads are skipped.
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
       const parser = parserForRequest(hostname, dlpPath, this.config)
       const isLlmRequest = parser !== null
+      // A token-counting request carries the conversation but has no parser:
+      // DLP scans it, detection does not (tokenCount.ts).
+      const tokenCount = isTokenCountRequest(dlpPath)
 
       // A compressed LLM request is decoded before anything reads it, and the
       // decoded body is what goes upstream. Scanning the compressed bytes as
@@ -802,7 +807,7 @@ export class ProxyServer {
       // on ChatGPT sign-in compresses with zstd by default) reached the
       // provider unscanned. What cannot be decoded is refused, never forwarded.
       const requestEncoding = innerReq.headers['content-encoding']
-      if (isLlmRequest && requestEncoding && !/^\s*identity\s*$/i.test(requestEncoding)) {
+      if ((isLlmRequest || tokenCount) && requestEncoding && !/^\s*identity\s*$/i.test(requestEncoding)) {
         const refuse = (status: number, error: string): void => {
           log.warn(`refused ${method} ${hostname}${dlpPath}: ${error}`)
           innerRes.writeHead(status, { 'Content-Type': 'application/json' })
@@ -896,7 +901,7 @@ export class ProxyServer {
         }
       }
 
-      if (this.config.dlp.enabled && getParser(dlpPath) !== null) {
+      if (this.config.dlp.enabled && (getParser(dlpPath) !== null || tokenCount)) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
           // NEVER log the raw secret value — only its type(s).
@@ -980,7 +985,7 @@ export class ProxyServer {
       // newer/agentic endpoint (Google Antigravity / Cloud Code Assist, a Vertex
       // path variant). Surface it as a non-blocking warn so it appears in Live
       // Traffic and someone can add a parser, instead of it vanishing.
-      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body) && !isKnownNonLlmEndpoint(dlpPath)) {
+      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body) && !isKnownNonLlmEndpoint(dlpPath) && !tokenCount) {
         emitEvent({
           stage: 'none',
           score: 0,
@@ -1087,15 +1092,18 @@ export class ProxyServer {
         return
       }
 
-      // Stage 4 - MCP Request Validation. When the request exposes tools, the
-      // response may carry tool_use invocations, so flag it for inbound MCP
-      // inspection in forwardRequest (normal chat traffic stays on the fast path).
+      // Stage 4 - MCP Request Validation. Every response of a recognised LLM
+      // endpoint is gated for tool_use invocations in forwardRequest, not only
+      // one whose request lists tools: Claude Code 2.1 sends `tools` on a
+      // session's first request alone and later ones carry a `thread`, so
+      // keying the gate on the request's tools let every command after the
+      // first turn through. The gate forwards non-tool events as they arrive.
       let mcpInspectResponse = false
       if (this.config.mcp.enabled && getParser(innerReq.url ?? '/') !== null) {
+        mcpInspectResponse = true
         const parser = getParser(innerReq.url ?? '/')!
         const tools = parser.extractTools(body)
         if (tools.length > 0) {
-          mcpInspectResponse = true
           const defResult = this.mcp.checkToolDefinitions(tools)
           if (defResult.action === 'block') {
             innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
@@ -1521,8 +1529,8 @@ export class ProxyServer {
       // request.
       upstream.on('error', (err: Error) => { upstream.setTimeout(0); reject(err) })
 
-      // Parse and stream the response. When the request exposed MCP tools, the
-      // response may carry tool_use invocations — inspect them BEFORE the bytes
+      // Parse and stream the response. Any LLM response may carry tool_use
+      // invocations, whether or not its request listed tools — inspect them BEFORE the bytes
       // reach the agent (see DESIGN-mcp-response.md): non-streaming JSON is
       // buffered and rewritten tool-free; streaming SSE is gated per tool block.
       // Everything else streams straight through untouched.
@@ -1544,7 +1552,9 @@ export class ProxyServer {
       let rawHeaders = ''
       let respBodyBytes = 0
       // 'raw-stream' is the fail-open passthrough after an oversized inspected body.
-      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' = 'passthrough'
+      // 'sniff' waits for the first body bytes of an untyped response.
+      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' = 'passthrough'
+      let sniffBuf: Buffer = Buffer.alloc(0)
       let status = 200
       const respHeaders: Record<string, string> = {}
       let cenc = ''
@@ -1607,6 +1617,37 @@ export class ProxyServer {
         forwardSse(out)
       }
 
+      // Start writing the body in the chosen mode, from its first decoded bytes.
+      const begin = (initial: Buffer) => {
+        if (mode === 'sse') {
+          gate = mcpActive ? createSseGate(parser!, this.mcp, req.url ?? '') : null
+          if (responseScanActive && this.config.responseScan?.mode === 'block') {
+            hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
+          }
+          res.writeHead(status, inspectedHeaders())
+          feedSse(decoder.write(initial))
+        } else if (mode === 'json') {
+          if (initial.length) { jsonChunks.push(initial); jsonRawLen += initial.length }
+        } else {
+          // Passthrough. Keep content-encoding (failoverHeaders) when we had to
+          // dechunk; else forward bytes + original headers verbatim. Binary-safe
+          // (no utf-8 round-trip) so file/image payloads survive.
+          res.writeHead(status, dechunker ? failoverHeaders() : respHeaders)
+          if (initial.length) { res.write(initial); respBodyBytes += initial.length }
+        }
+      }
+      // An untyped body: SSE when it opens with an SSE field, JSON when with
+      // `{` or `[`, else passthrough. Waits past leading whitespace, up to 256 bytes.
+      const sniff = (more: Buffer) => {
+        sniffBuf = sniffBuf.length ? Buffer.concat([sniffBuf, more]) : more
+        const head = sniffBuf.subarray(0, 256).toString('latin1').trimStart()
+        if (head === '' && sniffBuf.length < 256) return
+        mode = /^(?:event|data|id|retry)?:/.test(head) ? 'sse' : /^[{[]/.test(head) ? 'json' : 'passthrough'
+        const initial = sniffBuf
+        sniffBuf = Buffer.alloc(0)
+        begin(initial)
+      }
+
       upstream.on('data', (chunk: Buffer) => {
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
@@ -1631,6 +1672,12 @@ export class ProxyServer {
             mode = compressed ? 'passthrough' : 'sse'
           } else if (wantInspect && ctype.includes('application/json')) {
             mode = 'json'
+          } else if (wantInspect && ctype === '' && !compressed && parser) {
+            // ChatGPT's /backend-api/codex/responses streams with no
+            // Content-Type, which left every Codex response unread: no MCP
+            // gate, no response scan. An LLM endpoint's untyped body is
+            // classified by its first bytes instead.
+            mode = 'sniff'
           }
 
           // Decode chunked framing so we can re-frame once (and, for JSON,
@@ -1640,24 +1687,10 @@ export class ProxyServer {
           }
           const dechunk = (raw: Buffer): Buffer => dechunker ? dechunker.push(raw) : raw
 
-          if (mode === 'sse') {
-            gate = mcpActive ? createSseGate(parser!, this.mcp) : null
-            if (responseScanActive && this.config.responseScan?.mode === 'block') {
-              hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
-            }
-            res.writeHead(status, inspectedHeaders())
-            feedSse(decoder.write(dechunk(bodyStart)))
-          } else if (mode === 'json') {
-            const b = dechunk(bodyStart)
-            if (b.length) { jsonChunks.push(b); jsonRawLen += b.length }
-          } else {
-            // Passthrough. Keep content-encoding (failoverHeaders) when we had to
-            // dechunk; else forward bytes + original headers verbatim. Binary-safe
-            // (no utf-8 round-trip) so file/image payloads survive.
-            res.writeHead(status, dechunker ? failoverHeaders() : respHeaders)
-            const out = dechunk(bodyStart)
-            if (out.length) { res.write(out); respBodyBytes += out.length }
-          }
+          if (mode === 'sniff') sniff(dechunk(bodyStart))
+          else begin(dechunk(bodyStart))
+        } else if (mode === 'sniff') {
+          sniff(dechunker ? dechunker.push(chunk) : chunk)
         } else if (mode === 'sse') {
           feedSse(decoder.write(dechunker ? dechunker.push(chunk) : chunk))
         } else if (mode === 'json') {
@@ -1680,6 +1713,11 @@ export class ProxyServer {
       })
       upstream.on('end', async () => {
         upstream.setTimeout(0) // response complete — disarm the idle timer
+        if (mode === 'sniff') {
+          // Empty or all-whitespace untyped body: nothing to inspect.
+          mode = 'passthrough'
+          begin(sniffBuf)
+        }
         if (mode === 'json') {
           const raw = Buffer.concat(jsonChunks)
           let text: string
@@ -1827,7 +1865,7 @@ export class ProxyServer {
     res.writeHead(stored.status, headers)
     let bytes = 0
     if (mcpActive && parser) {
-      const gate = createSseGate(parser, this.mcp)
+      const gate = createSseGate(parser, this.mcp, req.url ?? '')
       bytes += this.gateSse(gate, text, res, req, hostname)
       const tail = gate.flush()
       if (tail) { res.write(tail); bytes += Buffer.byteLength(tail) }

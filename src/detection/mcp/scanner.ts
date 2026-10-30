@@ -14,8 +14,11 @@ export interface McpCheckResult {
 
 // Compared case-insensitively: Claude Code calls its shell tools Bash and
 // PowerShell, and an exact match scanned none of them (#285). `shell` and
-// `run_shell_command` are other agent CLIs' names for the same thing.
-const EXECUTION_TOOLS = ['execute_command', 'bash', 'ctx_shell', 'powershell', 'shell', 'run_shell_command']
+// `run_shell_command` are other agent CLIs' names for the same thing. Codex
+// CLI uses `shell_command`, `exec_command` and `local_shell`, and in code
+// mode one custom tool, `exec`, whose input is JavaScript that calls
+// `tools.exec_command({cmd: ...})`: that input is scanned as text.
+const EXECUTION_TOOLS = ['execute_command', 'bash', 'ctx_shell', 'powershell', 'shell', 'run_shell_command', 'shell_command', 'exec_command', 'local_shell', 'exec']
 
 function collectStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value]

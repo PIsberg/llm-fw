@@ -136,7 +136,22 @@ describe('Proxy DLP block mode (E2E)', { timeout: 20000 }, () => {
     expect(json.error).toBe('sensitive data detected')
     expect(json.type).toBe('GITHUB_TOKEN')
   })
+
+  // GHSA-9986-fxc2-cx83: a token-counting request carries the same
+  // conversation and went out with the secret the Messages request was refused for.
+  it('refuses a token-counting request that embeds the same token', async () => {
+    const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages/count_tokens?beta=true', anthropicBody(GH_TOKEN))
+    expect(res.statusCode).toBe(422)
+  })
 })
+
+// The token-counting endpoints the providers llm-fw parses offer, with the
+// body shape each takes.
+const TOKEN_COUNT_ROUTES: [string, string, (secret: string) => Buffer][] = [
+  ['api.anthropic.com', '/v1/messages/count_tokens?beta=true', anthropicBody],
+  ['api.openai.com', '/v1/responses/input_tokens', s => Buffer.from(JSON.stringify({ model: 'gpt-5', input: 'Here is my deploy token: ' + s }), 'utf-8')],
+  ['generativelanguage.googleapis.com', '/v1beta/models/gemini-2.5-pro:countTokens', s => Buffer.from(JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Here is my deploy token: ' + s }] }] }), 'utf-8')],
+]
 
 describe('Proxy DLP redact mode (E2E)', { timeout: 20000 }, () => {
   let tempDir: string
@@ -170,5 +185,26 @@ describe('Proxy DLP redact mode (E2E)', { timeout: 20000 }, () => {
     expect(forwarded).toContain(MARKER)
     // Forwarded body remains valid JSON.
     expect(() => JSON.parse(forwarded)).not.toThrow()
+  })
+
+  for (const [host, path, body] of TOKEN_COUNT_ROUTES) {
+    it(`redacts the token from a token-counting request (${host}${path})`, async () => {
+      capturedBody = null
+      const res = await sendBody(testConfig.proxy.port, host, caPem, path, body(GH_TOKEN))
+      expect(res.statusCode).toBe(200)
+      const forwarded = capturedBody!.toString('utf-8')
+      expect(forwarded).not.toContain(GH_TOKEN)
+      expect(forwarded).toContain(MARKER)
+      expect(() => JSON.parse(forwarded)).not.toThrow()
+    })
+  }
+
+  // Only token counting joins DLP: an OAuth exchange carries credentials by
+  // design, and rewriting them would break the client's sign-in.
+  it('leaves an OAuth token request as it was sent', async () => {
+    capturedBody = null
+    const oauth = Buffer.from(JSON.stringify({ grant_type: 'refresh_token', refresh_token: GH_TOKEN }), 'utf-8')
+    await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/oauth/token', oauth)
+    expect(capturedBody!.toString('utf-8')).toContain(GH_TOKEN)
   })
 })

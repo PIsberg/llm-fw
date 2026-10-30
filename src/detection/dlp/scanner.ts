@@ -71,8 +71,15 @@ export class DlpScanner {
       rule.regex.lastIndex = 0
       let m = rule.regex.exec(text)
       while (m !== null) {
-        if (!isDocumentedExample(m[0])) {
-          findings.push({ type: rule.type, label: rule.label, match: m[0], index: m.index })
+        let match = m[0]
+        if (rule.extend) {
+          // Resume after the extended match, so a block is walked only once.
+          const end = rule.extend(text, m.index + match.length)
+          match = text.slice(m.index, end)
+          rule.regex.lastIndex = end
+        }
+        if (!isDocumentedExample(match)) {
+          findings.push({ type: rule.type, label: rule.label, match, index: m.index })
         }
         if (m.index === rule.regex.lastIndex) rule.regex.lastIndex++
         m = rule.regex.exec(text)
