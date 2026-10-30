@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -147,6 +147,23 @@ describe('static security & analysis suite (#523)', () => {
     expect(snykWf).not.toContain('snyk --version')
     expect(snykWf).toContain('secrets.SNYK_TOKEN')
     expect(snykWf).toContain('pull_request:')
+  })
+
+  it('never reads secrets in an if: condition, which GitHub rejects before any job starts', () => {
+    // The secrets context is not available to job or step `if:` expressions, and a workflow
+    // that uses it fails at startup with zero jobs. socket.yml and snyk.yml did, on every
+    // push since #523. Map the secret to `env` and test `env.NAME` instead.
+    const dir = join(ROOT, '.github/workflows')
+    const offenders = readdirSync(dir)
+      .filter((f) => /\.ya?ml$/.test(f))
+      .flatMap((f) =>
+        read(`.github/workflows/${f}`)
+          .split('\n')
+          .map((line, i) => ({ where: `${f}:${i + 1}`, line }))
+          .filter(({ line }) => /^\s*(?:-\s+)?if:.*\bsecrets\./.test(line))
+          .map(({ where }) => where),
+      )
+    expect(offenders).toEqual([])
   })
 
   it('configures NodeJSScan (njsscan) static taint analysis with dedicated config', () => {
