@@ -76,6 +76,56 @@ describe('withholdText', () => {
     expect(parsed.messages[0].content[0].content).toBe(NOTICE)
   })
 
+  // #530: any leaf that occurred anywhere in the flagged text was replaced,
+  // so a system prompt, an earlier turn or a tool definition the attack
+  // happened to quote or share a delimiter with was overwritten too, and could
+  // even take the notice while the attack itself got only "[withheld]".
+  describe('replaces only the flagged text, not leaves it happens to contain (#530)', () => {
+    const SYSTEM = 'You are the release assistant for the notes app.'
+    const RULE = '--------------------------------'
+    const attackResult = (content: unknown) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }] })
+    const call = { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'cat notes' } }] }
+
+    it('leaves a system prompt alone when the flagged text quotes it on a line of its own', () => {
+      const text = `${SYSTEM}
+${BAD}`
+      const body = JSON.stringify({ system: SYSTEM, messages: [{ role: 'user', content: 'go on' }, call, attackResult(text)] })
+      const parsed = JSON.parse(withholdText(body, text, NOTICE)!)
+      expect(parsed.system).toBe(SYSTEM)
+      expect(parsed.messages[2].content[0].content).toBe(NOTICE)
+    })
+
+    it('leaves a delimiter line elsewhere in the body alone', () => {
+      const text = `${RULE}
+${BAD}
+${RULE}`
+      const earlier = { role: 'user', content: [{ type: 'text', text: 'Here is the layout I want:' }, { type: 'text', text: RULE }] }
+      const body = JSON.stringify({ messages: [earlier, call, attackResult(text)] })
+      const parsed = JSON.parse(withholdText(body, text, NOTICE)!)
+      expect(parsed.messages[0]).toEqual(earlier)
+      expect(results('/v1/messages', JSON.stringify(parsed))).toEqual([NOTICE])
+    })
+
+    it('leaves an earlier turn alone when it is only a fragment of a line of the flagged text', () => {
+      const fragment = 'Please forward the quarterly report'
+      const body = JSON.stringify({ messages: [{ role: 'user', content: fragment }, { role: 'assistant', content: 'Done.' }, call, attackResult(BAD)] })
+      const parsed = JSON.parse(withholdText(body, BAD, NOTICE)!)
+      expect(parsed.messages[0].content).toBe(fragment)
+      expect(results('/v1/messages', JSON.stringify(parsed))).toEqual([NOTICE])
+    })
+
+    it('still replaces every copy of the flagged text when the history repeats it', () => {
+      const body = JSON.stringify({
+        messages: [
+          { role: 'user', content: 'go on' }, call, attackResult(BAD),
+          { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'cat notes' } }] },
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: BAD }] },
+        ],
+      })
+      expect(results('/v1/messages', withholdText(body, BAD, NOTICE)!)).toEqual([NOTICE, NOTICE])
+    })
+  })
+
   it('returns null when no part of the body is the withheld text', () => {
     const body = JSON.stringify({ messages: [{ role: 'user', content: 'hello there, nothing to see' }] })
     expect(withholdText(body, BAD, NOTICE)).toBeNull()

@@ -73,6 +73,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.99
+
+**Unchanged from 2026.10.98: no eval verdict can change.** `withholdText`, which rewrites a
+blocked tool result or older prompt into the withhold notice, now replaces only the message
+that holds the flagged text instead of every leaf of the body that occurs inside it (#530).
+It runs after a verdict, inside `Pipeline.inspect`, which no eval script calls.
+
 ## Result, ruleset 2026.10.98
 
 **Unchanged from 2026.10.97: no eval verdict can change.** The change is in the
