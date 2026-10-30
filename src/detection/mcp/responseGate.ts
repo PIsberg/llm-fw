@@ -1,7 +1,7 @@
 import { McpScanner } from './scanner.js'
 import type { McpCheckResult } from './scanner.js'
 import { PayloadParser } from '../../types.js'
-import { OpenAIParser } from '../parsers.js'
+import { OpenAIParser, responsesToolCall } from '../parsers.js'
 
 /**
  * Response-side (inbound) MCP interception.
@@ -107,6 +107,20 @@ export function rewriteBlockedJsonResponse(body: string, blockedNames: Set<strin
     return JSON.stringify(data)
   }
 
+  // OpenAI Responses shape: output[] holding tool-call items.
+  if (Array.isArray(data.output)) {
+    const items = data.output as unknown[]
+    const kept = items.filter(item => {
+      const call = responsesToolCall(item)
+      return !(call && blockedNames.has(call.toolName))
+    })
+    if (kept.length !== items.length) {
+      kept.push({ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: note, annotations: [] }] })
+      data.output = kept
+    }
+    return JSON.stringify(data)
+  }
+
   return body
 }
 
@@ -152,6 +166,23 @@ abstract class BufferedSseGate implements SseGate {
 
   abstract push(text: string): SsePushResult
 
+  /** Buffer `text`, hand each complete SSE event to `handle`, and collect what it returns. */
+  protected eachEvent(text: string, handle: (raw: string) => { forward: string; decision: ToolDecision | null }): SsePushResult {
+    this.buf += text
+    const forwardParts: string[] = []
+    const decisions: ToolDecision[] = []
+    let sep = this.buf.indexOf('\n\n')
+    while (sep !== -1) {
+      const raw = this.buf.slice(0, sep + 2)
+      this.buf = this.buf.slice(sep + 2)
+      const { forward, decision } = handle(raw)
+      if (forward) forwardParts.push(forward)
+      if (decision) decisions.push(decision)
+      sep = this.buf.indexOf('\n\n')
+    }
+    return { forward: forwardParts.join(''), decisions }
+  }
+
   /** Forward any trailing buffered text once the stream ends. */
   flush(): string {
     const rest = this.buf
@@ -184,19 +215,7 @@ export class SseToolGate extends BufferedSseGate {
   }
 
   push(text: string): SsePushResult {
-    this.buf += text
-    const forwardParts: string[] = []
-    const decisions: ToolDecision[] = []
-    let sep = this.buf.indexOf('\n\n')
-    while (sep !== -1) {
-      const raw = this.buf.slice(0, sep + 2)
-      this.buf = this.buf.slice(sep + 2)
-      const { forward, decision } = this.handleEvent(raw)
-      if (forward) forwardParts.push(forward)
-      if (decision) decisions.push(decision)
-      sep = this.buf.indexOf('\n\n')
-    }
-    return { forward: forwardParts.join(''), decisions }
+    return this.eachEvent(text, raw => this.handleEvent(raw))
   }
 
   /**
@@ -488,12 +507,117 @@ function serializeChunk(data: Record<string, unknown>): string {
 }
 
 /**
+ * Incremental gate for an OpenAI Responses API stream (`/v1/responses`, and
+ * ChatGPT's `/backend-api/codex/responses` that Codex CLI uses).
+ *
+ * A tool call is an output item: `response.output_item.added` opens it,
+ * argument deltas follow (`function_call_arguments.delta`,
+ * `custom_tool_call_input.delta`), and `response.output_item.done` closes it
+ * with the complete item. Codex's code mode sends its shell command inside
+ * the JavaScript input of one custom tool, `exec`, so a call whose verdict
+ * depends on its arguments is held from its start, with every event after
+ * it, until its `done`, then checked and dropped or released in order. A
+ * blocked call is also removed from the output `response.completed` repeats.
+ */
+export class ResponsesSseToolGate extends BufferedSseGate {
+  private held: { index: number; name: string; args: string; events: HeldEvent[] } | null = null
+  private readonly blockedItemIds = new Set<string>()
+
+  constructor(private readonly mcp: McpScanner) {
+    super()
+  }
+
+  push(text: string): SsePushResult {
+    return this.eachEvent(text, raw => this.handleEvent(raw))
+  }
+
+  /** A call still held at end of stream is decided on the arguments that arrived. */
+  override flush(): string {
+    const released = this.held ? this.release(null).forward : ''
+    return released + super.flush()
+  }
+
+  private handleEvent(raw: string): { forward: string; decision: ToolDecision | null } {
+    const data = parseSseData(raw)
+    const type = data && typeof data.type === 'string' ? data.type : undefined
+    const index = data && typeof data.output_index === 'number' ? data.output_index : undefined
+
+    if (this.held) {
+      this.held.events.push({ raw, index })
+      if (index !== this.held.index) return { forward: '', decision: null }
+      if (typeof data?.delta === 'string' && (type === 'response.function_call_arguments.delta' || type === 'response.custom_tool_call_input.delta')) {
+        this.held.args += data.delta
+      }
+      return type === 'response.output_item.done' ? this.release(data?.item ?? null) : { forward: '', decision: null }
+    }
+
+    if (!data) return { forward: raw, decision: null }
+
+    if (type === 'response.output_item.added') {
+      const call = responsesToolCall(data.item)
+      if (call) {
+        const result = this.mcp.checkToolInvocation(call.toolName, call.args)
+        if (result.action === 'block') return this.block(index, data.item, call.toolName, result.reason)
+        if (index !== undefined && this.mcp.scansArguments(call.toolName)) {
+          this.held = { index, name: call.toolName, args: '', events: [{ raw, index }] }
+          return { forward: '', decision: null }
+        }
+        return { forward: raw, decision: this.passDecision(call.toolName, result) }
+      }
+    }
+
+    // Swallow the rest of a suppressed call's events.
+    if (index !== undefined && this.suppressedIndexes.has(index)) {
+      if (type === 'response.output_item.done') this.suppressedIndexes.delete(index)
+      return { forward: '', decision: null }
+    }
+
+    // The final event repeats the whole output: drop the blocked calls there too.
+    const response = data.response as Record<string, unknown> | undefined
+    if (this.blockedItemIds.size > 0 && response && Array.isArray(response.output)) {
+      response.output = (response.output as Array<Record<string, unknown>>).filter(o => !(o && this.blockedItemIds.has(o.id as string)))
+      return { forward: `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`, decision: null }
+    }
+
+    return { forward: raw, decision: null }
+  }
+
+  private block(index: number | undefined, item: unknown, name: string, reason: string | undefined): { forward: string; decision: ToolDecision } {
+    if (index !== undefined) this.suppressedIndexes.add(index)
+    const id = (item as Record<string, unknown> | null)?.id
+    if (typeof id === 'string') this.blockedItemIds.add(id)
+    this.blockedAny = true
+    return { forward: '', decision: { toolName: name, action: 'block', reason } }
+  }
+
+  /** Decide the held call on its complete item (or the arguments that arrived), then drop or release it. */
+  private release(doneItem: unknown): { forward: string; decision: ToolDecision | null } {
+    const held = this.held!
+    this.held = null
+    const call = responsesToolCall(doneItem)
+    const args: unknown = call ? call.args : held.args
+    const result = this.mcp.checkToolInvocation(held.name, args)
+    if (result.action === 'block') {
+      const opened = parseSseData(held.events[0]!.raw)?.item
+      const { decision } = this.block(undefined, doneItem ?? opened, held.name, result.reason)
+      // Events of other items that arrived meanwhile still go out.
+      const others = held.events.filter(e => e.index !== held.index).map(e => e.raw).join('')
+      return { forward: others, decision }
+    }
+    return { forward: held.events.map(e => e.raw).join(''), decision: this.passDecision(held.name, result) }
+  }
+}
+
+/**
  * Select the SSE gate matching the provider that produced the response, so the
  * stream is parsed in its native event format. OpenAI-compatible providers get
- * the OpenAI gate; everything else (Anthropic natively, Gemini/Cohere as
- * passthrough) uses the Anthropic-shaped gate.
+ * the OpenAI gate, or the Responses gate on a Responses API path; everything
+ * else (Anthropic natively, Gemini/Cohere as passthrough) uses the
+ * Anthropic-shaped gate.
  */
-export function createSseGate(parser: PayloadParser, mcp: McpScanner): SseGate {
-  if (parser instanceof OpenAIParser) return new OpenAiSseToolGate(mcp)
+export function createSseGate(parser: PayloadParser, mcp: McpScanner, path = ''): SseGate {
+  if (parser instanceof OpenAIParser) {
+    return /\/responses(?:[/?]|$)/.test(path) ? new ResponsesSseToolGate(mcp) : new OpenAiSseToolGate(mcp)
+  }
   return new SseToolGate(mcp)
 }

@@ -490,16 +490,11 @@ class OpenAIParser implements PayloadParser {
           }
         }
       }
-      // Responses API: output[] items of type 'function_call' (flat name/arguments).
+      // Responses API: output[] items that call a tool (see responsesToolCall).
       if (Array.isArray(data.output)) {
         for (const item of data.output) {
-          if (item && item.type === 'function_call' && typeof item.name === 'string') {
-            let parsedArgs: any = item.arguments
-            if (typeof item.arguments === 'string') {
-              try { parsedArgs = JSON.parse(item.arguments) } catch { /* raw */ }
-            }
-            results.push({ toolName: item.name, args: parsedArgs })
-          }
+          const call = responsesToolCall(item)
+          if (call) results.push(call)
         }
       }
       return results
@@ -1138,6 +1133,27 @@ export const parsers: PayloadParser[] = [
  * Erring towards a match is safe: scanning a request the provider would have
  * rejected costs nothing.
  */
+/**
+ * The tool call an OpenAI Responses API output item makes, or null when it
+ * makes none. `function_call` carries JSON `arguments`; `custom_tool_call`
+ * (Codex's code-mode `exec`, `apply_patch`) carries free-text `input`;
+ * `local_shell_call` carries its command in `action`.
+ */
+export function responsesToolCall(item: unknown): { toolName: string; args: any } | null {
+  if (!item || typeof item !== 'object') return null
+  const it = item as Record<string, unknown>
+  if (it.type === 'function_call' && typeof it.name === 'string') {
+    let args: any = it.arguments
+    if (typeof it.arguments === 'string') {
+      try { args = JSON.parse(it.arguments) } catch { /* raw */ }
+    }
+    return { toolName: it.name, args }
+  }
+  if (it.type === 'custom_tool_call' && typeof it.name === 'string') return { toolName: it.name, args: it.input ?? '' }
+  if (it.type === 'local_shell_call') return { toolName: 'local_shell', args: it.action ?? {} }
+  return null
+}
+
 export function getParser(path: string): PayloadParser | null {
   const canonical = canonicalPath(path)
   // As sent first, so a parser's own matching is unchanged for every path it

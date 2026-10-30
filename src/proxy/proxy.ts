@@ -1547,7 +1547,9 @@ export class ProxyServer {
       let rawHeaders = ''
       let respBodyBytes = 0
       // 'raw-stream' is the fail-open passthrough after an oversized inspected body.
-      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' = 'passthrough'
+      // 'sniff' waits for the first body bytes of an untyped response.
+      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' = 'passthrough'
+      let sniffBuf: Buffer = Buffer.alloc(0)
       let status = 200
       const respHeaders: Record<string, string> = {}
       let cenc = ''
@@ -1610,6 +1612,37 @@ export class ProxyServer {
         forwardSse(out)
       }
 
+      // Start writing the body in the chosen mode, from its first decoded bytes.
+      const begin = (initial: Buffer) => {
+        if (mode === 'sse') {
+          gate = mcpActive ? createSseGate(parser!, this.mcp, req.url ?? '') : null
+          if (responseScanActive && this.config.responseScan?.mode === 'block') {
+            hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
+          }
+          res.writeHead(status, inspectedHeaders())
+          feedSse(decoder.write(initial))
+        } else if (mode === 'json') {
+          if (initial.length) { jsonChunks.push(initial); jsonRawLen += initial.length }
+        } else {
+          // Passthrough. Keep content-encoding (failoverHeaders) when we had to
+          // dechunk; else forward bytes + original headers verbatim. Binary-safe
+          // (no utf-8 round-trip) so file/image payloads survive.
+          res.writeHead(status, dechunker ? failoverHeaders() : respHeaders)
+          if (initial.length) { res.write(initial); respBodyBytes += initial.length }
+        }
+      }
+      // An untyped body: SSE when it opens with an SSE field, JSON when with
+      // `{` or `[`, else passthrough. Waits past leading whitespace, up to 256 bytes.
+      const sniff = (more: Buffer) => {
+        sniffBuf = sniffBuf.length ? Buffer.concat([sniffBuf, more]) : more
+        const head = sniffBuf.subarray(0, 256).toString('latin1').trimStart()
+        if (head === '' && sniffBuf.length < 256) return
+        mode = /^(?:event|data|id|retry)?:/.test(head) ? 'sse' : /^[{[]/.test(head) ? 'json' : 'passthrough'
+        const initial = sniffBuf
+        sniffBuf = Buffer.alloc(0)
+        begin(initial)
+      }
+
       upstream.on('data', (chunk: Buffer) => {
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
@@ -1634,6 +1667,12 @@ export class ProxyServer {
             mode = compressed ? 'passthrough' : 'sse'
           } else if (wantInspect && ctype.includes('application/json')) {
             mode = 'json'
+          } else if (wantInspect && ctype === '' && !compressed && parser) {
+            // ChatGPT's /backend-api/codex/responses streams with no
+            // Content-Type, which left every Codex response unread: no MCP
+            // gate, no response scan. An LLM endpoint's untyped body is
+            // classified by its first bytes instead.
+            mode = 'sniff'
           }
 
           // Decode chunked framing so we can re-frame once (and, for JSON,
@@ -1643,24 +1682,10 @@ export class ProxyServer {
           }
           const dechunk = (raw: Buffer): Buffer => dechunker ? dechunker.push(raw) : raw
 
-          if (mode === 'sse') {
-            gate = mcpActive ? createSseGate(parser!, this.mcp) : null
-            if (responseScanActive && this.config.responseScan?.mode === 'block') {
-              hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
-            }
-            res.writeHead(status, inspectedHeaders())
-            feedSse(decoder.write(dechunk(bodyStart)))
-          } else if (mode === 'json') {
-            const b = dechunk(bodyStart)
-            if (b.length) { jsonChunks.push(b); jsonRawLen += b.length }
-          } else {
-            // Passthrough. Keep content-encoding (failoverHeaders) when we had to
-            // dechunk; else forward bytes + original headers verbatim. Binary-safe
-            // (no utf-8 round-trip) so file/image payloads survive.
-            res.writeHead(status, dechunker ? failoverHeaders() : respHeaders)
-            const out = dechunk(bodyStart)
-            if (out.length) { res.write(out); respBodyBytes += out.length }
-          }
+          if (mode === 'sniff') sniff(dechunk(bodyStart))
+          else begin(dechunk(bodyStart))
+        } else if (mode === 'sniff') {
+          sniff(dechunker ? dechunker.push(chunk) : chunk)
         } else if (mode === 'sse') {
           feedSse(decoder.write(dechunker ? dechunker.push(chunk) : chunk))
         } else if (mode === 'json') {
@@ -1683,6 +1708,11 @@ export class ProxyServer {
       })
       upstream.on('end', async () => {
         upstream.setTimeout(0) // response complete — disarm the idle timer
+        if (mode === 'sniff') {
+          // Empty or all-whitespace untyped body: nothing to inspect.
+          mode = 'passthrough'
+          begin(sniffBuf)
+        }
         if (mode === 'json') {
           const raw = Buffer.concat(jsonChunks)
           let text: string
@@ -1830,7 +1860,7 @@ export class ProxyServer {
     res.writeHead(stored.status, headers)
     let bytes = 0
     if (mcpActive && parser) {
-      const gate = createSseGate(parser, this.mcp)
+      const gate = createSseGate(parser, this.mcp, req.url ?? '')
       bytes += this.gateSse(gate, text, res, req, hostname)
       const tail = gate.flush()
       if (tail) { res.write(tail); bytes += Buffer.byteLength(tail) }
