@@ -1803,8 +1803,11 @@ export class ProxyServer {
     // #551: a stored stream is complete, so block mode judges it before a
     // byte is written and refuses it as a buffered body would be.
     if (this.config.responseScan?.enabled && this.config.responseScan.mode === 'block') {
+      // The hold reads the URL a stream assembles across deltas; the scan of
+      // the whole body also sees markup the hold's state machine settles on
+      // differently.
       const hold = new ExfilStreamHold(t => this.runResponseExfilScan(t, req, hostname, true) !== null)
-      if (hold.push(text) === null || hold.end() === null) {
+      if (hold.push(text) === null || hold.end() === null || this.runResponseExfilScan(text, req, hostname, true) !== null) {
         const errBody = JSON.stringify({ error: 'response blocked by exfiltration guard', kind: 'response-exfil' })
         res.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
         res.end(errBody)

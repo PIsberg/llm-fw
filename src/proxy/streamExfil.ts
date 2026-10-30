@@ -65,8 +65,10 @@ export class ExfilStreamHold {
     const rest = this.buf
     this.buf = ''
     if (!this.take(sseEventText(rest, RENDERED_KEYS) ?? '')) return null
-    if (this.state === 'url' && this.isExfil(`${this.markup})`)) return null
-    if (this.state === 'tag' && this.isExfil(this.markup)) return null
+    // Settling a bracket can leave an open `<img`, held as a tag: settle again.
+    while (this.holding()) {
+      if (!this.settle(this.state === 'url' ? `${this.markup})` : this.state === 'tag' ? this.markup : null)) return null
+    }
     const out = this.held + rest
     this.held = ''
     return out
@@ -85,10 +87,22 @@ export class ExfilStreamHold {
     return true
   }
 
+  /**
+   * Ends the open markup: scans `scan` (a URL or tag made whole), or the held
+   * markup itself when it settled without one, since brackets that are not a
+   * link can still hold an `<img`. One still open at that point keeps the
+   * stream held as a tag.
+   */
   private settle(scan: string | null): boolean {
+    const markup = this.markup
     this.state = 'text'
     this.markup = ''
-    return scan === null || !this.isExfil(scan)
+    if (this.isExfil(scan ?? markup)) return false
+    if (scan === null) {
+      const tag = markup.toLowerCase().lastIndexOf('<img')
+      if (tag !== -1 && !markup.includes('>', tag)) { this.state = 'tag'; this.markup = markup.slice(tag) }
+    }
+    return true
   }
 
   private step(c: string): boolean {
@@ -118,7 +132,11 @@ export class ExfilStreamHold {
       case 'close':
         if (c === '(') { this.state = 'url'; this.urlStarted = false }
         else if (c === '[') this.state = 'bracket'
-        else { this.settle(null); return this.step(c) }
+        else {
+          // `c` is not part of the bracket: settle without it, then read it again.
+          this.markup = this.markup.slice(0, -c.length)
+          return this.settle(null) && this.step(c)
+        }
         return true
       case 'url':
         // `](  <https://...` may open with whitespace and `<`; the URL ends at

