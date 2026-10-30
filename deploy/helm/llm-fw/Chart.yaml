@@ -4,7 +4,7 @@ description: Prompt-injection firewall for LLM traffic, deployed as a gateway cl
 type: application
 # Chart version, bumped for chart changes. appVersion tracks the llm-fw release.
 version: 0.2.4
-appVersion: "0.9.2"
+appVersion: "0.9.3"
 keywords:
   - llm
   - security
