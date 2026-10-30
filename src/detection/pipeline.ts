@@ -3,6 +3,7 @@ import { Config, PipelineResult, BlockEvent, ScanSource, PayloadParser } from '.
 import { isObserving } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
+import { unwrapCodexAgentsEnvelope } from './clientEnvelopes.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
@@ -985,7 +986,8 @@ export class Pipeline {
 
       // Yields between steps on a large text, so one request does not hold the
       // event loop for its whole scan (#464); the candidates are the same.
-      const candidates = await extractCandidatesYielding(prompt)
+      // A Codex AGENTS.md envelope is scanned as the file inside it (#459).
+      const candidates = await extractCandidatesYielding(unwrapCodexAgentsEnvelope(prompt))
       let plainMatches: string[] | undefined
       for (const candidate of candidates) {
         // Stage 1: heuristic. A whole-text candidate of a large text is the

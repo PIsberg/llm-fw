@@ -153,6 +153,9 @@ const NON_LLM_JSON_PATH_SUFFIXES = [
  * reaches the model as a tool_result in the next scanned `/v1/messages` call.
  */
 const NON_LLM_JSON_PATH_PREFIXES = [
+  // Codex CLI's telemetry on chatgpt.com, under the inspected Codex prefix
+  // (#459: a warning per turn in the live run). No model text goes there.
+  '/backend-api/codex/analytics-events/',
   '/api/eval/',
   '/api/artifacts/',
   '/api/oauth/',
