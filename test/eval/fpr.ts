@@ -168,7 +168,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // file inside it, #459; 0 of 27,912 eval verdicts changed).
   // Held at ruleset 2026.10.104 (stage-1 shapes for reworded fake-mode
   // and override attacks, #557; 0 of 27,912 eval verdicts changed).
-  // Held at ruleset 2026.10.103 (eleven real tool-output shapes the
+  // Held at ruleset 2026.10.103 (ten real tool-output shapes the
   // indirect-instruction stage read as orders, #477; 0 of 27,912 eval
   // verdicts changed, measured).
   // Held at ruleset 2026.10.102 (look-alike words between Latin words
