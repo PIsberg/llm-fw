@@ -14,9 +14,9 @@
 //   to the end of the URL after it, wherever it appears;
 // - every `<img` tag: to its `>` outside quotes.
 // A blank line ends either, as no markup spans a paragraph. The held text is
-// judged by the scanner a buffered response goes through, and each `](url`
-// and `src=url` in it is also judged on its own, so markup that scanner
-// cannot parse is still caught.
+// judged by the scanner a buffered response goes through, and each held
+// destination (read with CommonMark's grammar) and `src=url` is also judged
+// on its own, so markup that scanner cannot parse is still caught.
 //
 // Measured live through Claude Code on an answer full of links and code:
 // holding to the end of the line delayed it by up to 2.5 s; holding to the
@@ -30,15 +30,18 @@ import { sseEventText } from './canary.js'
 const RENDERED_KEYS: ReadonlySet<string> = new Set(['text', 'thinking', 'content', 'refusal', 'delta', 'output'])
 const EVENT_END = /\r?\n\r?\n/
 const IMG = '<img'
-// The URL after a `](` and in a `src=` attribute, wherever they sit.
-const LINK_URL = /\]\(\s*<?(https?:\/\/[^\s)>]+)/gi
+// The URL in a `src=` attribute, wherever it sits.
 const SRC_URL = /\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
-// A link reference definition, `[label]: url`: an image that names the label
-// fetches it, so it is judged as an image.
-const DEF_URL = /\]:\s*<?(https?:\/\/[^\s>]+)/gi
 
-// text: nothing held. close: just after `]`. url: inside `](`, before the URL ends.
+// text: nothing held. close: just after `]`. url: inside the destination
+// after `](` or `]:`, before it ends.
 type Link = 'text' | 'close' | 'url'
+
+/** A held destination, written so the markdown scanner reads it whole. */
+function asMarkdown(url: string, image: boolean): string {
+  const encoded = url.replace(/[\s()<>]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase())
+  return `${image ? '!' : ''}[x](${encoded})`
+}
 
 /**
  * Holds the events of an SSE response while model text is writing a URL.
@@ -51,7 +54,18 @@ export class ExfilStreamHold {
   private buf = ''
   private held = ''
   private link: Link = 'text'
+  // The destination being held, read the way CommonMark reads one: `<...>`
+  // to an unescaped `>`; bare to whitespace or an unbalanced `)`, counting
+  // balanced parentheses and taking backslash-escaped characters literally.
+  // `]:` (a reference definition) is judged as an image, which is what an
+  // image naming its label fetches.
   private urlStarted = false
+  private angle = false
+  private def = false
+  private depth = 0
+  private escape = false
+  private url = ''
+  private urls: { url: string; image: boolean }[] = []
   // Whether the last `[` was an image's `![`, to label what the scan reports.
   private image = false
   // The `<img` prefix matched so far, whether a tag is open, and the quote
@@ -85,7 +99,9 @@ export class ExfilStreamHold {
     const rest = this.buf
     this.buf = ''
     if (!this.take(sseEventText(rest, RENDERED_KEYS) ?? '')) return null
-    if (this.holding() && this.carriesExfil()) return null
+    const open = this.holding()
+    if (this.link === 'url') this.endUrl()
+    if (open && this.carriesExfil()) return null
     const out = this.held + rest
     this.held = ''
     return out
@@ -98,10 +114,17 @@ export class ExfilStreamHold {
   private carriesExfil(): boolean {
     const text = this.pending
     if (this.isExfil(text)) return true
-    for (const m of text.matchAll(LINK_URL)) if (this.isExfil(`${this.image ? '!' : ''}[x](${m[1]})`)) return true
+    for (const { url, image } of this.urls) if (/^https?:\/\//i.test(url) && this.isExfil(asMarkdown(url, image))) return true
     for (const m of text.matchAll(SRC_URL)) if (this.isExfil(`<img src="${m[1]}">`)) return true
-    for (const m of text.matchAll(DEF_URL)) if (this.isExfil(`![x](${m[1]})`)) return true
     return false
+  }
+
+  private endUrl(): void {
+    this.urls.push({ url: this.url, image: this.def || this.image })
+    this.url = ''
+    this.depth = 0
+    this.escape = false
+    this.link = 'text'
   }
 
   /** Feeds one event's text; false when held text it settles carries exfil. */
@@ -113,13 +136,17 @@ export class ExfilStreamHold {
       if (c === '[') this.image = this.prev === '!'
       this.stepLink(c)
       this.stepImage(c)
-      if (this.newlines >= 2) { this.link = 'text'; this.tag = false; this.quote = ''; this.lt = '' }
+      if (this.newlines >= 2) {
+        if (this.link === 'url') this.endUrl()
+        this.link = 'text'; this.tag = false; this.quote = ''; this.lt = ''
+      }
       const now = this.holding()
-      if (!was && now) this.pending = this.tag ? this.recent : c
+      if (!was && now) { this.pending = this.tag ? this.recent : c; this.urls = [] }
       else if (was) this.pending += c
       if (was && !now) {
         if (this.carriesExfil()) return false
         this.pending = ''
+        this.urls = []
       }
       this.prev = c
     }
@@ -133,20 +160,45 @@ export class ExfilStreamHold {
         return
       case 'close':
         // `](` opens an inline URL, `]:` a reference definition's.
-        if (c === '(' || c === ':') { this.link = 'url'; this.urlStarted = false }
-        else if (c !== ']') this.link = 'text'
-        return
-      case 'url':
-        // `](  <https://...` may open with whitespace and `<`; the URL ends at
-        // `)`, `>` or whitespace after it.
-        if (!this.urlStarted) {
-          if (c === ')') this.link = 'text'
-          else this.urlStarted = !/\s|</.test(c)
-        } else if (c === ')' || c === '>' || /\s/.test(c)) {
+        if (c === '(' || c === ':') {
+          this.link = 'url'
+          this.def = c === ':'
+          this.urlStarted = false
+          this.url = ''
+          this.depth = 0
+          this.escape = false
+        } else if (c !== ']') {
           this.link = 'text'
         }
         return
+      case 'url':
+        this.stepUrl(c)
+        return
     }
+  }
+
+  private stepUrl(c: string): void {
+    if (!this.urlStarted) {
+      if (/\s/.test(c)) return
+      this.urlStarted = true
+      if (c === '<') { this.angle = true; return }
+      this.angle = false
+      if (c === ')' && !this.def) { this.endUrl(); return }
+    }
+    if (this.escape) { this.url += c; this.escape = false; return }
+    if (c === '\\') { this.escape = true; return }
+    if (this.angle) {
+      if (c === '>' || c === '\n') this.endUrl()
+      else this.url += c
+      return
+    }
+    if (/\s/.test(c)) { this.endUrl(); return }
+    if (c === '(') this.depth++
+    else if (c === ')') {
+      if (this.depth === 0) { this.endUrl(); return }
+      this.depth--
+    }
+    this.url += c
   }
 
   private stepImage(c: string): void {
