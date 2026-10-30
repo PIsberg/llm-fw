@@ -69,6 +69,15 @@ describe('GET /api/status', () => {
     expect((await get('/api/status')).json.sinkhole).toBe(false)
   })
 
+  // A bug report is only useful with the version it was seen on; the Report
+  // menu fills it in from here.
+  it('reports the llm-fw version and the ruleset version', async () => {
+    const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }
+    const { RULESET_VERSION } = await import('../../src/detection/ruleset.js')
+    const res = await get('/api/status')
+    expect(res.json).toMatchObject({ version: pkg.version, rulesetVersion: RULESET_VERSION })
+  })
+
   it('the header has the mode chips and loads them from /api/status', () => {
     expect(DASHBOARD_HTML).toContain('id="mode-chips"')
     expect(DASHBOARD_HTML).toContain("fetch('/api/status')")
