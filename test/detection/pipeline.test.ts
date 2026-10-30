@@ -628,6 +628,24 @@ describe('Pipeline', () => {
       expect(result.stage).toBe('classifier')
     })
 
+    // The classifier unwraps Claude Code's envelopes only for a user turn and
+    // skips its notices only for a tool result, so it must be told which.
+    it('tells the classifier the surface of each text', async () => {
+      mockScore.mockReturnValue({ score: 0, matches: [] })
+      mockCheck.mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 1 })
+      mockClassifierClassify.mockResolvedValue({ injection: false, score: 0.01 })
+      const body = JSON.stringify({
+        messages: [
+          { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'true' } }] },
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '(Bash completed with no output)' }, { type: 'text', text: 'carry on with the release notes' }] },
+        ],
+      })
+      await new Pipeline(classifierConfig(), undefined).run('/v1/messages', body, META)
+      const calls = mockClassifierClassify.mock.calls.map((c: unknown[]) => [c[0], c[1]])
+      expect(calls).toContainEqual(['carry on with the release notes', 'prompt'])
+      expect(calls).toContainEqual(['(Bash completed with no output)', 'tool_result'])
+    })
+
     it('live-override prompt with no mention frame still blocks', async () => {
       mockScore.mockReturnValue({ score: 0, matches: [] })
       mockCheck.mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 1 })

@@ -164,6 +164,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.106 (classifier: Claude Code envelopes, notices
+  // and tool_reference blocks, opt-in stage, measured unchanged).
   // Held at ruleset 2026.10.105 (Codex AGENTS.md envelope scanned as the
   // file inside it, #459; 0 of 27,912 eval verdicts changed).
   // Held at ruleset 2026.10.104 (stage-1 shapes for reworded fake-mode

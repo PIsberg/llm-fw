@@ -30,6 +30,9 @@ function mediaBlockFromUrl(kind: MediaBlock['kind'], url: unknown): MediaBlock |
  * every line break into the two characters `\n`, so a detector anchored on a
  * line start never saw one and an injection on its own line passed (#292).
  */
+// The API's tool-name grammar, plus `.` and `:` some MCP clients use.
+const TOOL_NAME = /^[\w.:-]{1,128}$/
+
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content
   if (content === undefined) return ''
@@ -38,6 +41,11 @@ function toolResultText(content: unknown): string {
     if (typeof b === 'string') return b
     if (typeof b?.text === 'string') return b.text
     if (Array.isArray(b?.content)) return toolResultText(b.content)
+    // Claude Code's tool search: a block that names a tool to load and holds
+    // nothing else. Its JSON scored 98.8% injection on the classifier live.
+    // One with any other field, or a name that is not a tool name, is scanned
+    // whole, as an unknown block is.
+    if (b?.type === 'tool_reference' && typeof b.tool_name === 'string' && TOOL_NAME.test(b.tool_name) && Object.keys(b).length === 2) return b.tool_name
     return JSON.stringify(b)
   }).join('\n')
 }

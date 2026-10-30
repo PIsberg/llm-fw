@@ -907,7 +907,7 @@ export class Pipeline {
       // no-op (returns null) when the stage is disabled, and lazy-loads the
       // model on first use when enabled.
       if (this.config.detection.classifier?.enabled && classifierScansSurface(this.config, source)) {
-        const v = await this.classifier.classify(prompt)
+        const v = await this.classifier.classify(prompt, source)
         // Per-surface block threshold; equals classifier.blockThreshold unless
         // detection.surfaces overrides it for tool_result/document. Compared
         // against v.score here rather than trusting v.injection, which the

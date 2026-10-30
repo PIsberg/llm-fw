@@ -73,6 +73,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.106
+
+**Unchanged from 2026.10.105: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** The opt-in classifier stage (off in this measurement and in
+the eval) now scores Claude Code's slash-command and `<session>` envelopes for the text they
+carry, skips the fixed tool-result notices `(Bash completed with no output)` and `[Request
+interrupted by user]`, and reads a `tool_reference` block as its tool name: found live, where
+the real model scored the envelope 90.8% and the notices 99.9% injection. Held-out recall on
+the cheap pipeline: heldout 23 of 31, injecagent 1,054 of 1,054, safeguard 496 of 650.
+
 ## Result, ruleset 2026.10.105
 
 **Unchanged from 2026.10.104: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

@@ -5,6 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice } from './clientEnvelopes.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('classifier');
@@ -133,8 +134,9 @@ export class InjectionClassifier {
    * or model failed to load) so the caller can skip it. Results are LRU-cached by
    * content hash — proxy traffic re-sends identical system prefixes / tool
    * descriptions constantly, so the cache skips the model for the common case.
+   * `source` is the surface the text came from; see below for what it changes.
    */
-  async classify(text: string): Promise<ClassifierVerdict | null> {
+  async classify(text: string, source?: string): Promise<ClassifierVerdict | null> {
     if (!this.config.classifier?.enabled || !text) return null
     // Lazy-load on first use so toggling the stage on from the dashboard
     // activates it without a restart (the first request pays the one-time load).
@@ -142,14 +144,22 @@ export class InjectionClassifier {
     if (!this.isInitialized()) return null
     const threshold = this.config.classifier.blockThreshold ?? 0.9
 
-    const key = createHash('sha256').update(text).digest('hex')
+    // Claude Code's own envelopes and notices are scored for what they carry
+    // (see clientEnvelopes.ts); the model mistakes the wrappers for injection.
+    // Only on the surface Claude Code writes each to: envelopes in a user
+    // turn, notices as a tool result. Elsewhere someone else wrote them, and
+    // the tags are scored with the rest.
+    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
+    if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
+
+    const key = createHash('sha256').update(scored).digest('hex')
     const cached = this.cache.get(key)
     if (cached) return cached
 
     try {
       // DeBERTa-v3-base has a 512-token window; truncate very long inputs so a
       // huge tool-result blob can't blow up latency or overflow the model.
-      const input = text.length > 4000 ? text.slice(0, 4000) : text
+      const input = scored.length > 4000 ? scored.slice(0, 4000) : scored
       const out = await this.classifyRaw(input)
       const top = out[0]
       const injScore = top && top.label.toUpperCase() === 'INJECTION'
