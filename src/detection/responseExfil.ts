@@ -20,16 +20,28 @@ export interface ExfilFinding {
   reason: string
 }
 
+// Every URL pattern also takes a scheme-relative `//host/...`, which a
+// browser resolves to https (parseUrl does the same).
 // `!\[alt\](url)` — markdown image. URL stops at whitespace, ')' or '>'.
-const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
+const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?((?:https?:)?\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
 // `\[text\](url)` — markdown link (not preceded by '!', which is the image form).
-const MD_LINK_RE = /(?<!!)\[[^[\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
+const MD_LINK_RE = /(?<!!)\[[^[\]]*\]\(\s*<?((?:https?:)?\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
+// `[label]: url` — a link reference definition (#574). `![alt][label]` (and
+// `![label]`) fetch its URL like an inline image, so it is reported as one.
+// Any `]:` before a URL counts, whatever starts the line: a definition may sit
+// in a blockquote or a list item, its label may hold escapes, and the body is
+// often raw JSON with escaped line breaks, so recognising "a definition line"
+// exactly as a renderer does is a parser differential waiting to happen.
+// Only an exfil destination is ever reported, so a `]:` in prose costs
+// nothing unless it points at one. The destination may follow on the next
+// line, after one line ending, raw or JSON-escaped.
+const MD_DEF_RE = /\]:[ \t]*(?:(?:\r?\n|\\r\\n|\\n)[ \t]*)?<?((?:https?:)?\/\/[^\s>"\\]+)/gi
 // `<img ... src="url">` — HTML image (some renderers allow raw HTML).
-const HTML_IMG_RE = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
+const HTML_IMG_RE = /<img\b[^>]*?\bsrc\s*=\s*["']?((?:https?:)?\/\/[^"'\s>]+)/gi
 
 function parseUrl(u: string): { hostname: string; path: string } | null {
   try {
-    const url = new URL(u)
+    const url = new URL(u.startsWith('//') ? `https:${u}` : u)
     return { hostname: url.hostname, path: url.pathname + url.search }
   } catch {
     return null
@@ -74,6 +86,7 @@ export function scanResponseExfil(
   }
 
   scan(MD_IMAGE_RE, 'markdown-image')
+  scan(MD_DEF_RE, 'markdown-image')
   scan(HTML_IMG_RE, 'html-image')
   scan(MD_LINK_RE, 'markdown-link')
   return findings

