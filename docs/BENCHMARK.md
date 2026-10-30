@@ -159,16 +159,16 @@ had drifted by the time they were re-run: gandalf read 81.3% against a measured
 FPR 9.5% against a measured 0%. That is the same failure the paragraph below
 already records, repeated. Regenerate this table when detection changes.
 
-The **classifier** column is mixed. The safeguard row was re-measured at ruleset
-`2026.08.12` on 2026-08-29 and is shown in bold; every other classifier figure
-still dates from the Round 6 run recorded in
-[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and is marked with a
-double dagger rather than presented as current.
+Both columns were measured together on 2026-10-30 at ruleset `2026.10.101`.
+Until then the classifier column mixed a safeguard row from `2026.08.12` with
+figures from the Round 6 run recorded in
+[BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and it carried no benign
+corpus at all.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 2.03% (5/246) at ruleset `2026.10.21`, the same 5 rows
-as at `2026.10.6` over a corpus that grew by ten benign families. The second
+`benign-realistic` — 2.68% (9/336) at ruleset `2026.10.101` (2.03%, 5/246, at
+`2026.10.21`, the same 5 rows as at `2026.10.6`). The second
 false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000),
 and the third, `oasst1-sample`, at 0% (0/2,000) since ruleset `2026.10.8`
 (0.15%, 3/2,000, at `2026.10.7`; #269). That is the Windows figure; the
@@ -187,21 +187,19 @@ claim, not a measurement; regenerate this table when detection changes.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-10-10, ruleset 2026.10.21 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
 |---|---|---|---|
-| gandalf (real "ignore instructions" attacks) | 112 | 86.6% (97/112) / — | 100% / — ‡ |
-| safeguard (clean, balanced, full split) | 2,060 | 76.8% (499/650) / 0.07% (1/1,410) | **83.5% (543/650) / 0.28% (4/1,410)** ‡‡ |
-| deepset (noisy labels) | 116 | 28.3% (17/60) / 0% (0/56) | 41.7% / 0% ‡ |
-| heldout (hardest, adversarial benign) | 52 | 74.2% (23/31) / 0% (0/21) | 80.6% / 9.5% ‡ |
-| dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | not measured |
-| oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000) at `2026.10.8`; 0.05% (1/2,000) on Linux CI, #272 | not measured |
-| aya-sample (human-written prompts, 70 languages, benign only) | 2,795 | — / 0% (0/2,795) at `2026.10.87` | not measured |
+| gandalf (real "ignore instructions" attacks) | 112 | 86.6% (97/112) / — | 100% (112/112) / — |
+| safeguard (clean, balanced, full split) | 2,060 | 76.3% (496/650) / 0.07% (1/1,410) | 92.3% (600/650) / 0.14% (2/1,410) |
+| deepset (noisy labels) | 116 | 28.3% (17/60) / 0% (0/56) | 43.3% (26/60) / 0% (0/56) |
+| heldout (hardest, adversarial benign) | 52 | 74.2% (23/31) / 0% (0/21) | 83.9% (26/31) / 4.8% (1/21) |
+| dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | — / 0.10% (2/2,000) |
+| oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000); 0.05% (1/2,000) on Linux CI, #272 | — / 11.85% (237/2,000) |
+| aya-sample (human-written prompts, 70 languages, benign only) | 2,795 | — / 0% (0/2,795) | — / 41.50% (1,160/2,795) |
 
-‡‡ Re-measured at ruleset `2026.08.12`, before the cheap column's last five
-rulesets.
-
-Pooled across the four attack splits, direct-injection recall is **74.6%
-(636/853)**, up from 67.5% (576/853) at `2026.10.12`. The #221 rulesets
+Pooled across the four attack splits, direct-injection recall is **74.2%
+(633/853)** at `2026.10.101` (74.6%, 636/853, at `2026.10.21`; the difference is
+3 safeguard rows), up from 67.5% (576/853) at `2026.10.12`. The #221 rulesets
 (`2026.10.13` to `2026.10.21`) each added a stage-1 family with a held-out
 benign family measured before and after it: coercion by unnamed
 consequences (16), persona demands made with "tell me" or a demand frame
@@ -225,26 +223,26 @@ persona-reassignment exfiltration and system-prompt extraction. No
 false-positive rate moved.
 
 **Why the classifier is still opt-in, despite that safeguard row.** On safeguard
-the trained classifier is still the better detector: 83.5% recall against the
-cheap pipeline 76.8%, at a comparable 0.28% false-positive rate. That gap was
-41.7 points before ruleset `2026.08.13` closed the override, disclosure and
-extraction families, and is 6.7 points now: about 84% of what the
-classifier was buying on this split is bought deterministically instead, at
-~27 ms rather than ~800 ms. (The classifier figure dates from `2026.08.12`
-and was not re-run for this comparison.)
+the trained classifier is the better detector: 92.3% recall against the cheap
+pipeline's 76.3%, at 0.14% against 0.07% false positives (2 and 1 of 1,410). It
+also lifts jailbreak-classification from 57.4% to 82.3% (446/542), the split no
+rule has been tuned on. Measured 2026-10-30, both at ruleset `2026.10.101`.
 
-That row on its own still argues for turning it on by default. Measured against the
-realistic benign corpus instead, it argues the opposite. On
-`test/eval/data/benign-realistic.json` the same configuration blocks 27.5% of
-benign rows (39 of 142) where the cheap pipeline blocks 5.63% (8 of 142), and it
-does so at 808 ms p50 rather than roughly 10 ms.
+That row on its own argues for turning it on by default. Measured against the
+benign corpora, it argues the opposite. The same configuration blocks 25.3% of
+`benign-realistic` (85 of 336) where the cheap pipeline blocks 2.68% (9), 41.5%
+of the 70-language Aya sample (1,160 of 2,795) and 11.85% of the oasst1 chat
+sample (237 of 2,000) where the cheap pipeline blocks none, and it does so at
+83 to 129 ms p50 rather than 5 to 10 ms (all on this machine, CPU only).
 
 The two results are not in conflict, they are measuring different traffic.
 safeguard benign rows are dataset-style prompts. The realistic corpus is
 deliberately weighted toward what an agent deployment actually sends: system
 prompts, tool definitions, retrieved documents, bare developer imperatives. The
-classifier fires hardest on exactly those shapes, blocking 70% of the
-instruction-management rows and 63% of the rag-document rows. A firewall whose
+classifier fires hardest on exactly those shapes, blocking 83% of the
+self-correction rows and 70% of the instruction-management, instruction-question
+and briefing-update rows (2026-10-30; 70% and 63% of instruction-management and
+rag-document at `2026.08.12`). A firewall whose
 worst failure is a developer switching it off cannot ship a default that blocks
 one benign request in four.
 
@@ -318,9 +316,9 @@ was already making by leaving it off.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-10-10, ruleset 2026.10.21 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
 |---|---|---|---|
-| injecagent (tool-result poisoning) | 1,071 | **100% (1,054/1,054) / 0% (0/17)** | 97.6% / 35.3% ‡† |
+| injecagent (tool-result poisoning) | 1,071 | 100% (1,054/1,054) / 0% (0/17) | 100% (1,054/1,054) / 35.3% (6/17) † |
 
 The surface-scoped `indirectInstruction` detector catches the planted
 instruction before any model runs. Adding the classifier does not help here and
@@ -329,7 +327,7 @@ tool responses), so the cheap detector alone is the better operating point on
 this surface.
 
 † FPR over only 17 synthetic benign rows — indicative, not precise. The same
-caveat applies to heldout's 21 benign rows: a 9.5% FPR there is 2 prompts.
+caveat applies to heldout's 21 benign rows: a 4.8% FPR there is 1 prompt.
 
 **Read the 100% with its corpus in mind.** InjecAgent is templated, and its
 attacker instructions are far less varied than 1,054 rows suggests: 66.7% of the
@@ -374,21 +372,23 @@ took the object requirement. The remaining row is characterisation, not gated.
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-10-10, ruleset 2026.10.21 | + Trained classifier (bold = re-measured; ‡ = older run) |
+| Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
 |---|---|---|---|
-| jbb-behaviors (100 harmful / 100 benign) | 200 | **100% (100/100) / 1.0% (1/100)** | 26.0% / 3.0% ‡ |
-| harmbench | 400 | **41.5% (166/400) / —** | 18.5% / — ‡ |
-| advbench | 520 | **64.4% (335/520) / —** | 40.4% / — ‡ |
+| jbb-behaviors (100 harmful / 100 benign) | 200 | 100% (100/100) / 1.0% (1/100) | 100% (100/100) / 2.0% (2/100) |
+| harmbench | 400 | 41.5% (166/400) / — | 41.8% (167/400) / — |
+| advbench | 520 | 64.4% (335/520) / — | 64.4% (335/520) / — |
 
 Ruleset `2026.10.1` narrowed this rule against benign trivia (11 of 15,011
 Dolly-15k prompts had blocked) and gained recall in the same change: harmbench
 164 to 166, advbench 328 to 335. See the CHANGELOG for how.
 
-‡ Measured on an earlier ruleset. Where the cheap column now exceeds it, that is
-staleness in the classifier column, not evidence that the classifier hurts —
-re-run `scripts/run-benchmark.ts classifier` to refresh it. Note the memory
-constraint: run the full splits per-split in subprocesses with
-`--max-old-space-size=8192`, or the single-process run dies silently on OOM.
+Both columns come from one pair of runs, `scripts/run-benchmark.ts cheap` and
+`scripts/run-benchmark.ts classifier`, on 2026-10-30 at ruleset `2026.10.101`.
+The classifier preset runs each split in its own Node process with an 8 GB heap
+(#538): in one process the full suite ran out of memory part way through and
+exited without a report, which is why this column had gone stale since ruleset
+`2026.08.12`. On the harmful-content splits the classifier adds 1 row of 1,020:
+those rows are decided by the harmful-request stage before it runs.
 
 The deterministic `harmfulRequest` rule is what carries the harmful-content
 column. Its weakest class by far is harmbench `copyright` at **0/100** — a
