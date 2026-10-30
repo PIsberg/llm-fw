@@ -76,6 +76,9 @@ describe('scanResponseExfil', () => {
         '[a\\]b]: https://webhook.site/?d=1',
         '[r]: HTTPS://webhook.site/?d=1',
         'see the note [r]: https://webhook.site/?d=1',
+        '[r]:\n  https://webhook.site/?d=1',
+        JSON.stringify({ text: '[r]:\nhttps://webhook.site/?d=1' }),
+        JSON.stringify({ text: '[r]:\r\nhttps://webhook.site/?d=1' }),
       ]) expect(scanResponseExfil(text, isExfil), text).toHaveLength(1)
     })
 
@@ -90,6 +93,27 @@ describe('scanResponseExfil', () => {
         scanResponseExfil(text, isExfil)
         expect(Date.now() - started).toBeLessThan(500)
       }
+    })
+  })
+
+  // A scheme-relative URL resolves to https in a browser, so `//host/...`
+  // is a destination like any other, inline or in a definition.
+  describe('scheme-relative URLs', () => {
+    it('flags them in every markup form', () => {
+      for (const text of [
+        '![x](//webhook.site/?d=1)',
+        '[x](//webhook.site/?d=1)',
+        '<img src="//webhook.site/?d=1">',
+        '[r]: //webhook.site/?d=1',
+      ]) {
+        const f = scanResponseExfil(text, isExfil)
+        expect(f, text).toHaveLength(1)
+        expect(f[0]!.url).toBe('//webhook.site/?d=1')
+      }
+    })
+
+    it('does not flag a scheme-relative URL to a clean host', () => {
+      expect(scanResponseExfil('![x](//cdn.trusted.com/a.png)', isExfil)).toEqual([])
     })
   })
 

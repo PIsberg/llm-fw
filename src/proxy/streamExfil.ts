@@ -30,11 +30,14 @@ import { sseEventText } from './canary.js'
 const RENDERED_KEYS: ReadonlySet<string> = new Set(['text', 'thinking', 'content', 'refusal', 'delta', 'output'])
 const EVENT_END = /\r?\n\r?\n/
 const IMG = '<img'
+// Each URL here may also be scheme-relative (`//host/...`), which a browser
+// resolves to https.
 // The URL in a `src=` attribute, wherever it sits.
-const SRC_URL = /\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
+const SRC_URL = /\bsrc\s*=\s*["']?((?:https?:)?\/\/[^"'\s>]+)/gi
 // Any URL at all in held text, judged by its host as an image: a destination
 // that never closes must not hide another inside it.
-const ANY_URL = /https?:\/\/[^\s"'<>()[\]\\]+/gi
+const ANY_URL = /(?:https?:)?\/\/[^\s"'<>()[\]\\]+/gi
+const IS_URL = /^(?:https?:)?\/\//i
 // What a backslash escapes in CommonMark; before anything else it is literal.
 const ESCAPABLE = /[!-/:-@[-`{-~]/
 
@@ -119,7 +122,7 @@ export class ExfilStreamHold {
   private carriesExfil(): boolean {
     const text = this.pending
     if (this.isExfil(text)) return true
-    for (const { url, image } of this.urls) if (/^https?:\/\//i.test(url) && this.isExfil(asMarkdown(url, image))) return true
+    for (const { url, image } of this.urls) if (IS_URL.test(url) && this.isExfil(asMarkdown(url, image))) return true
     for (const m of text.matchAll(SRC_URL)) if (this.isExfil(`<img src="${m[1]}">`)) return true
     for (const m of text.matchAll(ANY_URL)) if (this.isExfil(`![x](${m[0]})`)) return true
     return false
