@@ -22,8 +22,15 @@ import { ModuleManager, TOKEN_ECONOMY_ID } from '../modules/registry.js'
 import { PromptMonitorModule } from '../modules/builtin/promptMonitor.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
+import { RULESET_VERSION } from '../detection/ruleset.js'
 
 const log = createLogger('dashboard');
+
+// For bug reports from the Report menu. package.json sits two levels up from
+// both src/dashboard and dist/dashboard.
+const PACKAGE_VERSION = ((): string => {
+  try { return (JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version?: string }).version ?? '' } catch { return '' }
+})()
 
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -312,6 +319,14 @@ const HTML = `<!DOCTYPE html>
   .prompt-meta { color: var(--text-3); font-size: 0.74rem; }
   .btn-ghost { background: var(--bg-elev); color: var(--text); border-color: var(--line-strong); box-shadow: none; }
   .btn-ghost:hover { background: var(--bg-sunken); color: var(--text); box-shadow: none; }
+  .report-menu { position: relative; display: inline-block; }
+  .report-menu > summary { list-style: none; }
+  .report-menu > summary::-webkit-details-marker { display: none; }
+  .report-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 260px; display: flex; flex-direction: column; gap: 2px; padding: 6px; background: var(--bg-elev); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18); }
+  .drawer .report-pop { right: auto; left: 0; }
+  .report-pop a { display: block; padding: 7px 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.82rem; font-weight: 500; }
+  .report-pop a:hover, .report-pop a:focus-visible { background: var(--bg-sunken); }
+  .report-pop small { display: block; color: var(--text-2); font-size: 0.72rem; font-weight: 400; }
 
   /* ── Tables ─────────────────────────────────────────────────────────────── */
   .table-wrap { overflow-x: auto; }
@@ -627,8 +642,14 @@ const HTML = `<!DOCTYPE html>
     </div>
     <div class="header-right">
       <div id="mode-chips" class="mode-chips"></div>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/PIsberg/llm-fw/issues/new" target="_blank" rel="noopener noreferrer" title="Open a bug report or false-positive issue on GitHub">Report on GitHub</a>
-      <a class="btn btn-ghost btn-sm" href="mailto:isberg.peter@gmail.com?subject=llm-fw%20bug%20report" title="Email a bug report directly">Report by email</a>
+      <details class="report-menu" id="report-menu">
+        <summary class="btn btn-ghost btn-sm" title="Report a bug, a problem or a wrong verdict">Report</summary>
+        <div class="report-pop">
+          <a id="report-bug" href="https://github.com/PIsberg/llm-fw/issues/new?labels=bug" target="_blank" rel="noopener noreferrer">Bug or problem<small>Something broke, hung or behaved oddly</small></a>
+          <a id="report-verdict" href="https://github.com/PIsberg/llm-fw/issues/new" target="_blank" rel="noopener noreferrer">Wrong verdict<small>A false positive or a missed attack</small></a>
+          <a id="report-mail" href="mailto:isberg.peter@gmail.com?subject=llm-fw%20report">Email instead<small>Private, not on GitHub</small></a>
+        </div>
+      </details>
       <span class="live-pill" title="Connected to the event stream"><span class="live-dot"></span>Live</span>
       <button id="theme-toggle" class="icon-btn" type="button" title="Switch between light and dark" aria-label="Switch between light and dark" onclick="toggleTheme()">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -1050,8 +1071,14 @@ function toggleDrawer(id, ev) {
           ? '<button class="btn btn-sm" id="fp-btn-' + esc(id) + '" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
             '<span id="fp-status-' + esc(id) + '" class="status-ok"></span>'
           : '') +
-        '<a class="btn btn-ghost btn-sm" id="gh-bug-' + esc(id) + '" href="' + esc(bugLinks.github) + '" target="_blank" rel="noopener noreferrer" title="Open a pre-filled GitHub issue for this event">Report on GitHub</a>' +
-        '<a class="btn btn-ghost btn-sm" id="mail-bug-' + esc(id) + '" href="' + esc(bugLinks.mailto) + '" title="Email a pre-filled report for this event">Report by email</a>' +
+        '<details class="report-menu">' +
+          '<summary class="btn btn-ghost btn-sm" title="Report this event, filled in with its details">Report</summary>' +
+          '<div class="report-pop">' +
+            '<a href="' + esc(bugLinks.verdict) + '" target="_blank" rel="noopener noreferrer">Wrong verdict<small>This should not have been ' + esc(ev.action || 'flagged') + '</small></a>' +
+            '<a href="' + esc(bugLinks.bug) + '" target="_blank" rel="noopener noreferrer">Bug or problem<small>Something about this event looks broken</small></a>' +
+            '<a href="' + esc(bugLinks.mailto) + '">Email instead<small>Private, not on GitHub</small></a>' +
+          '</div>' +
+        '</details>' +
       '</div>' +
     '</div>' +
     '</td></tr>';
@@ -1068,12 +1095,58 @@ function toggleDrawer(id, ev) {
   }
 }
 
+// ── Report menu: a bug or problem, or a wrong verdict, on GitHub or by email.
+// Every report carries the version, ruleset and mode (from /api/status);
+// one from an event drawer carries the event too.
+const REPORT_ISSUES = 'https://github.com/PIsberg/llm-fw/issues/new';
+const REPORT_EMAIL = 'isberg.peter@gmail.com';
+let fwInfo = { version: '', rulesetVersion: '', enforcement: '' };
+
+function reportEnvironment() {
+  return [
+    '### Environment',
+    '- **Version**: llm-fw ' + (fwInfo.version || 'unknown') + ', ruleset ' + (fwInfo.rulesetVersion || 'unknown') + ', ' + (fwInfo.enforcement || 'unknown') + ' mode',
+    '- **Client**: (Claude Code, Codex, an SDK, ...)',
+    '- **OS**: ' + (navigator.platform || 'unknown'),
+  ];
+}
+
+function bugReportBody(eventLines) {
+  return ['### What happened', '', '', '### What you expected', '', '', '### Steps to reproduce', '1. ', '']
+    .concat(reportEnvironment(), eventLines ? [''].concat(eventLines) : []).join('\\n');
+}
+
+function verdictReportBody(eventLines) {
+  return ['### What was blocked, warned or missed', '', '', '### Why it is wrong', '', '']
+    .concat(reportEnvironment(), eventLines ? [''].concat(eventLines) : []).join('\\n');
+}
+
+function issueUrl(title, body, label) {
+  return REPORT_ISSUES + '?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body) + (label ? '&labels=' + label : '');
+}
+
+function mailUrl(title, body) {
+  return 'mailto:' + REPORT_EMAIL + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body);
+}
+
+function refreshReportLinks() {
+  const set = (id, href) => { const a = document.getElementById(id); if (a) a.href = href; };
+  set('report-bug', issueUrl('[Bug] ', bugReportBody(null), 'bug'));
+  set('report-verdict', issueUrl('[Detection report] ', verdictReportBody(null)));
+  set('report-mail', mailUrl('llm-fw report', bugReportBody(null)));
+}
+refreshReportLinks();
+// An open menu closes on a click anywhere else, as a menu should.
+document.addEventListener('click', e => {
+  document.querySelectorAll('details.report-menu[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); });
+});
+
 function buildEventBugLinks(ev) {
-  const title = '[Detection report] ' + (ev.action || 'event') + ' at stage ' + (ev.stage || 'none') + ' (' + (ev.method || '') + ' ' + (ev.path || '') + ')';
+  const where = (ev.action || 'event') + ' at stage ' + (ev.stage || 'none') + ' (' + (ev.method || '') + ' ' + (ev.path || '') + ')';
   const matches = ev.heuristicMatches && ev.heuristicMatches.length ? ev.heuristicMatches.join(', ') : 'none';
   const preview = String(ev.payload_preview || '').slice(0, 400);
-  const body = [
-    '### Event details',
+  const eventLines = [
+    '### Event',
     '- **Action**: ' + (ev.action || '') + (ev.withheld ? ' (withheld)' : ''),
     '- **Stage**: ' + (ev.stage || 'none'),
     '- **Score**: ' + (ev.score != null ? Number(ev.score).toFixed(1) : 'n/a'),
@@ -1081,17 +1154,15 @@ function buildEventBugLinks(ev) {
     '- **Heuristic matches**: ' + matches,
     '- **Target / Path**: ' + (ev.target || '') + ' ' + (ev.method || '') + ' ' + (ev.path || ''),
     '',
-    '### Expected vs actual verdict',
-    '- **Expected**: ',
-    '',
     '### Redacted preview (check before sending)',
     '~~~',
     preview,
     '~~~',
-  ].join('\\n');
+  ];
   return {
-    github: 'https://github.com/PIsberg/llm-fw/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body),
-    mailto: 'mailto:isberg.peter@gmail.com?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body),
+    verdict: issueUrl('[Detection report] ' + where, verdictReportBody(eventLines)),
+    bug: issueUrl('[Bug] ' + where, bugReportBody(eventLines), 'bug'),
+    mailto: mailUrl('[llm-fw] ' + where, verdictReportBody(eventLines)),
   };
 }
 
@@ -1243,6 +1314,8 @@ async function loadModeChips() {
     const res = await fetch('/api/status');
     if (!res.ok) return;
     const s = await res.json();
+    fwInfo = { version: s.version || '', rulesetVersion: s.rulesetVersion || '', enforcement: s.enforcement || '' };
+    refreshReportLinks();
     const chips = [];
     if (s.enforcement === 'observe') chips.push(['observe', 'Observe mode: nothing is blocked', 'Every detector runs and would-be blocks are recorded, but no request is refused. Restart without --observe to enforce.']);
     if (s.sinkhole) chips.push(['sinkhole', 'Sinkhole active', 'Provider hostnames resolve to this machine (hosts file plus a :443 redirect), so Node.js and native clients are inspected without HTTPS_PROXY. llm-fw stop or uninstall restores them.']);
@@ -2883,6 +2956,8 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         gatewayUrl: state?.gatewayUrl ?? null,
         proxyUrl: state?.proxyUrl ?? null,
         startedAt: state?.startedAt ?? null,
+        version: PACKAGE_VERSION,
+        rulesetVersion: RULESET_VERSION,
       }))
       return
     }

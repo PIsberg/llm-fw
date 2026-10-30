@@ -759,13 +759,15 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.body).toContain('s-ascii')
   })
 
-  it('GET / HTML exposes GitHub issue and email bug-report links in header and event drawer (#469)', async () => {
+  it('GET / HTML has one Report menu for bugs and wrong verdicts, on GitHub or by email (#469)', async () => {
     const res = await req(server, 'GET', '/')
     expect(res.status).toBe(200)
     expect(res.body).toContain('https://github.com/PIsberg/llm-fw/issues/new')
     expect(res.body).toContain('mailto:isberg.peter@gmail.com')
     expect(res.body).toContain('buildEventBugLinks')
-    expect(res.body).toContain('Report on GitHub')
-    expect(res.body).toContain('Report by email')
+    expect(res.body).toContain('id="report-menu"')
+    expect(res.body).toContain('Bug or problem')
+    expect(res.body).toContain('Wrong verdict')
+    expect(res.body).not.toContain('Report on GitHub')
   })
 })
