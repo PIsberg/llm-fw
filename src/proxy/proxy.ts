@@ -1087,15 +1087,18 @@ export class ProxyServer {
         return
       }
 
-      // Stage 4 - MCP Request Validation. When the request exposes tools, the
-      // response may carry tool_use invocations, so flag it for inbound MCP
-      // inspection in forwardRequest (normal chat traffic stays on the fast path).
+      // Stage 4 - MCP Request Validation. Every response of a recognised LLM
+      // endpoint is gated for tool_use invocations in forwardRequest, not only
+      // one whose request lists tools: Claude Code 2.1 sends `tools` on a
+      // session's first request alone and later ones carry a `thread`, so
+      // keying the gate on the request's tools let every command after the
+      // first turn through. The gate forwards non-tool events as they arrive.
       let mcpInspectResponse = false
       if (this.config.mcp.enabled && getParser(innerReq.url ?? '/') !== null) {
+        mcpInspectResponse = true
         const parser = getParser(innerReq.url ?? '/')!
         const tools = parser.extractTools(body)
         if (tools.length > 0) {
-          mcpInspectResponse = true
           const defResult = this.mcp.checkToolDefinitions(tools)
           if (defResult.action === 'block') {
             innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
@@ -1521,8 +1524,8 @@ export class ProxyServer {
       // request.
       upstream.on('error', (err: Error) => { upstream.setTimeout(0); reject(err) })
 
-      // Parse and stream the response. When the request exposed MCP tools, the
-      // response may carry tool_use invocations — inspect them BEFORE the bytes
+      // Parse and stream the response. Any LLM response may carry tool_use
+      // invocations, whether or not its request listed tools — inspect them BEFORE the bytes
       // reach the agent (see DESIGN-mcp-response.md): non-streaming JSON is
       // buffered and rewritten tool-free; streaming SSE is gated per tool block.
       // Everything else streams straight through untouched.

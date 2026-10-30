@@ -117,6 +117,23 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     })
   }
 
+  // A follow-up turn as Claude Code 2.1 sends it: the tools went with the
+  // session's first request, and later ones carry a `thread` and no `tools`
+  // key, yet the model still calls them.
+  function followUpRequest(scenario: string): string {
+    return JSON.stringify({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 100,
+      scenario,
+      thread: { id: 'thread_test' },
+      messages: [
+        { role: 'user', content: 'tidy up the repo' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_prev', name: 'Bash', input: { command: 'git status --short' } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_prev', content: '' }] },
+      ],
+    })
+  }
+
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-mcp-e2e-'))
     process.env.LLM_FW_DIR = tempDir
@@ -280,6 +297,34 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     const events = mcpEvents().filter((e) => e.action === 'blocked' && e.mcpTool === 'Bash')
     expect(events.length).toBeGreaterThan(0)
     expect(events[0].mcpRule).toContain('Category A')
+  })
+
+  // Live, Claude Code 2.1.314 sent `tools` only on the first request of a
+  // session; every response after that streamed unchecked, and a session asked
+  // to run `git reset --hard HEAD` ran it.
+  it('gates a streamed command in a follow-up turn whose request lists no tools', async () => {
+    const res = await send('/v1/messages', followUpRequest('sse-destructive'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -r')
+    expect(res.body).toContain('"stop_reason":"end_turn"')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'Bash' && e.path === '/v1/messages')).toBe(true)
+  })
+
+  it('gates a JSON tool call in a follow-up turn whose request lists no tools', async () => {
+    const res = await send('/v1/messages', followUpRequest('json-destructive-a'))
+    expect(res.statusCode).toBe(200)
+    const json = JSON.parse(res.body) as { content: Array<{ type: string; name?: string }> }
+    expect(json.content.filter((b) => b.type === 'tool_use').map((b) => b.name)).not.toContain('bash')
+  })
+
+  it('still forwards a plain chat response with no tools in the request', async () => {
+    const res = await send('/v1/messages', JSON.stringify({
+      model: 'claude-3-haiku-20240307', max_tokens: 16, scenario: 'plain',
+      messages: [{ role: 'user', content: 'hi' }],
+    }))
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).content[0].text).toBe('hi')
   })
 
   it('blocks a destructive command in Category A (File System Devastation) from a non-streaming JSON response', async () => {
