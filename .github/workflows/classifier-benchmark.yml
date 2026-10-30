@@ -1,0 +1,73 @@
+name: Classifier Benchmark (weekly)
+
+# Re-measures the trained-classifier column of docs/BENCHMARK.md (#554). That
+# column was refreshed by hand and drifted between 2026.08.12 and 2026.10.30.
+# The run takes roughly an hour: the classifier preset over every split, each
+# in its own process (#538), with the ~330 MB classifier model restored from
+# the cache. Weekly, not nightly, for that cost. It fails when a split's recall
+# moves more than 2 points or its FPR more than 1 point from the published
+# figures, kept machine-readable in test/eval/baselines/classifier.json;
+# either direction, since an improvement means the published figure is stale.
+# The full JSON is uploaded as an artifact and the comparison table lands in
+# the job summary.
+on:
+  schedule:
+    - cron: '23 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classifier-benchmark
+  cancel-in-progress: false
+
+jobs:
+  classifier-benchmark:
+    name: Classifier benchmark vs published figures
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    env:
+      LLM_FW_MODEL_DIR: ${{ github.workspace }}/.hf-model-cache
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache embedding and classifier models
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.hf-model-cache
+          key: llm-fw-model-classifier-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # stdout carries only the JSON; progress goes to stderr.
+      - name: Run the classifier preset over every split
+        run: |
+          set -euo pipefail
+          node --import tsx/esm scripts/run-benchmark.ts classifier --json > classifier-bench.json
+
+      - name: Upload the run
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: classifier-bench
+          path: classifier-bench.json
+          if-no-files-found: warn
+
+      - name: Compare with the published figures
+        run: npm run bench:compare -- test/eval/baselines/classifier.json classifier-bench.json
