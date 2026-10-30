@@ -73,6 +73,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.102
+
+**Unchanged from 2026.10.101: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795 (Russian, Serbian and Ukrainian 0 of 40 each); 0 of 27,912
+eval verdicts changed, maximum similarity drift 0.0009.** The normalizer now folds a word
+made only of Cyrillic or Greek look-alike letters when the words beside it are Latin, so
+"і will" (U+0456) reads as "i will" (#557); the same letters in Cyrillic text stay as they
+are. `npm run recall:floor` holds at 944 of 1,395 and the identifier-free probe at 8 of 40.
+
 ## Result, ruleset 2026.10.101
 
 **Unchanged from 2026.10.100: no eval verdict can change.** The version was cut because
