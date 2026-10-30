@@ -439,13 +439,39 @@ const CONTACT_DATA_RE = IMPERATIVE_OBJECT_RE
 // subject, whose verbs paired with its address ("small phases share a round",
 // a live Claude Code session reading its own history). Only a whole line
 // counts: key at the line start, the address in angle brackets, nothing after
-// it, so an instruction cannot ride on the line. `^[ \t]*` under the m flag
+// it but the `$` that `cat -A` marks a line end with (#477), so an instruction
+// cannot ride on the line. `^[ \t]*` under the m flag
 // fails at once off a line start, and the name is bounded, so this stays linear.
-const GIT_IDENTITY_LINE_RE = /^([ \t]*(?:author|commit|committer|co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|reported-by|suggested-by|helped-by|cc):[ \t]*[^<>\n]{0,200}<)([^<>\s@]+@[^<>\s]+)(?=>[ \t]*\r?$)/gim
+const GIT_IDENTITY_LINE_RE = /^([ \t]*(?:author|commit|committer|co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|reported-by|suggested-by|helped-by|cc):[ \t]*[^<>\n]{0,200}<)([^<>\s@]+@[^<>\s]+)(?=>[ \t]*\$?\r?$)/gim
 
 function blankGitIdentityLines(text: string): string {
   return text.replace(GIT_IDENTITY_LINE_RE, (_m: string, head: string, address: string) => head + ' '.repeat(address.length))
 }
+
+// Package manifests name who wrote the code: `email = "jane@..."` in a
+// pyproject authors table, `"author": "Jane Doe <jane@...>"` in package.json,
+// `author_email="..."` in setup.py. Their description ("Share notes between
+// devices") sits a few lines away, and each read as a verb aimed at the
+// author's address (#477). Two shapes count, and only when the address is all
+// the value holds, so an instruction cannot ride in the string:
+//   - an email-type key (`email`, `e-mail`, `author_email`, `maintainerEmail`,
+//     bare or quoted) assigned one quoted address that closes the value;
+//   - a quoted `Name <address>` string in a value position (after `[`, `,`,
+//     `:`, `=` or `(`), the name at most 80 characters with no quote in it.
+// A dotted key (`user.email`) is left to keyAssignedAddress. An address an
+// instruction names elsewhere in the text is a separate match and still fires.
+const EMAIL_KEY_VALUE_RE = /(?<![\w.-])(["']?)(?:author|maintainer)?[_-]?e-?mail\1([ \t]*[:=][ \t]*)(["'])([^"'\s<>@]{1,64}@[^"'\s<>@]{1,255})(?=\3[ \t]*(?:[,}\])\r\n]|$))/gim
+const QUOTED_IDENTITY_RE = /([[,:=(][ \t]{0,8})(["'])([^"'<>\n]{1,80}<)([^"'<>\s@]{1,64}@[^"'<>\s@]{1,255})(?=>\2)/g
+
+function blankAttributionFields(text: string): string {
+  return text
+    .replace(EMAIL_KEY_VALUE_RE, (m: string, _q: string, _sep: string, _vq: string, address: string) => m.slice(0, m.length - address.length) + ' '.repeat(address.length))
+    .replace(QUOTED_IDENTITY_RE, (_m: string, lead: string, quote: string, head: string, address: string) => lead + quote + head + ' '.repeat(address.length))
+}
+
+// `export NAME=value` is the shell keyword: "export GIT_AUTHOR_EMAIL=..."
+// sets a variable, it does not send anything anywhere (#477).
+const SHELL_EXPORT_AFTER_RE = /^[ \t]+[A-Za-z_]\w*=/
 
 function blankContactClauses(text: string): string {
   return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
@@ -936,7 +962,8 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   for (let em = EMAIL_RE.exec(text); em !== null; em = EMAIL_RE.exec(text)) {
     for (const { i, v } of verbHits) {
       // The verb index is into `hay`, so the key check reads `hay` too.
-      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0])) {
+      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0]) &&
+        !(v === 'export' && SHELL_EXPORT_AFTER_RE.test(hay.slice(i + v.length)))) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
     }
@@ -991,7 +1018,7 @@ function decodeJsonEscapes(text: string): string {
  */
 export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  const original = blankContactClauses(blankGitIdentityLines(decodeJsonEscapes(input)))
+  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(decodeJsonEscapes(input))))
   const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
   const text = blankTrustedAddresses(original, trusted)
   // The ungated rules (polite, directive) fire on the verb alone. When the
@@ -1014,8 +1041,11 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     const window = text.slice(lo, em.index + em[0].length + EXFIL_PROXIMITY)
     EXFIL_VERB_RE.lastIndex = 0
     for (let vm = EXFIL_VERB_RE.exec(window); vm !== null; vm = EXFIL_VERB_RE.exec(window)) {
-      if (keyAssignedAddress(window, vm.index, vm.index + vm[0].length) === em.index - lo) continue
+      // A config key set to this same address (`user.email "x@..."`, also when
+      // an `export X_EMAIL="x@..."` line beside it repeats the address, #477).
+      if (keyHolds(window, vm.index, vm.index + vm[0].length, em[0])) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
+      if (/^export$/i.test(vm[0]) && SHELL_EXPORT_AFTER_RE.test(window.slice(vm.index + vm[0].length))) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
@@ -1062,6 +1092,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (isMethodCall(text, end - verb.length)) continue
     if (isEmailNoun(text, end - verb.length, end)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
+    if (/^export$/i.test(verb) && SHELL_EXPORT_AFTER_RE.test(text.slice(end))) continue
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
