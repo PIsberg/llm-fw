@@ -73,6 +73,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.104
+
+**Unchanged from 2026.10.103: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed, maximum similarity drift
+0.0000.** The heuristic stage learned five attack shapes the embedding stage alone had caught
+(#557), so reworded variants of them block: `npm run fuzz:rules` lets 3 of 644 variants through,
+down from 14. `npm run recall:floor` holds at 944 of 1,395, the identifier-free probe at 8 of
+40, injecagent at 1,054 of 1,054.
+
 ## Result, ruleset 2026.10.103
 
 **Unchanged from 2026.10.102 on every eval corpus: 2.68% overall (9 of 336), Dolly and
