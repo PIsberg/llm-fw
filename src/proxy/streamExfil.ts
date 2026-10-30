@@ -32,6 +32,11 @@ const EVENT_END = /\r?\n\r?\n/
 const IMG = '<img'
 // The URL in a `src=` attribute, wherever it sits.
 const SRC_URL = /\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
+// Any URL at all in held text, judged by its host as an image: a destination
+// that never closes must not hide another inside it.
+const ANY_URL = /https?:\/\/[^\s"'<>()[\]\\]+/gi
+// What a backslash escapes in CommonMark; before anything else it is literal.
+const ESCAPABLE = /[!-/:-@[-`{-~]/
 
 // text: nothing held. close: just after `]`. url: inside the destination
 // after `](` or `]:`, before it ends.
@@ -39,7 +44,7 @@ type Link = 'text' | 'close' | 'url'
 
 /** A held destination, written so the markdown scanner reads it whole. */
 function asMarkdown(url: string, image: boolean): string {
-  const encoded = url.replace(/[\s()<>]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase())
+  const encoded = url.replace(/[\s()<>\\]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase())
   return `${image ? '!' : ''}[x](${encoded})`
 }
 
@@ -116,6 +121,7 @@ export class ExfilStreamHold {
     if (this.isExfil(text)) return true
     for (const { url, image } of this.urls) if (/^https?:\/\//i.test(url) && this.isExfil(asMarkdown(url, image))) return true
     for (const m of text.matchAll(SRC_URL)) if (this.isExfil(`<img src="${m[1]}">`)) return true
+    for (const m of text.matchAll(ANY_URL)) if (this.isExfil(`![x](${m[0]})`)) return true
     return false
   }
 
@@ -185,7 +191,7 @@ export class ExfilStreamHold {
       this.angle = false
       if (c === ')' && !this.def) { this.endUrl(); return }
     }
-    if (this.escape) { this.url += c; this.escape = false; return }
+    if (this.escape) { this.url += ESCAPABLE.test(c) ? c : `\\${c}`; this.escape = false; return }
     if (c === '\\') { this.escape = true; return }
     if (this.angle) {
       if (c === '>' || c === '\n') this.endUrl()

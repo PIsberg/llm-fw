@@ -89,6 +89,21 @@ describe('ExfilStreamHold', () => {
     expect(cut(['[r]: <https://example.com/a b', '?d=secret>\n'])).toBe(true)
     expect(cut(['[x](<https://example.com/a b?d=secret>)'])).toBe(true)
     expect(cut(['[x](https://example.com/a(b)c?d=fine) and more'])).toBe(false)
+    // A backslash escapes ASCII punctuation only; before anything else it is
+    // part of the URL.
+    expect(cut(['[x](https://example.com/a\\b?d=fine)'])).toBe(false)
+  })
+
+  it('judges every URL in held text, even one inside a destination that never closes', () => {
+    expect(run(['[a](https://example.com/(((](https://webhook.site/?d=1)'])).toBeNull()
+    expect(run(['[a](<https://example.com/ https://webhook.site/?d=1'])).toBeNull()
+  })
+
+  it('keeps a backslash that escapes nothing in the judged URL', () => {
+    const seen: string[] = []
+    const hold = new ExfilStreamHold(t => { seen.push(t); return false })
+    hold.push(anthropic('[x](https://example.com/a\\b\\)c) '))
+    expect(seen.some(t => t.includes('https://example.com/a%5Cb') || t.includes('https://example.com/a\\b)c'))).toBe(true)
   })
 
   it('does not close an <img at a > inside a quoted attribute', () => {
