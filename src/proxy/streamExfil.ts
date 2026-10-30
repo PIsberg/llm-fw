@@ -9,7 +9,8 @@
 // What is held is keyed to where the URL is, not to markdown's bracket
 // structure, whose escapes, code spans and nesting end link text where a
 // simple parser would not (each of those was a bypass of an earlier version):
-// - every `](`: from the `]` (one character, to see whether `(` follows)
+// - every `](` and `]:` (a reference definition): from the `]` (one
+//   character, to see what follows)
 //   to the end of the URL after it, wherever it appears;
 // - every `<img` tag: to its `>` outside quotes.
 // A blank line ends either, as no markup spans a paragraph. The held text is
@@ -32,6 +33,9 @@ const IMG = '<img'
 // The URL after a `](` and in a `src=` attribute, wherever they sit.
 const LINK_URL = /\]\(\s*<?(https?:\/\/[^\s)>]+)/gi
 const SRC_URL = /\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
+// A link reference definition, `[label]: url`: an image that names the label
+// fetches it, so it is judged as an image.
+const DEF_URL = /\]:\s*<?(https?:\/\/[^\s>]+)/gi
 
 // text: nothing held. close: just after `]`. url: inside `](`, before the URL ends.
 type Link = 'text' | 'close' | 'url'
@@ -96,6 +100,7 @@ export class ExfilStreamHold {
     if (this.isExfil(text)) return true
     for (const m of text.matchAll(LINK_URL)) if (this.isExfil(`${this.image ? '!' : ''}[x](${m[1]})`)) return true
     for (const m of text.matchAll(SRC_URL)) if (this.isExfil(`<img src="${m[1]}">`)) return true
+    for (const m of text.matchAll(DEF_URL)) if (this.isExfil(`![x](${m[1]})`)) return true
     return false
   }
 
@@ -127,7 +132,8 @@ export class ExfilStreamHold {
         if (c === ']') this.link = 'close'
         return
       case 'close':
-        if (c === '(') { this.link = 'url'; this.urlStarted = false }
+        // `](` opens an inline URL, `]:` a reference definition's.
+        if (c === '(' || c === ':') { this.link = 'url'; this.urlStarted = false }
         else if (c !== ']') this.link = 'text'
         return
       case 'url':
