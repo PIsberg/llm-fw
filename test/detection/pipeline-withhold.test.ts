@@ -191,6 +191,44 @@ describe('Pipeline.inspect: an older blocked prompt is withheld, the newest stil
     expect(withheld).toBe(0)
   })
 
+  // #528: parsers list the system prompt after the user turns, so taking the
+  // last extracted prompt as "the newest" picked the system prompt, and a
+  // blocked newest user prompt was withheld and forwarded instead of refused.
+  const SYSTEM = 'You are a helpful assistant for the notes app.'
+  const withSystem: Array<[string, string, (attack: string) => string]> = [
+    ['Anthropic system', '/v1/messages', attack => JSON.stringify({ model: 'claude-x', system: SYSTEM, messages: [{ role: 'user', content: attack }] })],
+    ['OpenAI Responses instructions', '/v1/responses', attack => JSON.stringify({ model: 'gpt-x', instructions: SYSTEM, input: [{ role: 'user', content: attack }] })],
+    ['Gemini systemInstruction', '/v1beta/models/gemini-x:generateContent', attack => JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: attack }] }] })],
+    ['Bedrock Converse system', '/model/anthropic.claude-x/converse', attack => JSON.stringify({ system: [{ text: SYSTEM }], messages: [{ role: 'user', content: [{ text: attack }] }] })],
+  ]
+  for (const [name, path, build] of withSystem) {
+    it(`refuses a blocked newest prompt that sits beside a system prompt (${name})`, async () => {
+      const original = build(OVERRIDE)
+      const { result, body, withheld } = await new Pipeline(promptConfig()).inspect(path, original, { ...META, path })
+      expect(result.action).toBe('block')
+      expect(withheld).toBe(0)
+      expect(body).toBe(original)
+    })
+  }
+
+  it('still withholds an older blocked prompt when the request has a system prompt', async () => {
+    const original = JSON.stringify({
+      model: 'claude-x',
+      system: SYSTEM,
+      messages: [
+        { role: 'user', content: OVERRIDE },
+        { role: 'assistant', content: 'That request was refused.' },
+        { role: 'user', content: NEWEST },
+      ],
+    })
+    const { result, body, withheld } = await new Pipeline(promptConfig()).inspect('/v1/messages', original, META)
+    expect(result.action).not.toBe('block')
+    expect(withheld).toBe(1)
+    expect(JSON.parse(body).system).toBe(SYSTEM)
+    expect(prompts(body)).not.toContain(OVERRIDE)
+    expect(prompts(body)).toContain(NEWEST)
+  })
+
   it('refuses rather than alter the newest prompt when it is part of the older blocked text', async () => {
     // withholdText replaces every leaf that is a part of the flagged text; the
     // newest prompt must reach the model exactly as typed, or not at all.

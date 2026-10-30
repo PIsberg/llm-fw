@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Config, PipelineResult, BlockEvent, ScanSource } from '../types.js'
+import { Config, PipelineResult, BlockEvent, ScanSource, PayloadParser } from '../types.js'
 import { isObserving } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
@@ -67,6 +67,15 @@ function interleave<A, B>(a: A[], b: B[]): (A | B)[] {
     if (i < b.length) out.push(b[i]!)
   }
   return out
+}
+
+/**
+ * The user's prompts, oldest first, without the system prompt. Parsers list the
+ * system text after the turns, so the last of extractPrompts() is the system
+ * prompt whenever there is one, never the newest user turn (#528).
+ */
+function userPrompts(parser: PayloadParser, body: string, system = new Set(parser.extractSystem?.(body) ?? [])): string[] {
+  return parser.extractPrompts(body).filter(t => !system.has(t))
 }
 
 // Outcome of one scan item that did not block (see Pipeline.itemCache).
@@ -332,7 +341,7 @@ export class Pipeline {
     const withholdingPrompts = this.config.detection.surfaces?.prompt?.olderTurns === 'withhold'
     const parser = getParser(requestPath)
     // The newest user prompt always refuses, so the person sees the block once.
-    const newest = parser?.extractPrompts(body).at(-1)
+    const newest = parser ? userPrompts(parser, body).at(-1) : undefined
     let current = body
     for (let withheld = 0; ; withheld++) {
       const result = await this.run(requestPath, current, { ...meta, withholding, withholdingPrompts })
@@ -344,7 +353,7 @@ export class Pipeline {
         // withholdText replaces every leaf that is a part of the flagged text,
         // so check the newest prompt still reaches the model exactly as typed.
         const after = next === null ? [] : parser!.extractPrompts(next)
-        if (next === null || after.at(-1) !== newest || after.includes(item.text)) {
+        if (next === null || userPrompts(parser!, next).at(-1) !== newest || after.includes(item.text)) {
           this.emit({ ...result, withheld: false }, meta, `[not withheld] an earlier message could not be removed from the request, so it was refused`, 'prompt', null)
           return { result, body: current, withheld: 0 }
         }
@@ -478,9 +487,9 @@ export class Pipeline {
     // keep the legacy behaviour where extractPrompts already contains the system.
     const systemTexts = parser.extractSystem ? parser.extractSystem(body) : []
     const systemSet = new Set(systemTexts)
-    const userPrompts = parser.extractPrompts(body).filter(t => !systemSet.has(t))
+    const userPromptTexts = userPrompts(parser, body, systemSet)
     // emit() marks a block on any other prompt as withheld under olderTurns.
-    const newestPrompt = userPrompts.at(-1)
+    const newestPrompt = userPromptTexts.at(-1)
     if (newestPrompt !== undefined) meta = { ...meta, newestPrompt }
 
     // Recalled agent memory, wherever it was spliced in.
@@ -495,7 +504,7 @@ export class Pipeline {
     // developer's own instructions alone. Also applied to user prompts, since
     // some harnesses prepend recalled context there instead.
     const memoryTexts = this.config.memoryPoisoning?.enabled
-      ? [...systemTexts, ...userPrompts].flatMap(extractMemoryBlocks)
+      ? [...systemTexts, ...userPromptTexts].flatMap(extractMemoryBlocks)
       : []
     const memorySet = new Set(memoryTexts)
 
@@ -515,7 +524,7 @@ export class Pipeline {
     // newest prompt or the newest tool result.
     const scanItems: { text: string; source: ScanSource; trustedPath?: string }[] = [
       ...interleave(
-        [...userPrompts].reverse().map(text => ({ text, source: 'prompt' as const })),
+        [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
         [...toolResults].reverse(),
       ),
       ...(this.config.detection.scanSystemPrompt
