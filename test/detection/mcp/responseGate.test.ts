@@ -520,3 +520,116 @@ describe('createSseGate — provider selection', () => {
     expect(createSseGate(getParser('/v1/messages')!, mcp)).toBeInstanceOf(SseToolGate)
   })
 })
+
+// ---------------------------------------------------------------------------
+// 5. #529: an execution tool's arguments stream after its name
+// ---------------------------------------------------------------------------
+
+// The name frame of a streamed call carries empty arguments, so a decision
+// taken there scans "" and passes. The command arrives in later frames.
+const DESTRUCTIVE = 'rm -rf / --no-preserve-root'
+
+function anthropicBashStream(command: string, splitAt = 12): string {
+  const json = JSON.stringify({ command })
+  return [
+    sseEvent('message_start', { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', content: [], stop_reason: null } }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Cleaning up.' } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: json.slice(0, splitAt) } }),
+    sseEvent('ping', { type: 'ping' }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: json.slice(splitAt) } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 1 }),
+    sseEvent('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null } }),
+    sseEvent('message_stop', { type: 'message_stop' }),
+  ].join('')
+}
+
+function openAiBashStream(command: string): string {
+  const json = JSON.stringify({ command })
+  return [
+    openAiEvent({ choices: [{ index: 0, delta: { role: 'assistant', content: null, tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'bash', arguments: '' } }] }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: json.slice(0, 10) } }] }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: json.slice(10) } }] }, finish_reason: null }] }),
+    openAiEvent({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+    'data: [DONE]\n\n',
+  ].join('')
+}
+
+describe('SseToolGate — execution tool arguments streamed after the name (#529)', () => {
+  it('drops a Bash call whose streamed command is destructive and downgrades stop_reason', () => {
+    const gate = new SseToolGate(makeScanner())
+    const { forward, decisions } = gate.push(anthropicBashStream(DESTRUCTIVE))
+    expect(forward).not.toContain('rm -rf')
+    expect(forward).not.toContain('"index":1')
+    expect(forward).toContain('Cleaning up.')
+    expect(forward).toContain('"stop_reason":"end_turn"')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'Bash', action: 'block' })])
+  })
+
+  it('holds nothing back from the agent when the streamed command is benign', () => {
+    const gate = new SseToolGate(makeScanner())
+    const stream = anthropicBashStream('ls -la src')
+    const { forward, decisions } = gate.push(stream)
+    expect(forward + gate.flush()).toBe(stream)
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'Bash', action: 'pass' })])
+  })
+
+  it('blocks the same way when the stream arrives in 7-character slices', () => {
+    const gate = new SseToolGate(makeScanner())
+    const stream = anthropicBashStream(DESTRUCTIVE, 3)
+    let forward = ''
+    const decisions: unknown[] = []
+    for (let i = 0; i < stream.length; i += 7) {
+      const r = gate.push(stream.slice(i, i + 7))
+      forward += r.forward
+      decisions.push(...r.decisions)
+    }
+    forward += gate.flush()
+    expect(forward).not.toContain('rm -rf')
+    expect(decisions).toEqual([expect.objectContaining({ action: 'block' })])
+  })
+
+  it('does not release a destructive command when the stream ends before the block does', () => {
+    const gate = new SseToolGate(makeScanner())
+    const stream = anthropicBashStream(DESTRUCTIVE)
+    const cut = stream.slice(0, stream.indexOf('event: content_block_stop\ndata: {"type":"content_block_stop","index":1}'))
+    const forward = gate.push(cut).forward + gate.flush()
+    expect(forward).not.toContain('rm -rf')
+  })
+
+  it('still streams a non-execution tool without holding it', () => {
+    const gate = new SseToolGate(makeScanner())
+    const start = sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 't', name: 'Write', input: {} } })
+    expect(gate.push(start).forward).toBe(start)
+  })
+})
+
+describe('OpenAiSseToolGate — execution tool arguments streamed after the name (#529)', () => {
+  it('drops a bash call whose streamed command is destructive and downgrades finish_reason', () => {
+    const gate = new OpenAiSseToolGate(makeScanner())
+    const { forward, decisions } = gate.push(openAiBashStream(DESTRUCTIVE))
+    expect(forward).not.toContain('rm -rf')
+    expect(forward).not.toContain('"tool_calls"')
+    expect(forward).toContain('"finish_reason":"stop"')
+    expect(forward).toContain('data: [DONE]')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'bash', action: 'block' })])
+  })
+
+  it('forwards a benign bash call with every argument fragment', () => {
+    const gate = new OpenAiSseToolGate(makeScanner())
+    const stream = openAiBashStream('ls -la src')
+    const { forward, decisions } = gate.push(stream)
+    expect(forward + gate.flush()).toBe(stream)
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'bash', action: 'pass' })])
+  })
+
+  it('does not release a destructive command when the stream ends before finish_reason', () => {
+    const gate = new OpenAiSseToolGate(makeScanner())
+    const stream = openAiBashStream(DESTRUCTIVE)
+    const cut = stream.slice(0, stream.indexOf('"finish_reason":"tool_calls"'))
+    const forward = gate.push(cut.slice(0, cut.lastIndexOf('data:'))).forward + gate.flush()
+    expect(forward).not.toContain('rm -rf')
+  })
+})

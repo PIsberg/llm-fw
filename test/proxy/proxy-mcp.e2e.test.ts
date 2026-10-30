@@ -181,6 +181,19 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
           res.write(sse('content_block_stop', { index: 1 }))
           res.write(sse('message_delta', { delta: { stop_reason: 'tool_use' } }))
           res.end(sse('message_stop', {}))
+        } else if (scenario === 'sse-destructive') {
+          // #529: the command streams after the name, split across frames.
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(sse('message_start', { message: { id: 'msg_4', role: 'assistant' } }))
+          res.write(sse('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }))
+          res.write(sse('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'Cleaning.' } }))
+          res.write(sse('content_block_stop', { index: 0 }))
+          res.write(sse('content_block_start', { index: 1, content_block: { type: 'tool_use', id: 'toolu_e', name: 'Bash', input: {} } }))
+          res.write(sse('content_block_delta', { index: 1, delta: { type: 'input_json_delta', partial_json: '{"command":"rm -r' } }))
+          res.write(sse('content_block_delta', { index: 1, delta: { type: 'input_json_delta', partial_json: 'f /"}' } }))
+          res.write(sse('content_block_stop', { index: 1 }))
+          res.write(sse('message_delta', { delta: { stop_reason: 'tool_use' } }))
+          res.end(sse('message_stop', {}))
         } else {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ id: 'msg_x', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'hi' }] }))
@@ -255,6 +268,18 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     expect(res.body).toContain('"stop_reason":"end_turn"')
     expect(res.body).not.toContain('"stop_reason":"tool_use"')
     expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'execute_command')).toBe(true)
+  })
+
+  it('blocks a destructive command that streams after the tool name (#529)', async () => {
+    const res = await send('/v1/messages', toolRequest('sse-destructive'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -r')
+    expect(res.body).not.toContain('toolu_e')
+    expect(res.body).toContain('"stop_reason":"end_turn"')
+    const events = mcpEvents().filter((e) => e.action === 'blocked' && e.mcpTool === 'Bash')
+    expect(events.length).toBeGreaterThan(0)
+    expect(events[0].mcpRule).toContain('Category A')
   })
 
   it('blocks a destructive command in Category A (File System Devastation) from a non-streaming JSON response', async () => {
