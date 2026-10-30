@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Socket supply-chain alerts on the package are explained (#507).** [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md#supply-chain-scanner-alerts) traces each one (shell access in `detect-libc`, `eval` in `@emnapi/runtime`, the optimized-override notice) to the transitive package and chain that carries it, what it executes, and on which platforms it is installed. None is in llm-fw's code, and none can be removed without dropping `@huggingface/transformers`.
 - **The npm package no longer lists dev dependencies.** npmjs.org showed Playwright, Vitest and the rest under "Dev Dependencies" because the published `package.json` still carried the field. The release workflow now strips it before `npm publish`. Installs are unchanged: npm never installed them.
 - **Single definitions for `HarmfulRequestConfig` and `IndirectInstructionConfig` (#513).** Removed the unused duplicate interfaces from `src/detection/harmfulRequest.ts` and `src/detection/indirectInstruction.ts` in favour of the canonical declarations in `src/types.ts`, and dropped the `ignoreIssues` suppressions from `knip.json` (ruleset 2026.10.94; no verdict changes).
 
