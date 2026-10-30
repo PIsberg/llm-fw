@@ -164,6 +164,14 @@ describe('WebSockets through the gateway (#344)', { timeout: 60_000 }, () => {
     session.socket.destroy()
   })
 
+  // #566: the Responses API over WebSocket gets 426, which Codex CLI takes as
+  // "use HTTP" at once; a 501 it retries five times first.
+  it('answers 426 for the Responses API over WebSocket', async () => {
+    const { status, session } = await open('/v1/responses', auth())
+    expect(status).toContain('426')
+    session.socket.destroy()
+  })
+
   it('holds a tenant to its provider allowlist on the upgrade path', async () => {
     const before = openai.requests.length
     const { status, body, session } = await open('/v1/realtime', auth(ANTHROPIC_ONLY))

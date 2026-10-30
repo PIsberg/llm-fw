@@ -34,7 +34,7 @@ import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../mo
 import { stripUsageChunk } from '../modules/sseUsageStrip.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
-import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from './websocket.js'
+import { realtimeProtocolFor, wsRefusal } from './websocket.js'
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
@@ -1425,15 +1425,17 @@ export class ProxyServer {
    * are relayed with their client messages inspected (see relayRealtimeSession);
    * any other WebSocket path is refused with 501 rather than tunnelled
    * unscanned, which is what destroying the socket used to amount to without
-   * saying why.
+   * saying why. The Responses API gets 426 instead, so Codex CLI falls back
+   * to HTTP at once (#566).
    */
   private async handleUpgrade(hostname: string, port: number, req: http.IncomingMessage, client: Duplex, head: Buffer): Promise<void> {
     const path = req.url ?? '/'
     client.on('error', () => client.destroy())
     const protocol = realtimeProtocolFor(path)
     if (!protocol) {
-      const body = JSON.stringify({ error: 'websocket not inspectable', detail: WS_NOT_INSPECTABLE })
-      client.end(`HTTP/1.1 501 Not Implemented\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
+      const refusal = wsRefusal(path)
+      const body = JSON.stringify({ error: 'websocket not inspectable', detail: refusal.detail })
+      client.end(`HTTP/1.1 ${refusal.status} ${refusal.reason}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
       return
     }
 

@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
 import type { Duplex } from 'node:stream';
-import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from '../proxy/websocket.js';
+import { realtimeProtocolFor, wsRefusal } from '../proxy/websocket.js';
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from '../proxy/realtimeRelay.js';
 import { canaryToken, injectCanary, guardCanary } from '../proxy/canary.js';
 import { getLlmFwDir } from '../config/paths.js';
@@ -385,7 +385,11 @@ export class GatewayServer {
       });
       if (!route) { answer(404, 'Not Found', { error: 'no route for path' }); return; }
       const protocol = realtimeProtocolFor(route.upstreamPath);
-      if (!protocol) { answer(501, 'Not Implemented', { error: 'websocket not inspectable', detail: WS_NOT_INSPECTABLE }); return; }
+      if (!protocol) {
+        const refusal = wsRefusal(route.upstreamPath);
+        answer(refusal.status, refusal.reason, { error: 'websocket not inspectable', detail: refusal.detail });
+        return;
+      }
 
       if (tenant) {
         if (!this.tenants.allowsProvider(tenant, route.slug)) {

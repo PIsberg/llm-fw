@@ -320,6 +320,22 @@ const GEMINI_LIVE_PATH_RE = /^\/ws\/google\.ai\.generativelanguage\.v1(?:alpha|b
 /** Why a WebSocket path is answered 501, on the proxy and the gateway. */
 export const WS_NOT_INSPECTABLE = 'llm-fw relays only the OpenAI Realtime API (/v1/realtime) and Gemini Live (BidiGenerateContent) over WebSocket; this path is refused rather than tunnelled unscanned.'
 
+// The Responses API over WebSocket: what Codex CLI opens first, on
+// api.openai.com and on chatgpt.com's Codex backend. It is not relayed, but
+// the same request over HTTP is inspected, and Codex switches to HTTP for the
+// rest of the session at once on 426 (codex-rs core/src/client.rs, both
+// WebSocket connect paths). A 501 it retried five times first, about 4.5 s
+// per session, measured live (#566).
+const RESPONSES_WS_PATH_RE = /^\/(?:v1\/responses|backend-api\/codex\/responses)(?:[/?]|$)/
+export const WS_USE_HTTP = 'llm-fw does not relay the Responses API over WebSocket; send the request over HTTP, which it inspects.'
+
+/** How to refuse a WebSocket path the relay cannot inspect: 426 where the client has an HTTP route, 501 otherwise. */
+export function wsRefusal(path: string): { status: 426 | 501; reason: string; detail: string } {
+  return RESPONSES_WS_PATH_RE.test(path.replace(/\/{2,}/g, '/'))
+    ? { status: 426, reason: 'Upgrade Required', detail: WS_USE_HTTP }
+    : { status: 501, reason: 'Not Implemented', detail: WS_NOT_INSPECTABLE }
+}
+
 /** The protocol a WebSocket path speaks, or null when the relay cannot inspect it. */
 export function realtimeProtocolFor(path: string): RealtimeProtocol | null {
   if (/^\/v1\/realtime(?:[/?]|$)/.test(path)) return OPENAI_REALTIME
