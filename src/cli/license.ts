@@ -44,7 +44,7 @@ export const SHORT_NOTICE =
 export const UNLICENSED_NOTICE =
   `No licence key found — llm-fw is running unlicensed on this machine, under the\n` +
   `${LICENSE_NAME}: noncommercial use only.\n` +
-  `Commercial use needs a licence. Buy one at ${COMMERCIAL_URL} or contact ${CONTACT_EMAIL}.`
+  `Commercial use needs a licence. To buy one: ${COMMERCIAL_URL}, or contact ${CONTACT_EMAIL}.`
 
 export const NOTICE = `llm-fw — Copyright 2026 Peter Isberg
 Licensed under the ${LICENSE_NAME}
@@ -60,7 +60,7 @@ NOT GRANTED BY THIS LICENCE — commercial use
   machine, in CI, or as a shared standalone server — that is commercial use and
   needs a separate licence.
 
-  Buy one, or ask for an invoice:  ${COMMERCIAL_URL}
+  To buy one, or for an invoice:   ${COMMERCIAL_URL}
   Or email:                        ${CONTACT_EMAIL}
 
   Once you have a key:  llm-fw license --activate <key>

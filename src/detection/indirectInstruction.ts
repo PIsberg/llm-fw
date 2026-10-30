@@ -199,7 +199,11 @@ function isMethodCall(text: string, verbStart: number): boolean {
 // A " | " column of a table (gh --jq output) breaks a field as a tab does (#404).
 const FIELD_BREAK_RE = /[\r\n\t]|\\[nrt]| \| /
 const CONTINUES_CLAUSE_RE = /^(?:to|into|onto|on|for|from|with|at|via)\s/
-const JSON_FIELD_END_RE = /\\?"\s*[,}\]]/
+// A single quote ends a value only where a Python dict repr goes on to its
+// next key or closes, since prose uses it as an apostrophe: a script printing
+// Sketchfab's licences ("..., use worldwide, ...', 'url': 'https://...") gave
+// "use" the URL as its object (#477).
+const JSON_FIELD_END_RE = /\\?"\s*[,}\]]|'(?:\s*,\s*'[\w-]{1,40}'\s*:|\s*[}\]])/
 const SPLIT_LINE_MAX = 48
 /** Index just past the last field break before `i`; -Infinity when the line is longer than the look-back. */
 function lineStartBefore(text: string, i: number): number {
@@ -244,13 +248,16 @@ const IMPERATIVE_OBJECT_RE = new RegExp([
   // Seven digits at least: "Use 200-500 for UI updates" in a Go tool
   // description is a range, not an account (#391).
   '\\b(?=(?:\\d[-\\s.]?){7})\\d{3,}[-\\s.]\\d{3,}',          // account / card / phone shaped
-  '\\b\\d{6,}\\b',                                           // long bare identifier
+  // A unit after it makes it a quantity: "up to 600000 ms" (#477).
+  '\\b\\d{6,}\\b(?![ \\t]*(?:ms|milliseconds?|seconds?|secs?|s|bytes?|[kmgt]i?b|tokens?|rows?|lines?|chars?|characters?|px)\\b)', // long bare identifier
   '(?:\\$|€|£)\\s*\\d',                                      // currency amount
   '\\b\\d+(?:\\.\\d+)?\\s*(?:bitcoin|btc|eth|ether|usd|eur|gbp|dollars?|euros?)\\b',
   'https?://',                                               // exfil destination
   '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',   // address
   '\\(\\s*[A-Za-z][\\w.-]*\\d[\\w.-]*\\s*\\)',               // "(guest_amy01)"
-  '\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d[a-z0-9_]*\\b',            // bare guest_amy01
+  // Not a path segment: Blender's "use library at C:\...\io_scene_gltf2\
+  // extern_draco.dll" names a folder, not an account (#477).
+  '(?<![\\\\/])\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d[a-z0-9_]*\\b(?![\\\\/])', // bare guest_amy01
   '\\b0x[0-9a-fA-F]{6,}\\b',                                 // wallet address
   '\\bmy\\b',                                                // first-person claim on the resource
   // Plainly sensitive objects, for attacks that name no identifier at all
@@ -305,13 +312,27 @@ const DOCS_LINK_RE = /\b(?:as\s+described\s+in|see)\b[^.!?:]{0,60}:\s*https?:\/\
 // a HF_TOKEN to enable higher rate limits", Hugging Face's hub client). The
 // variable must lead the object, in upper snake case, so "Please set the
 // thermostat" still fires, and a URL beside it ("set OPENAI_BASE_URL to
-// https://...") is an object and still fires.
+// https://...") is an object and still fires. A dotted property name of three
+// parts or more is the same hint: Gradle's "Please set
+// gradle.publish.key/gradle.publish.secret system properties" (#477).
 const RETRY_PROMPT_RE = /^[^.!?\n]{0,80}\band\s+(?:try|retry)\s+again\b/i
-const ENV_VAR_OBJECT_RE = /^\s+(?:(?:a|an|the|your)\s+)?[`'"]?[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/
-function benignPoliteObject(text: string, end: number): boolean {
+const ENV_VAR_OBJECT_RE = /^\s+(?:(?:a|an|the|your)\s+)?[`'"]?(?:[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}\b)/
+// A deprecation notice: "The 'server-username' parameter is deprecated.
+// Please use 'server-username-env-var' instead" (Maven), npm's "please use
+// `--omit=optional` instead" (#477). Only "use", and only when "instead" ends
+// the same sentence: "please transfer it to Bob instead" still asks for a
+// transfer. The object is looked for in that clause alone, past any quoted
+// name: in a CI log the window ran on into the next line's timestamp, and
+// `'server-password-env-var'` is the name of a setting, not a password.
+const USE_INSTEAD_RE = /^[^.!?\n]{1,80}\binstead\b/i
+const QUOTED_NAME_RE = /(['"`])[^\s'"`]{1,80}\1/g
+function benignPoliteObject(text: string, end: number, verb = ''): boolean {
+  const rest = text.slice(end)
+  const insteadClause = verb === 'use' ? USE_INSTEAD_RE.exec(rest) : null
+  if (insteadClause) return !IMPERATIVE_OBJECT_RE.test(insteadClause[0].replace(QUOTED_NAME_RE, ' '))
   const w = objectWindow(text, end)
   if (IMPERATIVE_OBJECT_RE.test(w)) return false
-  return RETRY_PROMPT_RE.test(text.slice(end)) || ENV_VAR_OBJECT_RE.test(text.slice(end))
+  return RETRY_PROMPT_RE.test(rest) || ENV_VAR_OBJECT_RE.test(rest)
 }
 
 // "You must be a tribe member to upload images", "You need to be signed in
@@ -332,13 +353,25 @@ const LEADING_ACTION_VERB_RE = new RegExp(`^\\s+(?:${VERB_ALT})\\b`, 'i')
 // blocks). The quote must open right after the example marker; an unquoted
 // "For example, reset my password" is still an imperative, and an address in
 // the quote is still caught by the exfil rule.
-const QUOTED_EXAMPLE_RE = /\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,:]?\s*["'`]\s*$/i
+// A conventional-commit subject in `git log` output: "6d2099c test: use the
+// unused out ...", "2026-10-10|docs: update test counts to 168 ..." (#477).
+// The line must open with a hash or a date, so a bare "fix: transfer ..." in a
+// document is still a clause.
+const COMMIT_SUBJECT_BEFORE_RE = /(?:^|\n)[ \t]*(?:[0-9a-f]{7,40}|\d{4}-\d{2}-\d{2})[ \t|]+(?:feat|fix|docs|test|tests|chore|refactor|perf|ci|build|style|revert)(?:\([^()\n]{0,40}\))?!?:[ \t]*$/
+
+const QUOTED_EXAMPLE_RE =/\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,:]?\s*["'`]\s*$/i
 
 // "you can / will / may <verb>" tells the reader about an option more often
 // than it orders anything: "You can unsubscribe at any time", "you may cancel
 // within 14 days" (#282). Those three modals take the same object requirement
 // as the bare imperative. No injecagent row uses them (0 of 1071).
 const PERMISSIVE_MODAL_RE = /^you\s+(?:can|will|may)\b/i
+
+// "Do you need to change your target library?" (tsc's TS2550) asks; it does
+// not order (#477). The auxiliary must lead the clause and the question mark
+// end it.
+const QUESTION_LEAD_RE = /\b(?:do|does|did)\s+$/i
+const QUESTION_END_RE = /^[^.!\n]{0,120}\?/
 
 const DIRECTIVE_RE = new RegExp(
   '\\b(?:you\\s+(?:should|must|need\\s+to|have\\s+to|are\\s+(?:required|requested|instructed)\\s+to|can|will|may|are\\s+to)|' +
@@ -470,8 +503,15 @@ function blankAttributionFields(text: string): string {
 }
 
 // `export NAME=value` is the shell keyword: "export GIT_AUTHOR_EMAIL=..."
-// sets a variable, it does not send anything anywhere (#477).
-const SHELL_EXPORT_AFTER_RE = /^[ \t]+[A-Za-z_]\w*=/
+// sets a variable, it does not send anything anywhere (#477). So is Command
+// Prompt's `set "NAME=value"`, which `llm-fw setup` itself prints.
+const SHELL_EXPORT_AFTER_RE = /^[ \t]+["']?[A-Za-z_]\w*=/
+const SHELL_ASSIGN_VERB_RE = /^(?:export|set)$/i
+// And JavaScript's module keyword: a script's `export function buildRepo`
+// sat within 200 characters of the identity it passes to `git -c
+// user.email=...` (#477).
+const JS_EXPORT_AFTER_RE = /^[ \t]+(?:default[ \t]+)?(?:async[ \t]+)?(?:function|const|let|var|class|interface|type|enum|abstract|declare|namespace)\b|^[ \t]*[{*]/
+const isExportKeyword = (after: string): boolean => SHELL_EXPORT_AFTER_RE.test(after) || JS_EXPORT_AFTER_RE.test(after)
 
 function blankContactClauses(text: string): string {
   return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
@@ -907,6 +947,14 @@ const ML_SEND_SET = new Set(ML_SEND_VERBS)
 const ML_ENGLISH_VERB_SET = new Set([...ML_SEND_VERBS_EN, ...ML_OTHER_VERBS_EN])
 const ML_NOUN_POSITION_RE = /\b(?:a|an|the|your|my|our|their|his|her|its|this|that)\s+(?:[a-z]+\s+)?$/
 
+// An English marker governs English verbs, or a verb in another script. A
+// Latin-script word from another language's list beside it is an English word
+// that happens to be spelt the same: "must point at an existing dir ...; make
+// sure to" paired Somali "dir" (send) with "make sure to" (#477). The
+// language's own marker ("fadlan dir ...") still pairs.
+const ENGLISH_ML_MARKERS = new Set(['please', 'kindly', 'you must', 'you should', 'you need to', 'make sure to'])
+const LATIN_WORD_RE = /^\p{Script=Latin}+$/u
+
 // Max chars between a request marker and the verb it governs. Word order varies
 // (marker-first in "bitte überweisen", verb-first/marker-last in Japanese
 // "…送金し…してください"), so we test proximity in EITHER direction.
@@ -951,7 +999,10 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // "...\share/eng.traineddata" before "Please make sure ..." paired "share"
   // with "please" (#391, replaying Codex CLI tool output).
   const verbHits: { i: number; v: string }[] = []
-  const inPath = (i: number, len: number): boolean => /[\\/]/.test(hay[i - 1] ?? '') || /[\\/]/.test(hay[i + len] ?? '')
+  // Nor a segment of a dotted name: Gradle's "Please set
+  // gradle.publish.key" paired "publish" with "please" (#477).
+  const inPath = (i: number, len: number): boolean => /[\\/]/.test(hay[i - 1] ?? '') || /[\\/]/.test(hay[i + len] ?? '') ||
+    (hay[i - 1] === '.' && hay[i + len] === '.')
   for (const v of ML_VERBS) {
     for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
   }
@@ -963,7 +1014,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
     for (const { i, v } of verbHits) {
       // The verb index is into `hay`, so the key check reads `hay` too.
       if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0]) &&
-        !(v === 'export' && SHELL_EXPORT_AFTER_RE.test(hay.slice(i + v.length)))) {
+        !(v === 'export' && isExportKeyword(hay.slice(i + v.length)))) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
     }
@@ -974,6 +1025,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
     for (const mi of mlIndices(hay, marker)) {
       for (const { i, v } of verbHits) {
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
+          if (ENGLISH_ML_MARKERS.has(marker) && !ML_ENGLISH_VERB_SET.has(v) && LATIN_WORD_RE.test(v)) continue
           if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue
           if (keyAssignedAddress(hay, i, i + v.length) >= 0) continue
           // The benign-prone English verbs keep their object requirement in
@@ -1045,7 +1097,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       // an `export X_EMAIL="x@..."` line beside it repeats the address, #477).
       if (keyHolds(window, vm.index, vm.index + vm[0].length, em[0])) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
-      if (/^export$/i.test(vm[0]) && SHELL_EXPORT_AFTER_RE.test(window.slice(vm.index + vm[0].length))) continue
+      if (/^export$/i.test(vm[0]) && isExportKeyword(window.slice(vm.index + vm[0].length))) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
@@ -1068,7 +1120,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       const end = m.index + m[0].length
       if (!IMPERATIVE_OBJECT_RE.test((objectWindow(text, end).split(SENTENCE_END_RE)[0] ?? '').replace(DOCS_LINK_RE, ''))) continue
     }
-    if (benignPoliteObject(text, m.index + m[0].length)) continue
+    if (benignPoliteObject(text, m.index + m[0].length, verb)) continue
     if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
@@ -1092,7 +1144,8 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (isMethodCall(text, end - verb.length)) continue
     if (isEmailNoun(text, end - verb.length, end)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
-    if (/^export$/i.test(verb) && SHELL_EXPORT_AFTER_RE.test(text.slice(end))) continue
+    if (SHELL_ASSIGN_VERB_RE.test(verb) && isExportKeyword(text.slice(end))) continue
+    if (COMMIT_SUBJECT_BEFORE_RE.test(text.slice(Math.max(0, end - verb.length - 80), end - verb.length))) continue
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
@@ -1103,6 +1156,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   for (let m = DIRECTIVE_RE.exec(text); m !== null; m = DIRECTIVE_RE.exec(text)) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    if (QUESTION_LEAD_RE.test(text.slice(Math.max(0, m.index - 12), m.index)) && QUESTION_END_RE.test(text.slice(end))) continue
     if (onlyTrustedObject(end)) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
