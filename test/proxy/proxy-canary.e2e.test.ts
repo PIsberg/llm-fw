@@ -39,7 +39,7 @@ function dechunk(body: string): string {
 }
 
 /** POST through the proxy; resolves however the response ends (clean end or cut). */
-function send(proxyPort: number, upstreamPort: number, body: string): Promise<{ statusCode: number; body: string }> {
+function send(proxyPort: number, upstreamPort: number, body: string): Promise<{ statusCode: number; body: string; complete: boolean }> {
   return new Promise((resolve, reject) => {
     const host = 'api.anthropic.com'
     const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort }, () => {
@@ -65,7 +65,8 @@ function send(proxyPort: number, upstreamPort: number, body: string): Promise<{ 
         const statusCode = parseInt((head.split('\r\n')[0] ?? '').split(' ')[1] ?? '0', 10)
         const chunked = /transfer-encoding:\s*chunked/i.test(head)
         const raw = sep === -1 ? '' : res.slice(sep + 4)
-        resolve({ statusCode, body: chunked ? dechunk(raw) : raw })
+        // complete: the response ended with its last chunk, not a reset.
+        resolve({ statusCode, body: chunked ? dechunk(raw) : raw, complete: chunked && raw.endsWith('0\r\n\r\n') })
       }
       t.on('data', (d) => { res += d.toString('utf8') })
       t.on('end', finish)
@@ -187,6 +188,9 @@ describe('Proxy system-prompt canary (#539, E2E)', { timeout: 30000 }, () => {
     expect(res.body).not.toContain(' AFTER')
     const ev = events.find(e => e.stage === 'response-canary')
     expect(ev?.action).toBe('blocked')
+    // #573: an error event and a clean end instead of a reset.
+    expect(res.complete).toBe(true)
+    expect(res.body).toMatch(/event: error\ndata: \{"type":"error","error":\{"type":"invalid_request_error","message":"llm-fw[^"]*system prompt[^"]*"\}\}\n\n$/)
   })
 
   it('withholds a buffered response that repeats the canary', async () => {

@@ -161,7 +161,10 @@ describe('Gateway system-prompt canary E2E (#552)', { timeout: 30000 }, () => {
     expect(res.text).toContain(token.slice(0, 18))
     expect(res.text).not.toContain(token.slice(18))
     expect(res.text).not.toContain(' AFTER')
-    expect(res.outcome).toBe('aborted')
+    // #573: the stream ends cleanly with an OpenAI error chunk, which the
+    // client reports instead of retrying a lost connection.
+    expect(res.outcome).toBe('end')
+    expect(res.text).toMatch(/data: \{"error":\{"message":"llm-fw[^"]*system prompt[^"]*","type":"invalid_request_error","code":"llm_fw_blocked","param":null\}\}\n\n$/)
     expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
   })
 

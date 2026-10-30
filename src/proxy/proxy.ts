@@ -39,8 +39,9 @@ import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { bodyCap } from './bodyCap.js'
-import { canaryToken, injectCanary, CanaryWatch } from './canary.js'
+import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT } from './canary.js'
 import { ExfilStreamHold } from './streamExfil.js'
+import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
 import { createLogger, urlForLog } from '../logger.js';
 
@@ -1571,18 +1572,26 @@ export class ProxyServer {
         delete h['content-length']; delete h['transfer-encoding']
         return h
       }
-      // Nothing of the event that completed a canary token or an exfil line is
-      // written: the client sees the stream end.
-      const cutStream = () => {
+      // Nothing of the event that completed a canary token or an exfil URL is
+      // written. The stream ends with the provider's error event saying why
+      // (#573), so the client reports it rather than retrying a lost
+      // connection; only when what was forwarded stopped mid-event, or the
+      // protocol has no such event, is the connection reset instead.
+      let atEventBoundary = true
+      const cutStream = (message: string) => {
         cut = true
         upstream.destroy()
-        res.destroy()
+        const ending = atEventBoundary ? streamErrorEvent(req.url ?? '/', message) : null
+        if (ending) { res.end(ending); respBodyBytes += Buffer.byteLength(ending) } else res.destroy()
         resolve(respBodyBytes)
       }
+      const EXFIL_CUT = 'llm-fw cut this response: it carried a URL to an exfil destination (responseScan block mode)'
       // Forward decoded SSE text: through the MCP gate when active, else verbatim.
       const forwardSse = (text: string) => {
+        if (!text) return
+        atEventBoundary = /\n\r?\n$/.test(text)
         if (gate) respBodyBytes += this.gateSse(gate, text, res, req, hostname)
-        else if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
+        else { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
       }
       // SSE: accumulate decoded text for the end-of-stream scans, then forward
       // what the exfil hold releases.
@@ -1590,11 +1599,11 @@ export class ProxyServer {
         if (cut) return
         if (watch?.push(text)) {
           this.emitCanary(canaryBlocks, req, hostname)
-          if (canaryBlocks) { cutStream(); return }
+          if (canaryBlocks) { cutStream(CANARY_CUT); return }
         }
         if (sseText.length < maxResp) sseText += text
         const out = hold ? hold.push(text) : text
-        if (out === null) { cutStream(); return }
+        if (out === null) { cutStream(EXFIL_CUT); return }
         forwardSse(out)
       }
 
@@ -1704,7 +1713,7 @@ export class ProxyServer {
             if (cut) return
             if (hold) {
               const rest = hold.end()
-              if (rest === null) { cutStream(); return }
+              if (rest === null) { cutStream(EXFIL_CUT); return }
               forwardSse(rest)
             }
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
