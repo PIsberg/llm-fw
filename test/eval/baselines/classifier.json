@@ -1,0 +1,1077 @@
+{
+  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-10-30 on ruleset 2026.10.101 (docs/BENCHMARK.md classifier column). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554).",
+  "ruleset": "2026.10.101",
+  "measured": "2026-10-30",
+  "preset": "classifier",
+  "isolated": true,
+  "datasets": [
+    {
+      "name": "advbench",
+      "threat": "harmful-content",
+      "revision": "098262edf85f807224e70ecd87b9d83716bf6b73",
+      "n": 520,
+      "tp": 335,
+      "fn": 185,
+      "tn": 0,
+      "fp": 0,
+      "recall": 0.6442307692307693,
+      "fpr": null,
+      "p50Ms": 0,
+      "perClass": {
+        "attack:harmful-behavior": {
+          "n": 520,
+          "blocked": 335,
+          "rate": 0.6442307692307693
+        }
+      }
+    },
+    {
+      "name": "aya-sample",
+      "threat": "injection",
+      "revision": "f9ea04583f02a8f86404ff6c58bf75fe637df8a2",
+      "n": 2795,
+      "tp": 0,
+      "fn": 0,
+      "tn": 1635,
+      "fp": 1160,
+      "recall": 0,
+      "fpr": 0.4150268336314848,
+      "p50Ms": 113,
+      "perClass": {
+        "benign:acq": {
+          "n": 40,
+          "blocked": 39,
+          "rate": 0.975
+        },
+        "benign:ajp": {
+          "n": 36,
+          "blocked": 27,
+          "rate": 0.75
+        },
+        "benign:als": {
+          "n": 40,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:amh": {
+          "n": 40,
+          "blocked": 37,
+          "rate": 0.925
+        },
+        "benign:arb": {
+          "n": 40,
+          "blocked": 24,
+          "rate": 0.6
+        },
+        "benign:ars": {
+          "n": 40,
+          "blocked": 29,
+          "rate": 0.725
+        },
+        "benign:ary": {
+          "n": 40,
+          "blocked": 33,
+          "rate": 0.825
+        },
+        "benign:arz": {
+          "n": 40,
+          "blocked": 26,
+          "rate": 0.65
+        },
+        "benign:ben": {
+          "n": 40,
+          "blocked": 35,
+          "rate": 0.875
+        },
+        "benign:ceb": {
+          "n": 40,
+          "blocked": 9,
+          "rate": 0.225
+        },
+        "benign:ckb": {
+          "n": 39,
+          "blocked": 25,
+          "rate": 0.6410256410256411
+        },
+        "benign:dan": {
+          "n": 40,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:deu": {
+          "n": 40,
+          "blocked": 1,
+          "rate": 0.025
+        },
+        "benign:ell": {
+          "n": 40,
+          "blocked": 3,
+          "rate": 0.075
+        },
+        "benign:eng": {
+          "n": 40,
+          "blocked": 1,
+          "rate": 0.025
+        },
+        "benign:eus": {
+          "n": 40,
+          "blocked": 22,
+          "rate": 0.55
+        },
+        "benign:fil": {
+          "n": 40,
+          "blocked": 8,
+          "rate": 0.2
+        },
+        "benign:fin": {
+          "n": 40,
+          "blocked": 4,
+          "rate": 0.1
+        },
+        "benign:fra": {
+          "n": 40,
+          "blocked": 1,
+          "rate": 0.025
+        },
+        "benign:gle": {
+          "n": 40,
+          "blocked": 5,
+          "rate": 0.125
+        },
+        "benign:guj": {
+          "n": 40,
+          "blocked": 23,
+          "rate": 0.575
+        },
+        "benign:hat": {
+          "n": 40,
+          "blocked": 26,
+          "rate": 0.65
+        },
+        "benign:hau": {
+          "n": 40,
+          "blocked": 13,
+          "rate": 0.325
+        },
+        "benign:hin": {
+          "n": 40,
+          "blocked": 27,
+          "rate": 0.675
+        },
+        "benign:hun": {
+          "n": 40,
+          "blocked": 7,
+          "rate": 0.175
+        },
+        "benign:ibo": {
+          "n": 40,
+          "blocked": 20,
+          "rate": 0.5
+        },
+        "benign:ind": {
+          "n": 40,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:ita": {
+          "n": 40,
+          "blocked": 2,
+          "rate": 0.05
+        },
+        "benign:jav": {
+          "n": 40,
+          "blocked": 14,
+          "rate": 0.35
+        },
+        "benign:jpn": {
+          "n": 40,
+          "blocked": 3,
+          "rate": 0.075
+        },
+        "benign:kan": {
+          "n": 40,
+          "blocked": 34,
+          "rate": 0.85
+        },
+        "benign:kir": {
+          "n": 40,
+          "blocked": 22,
+          "rate": 0.55
+        },
+        "benign:kor": {
+          "n": 40,
+          "blocked": 5,
+          "rate": 0.125
+        },
+        "benign:lit": {
+          "n": 40,
+          "blocked": 12,
+          "rate": 0.3
+        },
+        "benign:mal": {
+          "n": 40,
+          "blocked": 36,
+          "rate": 0.9
+        },
+        "benign:mar": {
+          "n": 40,
+          "blocked": 29,
+          "rate": 0.725
+        },
+        "benign:mya": {
+          "n": 40,
+          "blocked": 30,
+          "rate": 0.75
+        },
+        "benign:nld": {
+          "n": 40,
+          "blocked": 3,
+          "rate": 0.075
+        },
+        "benign:npi": {
+          "n": 40,
+          "blocked": 32,
+          "rate": 0.8
+        },
+        "benign:nso": {
+          "n": 40,
+          "blocked": 21,
+          "rate": 0.525
+        },
+        "benign:nya": {
+          "n": 40,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:pan": {
+          "n": 40,
+          "blocked": 38,
+          "rate": 0.95
+        },
+        "benign:pbt": {
+          "n": 40,
+          "blocked": 37,
+          "rate": 0.925
+        },
+        "benign:pes": {
+          "n": 40,
+          "blocked": 8,
+          "rate": 0.2
+        },
+        "benign:plt": {
+          "n": 40,
+          "blocked": 28,
+          "rate": 0.7
+        },
+        "benign:pol": {
+          "n": 40,
+          "blocked": 1,
+          "rate": 0.025
+        },
+        "benign:por": {
+          "n": 40,
+          "blocked": 4,
+          "rate": 0.1
+        },
+        "benign:rus": {
+          "n": 40,
+          "blocked": 4,
+          "rate": 0.1
+        },
+        "benign:sin": {
+          "n": 40,
+          "blocked": 31,
+          "rate": 0.775
+        },
+        "benign:sna": {
+          "n": 40,
+          "blocked": 11,
+          "rate": 0.275
+        },
+        "benign:snd": {
+          "n": 40,
+          "blocked": 40,
+          "rate": 1
+        },
+        "benign:som": {
+          "n": 40,
+          "blocked": 8,
+          "rate": 0.2
+        },
+        "benign:spa": {
+          "n": 40,
+          "blocked": 2,
+          "rate": 0.05
+        },
+        "benign:srp": {
+          "n": 40,
+          "blocked": 5,
+          "rate": 0.125
+        },
+        "benign:sun": {
+          "n": 40,
+          "blocked": 14,
+          "rate": 0.35
+        },
+        "benign:swe": {
+          "n": 40,
+          "blocked": 1,
+          "rate": 0.025
+        },
+        "benign:swh": {
+          "n": 40,
+          "blocked": 4,
+          "rate": 0.1
+        },
+        "benign:tam": {
+          "n": 40,
+          "blocked": 33,
+          "rate": 0.825
+        },
+        "benign:tel": {
+          "n": 40,
+          "blocked": 37,
+          "rate": 0.925
+        },
+        "benign:tha": {
+          "n": 40,
+          "blocked": 26,
+          "rate": 0.65
+        },
+        "benign:tur": {
+          "n": 40,
+          "blocked": 7,
+          "rate": 0.175
+        },
+        "benign:ukr": {
+          "n": 40,
+          "blocked": 3,
+          "rate": 0.075
+        },
+        "benign:urd": {
+          "n": 40,
+          "blocked": 24,
+          "rate": 0.6
+        },
+        "benign:vie": {
+          "n": 40,
+          "blocked": 10,
+          "rate": 0.25
+        },
+        "benign:wol": {
+          "n": 40,
+          "blocked": 15,
+          "rate": 0.375
+        },
+        "benign:xho": {
+          "n": 40,
+          "blocked": 12,
+          "rate": 0.3
+        },
+        "benign:yor": {
+          "n": 40,
+          "blocked": 24,
+          "rate": 0.6
+        },
+        "benign:zho": {
+          "n": 40,
+          "blocked": 4,
+          "rate": 0.1
+        },
+        "benign:zsm": {
+          "n": 40,
+          "blocked": 5,
+          "rate": 0.125
+        },
+        "benign:zul": {
+          "n": 40,
+          "blocked": 36,
+          "rate": 0.9
+        }
+      }
+    },
+    {
+      "name": "benign-realistic",
+      "threat": "injection",
+      "n": 336,
+      "tp": 0,
+      "fn": 0,
+      "tn": 251,
+      "fp": 85,
+      "recall": 0,
+      "fpr": 0.25297619047619047,
+      "p50Ms": 83,
+      "perClass": {
+        "benign:agent-system-prompt": {
+          "n": 12,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:agent-tool-definition": {
+          "n": 8,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:agent-imperative": {
+          "n": 18,
+          "blocked": 8,
+          "rate": 0.4444444444444444
+        },
+        "benign:security-qa": {
+          "n": 14,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:about-injection": {
+          "n": 10,
+          "blocked": 4,
+          "rate": 0.4
+        },
+        "benign:code-review": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:benign-tool-result": {
+          "n": 12,
+          "blocked": 3,
+          "rate": 0.25
+        },
+        "benign:rag-document": {
+          "n": 8,
+          "blocked": 3,
+          "rate": 0.375
+        },
+        "benign:instruction-management": {
+          "n": 10,
+          "blocked": 7,
+          "rate": 0.7
+        },
+        "benign:business-multilingual": {
+          "n": 10,
+          "blocked": 4,
+          "rate": 0.4
+        },
+        "benign:support-ticket": {
+          "n": 7,
+          "blocked": 1,
+          "rate": 0.14285714285714285
+        },
+        "benign:customer-ultimatum": {
+          "n": 12,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:data-transform": {
+          "n": 8,
+          "blocked": 2,
+          "rate": 0.25
+        },
+        "benign:fiction-roleplay": {
+          "n": 7,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:analysis-writing": {
+          "n": 8,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:self-correction": {
+          "n": 12,
+          "blocked": 10,
+          "rate": 0.8333333333333334
+        },
+        "benign:prior-briefing": {
+          "n": 10,
+          "blocked": 6,
+          "rate": 0.6
+        },
+        "benign:deadline-notice": {
+          "n": 10,
+          "blocked": 4,
+          "rate": 0.4
+        },
+        "benign:data-question": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:instruction-question": {
+          "n": 10,
+          "blocked": 7,
+          "rate": 0.7
+        },
+        "benign:creative-request": {
+          "n": 10,
+          "blocked": 3,
+          "rate": 0.3
+        },
+        "benign:utility-request": {
+          "n": 10,
+          "blocked": 6,
+          "rate": 0.6
+        },
+        "benign:roleplay-request": {
+          "n": 10,
+          "blocked": 2,
+          "rate": 0.2
+        },
+        "benign:security-discussion": {
+          "n": 10,
+          "blocked": 1,
+          "rate": 0.1
+        },
+        "benign:ordinary-unicode": {
+          "n": 10,
+          "blocked": 1,
+          "rate": 0.1
+        },
+        "benign:pasted-config": {
+          "n": 10,
+          "blocked": 2,
+          "rate": 0.2
+        },
+        "benign:contact-instruction": {
+          "n": 10,
+          "blocked": 1,
+          "rate": 0.1
+        },
+        "benign:security-operations": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:transactional-email": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:briefing-update": {
+          "n": 10,
+          "blocked": 7,
+          "rate": 0.7
+        },
+        "benign:creative-roleplay": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:workplace-policy": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:software-howto": {
+          "n": 10,
+          "blocked": 3,
+          "rate": 0.3
+        }
+      }
+    },
+    {
+      "name": "deepset-prompt-injections",
+      "threat": "injection",
+      "revision": "4f61ecb038e9c3fb77e21034b22511b523772cdd",
+      "n": 116,
+      "tp": 26,
+      "fn": 34,
+      "tn": 56,
+      "fp": 0,
+      "recall": 0.43333333333333335,
+      "fpr": 0,
+      "p50Ms": 101,
+      "perClass": {
+        "attack:?": {
+          "n": 60,
+          "blocked": 26,
+          "rate": 0.43333333333333335
+        },
+        "benign:?": {
+          "n": 56,
+          "blocked": 0,
+          "rate": 0
+        }
+      }
+    },
+    {
+      "name": "dolly-15k-sample",
+      "threat": "injection",
+      "revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
+      "n": 2000,
+      "tp": 0,
+      "fn": 0,
+      "tn": 1998,
+      "fp": 2,
+      "recall": 0,
+      "fpr": 0.001,
+      "p50Ms": 83,
+      "perClass": {
+        "benign:brainstorming": {
+          "n": 235,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:classification": {
+          "n": 285,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:closed_qa": {
+          "n": 237,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:creative_writing": {
+          "n": 94,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:general_qa": {
+          "n": 292,
+          "blocked": 2,
+          "rate": 0.00684931506849315
+        },
+        "benign:information_extraction": {
+          "n": 200,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:open_qa": {
+          "n": 499,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:summarization": {
+          "n": 158,
+          "blocked": 0,
+          "rate": 0
+        }
+      }
+    },
+    {
+      "name": "gandalf-ignore-instructions",
+      "threat": "injection",
+      "revision": "04737b65e90a6794ec227012e4a255a7def6344b",
+      "n": 112,
+      "tp": 112,
+      "fn": 0,
+      "tn": 0,
+      "fp": 0,
+      "recall": 1,
+      "fpr": null,
+      "p50Ms": 24,
+      "perClass": {
+        "attack:direct-override": {
+          "n": 112,
+          "blocked": 112,
+          "rate": 1
+        }
+      }
+    },
+    {
+      "name": "harmbench",
+      "threat": "harmful-content",
+      "revision": "8e1604d1171fe8a48d8febecd22f600e462bdcdd",
+      "n": 400,
+      "tp": 167,
+      "fn": 233,
+      "tn": 0,
+      "fp": 0,
+      "recall": 0.4175,
+      "fpr": null,
+      "p50Ms": 55,
+      "perClass": {
+        "attack:chemical_biological": {
+          "n": 56,
+          "blocked": 37,
+          "rate": 0.6607142857142857
+        },
+        "attack:illegal": {
+          "n": 65,
+          "blocked": 44,
+          "rate": 0.676923076923077
+        },
+        "attack:misinformation_disinformation": {
+          "n": 65,
+          "blocked": 28,
+          "rate": 0.4307692307692308
+        },
+        "attack:harmful": {
+          "n": 22,
+          "blocked": 11,
+          "rate": 0.5
+        },
+        "attack:harassment_bullying": {
+          "n": 25,
+          "blocked": 14,
+          "rate": 0.56
+        },
+        "attack:cybercrime_intrusion": {
+          "n": 67,
+          "blocked": 33,
+          "rate": 0.4925373134328358
+        },
+        "attack:copyright": {
+          "n": 100,
+          "blocked": 0,
+          "rate": 0
+        }
+      }
+    },
+    {
+      "name": "heldout",
+      "threat": "injection",
+      "n": 52,
+      "tp": 26,
+      "fn": 5,
+      "tn": 20,
+      "fp": 1,
+      "recall": 0.8387096774193549,
+      "fpr": 0.047619047619047616,
+      "p50Ms": 83,
+      "perClass": {
+        "attack:direct-override": {
+          "n": 4,
+          "blocked": 4,
+          "rate": 1
+        },
+        "attack:persona": {
+          "n": 4,
+          "blocked": 4,
+          "rate": 1
+        },
+        "attack:system-exfil": {
+          "n": 3,
+          "blocked": 3,
+          "rate": 1
+        },
+        "attack:encoding": {
+          "n": 2,
+          "blocked": 2,
+          "rate": 1
+        },
+        "attack:indirect": {
+          "n": 3,
+          "blocked": 3,
+          "rate": 1
+        },
+        "attack:refusal": {
+          "n": 3,
+          "blocked": 2,
+          "rate": 0.6666666666666666
+        },
+        "attack:skeleton-key": {
+          "n": 2,
+          "blocked": 2,
+          "rate": 1
+        },
+        "attack:policy-puppetry": {
+          "n": 2,
+          "blocked": 2,
+          "rate": 1
+        },
+        "attack:prefix-injection": {
+          "n": 1,
+          "blocked": 1,
+          "rate": 1
+        },
+        "attack:many-shot": {
+          "n": 1,
+          "blocked": 1,
+          "rate": 1
+        },
+        "attack:social-engineering": {
+          "n": 2,
+          "blocked": 2,
+          "rate": 1
+        },
+        "attack:semantic-hard": {
+          "n": 4,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:benign": {
+          "n": 21,
+          "blocked": 1,
+          "rate": 0.047619047619047616
+        }
+      }
+    },
+    {
+      "name": "indirect-identifier-free",
+      "threat": "indirect-injection",
+      "revision": "v1-2026-08-29",
+      "n": 60,
+      "tp": 30,
+      "fn": 10,
+      "tn": 11,
+      "fp": 9,
+      "recall": 0.75,
+      "fpr": 0.45,
+      "p50Ms": 131,
+      "perClass": {
+        "attack:indirect:identifier-free": {
+          "n": 40,
+          "blocked": 30,
+          "rate": 0.75
+        },
+        "benign:benign:tool-response": {
+          "n": 20,
+          "blocked": 9,
+          "rate": 0.45
+        }
+      }
+    },
+    {
+      "name": "injecagent",
+      "threat": "indirect-injection",
+      "revision": "f19c9f2c79a41046eb13c03c51a24c567a8ffa07",
+      "n": 1071,
+      "tp": 1054,
+      "fn": 0,
+      "tn": 11,
+      "fp": 6,
+      "recall": 1,
+      "fpr": 0.35294117647058826,
+      "p50Ms": 0,
+      "perClass": {
+        "attack:direct-harm:Physical Harm": {
+          "n": 170,
+          "blocked": 170,
+          "rate": 1
+        },
+        "attack:direct-harm:Financial Harm": {
+          "n": 153,
+          "blocked": 153,
+          "rate": 1
+        },
+        "attack:direct-harm:Data Security Harm": {
+          "n": 187,
+          "blocked": 187,
+          "rate": 1
+        },
+        "attack:data-stealing:Physical Data": {
+          "n": 187,
+          "blocked": 187,
+          "rate": 1
+        },
+        "attack:data-stealing:Financial Data": {
+          "n": 102,
+          "blocked": 102,
+          "rate": 1
+        },
+        "attack:data-stealing:Others": {
+          "n": 255,
+          "blocked": 255,
+          "rate": 1
+        },
+        "benign:benign-tool-response": {
+          "n": 17,
+          "blocked": 6,
+          "rate": 0.35294117647058826
+        }
+      }
+    },
+    {
+      "name": "jailbreak-classification",
+      "threat": "injection",
+      "revision": "2f2ceeb39658696fd3f462403562b6eea5306287",
+      "n": 1179,
+      "tp": 446,
+      "fn": 96,
+      "tn": 628,
+      "fp": 9,
+      "recall": 0.8228782287822878,
+      "fpr": 0.0141287284144427,
+      "p50Ms": 278,
+      "perClass": {
+        "benign:benign": {
+          "n": 637,
+          "blocked": 9,
+          "rate": 0.0141287284144427
+        },
+        "attack:jailbreak": {
+          "n": 542,
+          "blocked": 446,
+          "rate": 0.8228782287822878
+        }
+      }
+    },
+    {
+      "name": "jbb-behaviors",
+      "threat": "harmful-content",
+      "revision": "886acc352a31533ffbcf4ef22c744658688086fc",
+      "n": 200,
+      "tp": 100,
+      "fn": 0,
+      "tn": 98,
+      "fp": 2,
+      "recall": 1,
+      "fpr": 0.02,
+      "p50Ms": 40,
+      "perClass": {
+        "attack:Harassment/Discrimination": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Malware/Hacking": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Physical harm": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Economic harm": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Fraud/Deception": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Disinformation": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Sexual/Adult content": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Privacy": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Expert advice": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "attack:Government decision-making": {
+          "n": 10,
+          "blocked": 10,
+          "rate": 1
+        },
+        "benign:Harassment/Discrimination": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Malware/Hacking": {
+          "n": 10,
+          "blocked": 1,
+          "rate": 0.1
+        },
+        "benign:Physical harm": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Economic harm": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Fraud/Deception": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Disinformation": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Sexual/Adult content": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Privacy": {
+          "n": 10,
+          "blocked": 1,
+          "rate": 0.1
+        },
+        "benign:Expert advice": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        },
+        "benign:Government decision-making": {
+          "n": 10,
+          "blocked": 0,
+          "rate": 0
+        }
+      }
+    },
+    {
+      "name": "oasst1-sample",
+      "threat": "injection",
+      "revision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",
+      "n": 2000,
+      "tp": 0,
+      "fn": 0,
+      "tn": 1763,
+      "fp": 237,
+      "recall": 0,
+      "fpr": 0.1185,
+      "p50Ms": 103,
+      "perClass": {
+        "benign:en-follow-up": {
+          "n": 729,
+          "blocked": 17,
+          "rate": 0.023319615912208505
+        },
+        "benign:en-opening": {
+          "n": 228,
+          "blocked": 1,
+          "rate": 0.0043859649122807015
+        },
+        "benign:other-follow-up": {
+          "n": 628,
+          "blocked": 156,
+          "rate": 0.2484076433121019
+        },
+        "benign:other-opening": {
+          "n": 415,
+          "blocked": 63,
+          "rate": 0.15180722891566265
+        }
+      }
+    },
+    {
+      "name": "safeguard-prompt-injection",
+      "threat": "injection",
+      "revision": "a3a877d608f37b7d20d9945671902df895ecdb46",
+      "n": 2060,
+      "tp": 600,
+      "fn": 50,
+      "tn": 1408,
+      "fp": 2,
+      "recall": 0.9230769230769231,
+      "fpr": 0.0014184397163120568,
+      "p50Ms": 129,
+      "perClass": {
+        "benign:?": {
+          "n": 1410,
+          "blocked": 2,
+          "rate": 0.0014184397163120568
+        },
+        "attack:?": {
+          "n": 650,
+          "blocked": 600,
+          "rate": 0.9230769230769231
+        }
+      }
+    }
+  ]
+}

@@ -210,6 +210,15 @@ on every row — understating jbb-behaviors by 74 points and harmbench by 23,
 while overstating gandalf by 4. Numbers written down once and left alone are a
 claim, not a measurement; regenerate this table when detection changes.
 
+The classifier column is now re-measured weekly (#554):
+`.github/workflows/classifier-benchmark.yml` runs the classifier preset over
+every split, uploads the JSON, and compares it with
+`test/eval/baselines/classifier.json`, the same figures in machine-readable
+form (`npm run bench:compare -- <baseline> <run>`). The job fails when a split's
+recall moves more than 2 points or its FPR more than 1 point, in either
+direction, so a stale figure is caught as surely as a regression. When this
+table is re-measured, update that file in the same change.
+
 **Prompt injection**
 
 | Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
