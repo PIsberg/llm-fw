@@ -36,7 +36,7 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 | `twilio` / `sendgrid` / `mailgun` / `mailchimp` | Comms/email provider keys (`AC…`/`SK…`, `SG.…`, `key-…`, `…-usN`) |
 | `azure` / `digitalocean` | Azure Storage account keys (`AccountKey=…`) and DigitalOcean tokens (`dop_v1_…`) |
 | `newrelic` / `sentry` | New Relic API keys (`NRAK-…`) and Sentry DSNs with embedded secret |
-| `private_keys` | RSA / EC / OpenSSH / DSA / PGP private-key headers |
+| `private_keys` | Private key blocks of any `BEGIN ... PRIVATE KEY` type (RSA, EC, OpenSSH, DSA, PKCS#8 and encrypted PKCS#8) and OpenPGP private key blocks. Redaction covers the whole block, header through END; a block with no END line is redacted through its last key-looking line |
 | `mongodb` | MongoDB SRV connection URIs with embedded credentials |
 | `connection_uri` | Any `scheme://user:password@host` connection string (Postgres/MySQL/Redis/AMQP/HTTP basic-auth) |
 | `jwt` | JSON Web Tokens (`eyJ….eyJ….…`) |

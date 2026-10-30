@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { DlpScanner, markerFor } from '../../../src/detection/dlp/scanner.js'
 import { luhnValid, DLP_RULES } from '../../../src/detection/dlp/patterns.js'
 import { DLPConfig } from '../../../src/types.js'
+import { PLAYGROUND_EXAMPLES } from '../../../src/dashboard/playgroundExamples.js'
 
 const ALL_DETECTORS = [
   'aws', 'google', 'azure', 'digitalocean',
@@ -582,5 +583,139 @@ describe('vendor-documented example credentials', () => {
     const scanner = makeScanner()
 
     expect(scanner.scan(SYNTHETIC_AWS_KEY_EXAMPLE_MIDDLE)).toHaveLength(1)
+  })
+})
+
+// GHSA-3hx2-682q-w4gw. The private_keys rule matched only the BEGIN line, so
+// redact mode replaced the header and forwarded the key body and the END line
+// to the provider; encrypted PKCS#8 and PGP private keys were not found at
+// all. The whole block, header through END, is the secret. Key text is built
+// at runtime so this file carries no literal PEM block.
+describe('DlpScanner.redact — the whole private key block', () => {
+  const scanner = makeScanner()
+  const DASHES = '-----'
+  const begin = (label: string): string => `${DASHES}BEGIN ${label}${DASHES}`
+  const end = (label: string): string => `${DASHES}END ${label}${DASHES}`
+  // 64-character base64 lines, as PEM writes them, and a short last line.
+  const BODY_LINES = Array.from({ length: 5 }, (_, i) =>
+    Array.from({ length: 64 }, (_, j) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'[(i * 131 + j * 17) % 64]).join(''),
+  ).concat(['q8Zk3RmW0x=='])
+  const block = (label: string, headers: string[] = [], eol = '\n'): string =>
+    [begin(label), ...headers, ...BODY_LINES, end(label)].join(eol)
+  const leaked = (out: string): string[] =>
+    [...BODY_LINES, DASHES + 'END'].filter((part) => out.includes(part))
+
+  // A raw request body: the scan runs on it before JSON parsing, so the key's
+  // line breaks are the two characters `\n`.
+  const roundTrip = (content: string): { raw: string; content: string } => {
+    const body = JSON.stringify({ messages: [{ role: 'user', content }] })
+    const raw = scanner.redact(body, scanner.scan(body))
+    return { raw, content: (JSON.parse(raw) as { messages: { content: string }[] }).messages[0]!.content }
+  }
+
+  it.each([
+    'RSA PRIVATE KEY',
+    'PRIVATE KEY',
+    'EC PRIVATE KEY',
+    'OPENSSH PRIVATE KEY',
+    'DSA PRIVATE KEY',
+    'ENCRYPTED PRIVATE KEY',
+  ])('redacts a %s block from its header through END in a JSON body', (label) => {
+    const { raw, content } = roundTrip(`Deploy with this:\n${block(label)}\nand tell me if it works.`)
+    expect(leaked(raw)).toEqual([])
+    expect(content).toBe('Deploy with this:\n[REDACTED_PRIVATE_KEY]\nand tell me if it works.')
+  })
+
+  it('redacts a PGP private key block with its armor headers, blank line and checksum', () => {
+    const pgp = [begin('PGP PRIVATE KEY BLOCK'), 'Version: GnuPG v2', 'Comment: work laptop', '', ...BODY_LINES, '=Xb4d', end('PGP PRIVATE KEY BLOCK')].join('\n')
+    const { raw, content } = roundTrip(`key:\n${pgp}\ndone`)
+    expect(leaked(raw)).toEqual([])
+    expect(raw).not.toContain('GnuPG')
+    expect(content).toBe('key:\n[REDACTED_PRIVATE_KEY]\ndone')
+  })
+
+  it('redacts a traditionally encrypted PEM with Proc-Type and DEK-Info headers', () => {
+    const { raw, content } = roundTrip(block('RSA PRIVATE KEY', ['Proc-Type: 4,ENCRYPTED', 'DEK-Info: AES-128-CBC,9F3C1A2B4D5E6F708192A3B4C5D6E7F8', '']))
+    expect(leaked(raw)).toEqual([])
+    expect(raw).not.toContain('DEK-Info')
+    expect(content).toBe('[REDACTED_PRIVATE_KEY]')
+  })
+
+  it('redacts a block with real line breaks, CRLF, or flattened onto one line', () => {
+    for (const text of [block('RSA PRIVATE KEY'), block('RSA PRIVATE KEY', [], '\r\n'), block('RSA PRIVATE KEY', [], ' ')]) {
+      const out = scanner.redact(`before ${text} after`, scanner.scan(`before ${text} after`))
+      expect(leaked(out)).toEqual([])
+      expect(out).toBe('before [REDACTED_PRIVATE_KEY] after')
+    }
+  })
+
+  it('redacts a key inside a tool result that was itself JSON-encoded', () => {
+    const inner = JSON.stringify({ path: 'id_rsa', text: block('OPENSSH PRIVATE KEY') })
+    const { raw, content } = roundTrip(inner)
+    expect(leaked(raw)).toEqual([])
+    expect(JSON.parse(content)).toEqual({ path: 'id_rsa', text: '[REDACTED_PRIVATE_KEY]' })
+  })
+
+  it('redacts a block from an encoder that writes / as \\/', () => {
+    const raw = JSON.stringify({ content: block('RSA PRIVATE KEY') }).replaceAll('/', '\\/')
+    const out = scanner.redact(raw, scanner.scan(raw))
+    expect(out).not.toContain('END')
+    expect(JSON.parse(out)).toEqual({ content: '[REDACTED_PRIVATE_KEY]' })
+  })
+
+  it('redacts every block when one body carries two keys, and keeps the text between', () => {
+    const { raw, content } = roundTrip(`${block('EC PRIVATE KEY')}\nsecond one:\n${block('PRIVATE KEY')}`)
+    expect(leaked(raw)).toEqual([])
+    expect(content).toBe('[REDACTED_PRIVATE_KEY]\nsecond one:\n[REDACTED_PRIVATE_KEY]')
+  })
+
+  it('redacts the key lines of a truncated paste with no END line, and stops at prose', () => {
+    const truncated = [begin('RSA PRIVATE KEY'), ...BODY_LINES.slice(0, 3)].join('\n')
+    const { raw, content } = roundTrip(`${truncated}\nIs this the right format?`)
+    expect(BODY_LINES.slice(0, 3).filter((l) => raw.includes(l))).toEqual([])
+    expect(content).toBe('[REDACTED_PRIVATE_KEY]\nIs this the right format?')
+  })
+
+  it("redacts the dashboard playground's private-key example down to its ellipsis", () => {
+    // The playground shows this redaction to the user; a body fragment left
+    // after the marker is how the leak was found.
+    const example = PLAYGROUND_EXAMPLES.dlp!.find((e) => e.label === 'Private key')!.value
+    expect(roundTrip(example).content).toBe('Here is the deploy key:\n[REDACTED_PRIVATE_KEY]...')
+  })
+
+  it('leaves public keys and certificates alone', () => {
+    for (const label of ['PUBLIC KEY', 'CERTIFICATE', 'PGP PUBLIC KEY BLOCK']) {
+      expect(scanner.scan(block(label)).filter((f) => f.type === 'PRIVATE_KEY')).toEqual([])
+    }
+  })
+
+  it('still finds a bare header, and block mode still sees the key', () => {
+    expect(scanner.scan(begin('RSA PRIVATE KEY')).map((f) => f.type)).toContain('PRIVATE_KEY')
+    expect(makeScanner(ALL_DETECTORS, 'block').scan(block('ENCRYPTED PRIVATE KEY')).map((f) => f.type)).toContain('PRIVATE_KEY')
+  })
+
+  // DLP runs on the request thread over attacker-reachable text (tool results),
+  // so the block extension must stay linear: no header may rescan the rest of
+  // the body looking for an END line.
+  describe('linear time on large bodies', () => {
+    const KB200 = 200 * 1024
+    const fill = (unit: string): string => unit.repeat(Math.ceil(KB200 / unit.length)).slice(0, KB200)
+    it.each([
+      ['headers with no END line', () => fill(begin('RSA PRIVATE KEY') + '\\n')],
+      ['one header then a base64 run', () => begin('PRIVATE KEY') + fill('A')],
+      ['one header then escaped line breaks', () => begin('PRIVATE KEY') + fill('\\n')],
+      ['one header then whitespace', () => begin('PRIVATE KEY') + fill(' \n')],
+      ['header and armor-looking lines', () => fill(begin('PGP PRIVATE KEY BLOCK') + '\nVersion: x\n')],
+      ['a dash-separated run', () => begin('PRIVATE KEY') + fill('1-')],
+      ['near-miss END lines', () => begin('PRIVATE KEY') + fill('AAAA\\n----END ')],
+      ['one header then a run of backslashes', () => begin('PRIVATE KEY') + ' ' + fill('\\')],
+      ['one header then one long escape', () => begin('PRIVATE KEY') + ' ' + fill('\\').slice(1) + 't'],
+      ['headers then long backslash runs', () => fill(begin('PRIVATE KEY') + ' ' + '\\'.repeat(5000) + 'n')],
+    ])('scans and redacts 200 KB of %s in under 1.5 s', (_label, make) => {
+      const text = make()
+      const t0 = performance.now()
+      scanner.redact(text, scanner.scan(text))
+      expect(performance.now() - t0).toBeLessThan(1500)
+    })
   })
 })

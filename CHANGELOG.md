@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **DLP redaction no longer forwards the body of a private key (GHSA-3hx2-682q-w4gw).** In the default `dlp.mode: redact`, the `private_keys` rule matched only the `-----BEGIN ... PRIVATE KEY-----` line, so a pasted key arrived at the provider as `[REDACTED_PRIVATE_KEY]` followed by its whole base64 body and END line. Encrypted PKCS#8 keys (`BEGIN ENCRYPTED PRIVATE KEY`) and OpenPGP private key blocks (`BEGIN PGP PRIVATE KEY BLOCK`) were not found at all, in `block` mode either. The rule now matches any private key header and redacts the block through its END line, with armor headers (`Proc-Type`, `DEK-Info`, `Version`) and line breaks written as JSON escapes, `\n` in a JSON-encoded tool result, or `\/` from encoders that escape slashes. A truncated paste with no END line is redacted through its last key-looking line, and the prose after it is kept. The walk is linear: 200 KB of headers with no END line, base64, escaped line breaks, near-miss END lines or long backslash runs each redact in under 1.5 s (`test/detection/dlp/scanner.test.ts`, 26 cases, 15 of which failed before the fix). DLP does not feed the injection verdicts, so eval verdicts, recall floors and false-positive rates cannot move (ruleset 2026.10.106).
+
 ### Added
 
 - **A weekly re-measurement of the classifier benchmark (#554).** The trained-classifier column of `docs/BENCHMARK.md` was refreshed by hand and had drifted for two months before #538. `.github/workflows/classifier-benchmark.yml` now runs the classifier preset over every split each Sunday (and on dispatch), uploads the JSON, and compares it with `test/eval/baselines/classifier.json`, the published figures in machine-readable form, through the new `npm run bench:compare`. A split whose recall moves more than 2 points or whose FPR moves more than 1 point fails the run, either way, with the comparison table in the job summary. Verified with `test/eval/benchCompare.test.ts`; the workflow itself first runs after merge (it is schedule- and dispatch-only).
