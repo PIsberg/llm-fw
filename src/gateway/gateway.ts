@@ -291,7 +291,7 @@ export class GatewayServer {
           forwardBody = Buffer.from(injected, 'utf-8');
           // The watch reads the response, so it must arrive uncompressed.
           forwardHeaders = { ...decision.headers, 'accept-encoding': 'identity' };
-          guardCanary(res, token, bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req));
+          guardCanary(res, token, bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req), route.upstreamPath);
         }
       }
       await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);

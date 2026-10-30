@@ -16,6 +16,10 @@ import { StringDecoder } from 'node:string_decoder'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getParser, AnthropicParser, OpenAIParser, GeminiParser, BedrockParser } from '../detection/parsers.js'
+import { streamErrorEvent } from './streamError.js'
+
+/** Why a canary cut ended the stream, in the error event the client is shown. */
+export const CANARY_CUT = 'llm-fw cut this response: the model was repeating its system prompt (system-prompt canary)'
 
 const TOKEN_RE = /^llmfw-canary-[0-9a-f]{32}$/
 
@@ -170,9 +174,11 @@ function headerOf(args: unknown[], res: http.ServerResponse, name: string): stri
  * of the token, and returns whether to withhold (block mode) or forward
  * (audit). A compressed body cannot be read and passes as it is; the caller
  * asks the upstream for identity. A JSON body larger than `cap` is forwarded
- * unread, as the proxy forwards an oversized response.
+ * unread, as the proxy forwards an oversized response. A cut stream ends with
+ * the error event of `path`'s API (#573) when what was written ended on an
+ * event boundary; otherwise, or for an API without one, it is reset.
  */
-export function guardCanary(res: http.ServerResponse, token: string, cap: number, onLeak: () => boolean): void {
+export function guardCanary(res: http.ServerResponse, token: string, cap: number, onLeak: () => boolean, path = ''): void {
   const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => http.ServerResponse
   const write = res.write.bind(res) as (...args: unknown[]) => boolean
   const end = res.end.bind(res) as (...args: unknown[]) => http.ServerResponse
@@ -182,8 +188,25 @@ export function guardCanary(res: http.ServerResponse, token: string, cap: number
   let heldBytes = 0
   let reported = false
   let cut = false
+  let atEventBoundary = true
   const watch = new CanaryWatch(token)
   const decoder = new StringDecoder('utf8')
+
+  // Nothing of the completing chunk is written: the client never assembles
+  // the token, and is told why the stream ended.
+  const cutStream = (): void => {
+    cut = true
+    const ending = atEventBoundary ? streamErrorEvent(path, CANARY_CUT) : null
+    if (ending) end(ending)
+    else res.destroy()
+  }
+  // A text chunk is checked, then passed on; returns false when it was cut.
+  const sseChunk = (chunk: unknown, encoding: unknown): boolean => {
+    const text = decoder.write(bytes(chunk, encoding))
+    if (watch.push(text) && leak()) { cutStream(); return false }
+    if (text) atEventBoundary = /\n\r?\n$/.test(text)
+    return true
+  }
 
   const leak = (): boolean => {
     if (reported) return false
@@ -222,13 +245,7 @@ export function guardCanary(res: http.ServerResponse, token: string, cap: number
   res.write = ((chunk: unknown, encoding?: unknown, cb?: unknown) => {
     if (cut) return false
     if (mode === 'sse') {
-      if (watch.push(decoder.write(bytes(chunk, encoding))) && leak()) {
-        // Nothing of the completing chunk is written: the client sees the
-        // stream end and never assembles the token.
-        cut = true
-        res.destroy()
-        return false
-      }
+      if (!sseChunk(chunk, encoding)) return false
     } else if (mode === 'json') {
       const b = bytes(chunk, encoding)
       held.push(b)
@@ -256,11 +273,7 @@ export function guardCanary(res: http.ServerResponse, token: string, cap: number
       return end()
     }
     if (mode === 'sse' && chunk !== undefined && typeof chunk !== 'function') {
-      if (watch.push(decoder.write(bytes(chunk, encoding))) && leak()) {
-        cut = true
-        res.destroy()
-        return res
-      }
+      if (!sseChunk(chunk, encoding)) return res
     }
     return end(chunk, encoding, cb)
   }) as typeof res.end
