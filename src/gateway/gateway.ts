@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { Config, PipelineResult } from '../types.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { decodeContentEncoding, UnsupportedEncoding } from '../proxy/contentEncoding.js';
+import { isTokenCountRequest } from '../proxy/tokenCount.js';
 import { bodyCap } from '../proxy/bodyCap.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { EventBus } from '../dashboard/eventBus.js';
@@ -560,9 +561,10 @@ export class GatewayServer {
       }
     }
 
-    // DLP — same scoping as the proxy: only requests a parser recognises, so
-    // binary uploads are not scanned as if they were prompts.
-    if (this.config.dlp.enabled && getParser(path) !== null) {
+    // DLP — same scoping as the proxy: only requests a parser recognises, and
+    // token-counting requests, which carry the same conversation; binary
+    // uploads are not scanned as if they were prompts.
+    if (this.config.dlp.enabled && (getParser(path) !== null || isTokenCountRequest(path))) {
       const findings = this.dlp.scan(text);
       const firstFinding = findings[0];
       if (firstFinding) {

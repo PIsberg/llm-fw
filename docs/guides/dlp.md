@@ -4,7 +4,7 @@
 
 Beyond inbound prompt injection, `llm-fw` runs a **Stage 0** pre-flight scan that inspects outbound prompts for sensitive local data before they ever leave your machine. This mitigates accidental leakage of secrets and PII into third-party LLM providers (a GDPR / SOC2 exposure).
 
-The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages`, Gemini `generateContent`) — binary/file uploads are skipped — and is designed to complete in well under 5 ms.
+The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages`, Gemini `generateContent`) and on the providers' token-counting requests, which carry the same conversation (Anthropic `/v1/messages/count_tokens`, OpenAI `/v1/responses/input_tokens`, Gemini `:countTokens`; GHSA-9986-fxc2-cx83) — binary/file uploads are skipped — and is designed to complete in well under 5 ms. Injection detection does not run on token-counting requests, since nothing is generated from them.
 
 ### Detectors
 

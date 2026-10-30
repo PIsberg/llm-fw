@@ -38,6 +38,7 @@ import { realtimeProtocolFor, wsRefusal } from './websocket.js'
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
+import { isTokenCountRequest } from './tokenCount.js'
 import { bodyCap } from './bodyCap.js'
 import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT } from './canary.js'
 import { ExfilStreamHold } from './streamExfil.js'
@@ -790,11 +791,15 @@ export class ProxyServer {
       let body = bodyBuf.toString('utf-8')
 
       // Stage 0 — Data Loss Prevention. Only LLM JSON requests (those with a
-      // registered parser) are scanned, so binary/file uploads are skipped.
+      // registered parser) and token-counting requests are scanned, so
+      // binary/file uploads are skipped.
       const method = innerReq.method ?? 'GET'
       const dlpPath = innerReq.url ?? '/'
       const parser = parserForRequest(hostname, dlpPath, this.config)
       const isLlmRequest = parser !== null
+      // A token-counting request carries the conversation but has no parser:
+      // DLP scans it, detection does not (tokenCount.ts).
+      const tokenCount = isTokenCountRequest(dlpPath)
 
       // A compressed LLM request is decoded before anything reads it, and the
       // decoded body is what goes upstream. Scanning the compressed bytes as
@@ -802,7 +807,7 @@ export class ProxyServer {
       // on ChatGPT sign-in compresses with zstd by default) reached the
       // provider unscanned. What cannot be decoded is refused, never forwarded.
       const requestEncoding = innerReq.headers['content-encoding']
-      if (isLlmRequest && requestEncoding && !/^\s*identity\s*$/i.test(requestEncoding)) {
+      if ((isLlmRequest || tokenCount) && requestEncoding && !/^\s*identity\s*$/i.test(requestEncoding)) {
         const refuse = (status: number, error: string): void => {
           log.warn(`refused ${method} ${hostname}${dlpPath}: ${error}`)
           innerRes.writeHead(status, { 'Content-Type': 'application/json' })
@@ -896,7 +901,7 @@ export class ProxyServer {
         }
       }
 
-      if (this.config.dlp.enabled && getParser(dlpPath) !== null) {
+      if (this.config.dlp.enabled && (getParser(dlpPath) !== null || tokenCount)) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
           // NEVER log the raw secret value — only its type(s).
@@ -980,7 +985,7 @@ export class ProxyServer {
       // newer/agentic endpoint (Google Antigravity / Cloud Code Assist, a Vertex
       // path variant). Surface it as a non-blocking warn so it appears in Live
       // Traffic and someone can add a parser, instead of it vanishing.
-      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body) && !isKnownNonLlmEndpoint(dlpPath)) {
+      if (getParser(dlpPath) === null && method === 'POST' && looksLikeJsonBody(body) && !isKnownNonLlmEndpoint(dlpPath) && !tokenCount) {
         emitEvent({
           stage: 'none',
           score: 0,
