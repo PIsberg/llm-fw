@@ -164,6 +164,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.103 (ten real tool-output shapes the
+  // indirect-instruction stage read as orders, #477; 0 of 27,912 eval
+  // verdicts changed, measured).
   // Held at ruleset 2026.10.102 (look-alike words between Latin words
   // folded, #557; 0 of 27,912 eval verdicts changed, measured).
   // Held at ruleset 2026.10.101 (responseScan.canary default only, off,

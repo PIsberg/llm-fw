@@ -15,6 +15,7 @@ import {
   unlicensedBanner,
   run,
 } from '../../src/cli/license.js'
+import { detectIndirectInstruction } from '../../src/detection/indirectInstruction.js'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const licenseFile = readFileSync(join(repoRoot, 'LICENSE.md'), 'utf8')
@@ -98,6 +99,15 @@ describe('unlicensed notice', () => {
     expect(UNLICENSED_NOTICE).toContain(LICENSE_NAME)
     expect(UNLICENSED_NOTICE).toMatch(/noncommercial/i)
     expect(UNLICENSED_NOTICE).toMatch(/\bbuy\b/i)
+  })
+
+  // `llm-fw start` and `status` print it, so an agent that runs them reads it
+  // as a tool result. "Buy one at <URL>" read as an injected order, and the
+  // firewall withheld its own output (#477).
+  it('does not read as an instruction to the firewall it comes from', () => {
+    for (const text of [UNLICENSED_NOTICE, SHORT_NOTICE, NOTICE]) {
+      expect(detectIndirectInstruction(text), text).toBeNull()
+    }
   })
 
   it('points at the canonical shop URL, trailing slash included', () => {

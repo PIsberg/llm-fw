@@ -73,6 +73,18 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.103
+
+**Unchanged from 2026.10.102 on every eval corpus: 2.68% overall (9 of 336), Dolly and
+oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts
+changed, maximum similarity drift 0.0000.** The change is in real tool output. Replaying
+11,862 distinct items from 7 days of this machine's Claude Code sessions, the
+indirect-instruction stage blocked 42 tool results outside llm-fw's own repository on
+2026.10.102 and 26 on 2026.10.103 (104 to 102 inside it, where reading the detector's own
+sources is refused by design). The ten shapes it no longer reads as orders are listed
+in the changelog under #477. `npm run recall:floor` holds at 944 of 1,395, the
+identifier-free probe at 8 of 40, and injecagent at 1,054 of 1,054.
+
 ## Result, ruleset 2026.10.102
 
 **Unchanged from 2026.10.101: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
