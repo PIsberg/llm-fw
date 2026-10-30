@@ -1,4 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest'
+import fs from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { deepMerge, loadConfig, DEFAULT_CONFIG } from '../../src/config/config.js'
 
 describe('deepMerge', () => {
@@ -45,6 +48,22 @@ describe('loadConfig env overrides', () => {
     'LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS',
   ]
   afterEach(() => { for (const k of ENV_KEYS) delete process.env[k] })
+
+  // loadConfig() also reads <LLM_FW_DIR>/config.json, ~/.llm-fw by default:
+  // without an empty directory of its own, these cases measured the
+  // developer's own settings (a trustedPaths entry made two of them fail).
+  let savedDir: string | undefined
+  let emptyDir: string
+  beforeAll(() => {
+    savedDir = process.env.LLM_FW_DIR
+    emptyDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-config-test-'))
+    process.env.LLM_FW_DIR = emptyDir
+  })
+  afterAll(() => {
+    if (savedDir === undefined) delete process.env.LLM_FW_DIR
+    else process.env.LLM_FW_DIR = savedDir
+    fs.rmSync(emptyDir, { recursive: true, force: true })
+  })
 
   it('applies numeric env overrides', async () => {
     process.env.LLM_FW_PROXY_PORT = '9090'
