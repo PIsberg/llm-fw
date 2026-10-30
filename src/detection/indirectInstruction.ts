@@ -255,9 +255,11 @@ const IMPERATIVE_OBJECT_RE = new RegExp([
   'https?://',                                               // exfil destination
   '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',   // address
   '\\(\\s*[A-Za-z][\\w.-]*\\d[\\w.-]*\\s*\\)',               // "(guest_amy01)"
-  // Not a path segment: Blender's "use library at C:\...\io_scene_gltf2\
-  // extern_draco.dll" names a folder, not an account (#477).
-  '(?<![\\\\/])\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d[a-z0-9_]*\\b(?![\\\\/])', // bare guest_amy01
+  // Not a segment inside a path: Blender's "use library at C:\...\
+  // io_scene_gltf2\extern_draco.dll" names a folder, not an account (#477).
+  // A separator on both sides, so one slash in front ("to /guest_amy01")
+  // does not hide a handle.
+  '(?:(?<![\\\\/])\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d[a-z0-9_]*\\b|\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d[a-z0-9_]*\\b(?![\\\\/]))', // bare guest_amy01
   '\\b0x[0-9a-fA-F]{6,}\\b',                                 // wallet address
   '\\bmy\\b',                                                // first-person claim on the resource
   // Plainly sensitive objects, for attacks that name no identifier at all
@@ -329,7 +331,11 @@ const QUOTED_NAME_RE = /(['"`])[^\s'"`]{1,80}\1/g
 function benignPoliteObject(text: string, end: number, verb = ''): boolean {
   const rest = text.slice(end)
   const insteadClause = verb === 'use' ? USE_INSTEAD_RE.exec(rest) : null
-  if (insteadClause) return !IMPERATIVE_OBJECT_RE.test(insteadClause[0].replace(QUOTED_NAME_RE, ' '))
+  if (insteadClause) {
+    // A quoted URL, address, account or handle is an object, not a name.
+    const names = insteadClause[0].replace(QUOTED_NAME_RE, q => (QUOTED_TARGET_RE.test(q) ? q : ' '))
+    return !IMPERATIVE_OBJECT_RE.test(names)
+  }
   const w = objectWindow(text, end)
   if (IMPERATIVE_OBJECT_RE.test(w)) return false
   return RETRY_PROMPT_RE.test(rest) || ENV_VAR_OBJECT_RE.test(rest)
@@ -353,13 +359,7 @@ const LEADING_ACTION_VERB_RE = new RegExp(`^\\s+(?:${VERB_ALT})\\b`, 'i')
 // blocks). The quote must open right after the example marker; an unquoted
 // "For example, reset my password" is still an imperative, and an address in
 // the quote is still caught by the exfil rule.
-// A conventional-commit subject in `git log` output: "6d2099c test: use the
-// unused out ...", "2026-10-10|docs: update test counts to 168 ..." (#477).
-// The line must open with a hash or a date, so a bare "fix: transfer ..." in a
-// document is still a clause.
-const COMMIT_SUBJECT_BEFORE_RE = /(?:^|\n)[ \t]*(?:[0-9a-f]{7,40}|\d{4}-\d{2}-\d{2})[ \t|]+(?:feat|fix|docs|test|tests|chore|refactor|perf|ci|build|style|revert)(?:\([^()\n]{0,40}\))?!?:[ \t]*$/
-
-const QUOTED_EXAMPLE_RE =/\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,:]?\s*["'`]\s*$/i
+const QUOTED_EXAMPLE_RE = /\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,:]?\s*["'`]\s*$/i
 
 // "you can / will / may <verb>" tells the reader about an option more often
 // than it orders anything: "You can unsubscribe at any time", "you may cancel
@@ -368,8 +368,10 @@ const QUOTED_EXAMPLE_RE =/\b(?:e\.g\.|i\.e\.|for example|for instance|such as)[,
 const PERMISSIVE_MODAL_RE = /^you\s+(?:can|will|may)\b/i
 
 // "Do you need to change your target library?" (tsc's TS2550) asks; it does
-// not order (#477). The auxiliary must lead the clause and the question mark
-// end it.
+// not order (#477). The auxiliary must lead the clause, the question mark end
+// it, and the object window name nothing an attacker would choose: tool
+// output is attacker text, and "Do you need to change the payout account to
+// 4421-...?" is as easy to write as the order.
 const QUESTION_LEAD_RE = /\b(?:do|does|did)\s+$/i
 const QUESTION_END_RE = /^[^.!\n]{0,120}\?/
 
@@ -507,6 +509,9 @@ function blankAttributionFields(text: string): string {
 // Prompt's `set "NAME=value"`, which `llm-fw setup` itself prints.
 const SHELL_EXPORT_AFTER_RE = /^[ \t]+["']?[A-Za-z_]\w*=/
 const SHELL_ASSIGN_VERB_RE = /^(?:export|set)$/i
+// ...unless the value is a remote URL: `set "OPENAI_BASE_URL=https://..."` is
+// the order an attacker would write. llm-fw's own line points at loopback.
+const REMOTE_URL_RE = /https?:\/\/(?!(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?:[:/"'\s]|$))/i
 // And JavaScript's module keyword: a script's `export function buildRepo`
 // sat within 200 characters of the identity it passes to `git -c
 // user.email=...` (#477).
@@ -566,6 +571,10 @@ const ATTACKER_TARGET_RE = new RegExp([
   '\\b0x[0-9a-fA-F]{6,}\\b',
   '\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b',
 ].join('|'), 'i')
+// What a quoted token in a "please use X instead" clause must not be for the
+// clause to count as a deprecation notice (#477): a destination, or a
+// guest_amy01-style handle.
+const QUOTED_TARGET_RE = new RegExp(`${ATTACKER_TARGET_RE.source}|\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d`, 'i')
 
 function snippetAround(text: string, index: number, len: number): string {
   const start = Math.max(0, index - 40)
@@ -1144,8 +1153,8 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (isMethodCall(text, end - verb.length)) continue
     if (isEmailNoun(text, end - verb.length, end)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
-    if (SHELL_ASSIGN_VERB_RE.test(verb) && isExportKeyword(text.slice(end))) continue
-    if (COMMIT_SUBJECT_BEFORE_RE.test(text.slice(Math.max(0, end - verb.length - 80), end - verb.length))) continue
+    if (SHELL_ASSIGN_VERB_RE.test(verb) && isExportKeyword(text.slice(end)) &&
+      !REMOTE_URL_RE.test(text.slice(end, end + 200).split(/[\r\n&;|]/)[0] ?? '')) continue
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
@@ -1156,7 +1165,8 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   for (let m = DIRECTIVE_RE.exec(text); m !== null; m = DIRECTIVE_RE.exec(text)) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
-    if (QUESTION_LEAD_RE.test(text.slice(Math.max(0, m.index - 12), m.index)) && QUESTION_END_RE.test(text.slice(end))) continue
+    if (QUESTION_LEAD_RE.test(text.slice(Math.max(0, m.index - 12), m.index)) && QUESTION_END_RE.test(text.slice(end)) &&
+      !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     if (onlyTrustedObject(end)) continue
     /* v8 ignore next */ // m[1] is always captured by the verb group
     return { verb: (m[1] ?? '').toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
