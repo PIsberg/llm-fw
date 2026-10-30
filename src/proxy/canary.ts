@@ -10,7 +10,9 @@
 // the start of the provider's prompt-cache prefix, and a token that changed
 // every request would make every request a cache miss.
 
+import type http from 'node:http'
 import { randomBytes } from 'node:crypto'
+import { StringDecoder } from 'node:string_decoder'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getParser, AnthropicParser, OpenAIParser, GeminiParser, BedrockParser } from '../detection/parsers.js'
@@ -137,4 +139,117 @@ export class CanaryWatch {
     }
     return false
   }
+}
+
+function headerOf(args: unknown[], res: http.ServerResponse, name: string): string {
+  const last = args[args.length - 1]
+  const passed = typeof last === 'object' && last !== null && !Array.isArray(last) ? last as Record<string, unknown> : {}
+  for (const [k, v] of Object.entries(passed)) if (k.toLowerCase() === name) return String(v)
+  const set = res.getHeader(name)
+  return set === undefined ? '' : String(set)
+}
+
+/**
+ * Watches a response on its way to the client for the canary (#552, the
+ * gateway's counterpart of the proxy's watch in handleRequest). A streamed
+ * (SSE) body goes through CanaryWatch and is cut before the chunk that
+ * completes the token; a JSON body is held until it ends and replaced with a
+ * 502 when it carries the token. `onLeak` is called once, on the first sight
+ * of the token, and returns whether to withhold (block mode) or forward
+ * (audit). A compressed body cannot be read and passes as it is; the caller
+ * asks the upstream for identity. A JSON body larger than `cap` is forwarded
+ * unread, as the proxy forwards an oversized response.
+ */
+export function guardCanary(res: http.ServerResponse, token: string, cap: number, onLeak: () => boolean): void {
+  const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => http.ServerResponse
+  const write = res.write.bind(res) as (...args: unknown[]) => boolean
+  const end = res.end.bind(res) as (...args: unknown[]) => http.ServerResponse
+  let mode: 'undecided' | 'sse' | 'json' | 'pass' = 'undecided'
+  let head: unknown[] | null = null
+  let held: Buffer[] = []
+  let heldBytes = 0
+  let reported = false
+  let cut = false
+  const watch = new CanaryWatch(token)
+  const decoder = new StringDecoder('utf8')
+
+  const leak = (): boolean => {
+    if (reported) return false
+    reported = true
+    return onLeak()
+  }
+  const bytes = (chunk: unknown, encoding: unknown): Buffer => {
+    if (chunk === undefined || chunk === null || typeof chunk === 'function') return Buffer.alloc(0)
+    if (typeof chunk === 'string') return Buffer.from(chunk, typeof encoding === 'string' ? encoding as BufferEncoding : 'utf8')
+    return Buffer.from(chunk as Uint8Array)
+  }
+  const release = (): void => {
+    if (head) writeHead(...head)
+    head = null
+    for (const b of held) write(b)
+    held = []
+    mode = 'pass'
+  }
+
+  res.writeHead = ((...args: unknown[]) => {
+    if (mode === 'json' && head) {
+      // The caller answers on its own (an upstream error mid-body): step aside.
+      head = null; held = []; mode = 'pass'
+      return writeHead(...args)
+    }
+    if (mode === 'undecided') {
+      const type = headerOf(args, res, 'content-type')
+      const encoding = headerOf(args, res, 'content-encoding').toLowerCase()
+      const plain = encoding === '' || encoding === 'identity'
+      mode = plain && /text\/event-stream/i.test(type) ? 'sse' : plain && /application\/json/i.test(type) ? 'json' : 'pass'
+      if (mode === 'json') { head = args; return res }
+    }
+    return writeHead(...args)
+  })
+
+  res.write = ((chunk: unknown, encoding?: unknown, cb?: unknown) => {
+    if (cut) return false
+    if (mode === 'sse') {
+      if (watch.push(decoder.write(bytes(chunk, encoding))) && leak()) {
+        // Nothing of the completing chunk is written: the client sees the
+        // stream end and never assembles the token.
+        cut = true
+        res.destroy()
+        return false
+      }
+    } else if (mode === 'json') {
+      const b = bytes(chunk, encoding)
+      held.push(b)
+      heldBytes += b.length
+      if (heldBytes > cap) release()
+      const done = typeof encoding === 'function' ? encoding : cb
+      if (typeof done === 'function') process.nextTick(done)
+      return true
+    }
+    return write(chunk, encoding, cb)
+  }) as typeof res.write
+
+  res.end = ((chunk?: unknown, encoding?: unknown, cb?: unknown) => {
+    if (cut) return res
+    if (mode === 'json' && head) {
+      const body = Buffer.concat([...held, bytes(chunk, encoding)])
+      if (body.toString('utf8').includes(token) && leak()) {
+        head = null; held = []; mode = 'pass'
+        const refusal = JSON.stringify({ error: 'llm-fw withheld this response: the model repeated its system prompt (canary)' })
+        writeHead(502, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(refusal)) })
+        return end(refusal)
+      }
+      held = [body]
+      release()
+      return end()
+    }
+    if (mode === 'sse' && chunk !== undefined && typeof chunk !== 'function') {
+      if (watch.push(decoder.write(bytes(chunk, encoding))) && leak()) {
+        cut = true
+        res.destroy()
+        return res
+      }
+    }
+    return end(chunk, encoding, cb)
+  }) as typeof res.end
 }
