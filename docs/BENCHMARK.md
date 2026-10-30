@@ -94,7 +94,32 @@ node --import tsx/esm scripts/fetch-eval-data.ts            # regenerate public 
 node --import tsx/esm scripts/run-benchmark.ts <preset> [ollama-model] [--json] [--only=name,...]
 # presets: cheap | judge-suspicious | judge-unless | classifier | classifier-indirect
 # --json emits machine-readable results incl. a per-attack-class breakdown
+# --sweep=<surface>.<knob>=v1,v2,... reruns the splits per value of one per-surface threshold
 ```
+
+**Per-surface operating points.** `--sweep` reruns the chosen splits once per
+value of one `detection.surfaces` threshold and prints recall and FPR per value
+(#543). The surface is `tool_result` or `document`, the knob
+`heuristicBlockThreshold`, `embeddingMarginThreshold` or
+`classifierBlockThreshold`: the three the pipeline resolves per surface. Measured
+on ruleset 2026.10.104, cheap preset:
+
+```
+node --import tsx/esm scripts/run-benchmark.ts cheap --only=injecagent,indirect-identifier-free \
+  --sweep=tool_result.heuristicBlockThreshold=30,40,50,60
+```
+
+| `tool_result.heuristicBlockThreshold` | identifier-free probe recall | its benign rows blocked | injecagent recall |
+| ---: | ---: | ---: | ---: |
+| 30 | 8/40 | 1/20 | 1,054/1,054 |
+| 40 | 8/40 | 1/20 | 1,054/1,054 |
+| 50 (default) | 8/40 | 1/20 | 1,054/1,054 |
+| 60 | 7/40 | 1/20 | 1,054/1,054 |
+
+Lowering the heuristic threshold on tool results buys nothing on the
+identifier-free probe: none of its 32 misses scores between 30 and 50 in stage
+1, so the threshold is not what lets them through. That gap is the indirect-instruction rules' vocabulary and the classifier
+question below, not a setting.
 
 ## Nightly drift tracking
 

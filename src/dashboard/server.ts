@@ -2019,6 +2019,15 @@ const SETTINGS_SCHEMA = [
     { key: 'dosLoopDetection', label: 'Agent loop detection', sub: 'Detect an agent firing the same request over and over and break the loop' },
     { key: 'tokenPruner', label: 'Token Pruner / Cost Optimizer', sub: 'Smart content-aware prompt token optimization — minifies embedded JSON, compacts excessive whitespace, and preserves code indentation (Python, YAML, etc.)' },
   ]},
+  { group: 'Surfaces', desc: 'How each place text arrives from is treated. A tool result or a retrieved document is untrusted third-party content; the prompt is what the user typed. A surface threshold set here overrides the global one in Advanced only for that surface.', rows: [
+    { key: 'toolResultOnBlock', label: 'Blocked tool result', type: 'select', options: ['withhold', 'refuse'], sub: 'withhold: replace that tool result with a notice and forward the rest · refuse: refuse the whole request (an agent resends it every turn)' },
+    { key: 'promptOlderTurns', label: 'Blocked older user turn', type: 'select', options: ['withhold', 'refuse'], sub: 'A blocked user message that is not the newest. The newest message always refuses' },
+    { key: 'promptWordingAction', label: 'Wording matches on the prompt', type: 'select', options: ['block', 'warn'], sub: 'warn: a wording-only match on what the user typed warns unless it is high-confidence · block: block it' },
+    { key: 'toolResultHeuristicThreshold', label: 'Tool result: heuristic threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a tool result is blocked. Shows the global value until set' },
+    { key: 'documentHeuristicThreshold', label: 'Document: heuristic threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'The same for retrieved documents' },
+    { key: 'toolResultClassifierThreshold', label: 'Tool result: classifier threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'INJECTION probability at/above which the classifier blocks a tool result, when the classifier is on' },
+    { key: 'documentClassifierThreshold', label: 'Document: classifier threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'The same for retrieved documents' },
+  ]},
   { group: 'Advanced — Tuning', desc: 'Numeric thresholds and limits, plus the judge model. All take effect on the next request — no restart. Lowering a detection threshold catches more attacks but risks more false positives; raising it is more permissive.', rows: [
     { key: 'heuristicBlockThreshold', label: 'Heuristic block threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a prompt is blocked (default 50). Rules add weights; one strong rule scores 50' },
     { key: 'embeddingBlockThreshold', label: 'Embedding block threshold', type: 'number', min: 0, max: 1, step: 0.01, sub: 'Stage 2 cosine similarity at/above which a prompt is blocked (default 0.86). Lower = stricter' },
@@ -2366,6 +2375,15 @@ interface SettingsView {
   dosMaxRpm: number
   dosMaxTokens: number
   judgeModel: string
+  // Per-surface detection (#543), each the EFFECTIVE value: a threshold the
+  // surface does not override shows the global one it falls back to.
+  toolResultOnBlock: 'withhold' | 'refuse'
+  promptOlderTurns: 'withhold' | 'refuse'
+  promptWordingAction: 'block' | 'warn'
+  toolResultHeuristicThreshold: number
+  documentHeuristicThreshold: number
+  toolResultClassifierThreshold: number
+  documentClassifierThreshold: number
 }
 
 // Defensive `?.`/defaults throughout: production config is always fully merged
@@ -2412,8 +2430,24 @@ function readSettings(config: Config): SettingsView {
     dosMaxRpm: config.dos?.maxRequestsPerMinute ?? 60,
     dosMaxTokens: config.dos?.maxTokensPerSession ?? 50_000_000,
     judgeModel: config.detection?.judgeModel ?? 'qwen2.5:3b',
+    toolResultOnBlock: config.detection?.surfaces?.tool_result?.onBlock ?? 'withhold',
+    promptOlderTurns: config.detection?.surfaces?.prompt?.olderTurns ?? 'withhold',
+    promptWordingAction: config.detection?.surfaces?.prompt?.wordingAction ?? 'block',
+    toolResultHeuristicThreshold: config.detection?.surfaces?.tool_result?.heuristicBlockThreshold ?? config.detection?.heuristicBlockThreshold ?? 50,
+    documentHeuristicThreshold: config.detection?.surfaces?.document?.heuristicBlockThreshold ?? config.detection?.heuristicBlockThreshold ?? 50,
+    toolResultClassifierThreshold: config.detection?.surfaces?.tool_result?.classifierBlockThreshold ?? config.detection?.classifier?.blockThreshold ?? 0.9,
+    documentClassifierThreshold: config.detection?.surfaces?.document?.classifierBlockThreshold ?? config.detection?.classifier?.blockThreshold ?? 0.9,
   }
 }
+
+// A surface's own object in detection.surfaces, created on first write.
+function surfacesOf(c: Config): NonNullable<Config['detection']['surfaces']> {
+  c.detection.surfaces ??= {}
+  return c.detection.surfaces
+}
+const toolResultSurface = (c: Config) => (surfacesOf(c).tool_result ??= {})
+const documentSurface = (c: Config) => (surfacesOf(c).document ??= {})
+const promptSurface = (c: Config) => (surfacesOf(c).prompt ??= {})
 
 // Per-key appliers — the all-list of what POST /api/settings may change. Any key
 // not present here is rejected, so the endpoint can never mutate arbitrary config.
@@ -2457,6 +2491,10 @@ const NUMBER_SETTERS: Record<string, { min: number; max: number; apply: (c: Conf
   embeddingWarnThreshold: { min: 0, max: 1, apply: (c, v) => { c.detection.embeddingWarnThreshold = v } },
   dosMaxRpm: { min: 1, max: 1_000_000, apply: (c, v) => { c.dos.maxRequestsPerMinute = Math.round(v) } },
   dosMaxTokens: { min: 1, max: 1_000_000_000, apply: (c, v) => { c.dos.maxTokensPerSession = Math.round(v) } },
+  toolResultHeuristicThreshold: { min: 1, max: 200, apply: (c, v) => { toolResultSurface(c).heuristicBlockThreshold = v } },
+  documentHeuristicThreshold: { min: 1, max: 200, apply: (c, v) => { documentSurface(c).heuristicBlockThreshold = v } },
+  toolResultClassifierThreshold: { min: 0, max: 1, apply: (c, v) => { toolResultSurface(c).classifierBlockThreshold = v } },
+  documentClassifierThreshold: { min: 0, max: 1, apply: (c, v) => { documentSurface(c).classifierBlockThreshold = v } },
 }
 
 // Free-text setters (the POST allowlist for strings). Trimmed, non-empty, capped.
@@ -2466,6 +2504,9 @@ const STRING_SETTERS: Record<string, { apply: (c: Config, v: string) => void }> 
 
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
+  toolResultOnBlock: { values: ['withhold', 'refuse'], apply: (c, v) => { toolResultSurface(c).onBlock = v as 'withhold' | 'refuse' } },
+  promptOlderTurns: { values: ['withhold', 'refuse'], apply: (c, v) => { promptSurface(c).olderTurns = v as 'withhold' | 'refuse' } },
+  promptWordingAction: { values: ['block', 'warn'], apply: (c, v) => { promptSurface(c).wordingAction = v as 'block' | 'warn' } },
   manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }; c.manyShot.mode = v as 'audit' | 'block' } },
   crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }; c.crescendo.mode = v as 'audit' | 'block' } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.mode = v as 'audit' | 'block' } },
@@ -2492,6 +2533,9 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
         enabled: config.detection.classifier?.enabled ?? false,
         blockThreshold: config.detection.classifier?.blockThreshold ?? 0.9,
       },
+      // Whole, like modules below: persistSettings writes only the leaves that
+      // changed, so trustedPaths and the rest stay as the file had them.
+      surfaces: structuredClone(config.detection.surfaces ?? {}),
     },
     rag: { enabled: config.rag.enabled },
     dlp: { enabled: config.dlp.enabled, mode: config.dlp.mode },

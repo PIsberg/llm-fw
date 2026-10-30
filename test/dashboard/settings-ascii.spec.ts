@@ -41,7 +41,7 @@ test.describe('Prompt Testing — ASCII smuggling', () => {
 test.describe('Settings tab', () => {
   test('renders grouped toggles reflecting current config', async ({ page }) => {
     await openSettings(page)
-    await expect(page.locator('.settings-group')).toHaveCount(7)
+    await expect(page.locator('.settings-group')).toHaveCount(8)
     await expect(page.locator('#set-asciiSmuggling')).toBeChecked()
     await expect(page.locator('#set-dlpMode')).toHaveValue('redact')
     // New detectors are exposed as toggles.
@@ -79,6 +79,23 @@ test.describe('Settings tab', () => {
     await page.click('.pg-ex:has-text("Invisible override")')
     await expect(page.locator('#pg-result')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('#pg-result .pg-badge')).toHaveText('BLOCK')
+  })
+
+  // #543: the per-surface settings, effective values shown, editable live.
+  test('the Surfaces group shows each surface and saves a change', async ({ page }) => {
+    await openSettings(page)
+    await expect(page.locator('.settings-group h3:has-text("Surfaces")')).toBeVisible()
+    await expect(page.locator('#set-toolResultOnBlock')).toHaveValue('withhold')
+    await expect(page.locator('#set-promptOlderTurns')).toHaveValue('withhold')
+    await expect(page.locator('#set-toolResultHeuristicThreshold')).toHaveValue('50')
+    await page.selectOption('#set-toolResultOnBlock', 'refuse')
+    await expect(page.locator('#settings-saved')).toContainText('Saved')
+    await page.reload()
+    await page.click('button:has-text("Settings")')
+    await expect(page.locator('#set-toolResultOnBlock')).toHaveValue('refuse')
+    // restore
+    await page.selectOption('#set-toolResultOnBlock', 'withhold')
+    await expect(page.locator('#settings-saved')).toContainText('Saved')
   })
 
   test('settings persist across a page reload', async ({ page }) => {
