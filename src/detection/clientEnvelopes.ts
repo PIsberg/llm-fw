@@ -17,6 +17,47 @@ const CODEX_AGENTS_CLOSE = '</instructions>'
  * The file inside, when the raw text is exactly one envelope; otherwise the
  * text unchanged. Decided on the raw text, before normalization joins lines.
  */
+// Claude Code sends a slash command the user typed as three tags, and wraps
+// the text of its own side requests (session titles, the security review) in
+// <session>. The real classifier scored the command envelope 90.8% injection
+// around a prompt it scores 100% safe alone (live, 2026-10-30). Only a text
+// that is exactly one envelope is unwrapped, and only the tags go: the
+// message, the name and the arguments are all still scored, so an envelope
+// cannot carry anything past the classifier.
+const CLAUDE_COMMAND = /^<command-message>([^<\n]{1,200})<\/command-message>\s*<command-name>([^<\n]{1,200})<\/command-name>(?:\s*<command-args>([\s\S]*)<\/command-args>)?$/
+const SESSION_OPEN = '<session>'
+const SESSION_CLOSE = '</session>'
+
+/** What a Claude Code envelope carries (nested ones too); otherwise the text unchanged. */
+export function unwrapClaudeCodeEnvelope(raw: string): string {
+  let text = raw
+  for (let depth = 0; depth < 3; depth++) {
+    const trimmed = text.trim()
+    if (trimmed.startsWith(SESSION_OPEN) && trimmed.endsWith(SESSION_CLOSE) && trimmed.length >= SESSION_OPEN.length + SESSION_CLOSE.length) {
+      text = trimmed.slice(SESSION_OPEN.length, trimmed.length - SESSION_CLOSE.length)
+      continue
+    }
+    const command = CLAUDE_COMMAND.exec(trimmed)
+    if (!command) return text
+    text = command.slice(1).filter(Boolean).join(' ')
+  }
+  return text
+}
+
+// Fixed strings Claude Code writes as a tool result in place of output. They
+// carry nothing a tool or an attacker wrote, and the classifier scored them
+// 99.9% injection.
+const CLAUDE_NOTICES: ReadonlySet<string> = new Set([
+  '(Bash completed with no output)',
+  '[Request interrupted by user]',
+  '[Request interrupted by user for tool use]',
+])
+
+/** True for a text that is exactly one of Claude Code's own notices. */
+export function isClaudeCodeNotice(text: string): boolean {
+  return CLAUDE_NOTICES.has(text.trim())
+}
+
 export function unwrapCodexAgentsEnvelope(raw: string): string {
   const trimmed = raw.trim()
   const lower = trimmed.toLowerCase()
