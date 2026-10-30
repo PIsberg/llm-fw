@@ -39,6 +39,8 @@ import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { bodyCap } from './bodyCap.js'
+import { canaryToken, injectCanary, CanaryWatch } from './canary.js'
+import { getLlmFwDir } from '../config/paths.js'
 import { createLogger, urlForLog } from '../logger.js';
 
 const log = createLogger('proxy');
@@ -1240,6 +1242,23 @@ export class ProxyServer {
    * finding. Returns the neutralized text when blocking is enabled AND the body is
    * still rewritable (buffered, non-streamed); otherwise null (audit / can't strip).
    */
+  /** A response repeated the system-prompt canary (#539). */
+  private emitCanary(blocked: boolean, req: http.IncomingMessage, hostname: string): void {
+    this.eventBus.emit({
+      stage: 'response-canary',
+      score: 100,
+      similarity: 0,
+      target: hostname,
+      method: req.method ?? 'POST',
+      path: req.url ?? '/',
+      payload_preview: `${blocked ? 'Cut' : 'Detected'} a response that repeated the system-prompt canary: the model was reciting its system prompt`,
+      // The response is not recorded: it holds the system prompt.
+      payload_full: '',
+      action: blocked ? 'blocked' : 'warned',
+      kind: 'response-exfil',
+    })
+  }
+
   private runResponseExfilScan(text: string, req: http.IncomingMessage, hostname: string, canNeutralize: boolean): string | null {
     if (!this.config.responseScan?.enabled) return null
     const findings = scanResponseExfil(text, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
@@ -1452,6 +1471,14 @@ export class ProxyServer {
   // `extraHeaders`: request headers a module asked for (lower-case names),
   // each replacing the client's.
   private async forwardRequest(hostname: string, port: number, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean = true, mcpInspect: boolean = false, extraHeaders?: Record<string, string>, passThrough: boolean = false): Promise<number> {
+    // #539: the system-prompt canary goes in after detection has passed the
+    // request, and only when there is a system prompt to leak.
+    let canary: string | null = null
+    if (isLlmRequest && !passThrough && this.config.responseScan?.canary?.enabled) {
+      const token = canaryToken(getLlmFwDir())
+      const injected = injectCanary(req.url ?? '/', body.toString('utf8'), token)
+      if (injected !== null) { body = Buffer.from(injected, 'utf8'); canary = token }
+    }
     const ip = await this.resolver.resolve(hostname)
     return new Promise<number>((resolve, reject) => {
       const startedAt = Date.now()
@@ -1499,7 +1526,11 @@ export class ProxyServer {
       const parser = getParser(req.url ?? '/')
       const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
       const responseScanActive = this.config.responseScan?.enabled === true
-      const wantInspect = !passThrough && (mcpActive || responseScanActive)
+      const wantInspect = !passThrough && (mcpActive || responseScanActive || canary !== null)
+      const watch = canary !== null ? new CanaryWatch(canary) : null
+      const canaryBlocks = this.config.responseScan?.canary?.mode === 'block'
+      // Set once the canary cut the stream: later upstream bytes are dropped.
+      let cut = false
       const maxResp = bodyCap(this.config.proxy.maxBodyBytes)
 
       let headersDone = false
@@ -1534,6 +1565,19 @@ export class ProxyServer {
       // SSE: accumulate decoded text for the exfil scan, then forward — through
       // the MCP gate when active, else verbatim.
       const feedSse = (text: string) => {
+        if (cut) return
+        if (watch?.push(text)) {
+          this.emitCanary(canaryBlocks, req, hostname)
+          if (canaryBlocks) {
+            // Nothing of the completing event is written: the client sees the
+            // stream end, and never assembles the token.
+            cut = true
+            upstream.destroy()
+            res.destroy()
+            resolve(respBodyBytes)
+            return
+          }
+        }
         if (sseText.length < maxResp) sseText += text
         if (gate) respBodyBytes += this.gateSse(gate, text, res, req, hostname)
         else if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
@@ -1626,6 +1670,16 @@ export class ProxyServer {
             return
           }
 
+          if (canary !== null && text.includes(canary)) {
+            this.emitCanary(canaryBlocks, req, hostname)
+            if (canaryBlocks) {
+              const refusal = JSON.stringify({ error: 'llm-fw withheld this response: the model repeated its system prompt (canary)' })
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end(refusal)
+              resolve(Buffer.byteLength(refusal))
+              return
+            }
+          }
           respBodyBytes = await this.deliverInspectedJson(text, status, inspectedHeaders(), req, res, hostname, parser, mcpActive)
         } else {
           if (mode === 'sse') {

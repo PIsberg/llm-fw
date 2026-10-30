@@ -346,6 +346,14 @@ export interface ResponseScanConfig {
   // same rule as the response-harm classifier layer. Also
   // LLM_FW_TOOLUSE_SCAN_ENABLED / _MODE.
   toolUse?: { enabled: boolean; mode: 'audit' | 'block' };
+  // System-prompt canary (#539, src/proxy/canary.ts). Appends a per-install
+  // token to the system prompt of each inspected LLM request; a response that
+  // repeats it is the model reciting its system prompt. 'block' cuts a
+  // streamed response before the event that completes the token and withholds
+  // a buffered one (502); 'audit' only reports. Off by default: it changes
+  // what the model reads. Proxy only, like the rest of responseScan. Also
+  // LLM_FW_RESPONSE_CANARY_ENABLED / LLM_FW_RESPONSE_CANARY_MODE.
+  canary?: { enabled: boolean; mode: 'audit' | 'block' };
 }
 
 export interface OutputClassifierConfig {

@@ -73,6 +73,12 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.101
+
+**Unchanged from 2026.10.100: no eval verdict can change.** The version was cut because
+`config.ts`, which the digest covers, gained the `responseScan.canary` default (off, #539).
+The canary acts on responses only, and only when enabled.
+
 ## Result, ruleset 2026.10.100
 
 **Unchanged from 2026.10.99: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
