@@ -226,7 +226,11 @@ other binary frame still ends the session.
 Under observe mode (deployment-wide, or a gateway tenant's) no session is
 refused: blocks are recorded with `enforced: false`, DLP audits, and a message
 the relay cannot read is forwarded and recorded. Other WebSocket paths answer
-501 rather than being tunnelled unscanned.
+501 rather than being tunnelled unscanned. The Responses API over WebSocket
+(`/v1/responses`, and chatgpt.com's `/backend-api/codex/responses` under
+`proxy.inspectChatgptBackend`) answers 426 instead: Codex CLI opens it first
+and switches to HTTP, which is inspected, at once on 426, where it retried a
+501 five times, about 4.5 s per session.
 
 **Trusted recipients for indirect injection.** The indirect-instruction
 stage blocks a tool result that tells the agent to send data or money to an

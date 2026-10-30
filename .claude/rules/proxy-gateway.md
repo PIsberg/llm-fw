@@ -117,7 +117,10 @@ that needs a changelog entry, not a cleanup.
   scanned (`relayRealtimeSession` in `src/proxy/realtimeRelay.ts`, shared by
   `handleUpgrade` in the proxy and the gateway; per-protocol plans in
   `src/proxy/websocket.ts`). Any other WebSocket path answers 501 rather than
-  being tunnelled unscanned. `Sec-WebSocket-Extensions` is stripped so frames
+  being tunnelled unscanned, except the Responses API (`/v1/responses`,
+  chatgpt.com's `/backend-api/codex/responses`), which answers 426 so Codex
+  CLI switches to HTTP, where it is inspected, at once instead of retrying
+  five times (`wsRefusal`, #566). Pinned by the realtime e2e tests. `Sec-WebSocket-Extensions` is stripped so frames
   stay readable. The gateway's upgrade path runs the same auth, tenant and
   custody gates as a request. Pinned by `test/proxy/proxy-realtime.e2e.test.ts`,
   `test/proxy/proxy-gemini-live.e2e.test.ts` and

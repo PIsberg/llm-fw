@@ -325,4 +325,15 @@ describe('Realtime API over WebSocket through the proxy (#270)', { timeout: 60_0
     expect(status).toContain('501')
     session.socket.destroy()
   })
+
+  // #566: Codex CLI opens the Responses API over WebSocket first. It falls back
+  // to HTTP (which is inspected) at once on 426, but retries a 501 five times,
+  // about 4.5 s per session, measured live.
+  it('answers 426 for the Responses API over WebSocket, so a client falls back to HTTP at once', async () => {
+    for (const path of ['/v1/responses', '/backend-api/codex/responses']) {
+      const { status, session } = await open(path)
+      expect(status, path).toContain('426')
+      session.socket.destroy()
+    }
+  })
 })
