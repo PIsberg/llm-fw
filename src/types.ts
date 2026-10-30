@@ -314,8 +314,9 @@ export interface ResponseScanConfig {
   // Scan the MODEL'S RESPONSE for data-exfiltration markup (markdown/HTML image
   // and link URLs pointing at exfil sinks). 'audit' emits an event and forwards
   // unchanged; 'block' additionally neutralizes the offending URL in buffered
-  // (non-streaming) JSON responses. Default audit — rewriting model output is
-  // intrusive, so blocking is opt-in.
+  // (non-streaming) JSON responses and cuts a streamed one before the markup
+  // carrying it is forwarded (#551, src/proxy/streamExfil.ts). Default audit —
+  // rewriting model output is intrusive, so blocking is opt-in.
   enabled: boolean;
   mode: 'block' | 'audit';
   // Also scan the response for harmful COMPLIANCE — concrete weapons/cyber/

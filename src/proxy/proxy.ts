@@ -40,6 +40,7 @@ import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { bodyCap } from './bodyCap.js'
 import { canaryToken, injectCanary, CanaryWatch } from './canary.js'
+import { ExfilStreamHold } from './streamExfil.js'
 import { getLlmFwDir } from '../config/paths.js'
 import { createLogger, urlForLog } from '../logger.js';
 
@@ -1550,6 +1551,9 @@ export class ProxyServer {
       let jsonRawLen = 0
       let sseText = ''
       let gate: SseGate | null = null
+      // #551: block mode holds a streamed line that opens markup until it is
+      // complete and scanned; see streamExfil.ts.
+      let hold: ExfilStreamHold | null = null
       let dechunker: ChunkedDecoder | null = null
       const decoder = new StringDecoder('utf8')
 
@@ -1567,25 +1571,31 @@ export class ProxyServer {
         delete h['content-length']; delete h['transfer-encoding']
         return h
       }
-      // SSE: accumulate decoded text for the exfil scan, then forward — through
-      // the MCP gate when active, else verbatim.
+      // Nothing of the event that completed a canary token or an exfil line is
+      // written: the client sees the stream end.
+      const cutStream = () => {
+        cut = true
+        upstream.destroy()
+        res.destroy()
+        resolve(respBodyBytes)
+      }
+      // Forward decoded SSE text: through the MCP gate when active, else verbatim.
+      const forwardSse = (text: string) => {
+        if (gate) respBodyBytes += this.gateSse(gate, text, res, req, hostname)
+        else if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
+      }
+      // SSE: accumulate decoded text for the end-of-stream scans, then forward
+      // what the exfil hold releases.
       const feedSse = (text: string) => {
         if (cut) return
         if (watch?.push(text)) {
           this.emitCanary(canaryBlocks, req, hostname)
-          if (canaryBlocks) {
-            // Nothing of the completing event is written: the client sees the
-            // stream end, and never assembles the token.
-            cut = true
-            upstream.destroy()
-            res.destroy()
-            resolve(respBodyBytes)
-            return
-          }
+          if (canaryBlocks) { cutStream(); return }
         }
         if (sseText.length < maxResp) sseText += text
-        if (gate) respBodyBytes += this.gateSse(gate, text, res, req, hostname)
-        else if (text) { res.write(Buffer.from(text, 'utf8')); respBodyBytes += Buffer.byteLength(text) }
+        const out = hold ? hold.push(text) : text
+        if (out === null) { cutStream(); return }
+        forwardSse(out)
       }
 
       upstream.on('data', (chunk: Buffer) => {
@@ -1623,6 +1633,9 @@ export class ProxyServer {
 
           if (mode === 'sse') {
             gate = mcpActive ? createSseGate(parser!, this.mcp) : null
+            if (responseScanActive && this.config.responseScan?.mode === 'block') {
+              hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
+            }
             res.writeHead(status, inspectedHeaders())
             feedSse(decoder.write(dechunk(bodyStart)))
           } else if (mode === 'json') {
@@ -1688,8 +1701,16 @@ export class ProxyServer {
           respBodyBytes = await this.deliverInspectedJson(text, status, inspectedHeaders(), req, res, hostname, parser, mcpActive)
         } else {
           if (mode === 'sse') {
+            if (cut) return
+            if (hold) {
+              const rest = hold.end()
+              if (rest === null) { cutStream(); return }
+              forwardSse(rest)
+            }
             if (gate) { const tail = gate.flush(); if (tail) { res.write(tail); respBodyBytes += Buffer.byteLength(tail) } }
-            // Already streamed → audit only (cannot retract sent bytes).
+            // Already streamed → audit only (cannot retract sent bytes); in
+            // block mode the hold above already judged every line that opened
+            // markup.
             this.runResponseExfilScan(sseText, req, hostname, false)
             this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
@@ -1778,6 +1799,18 @@ export class ProxyServer {
     const headers = { ...stored.headers }
     delete headers['content-length']; delete headers['transfer-encoding']; delete headers['content-encoding']
     if (!sse) return this.deliverInspectedJson(text, stored.status, headers, req, res, hostname, parser, mcpActive)
+
+    // #551: a stored stream is complete, so block mode judges it before a
+    // byte is written and refuses it as a buffered body would be.
+    if (this.config.responseScan?.enabled && this.config.responseScan.mode === 'block') {
+      const hold = new ExfilStreamHold(t => this.runResponseExfilScan(t, req, hostname, true) !== null)
+      if (hold.push(text) === null || hold.end() === null) {
+        const errBody = JSON.stringify({ error: 'response blocked by exfiltration guard', kind: 'response-exfil' })
+        res.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
+        res.end(errBody)
+        return Buffer.byteLength(errBody)
+      }
+    }
 
     res.writeHead(stored.status, headers)
     let bytes = 0
