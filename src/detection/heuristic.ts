@@ -1,6 +1,7 @@
 import { HeuristicResult } from '../types.js'
 import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
 import { overrideLexiconMatcher, jailbreakFrameMatcher } from './overrideLexicon.js'
+import { unwrapCodexAgentsEnvelope } from './clientEnvelopes.js'
 
 interface WeightedRule { weight: number; label: string; patterns: Array<Pick<RegExp, 'test'>> }
 
@@ -998,7 +999,7 @@ export class HeuristicScorer {
     let maxScore = 0
     const allMatches = new Set<string>()
     let plain: readonly string[] | undefined
-    for (const candidate of extractCandidates(input)) {
+    for (const candidate of extractCandidates(unwrapCodexAgentsEnvelope(input))) {
       const res = this.score(candidate.text, candidate.source, plain)
       if (candidate.source === 'original') plain = res.matches
       if (res.score > maxScore) {

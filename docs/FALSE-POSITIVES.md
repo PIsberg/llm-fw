@@ -73,6 +73,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.105
+
+**Unchanged from 2026.10.104: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed, maximum similarity drift
+0.0000.** The heuristic stage scans Codex CLI's AGENTS.md envelope as the file inside it
+(#459): its `<INSTRUCTIONS>` tags scored 50 and every Codex session through the proxy had its
+AGENTS.md withheld, found live. `npm run recall:floor` holds at 944 of 1,395, the
+identifier-free probe at 8 of 40, `npm run fuzz:rules` at 3 escapes of 644, injecagent at
+1,054 of 1,054.
+
 ## Result, ruleset 2026.10.104
 
 **Unchanged from 2026.10.103: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
