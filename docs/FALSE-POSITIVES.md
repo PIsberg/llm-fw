@@ -73,6 +73,15 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.108
+
+**Unchanged from 2026.10.107: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795; 0 of 27,912 eval verdicts changed, maximum similarity drift
+0.0000.** "Bypassing <vendor>'s limits" now counts like "bypassing <vendor>'s restrictions"
+(#557), with "limits" only straight after the possessive so a vendor's rate or usage limits do
+not match. `npm run recall:floor` holds at 944 of 1,395, the identifier-free probe at 8 of 40,
+`npm run fuzz:rules` at 2 escapes of 653 (was 3 of 644), injecagent at 1,054 of 1,054.
+
 ## Result, ruleset 2026.10.107
 
 **Unchanged from 2026.10.106: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

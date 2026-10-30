@@ -837,7 +837,9 @@ export class HeuristicScorer {
           // "never refuses"), so one phrase cannot score twice, and the braces
           // need "never" or "zero" before them, so an API's {"refusal": ...}
           // field does not count.
-          /\bbypass(?:es|ing)? (?:openai|anthropic|chatgpt|gpt|claude|gemini|google|microsoft|bing)['’]?s? (?:limitations|restrictions|filters|guidelines|polic(?:y|ies)|rules|safeguards|constraints)\b/,
+          // "limits" only straight after the possessive: "bypassing OpenAI's
+          // rate limits" names an engineering limit, not the model's (#557).
+          /\bbypass(?:es|ing)? (?:openai|anthropic|chatgpt|gpt|claude|gemini|google|microsoft|bing)['’]?s? (?:limitations|limits|restrictions|filters|guidelines|polic(?:y|ies)|rules|safeguards|constraints)\b/,
           /\bnone of (?:your|its|their|his|her) (?:responses?|replies|answers?|messages?) should (?:inform|tell|remind) (?:me|the user) (?:that )?(?:you|it|they|he|she) (?:can['’]?t|cannot|can not|are unable|is unable)\b/,
           /\b(?:does not|doesn['’]?t|will not|won['’]?t) (?:add|include|give|provide)s? (?:any )?(?:warnings?|disclaimers?|caveats?|cautionary (?:advice|notes?))\b/,
           /\bmust (?:not|never) (?:reject|refuse|deny|decline) (?:any|all) (?:of )?(?:my |the user['’]?s )?(?:instructions|requests|questions|commands|prompts)\b/,
