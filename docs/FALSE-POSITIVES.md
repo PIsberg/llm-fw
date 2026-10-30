@@ -73,6 +73,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.107
+
+**Unchanged from 2026.10.106: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** The only change is response-side: the exfil scan reads
+markdown reference definitions (#574), which no input verdict passes through. Held-out recall on
+the cheap pipeline: heldout 23 of 31, injecagent 1,054 of 1,054, safeguard 496 of 650.
+
 ## Result, ruleset 2026.10.106
 
 **Unchanged from 2026.10.105: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
