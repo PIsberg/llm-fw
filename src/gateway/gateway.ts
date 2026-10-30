@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { Config, PipelineResult } from '../types.js';
 import { Pipeline } from '../detection/pipeline.js';
 import { decodeContentEncoding, UnsupportedEncoding } from '../proxy/contentEncoding.js';
+import { bodyCap } from '../proxy/bodyCap.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
@@ -243,7 +244,7 @@ export class GatewayServer {
       const encoding = req.headers['content-encoding'];
       if (encoding && !/^\s*identity\s*$/i.test(encoding)) {
         try {
-          body = decodeContentEncoding(body, encoding, this.config.proxy.maxBodyBytes);
+          body = decodeContentEncoding(body, encoding, bodyCap(this.config.proxy.maxBodyBytes));
         } catch (err) {
           if (err instanceof UnsupportedEncoding) return this.json(res, 415, { error: `${err.message}; llm-fw cannot inspect it` });
           if (err instanceof RangeError) return this.json(res, 413, { error: 'request body too large once decompressed' });
@@ -274,7 +275,7 @@ export class GatewayServer {
       // Before the tap, so the Usage Meter still sees the usage chunk (#421).
       if (decision.stripStreamUsage) stripUsageChunk(res);
       const captured = moduleCtx && this.modules.wantsResponses()
-        ? tapResponse(res, this.config.proxy.maxBodyBytes)
+        ? tapResponse(res, bodyCap(this.config.proxy.maxBodyBytes))
         : null;
       await this.forward(req, res, route, decision.body, authIsInternal, decision.headers);
       const response = captured?.();
@@ -419,7 +420,7 @@ export class GatewayServer {
 
   /** Buffer the request body under the configured cap. Null means answered. */
   private readBody(req: http.IncomingMessage, res: http.ServerResponse): Promise<Buffer | null> {
-    const cap = this.config.proxy.maxBodyBytes;
+    const cap = bodyCap(this.config.proxy.maxBodyBytes);
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
       let size = 0;

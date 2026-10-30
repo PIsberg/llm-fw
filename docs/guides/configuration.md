@@ -469,7 +469,7 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | A body sent to a parsed endpoint is not valid JSON, or repeats a key | Refused, stage `malformed-body` | closed | `pipeline.ts` |
 | A JSON `POST` to an intercepted host on a path no parser reads | Forwarded, with an `unparsed` warn event | open | `proxy.ts` |
 | A request `Content-Encoding` llm-fw cannot decode | `415`; a corrupt body `400`; one that expands past `proxy.maxBodyBytes` `413` | closed | `contentEncoding.ts` |
-| A request body over `proxy.maxBodyBytes` | `413` | closed | `proxy.ts`, `gateway.ts` |
+| A request body over `proxy.maxBodyBytes` (`0` means no cap, on every path that reads the setting) | `413` | closed | `proxy.ts`, `gateway.ts` |
 | The embedding model failed to load | Stage 2 is skipped and the other stages run; the gateway's `/readyz` answers `503` until it loads, so an orchestrator routes no traffic to it | open | `embedding.ts`, `gateway.ts` |
 | A request spends its embedding budget (`detection.embeddingMaxPassesPerRequest`) | The rest is read by the heuristic stage only; the request warns with stage `scan-budget` | open | `pipeline.ts` |
 | The judge (Ollama) is unreachable or errors | It returns `ERROR` and the scan carries on without it | open | `judge.ts` |

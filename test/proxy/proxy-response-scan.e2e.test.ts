@@ -95,6 +95,17 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     responseScan: { enabled: true, mode: 'audit' as const },
   }
 
+  // #532: maxBodyBytes 0 means no cap. The response side compared every body
+  // against 0, so the first chunk took the oversized fail-open branch and the
+  // exfil scan never ran.
+  let proxyUncapped: ProxyServer
+  const uncappedEvents: BlockEvent[] = []
+  const uncappedConfig = {
+    ...testConfig,
+    proxy: { ...testConfig.proxy, port: 18122, maxBodyBytes: 0 },
+    dashboard: { ...testConfig.dashboard, port: 17803 },
+  }
+
   // Encode a JSON body (whose assistant text carries the given markdown) with the
   // requested content-encoding so we exercise each decompression branch.
   function encodeBody(text: string, encoding: 'gzip' | 'br'): Buffer {
@@ -147,12 +158,19 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     proxyAudit = new ProxyServer(auditConfig, auditBus)
     await proxyAudit.init()
     proxyAudit.start()
+
+    const uncappedBus = new EventBus(uncappedConfig.dashboard)
+    vi.spyOn(uncappedBus, 'emit').mockImplementation((e) => { uncappedEvents.push(e as BlockEvent) })
+    proxyUncapped = new ProxyServer(uncappedConfig, uncappedBus)
+    await proxyUncapped.init()
+    proxyUncapped.start()
   })
 
   afterAll(async () => {
     restoreTrust()
     await proxy.stop()
     await proxyAudit.stop()
+    await proxyUncapped.stop()
     mockUpstream.close()
     if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
   })
@@ -186,6 +204,16 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-encoding']).toBe('gzip')
     expect(Buffer.byteLength(res.body, 'latin1')).toBeLessThan(BOMB.length * 2)
+  })
+
+  it('still inspects the response when maxBodyBytes is 0 (no cap)', async () => {
+    uncappedEvents.length = 0
+    const res = await sendProxyRequest(uncappedConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'exfil', messages: [{ role: 'user', content: 'make a chart' }] }))
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-encoding']).toBeUndefined()
+    expect(res.body).not.toContain('webhook.site')
+    expect(uncappedEvents.find(e => e.kind === 'response-exfil')?.action).toBe('blocked')
   })
 
   it('decompresses a clean gzip response untouched (no exfil event)', async () => {
