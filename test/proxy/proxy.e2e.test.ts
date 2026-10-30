@@ -805,6 +805,32 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
     }
   })
 
+  it('E2E Case 10b: a replayed stream with an exfil URL is refused in block mode (#551)', async () => {
+    const savedScan = testConfig.responseScan
+    testConfig.modules!.responseCache!.enabled = true
+    try {
+      receivedRequests = []
+      const send = () => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json', 'x-api-key': 'sk-case-10b' },
+        // Worded apart from Case 10: identical bodies trip loop detection.
+        JSON.stringify({ model: 'claude-3-opus-20240229', stream: true, messages: [{ role: 'user', content: 'SSE_CASE the chart, in block mode' }] }),
+      )
+      testConfig.responseScan = { enabled: false, mode: 'audit' }
+      expect((await send()).body).toContain('webhook.site')
+
+      testConfig.responseScan = { enabled: true, mode: 'block' }
+      const replayed = await send()
+      expect(receivedRequests).toHaveLength(1)
+      expect(replayed.statusCode).toBe(422)
+      expect(replayed.body).not.toContain('webhook.site')
+      expect(replayed.body).toContain('response-exfil')
+    } finally {
+      testConfig.modules!.responseCache!.enabled = false
+      testConfig.responseScan = savedScan
+    }
+  })
+
   // Claude Code through the proxy continues a server-side thread: the request
   // that carries a tool result does not carry the turn that named the tool.
   // The truncator learns the name from the streamed response, so a file read

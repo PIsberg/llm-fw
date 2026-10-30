@@ -746,7 +746,8 @@ answered. A stored response loses its `set-cookie` header. Only complete
 gate first, and on the proxy it then goes through the response-side gates as
 a live response would, under the policy in force at replay time: MCP tool
 policy, the exfil scan (neutralized in block mode), the tool-call and harm
-scans; a stored stream gets the audit-only scans a live stream gets. So a
+scans; a stored stream gets the audit scans a live stream gets, and in block
+mode is refused with the block status when it carries an exfil URL. So a
 policy tightened after a response was stored still applies to it. It never
 answers under observe mode, which promises that the provider sees every
 request. The agent loop detector still refuses a request repeated too many

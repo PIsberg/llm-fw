@@ -104,10 +104,25 @@ export function injectCanary(path: string, body: string, token: string): string 
 const CONTENT_KEYS: ReadonlySet<string> = new Set(['text', 'partial_json', 'thinking', 'content', 'arguments', 'refusal', 'delta', 'output'])
 
 /** The model-written strings in a parsed SSE payload, in order. */
-function strings(node: unknown, out: string[], key = ''): void {
-  if (typeof node === 'string') { if (CONTENT_KEYS.has(key)) out.push(node) }
-  else if (Array.isArray(node)) for (const v of node) strings(v, out, key)
-  else if (node && typeof node === 'object') for (const [k, v] of Object.entries(node)) strings(v, out, k)
+function strings(node: unknown, out: string[], keys: ReadonlySet<string>, key = ''): void {
+  if (typeof node === 'string') { if (keys.has(key)) out.push(node) }
+  else if (Array.isArray(node)) for (const v of node) strings(v, out, keys, key)
+  else if (node && typeof node === 'object') for (const [k, v] of Object.entries(node)) strings(v, out, keys, k)
+}
+
+/** The joined `data:` lines of one SSE event (without its blank-line separator). */
+function eventData(event: string): string {
+  return event.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('\n')
+}
+
+/**
+ * The strings under `keys` in one SSE event, joined; null when its data is not
+ * JSON (OpenAI's `[DONE]`).
+ */
+export function sseEventText(event: string, keys: ReadonlySet<string>): string | null {
+  const parts: string[] = []
+  try { strings(JSON.parse(eventData(event)), parts, keys) } catch { return null }
+  return parts.join('')
 }
 
 /**
@@ -129,10 +144,7 @@ export class CanaryWatch {
     while (sep !== -1) {
       const event = this.buf.slice(0, sep)
       this.buf = this.buf.slice(sep + 2)
-      const data = event.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('\n')
-      const parts: string[] = []
-      try { strings(JSON.parse(data), parts) } catch { parts.push(data) }
-      const text = this.tail + parts.join('')
+      const text = this.tail + (sseEventText(event, CONTENT_KEYS) ?? eventData(event))
       if (text.includes(this.token)) return true
       this.tail = text.slice(-(this.token.length - 1))
       sep = this.buf.indexOf('\n\n')
