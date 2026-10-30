@@ -27,6 +27,8 @@ import tls from 'node:tls';
 import type { Duplex } from 'node:stream';
 import { realtimeProtocolFor, WS_NOT_INSPECTABLE } from '../proxy/websocket.js';
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from '../proxy/realtimeRelay.js';
+import { canaryToken, injectCanary, guardCanary } from '../proxy/canary.js';
+import { getLlmFwDir } from '../config/paths.js';
 
 const log = createLogger('gateway');
 
@@ -277,13 +279,47 @@ export class GatewayServer {
       const captured = moduleCtx && this.modules.wantsResponses()
         ? tapResponse(res, bodyCap(this.config.proxy.maxBodyBytes))
         : null;
-      await this.forward(req, res, route, decision.body, authIsInternal, decision.headers);
+      // The system-prompt canary (#552, the proxy's since #539), added after
+      // every gate has passed the request. Installed after the tap, so it
+      // sees each chunk first and the tap records only what the client got.
+      let forwardBody = decision.body;
+      let forwardHeaders = decision.headers;
+      if (this.config.responseScan?.canary?.enabled) {
+        const token = canaryToken(getLlmFwDir());
+        const injected = injectCanary(route.upstreamPath, sent, token);
+        if (injected !== null) {
+          forwardBody = Buffer.from(injected, 'utf-8');
+          // The watch reads the response, so it must arrive uncompressed.
+          forwardHeaders = { ...decision.headers, 'accept-encoding': 'identity' };
+          guardCanary(res, token, bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req));
+        }
+      }
+      await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);
       const response = captured?.();
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
       log.error(`${req.method} ${urlForLog(req.url)} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
     }
+  }
+
+  /** A response repeated the system-prompt canary; returns whether to withhold it. */
+  private emitCanary(req: http.IncomingMessage): boolean {
+    const blocked = this.config.responseScan?.canary?.mode === 'block';
+    this.eventBus.emit({
+      stage: 'response-canary',
+      score: 100,
+      similarity: 0,
+      target: 'gateway',
+      method: req.method ?? 'POST',
+      path: req.url ?? '/',
+      payload_preview: `${blocked ? 'Cut' : 'Detected'} a response that repeated the system-prompt canary: the model was reciting its system prompt`,
+      // The response is not recorded: it holds the system prompt.
+      payload_full: '',
+      action: blocked ? 'blocked' : 'warned',
+      kind: 'response-exfil',
+    });
+    return blocked;
   }
 
   /** Who is calling, from the request's credential. Shared by HTTP and WebSocket upgrades. */

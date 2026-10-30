@@ -79,7 +79,8 @@ way to build an open relay, and is the operator's decision.
   credential header and strips credential query parameters. Loopback trust
   needs a loopback `Host` header, so a rebound browser page is not loopback
   (`isLoopbackHostHeader`, `src/auth.ts`). Response-side scanning is
-  proxy-only.
+  proxy-only, except the opt-in system-prompt canary, which the gateway also
+  watches for (#552).
 
 ### Dashboard (`dashboard.port`, default 7731)
 

@@ -45,6 +45,7 @@ Everything downstream depends on this choice.
 | Provider API keys held server-side | no | yes |
 | Request-side detection | yes | yes |
 | Response-side detection (exfiltration, harmful compliance, tool-use args) | yes | no, responses stream through unscanned |
+| System-prompt canary (`responseScan.canary`, opt-in) | yes | yes (#552) |
 | Covers non-LLM traffic (URL filter, host taint) | yes | no |
 | Per-tenant tokens and quotas | no | yes |
 

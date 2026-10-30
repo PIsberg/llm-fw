@@ -89,8 +89,12 @@ Rules that must not regress:
 These are real and load-bearing. If you change one, it is a behaviour change
 that needs a changelog entry, not a cleanup.
 
-- **Response-side scanning is proxy-only.** The gateway runs the request-side
-  pipeline and streams responses through untouched. A response the module
+- **Response-side scanning is proxy-only, except the canary.** The gateway runs
+  the request-side pipeline and streams responses through untouched. The one
+  exception is `responseScan.canary` (#552): with it on, the gateway adds the
+  line, asks for `accept-encoding: identity`, and `guardCanary`
+  (`src/proxy/canary.ts`) cuts a stream or withholds a JSON body that repeats
+  it. Pinned by `test/gateway/gateway-canary.e2e.test.ts`. A response the module
   pipeline answers from its cache must still pass the proxy's response-side
   gates: route it through `replayStoredResponse`, never write it straight to
   the client. Pinned by Cases 9 and 10 in `test/proxy/proxy.e2e.test.ts`.
