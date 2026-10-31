@@ -73,7 +73,7 @@ async function replay(): Promise<void> {
   if (flag('--count')) {
     const by = new Map<string, number>();
     for (const it of todo) by.set(`${it.client} ${it.kind}`, (by.get(`${it.client} ${it.kind}`) ?? 0) + 1);
-    console.log(`${todo.length} distinct items`, Object.fromEntries(by));
+    console.log(`${todo.length} distinct items ${JSON.stringify(Object.fromEntries(by))}`);
     return;
   }
 
