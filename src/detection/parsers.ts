@@ -25,13 +25,37 @@ function mediaBlockFromUrl(kind: MediaBlock['kind'], url: unknown): MediaBlock |
  * The text of a tool result's content, as the model reads it. Array content
  * (what MCP tools return, and Converse's `toolResult.content`) is a list of
  * blocks: their text is joined one block per line, and a nested `content`
- * array is read the same way. Only a block with no text (an image, a `json`
- * payload) keeps its JSON form. Stringifying the whole array instead turned
+ * array is read the same way. A block with no text (a `json` payload, an
+ * image by URL) keeps its JSON form; a base64 image is left to the media
+ * stage (isBase64Image). Stringifying the whole array instead turned
  * every line break into the two characters `\n`, so a detector anchored on a
  * line start never saw one and an injection on its own line passed (#292).
  */
 // The API's tool-name grammar, plus `.` and `:` some MCP clients use.
 const TOOL_NAME = /^[\w.:-]{1,128}$/
+
+// A screenshot an agent reads arrives as a base64 image block. Its JSON
+// reached the text stages, and the classifier blocked 12 such tool results in
+// a replay of real transcripts (2026-10-31). The media stage reads images
+// (extractMediaBlocks walks tool results), so an image is not text here, but
+// only one that is exactly an image: no other field, a media type the
+// providers accept, base64 throughout, and bytes that open with that
+// format's signature. Base64 text dressed as an image stays scanned.
+const IMAGE_MEDIA = /^image\/(?:png|jpeg|gif|webp)$/
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
+function isBase64Image(b: any): boolean {
+  if (b?.type !== 'image' || Object.keys(b).length !== 2) return false
+  const s = b.source
+  if (s?.type !== 'base64' || typeof s.data !== 'string' || typeof s.media_type !== 'string') return false
+  if (Object.keys(s).some(k => k !== 'type' && k !== 'media_type' && k !== 'data')) return false
+  if (!IMAGE_MEDIA.test(s.media_type) || !BASE64.test(s.data)) return false
+  const h = Buffer.from(s.data.slice(0, 24), 'base64')
+  const png = h[0] === 0x89 && h[1] === 0x50 && h[2] === 0x4e && h[3] === 0x47
+  const jpeg = h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff
+  const gif = h.subarray(0, 4).toString('latin1') === 'GIF8'
+  const webp = h.subarray(0, 4).toString('latin1') === 'RIFF' && h.subarray(8, 12).toString('latin1') === 'WEBP'
+  return png || jpeg || gif || webp
+}
 
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content
@@ -46,6 +70,7 @@ function toolResultText(content: unknown): string {
     // One with any other field, or a name that is not a tool name, is scanned
     // whole, as an unknown block is.
     if (b?.type === 'tool_reference' && typeof b.tool_name === 'string' && TOOL_NAME.test(b.tool_name) && Object.keys(b).length === 2) return b.tool_name
+    if (isBase64Image(b)) return ''
     return JSON.stringify(b)
   }).join('\n')
 }

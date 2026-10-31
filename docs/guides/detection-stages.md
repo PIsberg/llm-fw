@@ -124,7 +124,7 @@ The isolated scan is bounded to the first 8 distinct blocks per request, the sam
 
 ### Cost on long prompts
 
-Stage 2 is the expensive stage: every chunk of text costs one transformer forward pass, and a long prompt chunks into many. A pasted document, a RAG context or a long agent conversation is where that bites. It is not bounded by the request body cap, because a multi-megabyte body is usually a base64 image and image bytes never reach this stage as prompt text (a 3 MB image request scans in 0.1 s).
+Stage 2 is the expensive stage: every chunk of text costs one transformer forward pass, and a long prompt chunks into many. A pasted document, a RAG context or a long agent conversation is where that bites. It is not bounded by the request body cap, because a multi-megabyte body is usually a base64 image and image bytes never reach this stage as prompt text (a 3 MB image request scans in 0.1 s). That holds for an image inside a tool result too, such as a screenshot an agent reads: a block that is exactly a base64 image, with a PNG, JPEG, GIF or WebP signature, is left to the media stage instead of being scanned as its JSON.
 
 Two bounds keep it flat, both introduced in ruleset 2026.08.11, neither of which moved a verdict:
 

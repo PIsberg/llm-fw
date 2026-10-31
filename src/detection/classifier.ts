@@ -5,7 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
-import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -163,7 +163,9 @@ export class InjectionClassifier {
     // beside the typed text, each on its own; the verdict is the highest. The
     // heuristic and embedding stages still read every sentence; from any
     // other client, so does this one.
-    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), client) : text
+    const scored = source === 'prompt'
+      ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), client)
+      : source === 'tool_result' && client === 'claude-code' ? unwrapClaudeCodeToolResult(text) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
     let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
     // Each part is a forward pass, and a turn can hold any number of reminder

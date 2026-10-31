@@ -137,7 +137,13 @@ scored for what they carry: the contents and attribute values, without the
 tags. In a task notification, a field Claude Code fills with an id, a status
 word or its own `.output` path is not scored, and a summary in one of its
 templates (`Background command "..." completed (exit code 0)`) is scored as
-the text it quotes; a value of any other shape is scored as it is. The
+the text it quotes; a value of any other shape is scored as it is. In a
+tool result from Claude Code, its frame around what a subagent hands back
+(the pointer to a report delivered elsewhere, the `[Subagent hand-back]`
+header, a line listing the tools used, the `agentId` and `<usage>` trailer)
+is not scored; the report inside it is. The frame is dropped only with the
+trailer Claude Code always ends it with, and the tools line only when it is a
+list of tool names, because any tool's output can forge it. The
 reminder blocks from any other client, or on any other surface, are
 scored as they are. llm-fw's own withhold notices (`[llm-fw withheld this
 ...]`) are never scored, on any surface. Measured on the real model: the
