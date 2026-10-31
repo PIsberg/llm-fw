@@ -115,7 +115,9 @@ cloned repository's CLAUDE.md and the agent's memory files are read by the
 classifier as by every other stage. A reminder block that opens with
 anything else is scored whole, and the text the user typed beside the blocks
 is scored on its own; the verdict is the highest part. Claude Code's
-slash-command envelopes (either tag order), its `<session>` envelope with or
+slash-command envelopes (either tag order), the envelope of a skill the
+model invokes itself (with the fixed `<skill-format>true</skill-format>`
+line), its `<session>` envelope with or
 without the fixed title line after it, the `<local-command-stdout>` and
 `<local-command-stderr>` of a command run in Claude Code, and its wrapper
 around a message sent mid-turn are scored for what they carry; the fixed
