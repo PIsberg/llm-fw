@@ -141,9 +141,10 @@ the text it quotes; a value of any other shape is scored as it is. In a
 tool result from Claude Code, its frame around what a subagent hands back
 (the pointer to a report delivered elsewhere, the `[Subagent hand-back]`
 header, a line listing the tools used, the `agentId` and `<usage>` trailer)
-is not scored; the report inside it is. The frame is dropped only with the
-trailer Claude Code always ends it with, and the tools line only when it is a
-list of tool names, because any tool's output can forge it. The
+is not scored; the report inside it is. That applies only to a result of
+Claude Code's subagent tool (`Agent`, or `Task` in older releases), because
+any other tool's output can print the same frame, and only with the trailer
+Claude Code always ends it with. The
 reminder blocks from any other client, or on any other surface, are
 scored as they are. llm-fw's own withhold notices (`[llm-fw withheld this
 ...]`) are never scored, on any surface. Measured on the real model: the

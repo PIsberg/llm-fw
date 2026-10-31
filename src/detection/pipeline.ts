@@ -512,13 +512,16 @@ export class Pipeline {
       .filter(tr => !memorySet.has(tr.result))
       .map(tr => {
         const trustedPath = trustedReadPath(tr.toolName, tr.toolInput, trustedRoots)
-        return trustedPath ? { text: tr.result, source: 'tool_result' as const, trustedPath } : { text: tr.result, source: 'tool_result' as const }
+        const base = { text: tr.result, source: 'tool_result' as const, toolName: tr.toolName }
+        return trustedPath ? { ...base, trustedPath } : base
       })
     // Prompts and tool results newest first, alternating, so that when the
     // embedding budget below runs out it is old history that goes unread
     // (the requests that first carried it already scanned it), never the
     // newest prompt or the newest tool result.
-    const scanItems: { text: string; source: ScanSource; trustedPath?: string }[] = [
+    // toolName: the tool a tool result answers, which decides whether the
+    // classifier reads Claude Code's subagent frame (unwrapClaudeCodeToolResult).
+    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
         [...toolResults].reverse(),
@@ -618,12 +621,12 @@ export class Pipeline {
       lastYield = performance.now()
     }
 
-    for (const { text: prompt, source, trustedPath } of scanItems) {
+    for (const { text: prompt, source, trustedPath, toolName } of scanItems) {
       at.item = { text: prompt, source }
       await yieldIfDue()
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks.
-      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(prompt).digest('hex') : ''
+      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(prompt).digest('hex') : ''
       const cached = itemKey ? this.itemCache.get(itemKey) : undefined
       if (cached) {
         this.itemCache.delete(itemKey)
@@ -902,7 +905,7 @@ export class Pipeline {
       // no-op (returns null) when the stage is disabled, and lazy-loads the
       // model on first use when enabled.
       if (this.config.detection.classifier?.enabled && classifierScansSurface(this.config, source)) {
-        const v = await this.classifier.classify(prompt, source, meta.sandboxClient)
+        const v = await this.classifier.classify(prompt, source, meta.sandboxClient, toolName)
         // Per-surface block threshold; equals classifier.blockThreshold unless
         // detection.surfaces overrides it for tool_result/document. Compared
         // against v.score here rather than trusting v.injection, which the

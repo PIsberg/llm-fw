@@ -45,7 +45,7 @@ describe("Claude Code's tool-result frames: linear time on attacker-shaped outpu
   ])('unwraps 200 KB of %s in under 1.5 s', (_label, make) => {
     const text = make()
     const t0 = performance.now()
-    unwrapClaudeCodeToolResult(text)
+    unwrapClaudeCodeToolResult(text, 'Agent')
     expect(performance.now() - t0).toBeLessThan(1500)
   })
 
