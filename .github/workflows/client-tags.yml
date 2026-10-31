@@ -43,8 +43,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The extractor reads a file with Node and tsx; no native package is
+      # needed, and onnxruntime's install script once failed this job on a
+      # nuget.org timeout.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Download the newest Claude Code build
         run: |
