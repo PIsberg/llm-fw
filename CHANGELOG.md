@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`npm audit` passes again: minimatch held at 11 across the dev toolchain (GHSA-g3hv-75wg-m249).** On 2026-10-31 the audit gate started failing every pull request on a moderate denial-of-service advisory in minimatch below 11.0.1, reached through ESLint, `@typescript-eslint`, `eslint-plugin-sonarjs` and Stryker, none of which had moved its own range (the tree held seven copies of 10.2.6, "no fix available"). An `overrides` entry now resolves every copy to 11.0.3. minimatch is a development dependency only: nothing it does reaches a verdict or a shipped file, and the removed 11.0 APIs (`makeRe`, `Minimatch#regexp`, the `AST` class, `matchOne`) are used by none of the four consumers (grepped). Verified with `npm ci`, `npm audit --audit-level=moderate` (0 vulnerabilities), the full gate and a Stryker dry run.
+
 ## [0.9.3] - 2026-10-30
 
 ### Security
