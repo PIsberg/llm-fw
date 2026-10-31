@@ -12,6 +12,7 @@ describe('client envelopes: linear time on long unclosed shapes', () => {
     ['session closes', () => `<session>\n${fill('</session>\n\n')}`],
     ['local-command tags', () => `<local-command-stdout>${fill('</local-command-stdout>')}x`],
     ['command tags', () => `<command-name>/x</command-name>${fill(' ')}<command-message>x</command-message>${fill(' ')}`],
+    ['skill-format lines', () => `<command-message>x</command-message>\n<command-name>x</command-name>${fill('\n<skill-format>true</skill-format>')}`],
     ['mid-turn openers', () => fill('The user sent a new message while you were working:\n')],
     ['environment attributes', () => `<environment_context><a${fill(' b="c"')}</environment_context>`],
     ['environment spaces', () => `<environment_context><a${fill(' ')}</environment_context>`],
