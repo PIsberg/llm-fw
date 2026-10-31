@@ -73,6 +73,16 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.111
+
+**Unchanged from 2026.10.110: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** The classifier now scores Claude Code's and Codex's own
+wrappers for what they carry (the session-title request, command output, a message sent
+mid-turn, Codex's environment context), and every stage reads Codex's thread-title request
+as the prompt after its fixed instructions, which the embedding stage had blocked for 6 of 16
+ordinary prompts. No row in these corpora opens with those instructions, and the classifier
+is off here, so no verdict moved.
+
 ## Result, ruleset 2026.10.110
 
 **Unchanged from 2026.10.109: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

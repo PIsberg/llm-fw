@@ -46,6 +46,18 @@ describe('SandboxDetector', () => {
     expect(result.signals).toContain('ip-docker-bridge')
   })
 
+  // Live, 2026-10-31: Codex's requests to chatgpt.com were logged as client
+  // "unknown". Its user agent opens with its originator.
+  it('detects Codex by the originator its user agent opens with', () => {
+    for (const ua of ['codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) WindowsTerminal', 'codex-tui/0.166.0 (Mac OS 15.1.0; arm64) iTerm.app/3.5', 'codex_vscode/0.166.0 (Linux 6.8; x86_64) vscode/1.105']) {
+      const result = detector.detect(ua, '127.0.0.1')
+      expect(result.client).toBe('codex')
+      expect(result.signals).toContain('ua-codex')
+    }
+    // Only as the product token: a user agent that merely mentions it is not Codex.
+    expect(detector.detect('Mozilla/5.0 (codex-viewer)', '127.0.0.1').client).toBe('unknown')
+  })
+
   it('detects antigravity UA + loopback IP', () => {
     const result = detector.detect('antigravity/0.1', '127.0.0.1')
     expect(result.client).toBe('antigravity')

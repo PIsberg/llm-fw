@@ -20,6 +20,13 @@ export class SandboxDetector {
         client = 'claude-code';
         confidence += 0.5;
         signals.push('ua-claude');
+      } else if (/^codex[\w-]*\//.test(ua)) {
+        // Codex sends "<originator>/<version> (<os>; <arch>) <terminal>", the
+        // originator codex_cli_rs, codex-tui, codex_vscode, codex_exec and so
+        // on (codex-rs/login/src/auth/default_client.rs).
+        client = 'codex';
+        confidence += 0.5;
+        signals.push('ua-codex');
       } else if (ua.includes('antigravity')) {
         client = 'antigravity';
         confidence += 0.6;

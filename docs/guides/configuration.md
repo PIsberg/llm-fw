@@ -115,9 +115,18 @@ cloned repository's CLAUDE.md and the agent's memory files are read by the
 classifier as by every other stage. A reminder block that opens with
 anything else is scored whole, and the text the user typed beside the blocks
 is scored on its own; the verdict is the highest part. Claude Code's
-slash-command and `<session>` envelopes are scored for what they carry, and
-its fixed tool results such as `(Bash completed with no output)` are not
-scored. The same blocks from any other client, or on any other surface, are
+slash-command envelopes (either tag order), its `<session>` envelope with or
+without the fixed title line after it, the `<local-command-stdout>` and
+`<local-command-stderr>` of a command run in Claude Code, and its wrapper
+around a message sent mid-turn are scored for what they carry; the fixed
+`<local-command-caveat>` line and its fixed tool results such as `(Bash
+completed with no output)` are not scored. Codex's `<environment_context>`
+message is scored as its values without the tags, and its thread-title
+request as the prompt or conversation after the fixed instructions (that
+one at every stage: the embedding stage blocked 6 of 16 ordinary prompts
+inside it). These envelopes are unwrapped only when a user-turn text is
+exactly one; anything after or around it keeps the whole text scored. The
+reminder blocks from any other client, or on any other surface, are
 scored as they are. llm-fw's own withhold notices (`[llm-fw withheld this
 ...]`) are never scored, on any surface. Measured on the real model: the
 harness sentences score 97% to 100% on their own, this repository's CLAUDE.md
