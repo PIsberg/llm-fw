@@ -129,5 +129,13 @@
     "sharp": "^0.35.5",
     "global-agent": "^4.1.3",
     "minimatch": "^11.0.1"
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "onnxruntime-node": false,
+    "protobufjs": false,
+    "tesseract.js": false,
+    "sharp": false,
+    "fsevents": false
   }
 }

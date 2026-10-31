@@ -212,13 +212,19 @@ npx llm-fw <command>
 ```
 
 npm 12 runs no dependency install scripts by default (npm 11.16 and later warn
-about them), and llm-fw needs none. The two you may be warned about,
-`onnxruntime-node` and `protobufjs`, are safe to leave unapproved: the
+about them), and llm-fw needs none. The three you may be warned about,
+`onnxruntime-node`, `protobufjs` and `sharp`, are safe to leave unapproved: the
 `onnxruntime-node` script only fetches optional CUDA binaries on linux/x64, and
 the CPU binaries llm-fw runs on ship inside the package; the `protobufjs` one
-only checks version ranges. CI installs the packed package with
-`--ignore-scripts` on every PR and runs a detection smoke test, the ONNX
-embedding stage included. Nothing needs `npm approve-scripts`.
+only checks version ranges; the `sharp` one only starts a source build when a
+global libvips is requested, and its prebuilt binary arrives as a dependency.
+CI installs the packed package with `--ignore-scripts` on every PR and runs a
+detection smoke test, the ONNX embedding stage included. Nothing needs
+`npm approve-scripts`. The warning cannot be switched off from llm-fw's side:
+npm reads `allowScripts` from your own project only (measured with a packed
+install, the package's entries change nothing), so add `--ignore-scripts` to
+the install command, as the install scripts above do, if you want a silent
+install.
 
 ---
 

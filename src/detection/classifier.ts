@@ -5,7 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
-import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, stripClaudeCodeReminders } from './clientEnvelopes.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -38,6 +38,8 @@ export interface ClassifierVerdict {
 }
 
 const CACHE_MAX_ENTRIES = 512
+/** Forward passes one text may cost, however many parts it unwraps into. */
+const MAX_PARTS = 8
 
 // Model identity, exported so the worker-thread entry (inferenceWorkerEntry.ts)
 // loads the EXACT same model/dtype as the in-process path — see embedding.ts's
@@ -153,15 +155,31 @@ export class InjectionClassifier {
     // (see clientEnvelopes.ts); the model mistakes the wrappers for injection.
     // Only on the surface Claude Code writes each to: envelopes in a user
     // turn, notices as a tool result. Elsewhere someone else wrote them, and
-    // the tags are scored with the rest. Its <system-reminder> blocks are
-    // instructions by design, so the model is wrong about their contents too:
-    // in a user turn of a request Claude Code sent, they are left out and the
-    // text beside them scored. The heuristic and embedding stages still read
-    // the blocks; from any other client, so does this one.
-    let scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
-    if (source === 'prompt' && client === 'claude-code') scored = stripClaudeCodeReminders(scored)
+    // the tags are scored with the rest. In a user turn of a request Claude
+    // Code sent, its <system-reminder> blocks are read the same way: the
+    // harness's own sentences are left out, and what the blocks carry (a
+    // CLAUDE.md, a memory file, a block Claude Code did not write) is scored
+    // beside the typed text, each on its own; the verdict is the highest. The
+    // heuristic and embedding stages still read every sentence; from any
+    // other client, so does this one.
+    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
+    let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
+    // Each part is a forward pass, and a turn can hold any number of reminder
+    // blocks: the model sees at most MAX_PARTS, the rest joined and scored
+    // once, truncated below as any long text is.
+    if (parts.length > MAX_PARTS) parts = [...parts.slice(0, MAX_PARTS - 1), parts.slice(MAX_PARTS - 1).join('\n')]
+    let verdict: ClassifierVerdict = { injection: false, score: 0 }
+    for (const part of parts) {
+      const v = await this.classifyOne(part, threshold)
+      if (v === null) return null
+      if (v.score > verdict.score) verdict = v
+    }
+    return verdict
+  }
 
+  /** One text through the cache and the model; null on a model error. */
+  private async classifyOne(scored: string, threshold: number): Promise<ClassifierVerdict | null> {
     const key = createHash('sha256').update(scored).digest('hex')
     const cached = this.cache.get(key)
     if (cached) return cached
