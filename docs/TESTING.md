@@ -46,6 +46,14 @@ It asserts:
 
 The pipeline half takes about 50 to 90 seconds. The fixture is committed, so the test never calls the network. To add a case, put the English sentence under `sets.<set>.source` in the fixture and run `npm run fixture:multilingual`. It translates only the missing entries through the playground's own Google endpoint, pacing requests and backing off on HTTP 429.
 
+### Real-traffic replay (local only)
+
+`npm run replay:transcripts` replays the agents' own transcripts on this machine through the pipeline and counts what would block: Claude Code's under `~/.claude/projects` (subagents included) and Codex's under `~/.codex/sessions`, modified in the last `--since` days (default 14). Each distinct user message, tool result and attachment is rebuilt as the request the proxy would see (`test/eval/lib/transcripts.ts`) and scanned as that client, under the config `llm-fw start` would load; `--default-config` measures the shipped defaults instead. Enforcement is forced to enforce so observe mode does not hide a would-be block, and the judge is off.
+
+Every false positive reported from live use so far was traffic no corpus held (the agents' own wrappers, skill bodies, tool output quoting a security document), so this is the measure of "does ordinary use block". It cannot run in CI: the transcripts are private. `--out run.jsonl` keeps the full text of every blocked item for diagnosis; write it under the ignored `scratch/`. Two runs compare row by row with `--diff before.jsonl after.jsonl`, the way `verdicts:diff` does for the eval splits.
+
+It is slow on purpose, being every stage on real sizes: about 1 s per item with the classifier on (300 items in 6.5 minutes, 2026-10-31). `--count` sizes a window first (50,189 distinct items over 14 days on the author's machine, 7,622 over 3), and `--shard i/n` splits a run across processes; each loads its own models, so leave about 2 GB of RAM per shard.
+
 ---
 
 ## 🚀 Quick Start: Running Tests

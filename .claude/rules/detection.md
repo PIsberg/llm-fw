@@ -87,6 +87,11 @@ Do not repeat the current ruleset value in prose anywhere. It goes stale.
   `after.json` on the new one, then `npm run verdicts:diff -- before.json
   after.json`: the row-by-row "N of 23,938 eval verdicts changed" a ruleset or
   dependency PR should quote. Aggregates can hold while rows trade places.
+- `npm run replay:transcripts -- --out before.jsonl`, then the same with
+  `after.jsonl` and `--diff before.jsonl after.jsonl`: your own Claude Code and
+  Codex transcripts through the pipeline, local only. Every live false positive
+  so far was traffic no corpus held; this is where it shows. See
+  [docs/TESTING.md](../../docs/TESTING.md#real-traffic-replay-local-only).
 - `npm run bench:competitors` compares against third-party guardrails on the
   same held-out splits. Useful context for a detection PR, not required.
 

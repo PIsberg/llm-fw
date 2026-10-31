@@ -69,6 +69,7 @@
     "bench:competitors": "node --import tsx/esm test/eval/competitors/run.ts",
     "bench:trend": "node --import tsx/esm scripts/bench-trend.ts",
     "bench:compare": "node --import tsx/esm scripts/bench-compare.ts",
+    "replay:transcripts": "node --import tsx/esm scripts/replay-transcripts.ts",
     "verdicts:dump": "node --import tsx/esm scripts/verdict-dump.ts",
     "verdicts:diff": "node --import tsx/esm scripts/verdict-diff.ts",
     "study:ml-indirect": "node --import tsx/esm scripts/study-ml-indirect.ts",
