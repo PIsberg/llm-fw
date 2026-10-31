@@ -58,6 +58,34 @@ export function isClaudeCodeNotice(text: string): boolean {
   return CLAUDE_NOTICES.has(text.trim())
 }
 
+// Claude Code adds its own notes to a user turn as <system-reminder> blocks,
+// each a text part of its own beside what the user typed: the CLAUDE.md
+// contents, the commit attribution lines, "the user hasn't heard from you".
+// They are instructions to the model by design, and the real classifier
+// scored every one of them 99.9% injection (live, 2026-10-31), so with the
+// stage on each turn that carried one was withheld and the newest refused.
+// Only whole blocks go, with indexOf (a text can hold thousands of unclosed
+// openers; a lazy regex rescans to the end from each). The heuristic and
+// embedding stages still read the whole turn, blocks included.
+const REMINDER_OPEN = '<system-reminder>'
+const REMINDER_CLOSE = '</system-reminder>'
+
+/** `text` without its whole <system-reminder> blocks; an unclosed tag stays. */
+export function stripClaudeCodeReminders(text: string): string {
+  let open = text.indexOf(REMINDER_OPEN)
+  if (open < 0) return text
+  let out = ''
+  let last = 0
+  while (open >= 0) {
+    const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length)
+    if (close < 0) break
+    out += text.slice(last, open)
+    last = close + REMINDER_CLOSE.length
+    open = text.indexOf(REMINDER_OPEN, last)
+  }
+  return (out + text.slice(last)).trim()
+}
+
 export function unwrapCodexAgentsEnvelope(raw: string): string {
   const trimmed = raw.trim()
   const lower = trimmed.toLowerCase()

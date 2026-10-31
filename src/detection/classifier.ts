@@ -5,7 +5,8 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
-import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice } from './clientEnvelopes.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, stripClaudeCodeReminders } from './clientEnvelopes.js'
+import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('classifier');
@@ -134,9 +135,11 @@ export class InjectionClassifier {
    * or model failed to load) so the caller can skip it. Results are LRU-cached by
    * content hash — proxy traffic re-sends identical system prefixes / tool
    * descriptions constantly, so the cache skips the model for the common case.
-   * `source` is the surface the text came from; see below for what it changes.
+   * `source` is the surface the text came from and `client` the agent that
+   * sent the request, as the sandbox detector names it; see below for what
+   * they change.
    */
-  async classify(text: string, source?: string): Promise<ClassifierVerdict | null> {
+  async classify(text: string, source?: string, client?: string): Promise<ClassifierVerdict | null> {
     if (!this.config.classifier?.enabled || !text) return null
     // Lazy-load on first use so toggling the stage on from the dashboard
     // activates it without a restart (the first request pays the one-time load).
@@ -144,12 +147,19 @@ export class InjectionClassifier {
     if (!this.isInitialized()) return null
     const threshold = this.config.classifier.blockThreshold ?? 0.9
 
+    // llm-fw's own withhold notices carry nothing anyone wrote, on any surface.
+    if (isWithholdNotice(text)) return { injection: false, score: 0 }
     // Claude Code's own envelopes and notices are scored for what they carry
     // (see clientEnvelopes.ts); the model mistakes the wrappers for injection.
     // Only on the surface Claude Code writes each to: envelopes in a user
     // turn, notices as a tool result. Elsewhere someone else wrote them, and
-    // the tags are scored with the rest.
-    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
+    // the tags are scored with the rest. Its <system-reminder> blocks are
+    // instructions by design, so the model is wrong about their contents too:
+    // in a user turn of a request Claude Code sent, they are left out and the
+    // text beside them scored. The heuristic and embedding stages still read
+    // the blocks; from any other client, so does this one.
+    let scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
+    if (source === 'prompt' && client === 'claude-code') scored = stripClaudeCodeReminders(scored)
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
 
     const key = createHash('sha256').update(scored).digest('hex')

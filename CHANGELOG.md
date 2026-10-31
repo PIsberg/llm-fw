@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The opt-in classifier no longer refuses Claude Code sessions over the agent's own system reminders (ruleset 2026.10.110).** With `detection.classifier` on, the real model scored every `<system-reminder>` block Claude Code 2.1 adds to a user turn 99.9% injection: the commit-attribution reminder, "The user hasn't heard from you in a while", the CLAUDE.md contents. Each turn that carried one was withheld, and the notice llm-fw substitutes (`[llm-fw withheld this earlier message: ...]`) scored 99.9% on the rescan too, so it was withheld again, which cannot remove it, and the request was refused after all: live on 2026-10-31, three events in 11 seconds ended a session. In a user turn of a request Claude Code sent (user agent `claude-cli`), the classifier now leaves the reminder blocks out and scores the text the user typed beside them; the heuristic and embedding stages still read the whole turn. The same block from any other client, or arriving as a tool result, is scored as it is. llm-fw's own withhold notices are never scored, on any surface. Measured on the real model: the attribution reminder 0 from Claude Code and 99.9% from an unknown client or as a tool result; an attack typed beside a reminder 99.99999%; a benign prompt beside one 0.001%. The classifier is off in the eval and the false-positive measurement, so no eval verdict, recall floor or FPR can move. Verified failing-first: 2 cases in `test/detection/classifier.test.ts` and 5 in the new `test/detection/pipeline-claude-code.test.ts` failed before the fix. See [the configuration guide](docs/guides/configuration.md#configuration), "What the classifier does not score".
+
 ## [0.9.3] - 2026-10-30
 
 ### Security
