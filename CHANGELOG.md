@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`npm run replay:transcripts`: replay your own agent traffic through the pipeline.** Every false positive reported from live use so far was traffic no corpus held: Claude Code's and Codex's own wrappers, skill bodies, tool output that quotes a security document. The script rebuilds each distinct user message, tool result and attachment from the local Claude Code (`~/.claude/projects`, subagents included) and Codex (`~/.codex/sessions`) transcripts as the request the proxy would see, scans it as that client under the config `llm-fw start` loads, and reports what would block by client, surface and stage; `--diff` compares two runs item by item. A first 300-item run found four blocks: a `/loop` skill body (embedding), a `<task-notification>` wrapper (classifier) and two tool results. It reads private transcripts, so it is local only and not a CI gate; nothing is written but the `--out` file. See [docs/TESTING.md](docs/TESTING.md#real-traffic-replay-local-only). Verified in `test/eval/transcripts.test.ts`: the rebuilt requests go through the real parsers, which split a message's blocks and pair a tool result with its tool_use as on the wire.
+
 ### Security
 
 - **`npm audit` passes again: minimatch held at 11 across the dev toolchain (GHSA-g3hv-75wg-m249).** On 2026-10-31 the audit gate started failing every pull request on a moderate denial-of-service advisory in minimatch below 11.0.1, reached through ESLint, `@typescript-eslint`, `eslint-plugin-sonarjs` and Stryker, none of which had moved its own range (the tree held seven copies of 10.2.6, "no fix available"). An `overrides` entry now resolves every copy to 11.0.3. minimatch is a development dependency only: nothing it does reaches a verdict or a shipped file, and the removed 11.0 APIs (`makeRe`, `Minimatch#regexp`, the `AST` class, `matchOne`) are used by none of the four consumers (grepped). Verified with `npm ci`, `npm audit --audit-level=moderate` (0 vulnerabilities), the full gate and a Stryker dry run.
