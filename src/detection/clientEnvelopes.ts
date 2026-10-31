@@ -59,31 +59,83 @@ export function isClaudeCodeNotice(text: string): boolean {
 }
 
 // Claude Code adds its own notes to a user turn as <system-reminder> blocks,
-// each a text part of its own beside what the user typed: the CLAUDE.md
-// contents, the commit attribution lines, "the user hasn't heard from you".
-// They are instructions to the model by design, and the real classifier
-// scored every one of them 99.9% injection (live, 2026-10-31), so with the
-// stage on each turn that carried one was withheld and the newest refused.
-// Only whole blocks go, with indexOf (a text can hold thousands of unclosed
-// openers; a lazy regex rescans to the end from each). The heuristic and
-// embedding stages still read the whole turn, blocks included.
+// each a text part of its own beside what the user typed. Its own sentences
+// are instructions to the model by design, and the real classifier scored
+// every one of them 97-100% injection (live, 2026-10-31: the commit
+// attribution lines, "the user hasn't heard from you", "only you see that
+// command's output", the line above a CLAUDE.md), so with the stage on each
+// turn that carried one was withheld and the newest refused. What the blocks
+// carry is another matter: a CLAUDE.md is the repository's text, a memory
+// file the agent's own, and the same model scores those bodies near 0 on
+// their own (this repository's CLAUDE.md 0.00%, a rules file 0.00%, the
+// memory index 0.05%), so they stay scored, each body by itself. Dropping
+// single sentences instead is not an option: the model is not monotonic on
+// short residues (a block scoring 0.96% whole scored 98.8% once its one
+// instruction sentence was removed). The heuristic and embedding stages still
+// read the whole turn, every sentence included.
 const REMINDER_OPEN = '<system-reminder>'
 const REMINDER_CLOSE = '</system-reminder>'
+// The first line of each block Claude Code writes. A block that opens with
+// none of these was written by something else and is scored whole.
+const HARNESS_OPENERS: readonly RegExp[] = [
+  /^Codebase and user instructions are shown below\./,
+  /^As you answer the user's questions, you can use the following context:/,
+  /^This is the git status at the start of the conversation\./,
+  /^Attribution for git commits and pull requests you create from here on/,
+  /^The user hasn't heard from you in a while/,
+  /^Only you see that command's output/,
+  /^\[SYSTEM NOTIFICATION - NOT USER INPUT\]/,
+  /^Note: .{1,512} changed on disk since you last read it\./,
+  /^The following (?:deferred )?tools (?:just became|are now) available/,
+  /^Tool loaded\.$/,
+  /^Background security review of committed or pushed changes/,
+]
+// Inside a harness block, "Contents of <path> (<what it is>):" opens a file
+// the user or a repository wrote, which runs to the next such line.
+const isFileHeader = (line: string): boolean => line.startsWith('Contents of ') && line.trimEnd().endsWith('):')
 
-/** `text` without its whole <system-reminder> blocks; an unclosed tag stays. */
-export function stripClaudeCodeReminders(text: string): string {
+/** The file bodies of a harness block, or the whole block when it is not one. */
+function reminderParts(inner: string): string[] {
+  const lines = inner.split('\n')
+  const first = lines.find(l => l.trim() !== '')?.trim() ?? ''
+  if (!HARNESS_OPENERS.some(re => re.test(first))) return inner.trim() ? [inner.trim()] : []
+  const parts: string[] = []
+  let body: string[] | null = null
+  for (const line of lines) {
+    if (isFileHeader(line)) {
+      if (body) parts.push(body.join('\n'))
+      body = []
+    } else if (body) {
+      body.push(line)
+    }
+  }
+  if (body) parts.push(body.join('\n'))
+  return parts.map(p => p.trim()).filter(Boolean)
+}
+
+/**
+ * The texts of a Claude Code user turn worth scoring on their own: what was
+ * typed outside the <system-reminder> blocks, each file a block carries, and
+ * each block Claude Code did not write. Whole blocks only, found with indexOf
+ * (a text can hold thousands of unclosed openers; a lazy regex rescans to the
+ * end from each); an unclosed tag stays in the typed text.
+ */
+export function unwrapClaudeCodeReminders(text: string): string[] {
   let open = text.indexOf(REMINDER_OPEN)
-  if (open < 0) return text
-  let out = ''
+  if (open < 0) return text.trim() ? [text] : []
+  const parts: string[] = []
+  let outside = ''
   let last = 0
   while (open >= 0) {
     const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length)
     if (close < 0) break
-    out += text.slice(last, open)
+    outside += text.slice(last, open)
+    parts.push(...reminderParts(text.slice(open + REMINDER_OPEN.length, close)))
     last = close + REMINDER_CLOSE.length
     open = text.indexOf(REMINDER_OPEN, last)
   }
-  return (out + text.slice(last)).trim()
+  outside = (outside + text.slice(last)).trim()
+  return outside ? [outside, ...parts] : parts
 }
 
 export function unwrapCodexAgentsEnvelope(raw: string): string {

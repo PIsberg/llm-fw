@@ -104,17 +104,25 @@ on benign tool output. Measured numbers for both settings are in
 
 **What the classifier does not score.** The model reads any instruction to
 the model as an injection, including the ones an agent writes into its own
-turns, so a few fixed shapes are left out of its input (the heuristic and
-embedding stages still read them). In a user turn of a request Claude Code
-sent (user agent `claude-cli`), its `<system-reminder>` blocks are dropped and
-the text the user typed beside them is scored; its slash-command and
-`<session>` envelopes are scored for what they carry; and its fixed tool
-results such as `(Bash completed with no output)` are not scored. The same
-blocks from any other client, or on any other surface, are scored as they
-are. llm-fw's own withhold notices (`[llm-fw withheld this ...]`) are never
-scored, on any surface. Nothing else is exempt: a prompt pasted into a
-reminder block still meets the heuristic and embedding stages, and an attack
-typed beside one scores on its own.
+turns, so the agent's own sentences are left out of its input (the heuristic
+and embedding stages still read them). In a user turn of a request Claude
+Code sent (user agent `claude-cli`), each `<system-reminder>` block that opens
+with one of Claude Code's own sentences (the commit attribution lines, "the
+user hasn't heard from you", the line above a CLAUDE.md, the git status, a
+background-task notification) has those sentences dropped; what the block
+carries is still scored, each `Contents of <file>` body on its own, so a
+cloned repository's CLAUDE.md and the agent's memory files are read by the
+classifier as by every other stage. A reminder block that opens with
+anything else is scored whole, and the text the user typed beside the blocks
+is scored on its own; the verdict is the highest part. Claude Code's
+slash-command and `<session>` envelopes are scored for what they carry, and
+its fixed tool results such as `(Bash completed with no output)` are not
+scored. The same blocks from any other client, or on any other surface, are
+scored as they are. llm-fw's own withhold notices (`[llm-fw withheld this
+...]`) are never scored, on any surface. Measured on the real model: the
+harness sentences score 97% to 100% on their own, this repository's CLAUDE.md
+body 0.00%, a rules file 0.00%, the memory index 0.05%, an attack typed
+beside a reminder 100%.
 
 **Trusted project roots.** `detection.surfaces.tool_result.trustedPaths` (also
 `LLM_FW_TRUSTED_PATHS`, comma-separated) lists absolute directories whose files
