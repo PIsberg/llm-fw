@@ -382,11 +382,12 @@ Which route it takes depends on how you signed in:
 
 - **API key:** Codex talks to `api.openai.com`, which llm-fw inspects by default.
 - **ChatGPT account:** Codex talks to `chatgpt.com/backend-api/codex`, which
-  llm-fw tunnels uninspected unless the operator sets
-  `proxy.inspectChatgptBackend: true` (see
+  llm-fw also inspects by default (`proxy.inspectChatgptBackend`, on since
+  2026-10-31; set it to `false` to tunnel chatgpt.com uninspected, see
   [Configuration](configuration.md#configuration)). Codex compresses those
   request bodies with zstd; llm-fw decodes them, which needs Node 22.15 or later
-  on the firewall host.
+  on the firewall host. Codex must trust the llm-fw CA for this route, as for
+  the API-key route: `llm-fw setup` configures it.
 
 ### Cursor, VS Code, Antigravity
 
