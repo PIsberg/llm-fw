@@ -10,9 +10,14 @@ import type { Config } from '../../src/types.js'
 const withSwitch = (on: boolean): Config => ({ ...DEFAULT_CONFIG, proxy: { ...DEFAULT_CONFIG.proxy, inspectChatgptBackend: on } })
 
 describe('proxy.inspectChatgptBackend', () => {
-  it('is off by default, and chatgpt.com is then tunnelled', () => {
-    expect(DEFAULT_CONFIG.proxy.inspectChatgptBackend).toBe(false)
-    expect(isInterceptedHost('chatgpt.com', DEFAULT_CONFIG)).toBe(false)
+  // On by default since 2026-10-31: on a machine running Codex with a ChatGPT
+  // sign-in, every Codex turn was tunnelled uninspected (27 CONNECTs in one
+  // afternoon) while the switch sat off. The ChatGPT web app is intercepted
+  // too, as the configuration guide says; switch it off to tunnel it.
+  it('is on by default, so chatgpt.com is intercepted; off tunnels it', () => {
+    expect(DEFAULT_CONFIG.proxy.inspectChatgptBackend).toBe(true)
+    expect(isInterceptedHost('chatgpt.com', DEFAULT_CONFIG)).toBe(true)
+    expect(isInterceptedHost('chatgpt.com', withSwitch(false))).toBe(false)
   })
 
   it('intercepts chatgpt.com only when switched on, and no other host because of it', () => {

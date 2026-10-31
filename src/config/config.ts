@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG: Config = {
     // Tenant/regional API domain suffixes the proxy TLS-intercepts in
     // addition to `targets`. Sourced from the provider registry.
     interceptDomains: AI_PROVIDER_INTERCEPT_DOMAINS,
-    inspectChatgptBackend: false,
+    inspectChatgptBackend: true,
     urlFilter: {
       enabled: true,
       entropyThreshold: 4.8,

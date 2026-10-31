@@ -5,7 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
-import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders } from './clientEnvelopes.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -151,8 +151,9 @@ export class InjectionClassifier {
 
     // llm-fw's own withhold notices carry nothing anyone wrote, on any surface.
     if (isWithholdNotice(text)) return { injection: false, score: 0 }
-    // Claude Code's own envelopes and notices are scored for what they carry
-    // (see clientEnvelopes.ts); the model mistakes the wrappers for injection.
+    // Claude Code's and Codex's own envelopes and notices are scored for what
+    // they carry (see clientEnvelopes.ts); the model mistakes the wrappers for
+    // injection.
     // Only on the surface Claude Code writes each to: envelopes in a user
     // turn, notices as a tool result. Elsewhere someone else wrote them, and
     // the tags are scored with the rest. In a user turn of a request Claude
@@ -162,7 +163,7 @@ export class InjectionClassifier {
     // beside the typed text, each on its own; the verdict is the highest. The
     // heuristic and embedding stages still read every sentence; from any
     // other client, so does this one.
-    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
+    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text))) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
     let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
     // Each part is a forward pass, and a turn can hold any number of reminder
