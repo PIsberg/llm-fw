@@ -38,6 +38,8 @@ export interface ClassifierVerdict {
 }
 
 const CACHE_MAX_ENTRIES = 512
+/** Forward passes one text may cost, however many parts it unwraps into. */
+const MAX_PARTS = 8
 
 // Model identity, exported so the worker-thread entry (inferenceWorkerEntry.ts)
 // loads the EXACT same model/dtype as the in-process path — see embedding.ts's
@@ -162,7 +164,11 @@ export class InjectionClassifier {
     // other client, so does this one.
     const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(text) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
-    const parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
+    let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
+    // Each part is a forward pass, and a turn can hold any number of reminder
+    // blocks: the model sees at most MAX_PARTS, the rest joined and scored
+    // once, truncated below as any long text is.
+    if (parts.length > MAX_PARTS) parts = [...parts.slice(0, MAX_PARTS - 1), parts.slice(MAX_PARTS - 1).join('\n')]
     let verdict: ClassifierVerdict = { injection: false, score: 0 }
     for (const part of parts) {
       const v = await this.classifyOne(part, threshold)
