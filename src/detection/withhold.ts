@@ -13,6 +13,33 @@
 // re-extracts the tool results afterwards and refuses as before when the text
 // is still there, so a shape this does not reach fails closed.
 
+/** What replaces every part of a withheld text after the first. */
+export const WITHHELD_MARKER = '[withheld]'
+
+/**
+ * The notice that replaces a withheld text. The same bytes on every request:
+ * the agent resends the original each turn, and a notice that changed (an
+ * event id, a timestamp) would change the forwarded history there and break
+ * the provider's prompt cache from that point on.
+ */
+export function withholdNotice(surface: 'prompt' | 'tool_result', stage: string): string {
+  const what = surface === 'prompt' ? 'earlier message' : 'tool output'
+  return `[llm-fw withheld this ${what}: it matched the ${stage} rule. Its content was not passed on to the model.]`
+}
+
+const NOTICE = /^\[llm-fw withheld this (?:earlier message|tool output): it matched the [\w-]+ rule\. Its content was not passed on to the model\.\]$/
+
+/**
+ * True for a text that is exactly one of llm-fw's own notices, or the marker.
+ * They carry nothing anyone wrote, so no stage should score them: live, the
+ * classifier scored the notice 99.9% injection on the rescan, withheld it
+ * again, which cannot remove it, and refused the request after all.
+ */
+export function isWithholdNotice(text: string): boolean {
+  const t = text.trim()
+  return t === WITHHELD_MARKER || NOTICE.test(t)
+}
+
 /** Keys that hold structure (ids, roles, block types, names), never output. */
 const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   'type', 'role', 'id', 'tool_use_id', 'tool_call_id', 'call_id', 'name', 'model', 'media_type', 'cache_control',
@@ -79,7 +106,7 @@ export function withholdText(body: string, text: string, notice: string): string
   const best = Math.max(...[...groups.values()].map(covered))
   for (const leaves of groups.values()) {
     if (covered(leaves) < best) continue
-    leaves.forEach((l, i) => { l.holder[l.key] = i === 0 ? notice : '[withheld]' })
+    leaves.forEach((l, i) => { l.holder[l.key] = i === 0 ? notice : WITHHELD_MARKER })
   }
   return JSON.stringify(data)
 }

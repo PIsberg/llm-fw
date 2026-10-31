@@ -102,6 +102,20 @@ that surface only; the second line is optional and trades recall for precision
 on benign tool output. Measured numbers for both settings are in
 [BENCHMARK.md](../BENCHMARK.md).
 
+**What the classifier does not score.** The model reads any instruction to
+the model as an injection, including the ones an agent writes into its own
+turns, so a few fixed shapes are left out of its input (the heuristic and
+embedding stages still read them). In a user turn of a request Claude Code
+sent (user agent `claude-cli`), its `<system-reminder>` blocks are dropped and
+the text the user typed beside them is scored; its slash-command and
+`<session>` envelopes are scored for what they carry; and its fixed tool
+results such as `(Bash completed with no output)` are not scored. The same
+blocks from any other client, or on any other surface, are scored as they
+are. llm-fw's own withhold notices (`[llm-fw withheld this ...]`) are never
+scored, on any surface. Nothing else is exempt: a prompt pasted into a
+reminder block still meets the heuristic and embedding stages, and an attack
+typed beside one scores on its own.
+
 **Trusted project roots.** `detection.surfaces.tool_result.trustedPaths` (also
 `LLM_FW_TRUSTED_PATHS`, comma-separated) lists absolute directories whose files
 you vouch for. A file-read tool result from under one of them, or a shell tool

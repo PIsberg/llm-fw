@@ -73,6 +73,17 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.110
+
+**Unchanged from 2026.10.109: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** The opt-in classifier stage (off in this measurement and in
+the eval) now leaves Claude Code's `<system-reminder>` blocks out of a user turn of a request
+Claude Code sent, and never scores llm-fw's own withhold notices: found live, where the real
+model scored every reminder 99.9% injection and the notice 99.9% on the rescan, so a session
+was refused. No input wording rule changed, so no cheap-pipeline verdict moved.
+`npm run recall:floor` holds at 944 of 1,395, the identifier-free probe at 8 of 40,
+`npm run fuzz:rules` at 2 escapes of 653.
+
 ## Result, ruleset 2026.10.109
 
 **Unchanged from 2026.10.108: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

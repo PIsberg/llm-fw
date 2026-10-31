@@ -106,7 +106,7 @@ import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
 import { SuppressionStore, suppressionKey } from './suppressions.js'
-import { withholdText } from './withhold.js'
+import { withholdText, withholdNotice } from './withhold.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
 import { transcribeAudio, isTranscribeCandidate, MAX_TRANSCRIBE_CLIPS } from './transcribe.js'
@@ -348,9 +348,7 @@ export class Pipeline {
       const result = await this.run(requestPath, current, { ...meta, withholding, withholdingPrompts })
       const item = result.blockedItem
       if (result.action === 'block' && withholdingPrompts && item?.source === 'prompt' && newest !== undefined && item.text !== newest) {
-        // The same bytes on every request, for the prompt cache (see below).
-        const notice = `[llm-fw withheld this earlier message: it matched the ${result.stage} rule. Its content was not passed on to the model.]`
-        const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, notice) : null
+        const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, withholdNotice('prompt', result.stage)) : null
         // withholdText replaces every leaf that is a part of the flagged text,
         // so check the newest prompt still reaches the model exactly as typed.
         const after = next === null ? [] : parser!.extractPrompts(next)
@@ -364,11 +362,8 @@ export class Pipeline {
       if (!withholding || result.action !== 'block' || item?.source !== 'tool_result') {
         return { result, body: current, withheld }
       }
-      // The same bytes on every request: the agent resends the original tool
-      // result each turn, and a notice that changed (an event id in it) would
-      // change the forwarded history there and break the prompt cache.
-      const notice = `[llm-fw withheld this tool output: it matched the ${result.stage} rule. Its content was not passed on to the model.]`
-      const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, notice) : null
+      // The same bytes on every request (see withholdNotice).
+      const next = withheld < MAX_WITHHELD ? withholdText(current, item.text, withholdNotice('tool_result', result.stage)) : null
       if (next === null || !parser || parser.extractToolResults(next).some(tr => tr.result === item.text)) {
         this.emit({ ...result, withheld: false }, meta, `[not withheld] tool output could not be removed from the request, so it was refused`, 'tool_result', null)
         return { result, body: current, withheld: 0 }
@@ -907,7 +902,7 @@ export class Pipeline {
       // no-op (returns null) when the stage is disabled, and lazy-loads the
       // model on first use when enabled.
       if (this.config.detection.classifier?.enabled && classifierScansSurface(this.config, source)) {
-        const v = await this.classifier.classify(prompt, source)
+        const v = await this.classifier.classify(prompt, source, meta.sandboxClient)
         // Per-surface block threshold; equals classifier.blockThreshold unless
         // detection.surfaces overrides it for tool_result/document. Compared
         // against v.score here rather than trusting v.injection, which the

@@ -73,8 +73,9 @@ These are not chosen by llm-fw. They arrive with `@huggingface/transformers`:
 | `protobufjs` and `@protobufjs/*`, `long`, `flatbuffers`, `guid-typescript`, `platform` | onnxruntime-web | Model file parsing |
 | `@types/node`, `undici-types` | `protobufjs` | Type declarations that protobufjs lists as a runtime dependency. They are never loaded; they are in the tree only because of that declaration |
 
-`package.json` `overrides` raises `qs`, `adm-zip`, `sharp` and `global-agent` for this
-repository's own tree and CI. npm applies `overrides` from the root project only, so a
+`package.json` `overrides` raises `qs`, `adm-zip`, `sharp`, `global-agent` and `minimatch` (a
+development-only dependency of ESLint, `@typescript-eslint`, `eslint-plugin-sonarjs` and
+Stryker, held at 11 for GHSA-g3hv-75wg-m249) for this repository's own tree and CI. npm applies `overrides` from the root project only, so a
 consumer still resolves the parents' ranges. Read the `//overrides` note there before
 relying on a clean `npm audit`.
 
