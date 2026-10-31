@@ -43,6 +43,18 @@ unseen rows (the number to quote for generalisation); 22 rows were read on
 Prefer closing a miss additively in stage 1 over recalibrating stage 2. A regex
 gap is a local fix; a threshold move is a global one.
 
+## The agents' own markup
+
+Claude Code and Codex wrap their own text in markup, and the classifier mistakes
+the tags for injection. `src/detection/clientTags.ts` is GENERATED from the
+Claude Code binary by `npm run client-tags`: never edit it by hand. When the
+scheduled Client Tags workflow fails, a release added or dropped a tag: run
+`npm run client-tags` against that release, look at what each new tag wraps
+(a tag that wraps third-party text keeps that text scored, only the tag goes),
+and cut the ruleset. An exemption for a fixed harness sentence or field shape
+keeps everything else scored, and gets a guard test that puts an attack in
+the exempted slot.
+
 ## Other languages
 
 A non-English miss goes in stage 1: a rule in `heuristic.ts` for a language

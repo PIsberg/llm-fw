@@ -18,10 +18,16 @@ describe('client envelopes: linear time on long unclosed shapes', () => {
     ['environment spaces', () => `<environment_context><a${fill(' ')}</environment_context>`],
     ['environment tag opens', () => `<environment_context>${fill('<a')}</environment_context>`],
     ['conversation messages', () => `${TITLE}\n\nUser prompt:\n<conversation>\n${fill('<message role="user">')}`],
+    ['unclosed markup', () => fill('<task-notification>')],
+    ['nested opens of one tag', () => `${fill('<status>')}</status>`],
+    ['attribute runs', () => `<channel${fill(' a="b"')}`],
+    ['attribute spaces', () => `<channel${fill(' ')}!`],
+    ['siblings that never close inside', () => `<task-notification>${fill('<status><summary>x</status>')}</task-notification></summary>`],
+    ['many valid elements', () => fill('<tick>1</tick>\n')],
   ])('unwraps 200 KB of %s in under 1.5 s', (_label, make) => {
     const text = make()
     const t0 = performance.now()
-    unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)))
+    unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), 'claude-code')
     expect(performance.now() - t0).toBeLessThan(1500)
   })
 })

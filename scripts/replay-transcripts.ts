@@ -4,7 +4,7 @@
  *
  *   npm run replay:transcripts -- [--since 14] [--out run.jsonl] [--default-config]
  *                                 [--no-claude] [--no-codex] [--limit N] [--match <substr>]
- *                                 [--shard i/n] [--count]
+ *                                 [--shard i/n] [--count] [--kind prompt,reminder,tool_result]
  *   npm run replay:transcripts -- --diff before.jsonl after.jsonl
  *
  * Reads Claude Code transcripts under ~/.claude/projects (subagents included)
@@ -69,7 +69,10 @@ async function replay(): Promise<void> {
   if (!flag('--no-codex')) for (const f of walk(path.join(os.homedir(), '.codex', 'sessions'), sinceMs).filter(keep)) items.push(...codexItems(read(f), f));
   // --shard i/n keeps every n-th item, so n processes can split one run.
   const [shardI, shardN] = (opt('--shard') ?? '0/1').split('/').map(Number) as [number, number];
-  const todo = dedupe(items).filter((_, k) => k % shardN === shardI).slice(0, limit);
+  // --kind prompt,reminder keeps only those items: a change to one surface
+  // is measured without paying for the tool results it cannot move.
+  const kinds = opt('--kind')?.split(',');
+  const todo = dedupe(items).filter(it => !kinds || kinds.includes(it.kind)).filter((_, k) => k % shardN === shardI).slice(0, limit);
   if (flag('--count')) {
     const by = new Map<string, number>();
     for (const it of todo) by.set(`${it.client} ${it.kind}`, (by.get(`${it.client} ${it.kind}`) ?? 0) + 1);

@@ -163,7 +163,7 @@ export class InjectionClassifier {
     // beside the typed text, each on its own; the verdict is the highest. The
     // heuristic and embedding stages still read every sentence; from any
     // other client, so does this one.
-    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text))) : text
+    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), client) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
     let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
     // Each part is a forward pass, and a turn can hold any number of reminder
