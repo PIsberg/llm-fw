@@ -195,6 +195,33 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(Array.isArray(parsed)).toBe(true)
   })
 
+  // #592: the event stream as a download, filtered by time and kind, from the
+  // in-memory buffer when the audit log is off (as in this suite).
+  it('GET /api/events/export downloads the events, filtered by kind and time', async () => {
+    const base = { stage: 'heuristic', score: 60, similarity: 0, target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', payload_preview: '=1+1', payload_full: 'full', action: 'blocked' as const }
+    eventBus.emit({ ...base, kind: 'mcp', mcpTool: 'Bash' })
+    eventBus.emit({ ...base, kind: 'classifier' })
+    const jsonl = await req(server, 'GET', '/api/events/export?kind=mcp')
+    expect(jsonl.status).toBe(200)
+    expect(jsonl.headers['content-type']).toContain('application/x-ndjson')
+    expect(jsonl.headers['content-disposition']).toMatch(/^attachment; filename="llm-fw-events-\d{8}-\d{6}\.jsonl"$/)
+    expect(jsonl.headers['x-llm-fw-export-source']).toBe('memory')
+    const rows = jsonl.body.trimEnd().split('\n').map(l => JSON.parse(l))
+    expect(rows.every(r => r.kind === 'mcp')).toBe(true)
+    expect(rows.length).toBeGreaterThanOrEqual(1)
+
+    const csv = await req(server, 'GET', '/api/events/export?format=csv&kind=classifier')
+    expect(csv.headers['content-type']).toContain('text/csv')
+    expect(csv.body.split('\r\n')[0]).toBe('timestamp,id,action,stage,kind,score,similarity,target,method,path,mcpTool,payload_preview')
+    expect(csv.body).toContain("'=1+1")
+
+    const future = await req(server, 'GET', `/api/events/export?since=${encodeURIComponent(new Date(Date.now() + 3_600_000).toISOString())}`)
+    expect(future.body).toBe('')
+    expect(future.headers['x-llm-fw-export-count']).toBe('0')
+
+    expect((await req(server, 'GET', '/api/events/export?since=last-week')).status).toBe(400)
+  })
+
   it('POST /api/test with valid prompt returns 200 with action field', async () => {
     const res = await req(server, 'POST', '/api/test', '{"prompt":"hello"}')
     expect(res.status).toBe(200)
