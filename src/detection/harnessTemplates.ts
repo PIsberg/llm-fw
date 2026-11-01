@@ -23,7 +23,7 @@
 // and checks every entry: its text alone passes, an attack appended to it or
 // put in a slot still blocks. Each entry changes verdicts, so cut the ruleset.
 import type { ScanSource } from '../types.js'
-import { sessionInner } from './clientEnvelopes.js'
+import { sessionInner, SESSION_TITLE_LINE } from './clientEnvelopes.js'
 
 /** What a slot may hold: nothing a sentence could be made of. */
 const SLOT_SHAPES = {
@@ -133,17 +133,28 @@ const COMPILED: readonly Compiled[] = HARNESS_TEMPLATES.map(compileTemplate)
  * template's wording there is someone's text.
  *
  * Claude Code also sends a template inside its session-title request, the
- * turn in <session> and a fixed title line after it. That wrapper goes too,
- * but only around a template: a title request around anything else is scored
- * as before. Both are fixed text at the start and end, so what is left is a
- * part of the original text and no rule can match across a cut.
+ * turn in <session> and a title line after it. That wrapper goes too, but
+ * only around a template: a title request around anything else is scored as
+ * before. Only fixed text is cut, at the start and end, so what is left is a
+ * part of the original text and no rule can match across a cut. The title
+ * line's language form is not fixed (it names the language in a free slot),
+ * so it is kept and scored after the remainder.
  */
 export function stripHarnessTemplate(text: string, source: ScanSource): { text: string; template?: string } {
   if (source !== 'prompt') return { text }
   const direct = stripHead(text)
   if (direct) return direct
-  const inner = text.startsWith('<session>') ? sessionInner(text.trim()) : null
-  return (inner !== null && stripHead(inner.trim())) || { text }
+  if (!text.startsWith('<session>')) return { text }
+  const trimmed = text.trim()
+  const inner = sessionInner(trimmed)
+  const stripped = inner === null ? null : stripHead(inner.trim())
+  if (inner === null || !stripped) return { text }
+  // Only the default title line is fixed text. Its other form names the
+  // language in a free slot ("Write the title in <up to 40 letters>."), and
+  // this path runs for any client, so that line stays scored.
+  const titleLine = trimmed.slice('<session>'.length + inner.length + '</session>'.length).trim()
+  if (titleLine === '' || titleLine === SESSION_TITLE_LINE) return stripped
+  return { text: `${stripped.text}\n\n${titleLine}`, template: stripped.template }
 }
 
 function stripHead(text: string): { text: string; template: string } | null {

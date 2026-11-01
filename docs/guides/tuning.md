@@ -54,7 +54,7 @@ Such templates are listed in `HARNESS_TEMPLATES` (`src/detection/harnessTemplate
 
 - Only the exact fixed text is removed. One character different, and the prompt is scored whole.
 - A part that varies is a slot of a fixed shape: one word (a language name), or a list of file paths, one per line, with no spaces. A sentence in a slot means no match.
-- Claude Code also sends these prompts inside its session-title request (`<session>`, then a fixed line asking for a title). That wrapper goes too, but only around a template.
+- Claude Code also sends these prompts inside its session-title request (`<session>`, then a line asking for a title). That wrapper goes too, but only around a template. The title line goes only in its fixed default form; the form that names a language ("Write the title in <language>. ...") is a free slot, so it stays and is scored.
 - Only the user-prompt surface. The same text in a tool result or a document is scored whole.
 - It is not tied to a client: the security review arrives without Claude Code's User-Agent. That is safe because removing fixed text can only make a prompt shorter. An attacker who copies a template gains nothing, and the attack after it is still scored.
 

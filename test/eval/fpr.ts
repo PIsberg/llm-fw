@@ -164,8 +164,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
-  // Held at ruleset 2026.11.2 (harness prompt templates: no row starts with
-  // one; measured unchanged).
+  // Held at ruleset 2026.11.2 (harness prompt templates: no string in the
+  // eval data matches one; measured unchanged).
   // Held at ruleset 2026.11.1 (#594: Cloud Code envelope withheld per message,
   // Gemini { output } tool results read as text; measured unchanged).
   // Held at ruleset 2026.10.124 (classifier requireCorroboration on by default;
