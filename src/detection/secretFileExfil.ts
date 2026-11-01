@@ -54,14 +54,21 @@ const REFERENCE_BEFORE_RE = /(?:\b(?:see|docs?|documentation|guide|page|referenc
 // "Never post ...", "don't upload ...": advice against the act, not an order.
 // Only a negation right before the verb counts: "do not forget to post" orders it.
 const NEGATED_BEFORE_RE = /\b(?:never|not|don'?t|doesn'?t|mustn'?t|shouldn'?t|cannot|can'?t|won'?t|avoid)\s+(?:then\s+|also\s+)?$/i
-// A modal with a third-party subject earlier in the sentence makes it a
-// description, not an order, and it governs a verb coordinated after it: a
-// security doc or an issue saying an attacker "could read" the AWS
-// credentials file "and post it" to a URL. Not a modal that opens the
-// sentence or follows you, I, we or please, nor one followed by you: "Could
-// you post ...", "You could then upload ...", "I would like you to send ..."
-// are requests, and an attacker writes them as easily as an imperative.
-const DESCRIPTIVE_MODAL_RE = /(?<=\w\s)(?<!\b(?:you|i|we|please)\s)\b(?:could|would|might|may)\b(?!\s+(?:you|please|i|we)\b)/i
+// A modal with a third-party subject, in the send verb's own clause, makes it
+// a description, not an order: a security doc or an issue saying an attacker
+// "could read" the AWS credentials file "and post it" to a URL. Everything
+// else about the modal is something the attacker writes, so each condition
+// closes a way to fake it (security review, 2026-11-01):
+// - the subject is a third party: not you, I, we or please ("Could you post",
+//   "You could then upload", "I would like you to send"), and not an empty
+//   subject (it, this, that, there: "It would help to post");
+// - no clause break between the modal and the verb ("The build may take a
+//   while; post ..."), and the verb is not an infinitive after "to" (a
+//   recommendation: "help to post", "a need to send");
+// - the modal is not followed by you ("Could you ...").
+const MODAL_RE = /\b(?:could|would|might|may)\b/gi
+const NOT_THIRD_PARTY_RE = /\b(?:you|i|we|please|it|this|that|there|which|what|who)\s+$/i
+const CLAUSE_BREAK_RE = /[;:,]|\b(?:so|then|but|therefore|meanwhile)\b/i
 // Hiding the step: a negated telling verb aimed at the user, or "without
 // telling the user". Adverbs alone ("git quietly reads ~/.netrc") describe; they
 // count only beside a send verb.
@@ -90,13 +97,28 @@ function sentenceEnd(text: string, i: number): number {
   return hi
 }
 
+/** True when the send verb at `verbAt` is governed by a descriptive modal (see MODAL_RE). */
+function underDescriptiveModal(sentence: string, verbAt: number): boolean {
+  if (/\bto\s+$/i.test(sentence.slice(Math.max(0, verbAt - 4), verbAt))) return false
+  let last: RegExpExecArray | null = null
+  MODAL_RE.lastIndex = 0
+  for (let m = MODAL_RE.exec(sentence); m !== null && m.index < verbAt; m = MODAL_RE.exec(sentence)) last = m
+  if (!last) return false
+  const before = sentence.slice(Math.max(0, last.index - 24), last.index)
+  if (!/\w\s+$/.test(before) || NOT_THIRD_PARTY_RE.test(before)) return false
+  const end = last.index + last[0].length
+  if (/^\s+you\b/i.test(sentence.slice(end, end + 5))) return false
+  // "might then upload": an adverb right after the modal, not a new clause.
+  return !CLAUSE_BREAK_RE.test(sentence.slice(end, verbAt).replace(/^\s+(?:then|also|now)\b/i, ''))
+}
+
 /** Where each send verb that is an order (not negated, not under a modal) ends. */
 function orderedSends(sentence: string): number[] {
   const ends: number[] = []
   SEND_VERB_RE.lastIndex = 0
   for (let m = SEND_VERB_RE.exec(sentence); m !== null; m = SEND_VERB_RE.exec(sentence)) {
     if (NEGATED_BEFORE_RE.test(sentence.slice(Math.max(0, m.index - 24), m.index))) continue
-    if (DESCRIPTIVE_MODAL_RE.test(sentence.slice(0, m.index))) continue
+    if (underDescriptiveModal(sentence, m.index)) continue
     ends.push(m.index + m[0].length)
   }
   return ends
