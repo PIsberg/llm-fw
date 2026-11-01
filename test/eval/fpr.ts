@@ -164,6 +164,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.121 (#477 review: update orders aimed at agent
+  // instruction files, shell profiles, CI workflows and access lists fire again;
+  // measured unchanged).
   // Held at ruleset 2026.10.120 (#477: "update" is object-gated, so operations
   // advice to update a unit or config file is not an order; measured unchanged).
   // Held at ruleset 2026.10.119 (#391: exfil-target exemptions for XML element
