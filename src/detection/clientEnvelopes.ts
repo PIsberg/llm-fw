@@ -24,7 +24,12 @@ const CODEX_AGENTS_CLOSE = '</instructions>'
 // that is exactly one envelope is unwrapped, and only the tags go: the
 // message, the name and the arguments are all still scored, so an envelope
 // cannot carry anything past the classifier.
-const CLAUDE_COMMAND = /^<command-message>([^<\n]{1,200})<\/command-message>\s*<command-name>([^<\n]{1,200})<\/command-name>(?:\s*<command-args>([\s\S]*)<\/command-args>)?$/
+// A skill the model invokes itself is recorded the same way with a fixed
+// `<skill-format>true</skill-format>` line in place of the arguments, in a
+// text block of its own before the skill's body: the real classifier scored
+// that block 98.55% for /speckit-clarify in a subagent (live, 2026-10-31).
+// Only the literal line goes; any other value keeps the text whole.
+const CLAUDE_COMMAND = /^<command-message>([^<\n]{1,200})<\/command-message>\s*<command-name>([^<\n]{1,200})<\/command-name>(?:\s*<command-args>([\s\S]*)<\/command-args>|\n<skill-format>true<\/skill-format>)?$/
 // A command the user typed to Claude Code itself (/model, /clear) is recorded
 // name first; the real classifier scored /model 99.2% and /clear 99.6% (live,
 // 2026-10-31).
