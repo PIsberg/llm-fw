@@ -164,6 +164,10 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.115 (classifier requireCorroboration, off by
+  // default; event payloads; measured unchanged).
+  // Held at ruleset 2026.10.114 (base64 images in tool results left to the
+  // media stage; classifier: Claude Code's subagent frame; measured unchanged).
   // Held at ruleset 2026.10.113 (classifier: Claude Code's own markup tags,
   // generated list, opt-in stage, measured unchanged).
   // Held at ruleset 2026.10.112 (classifier: envelope of a model-invoked

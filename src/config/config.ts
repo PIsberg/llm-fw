@@ -112,6 +112,10 @@ export const DEFAULT_CONFIG: Config = {
       // but are escalated to the Stage 3 judge (when enabled) for a second
       // opinion rather than passed silently. Override via LLM_FW_CLASSIFIER_ESCALATE.
       escalateThreshold: 0.5,
+      // Block only when a cheap stage found the same text suspicious too;
+      // a classifier hit alone is a warn. Override via
+      // LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION.
+      requireCorroboration: false,
       // Surface scoping (issue #221): everything EXCEPT the trusted developer
       // surfaces. The model is confidently wrong about system prompts and tool
       // definitions in a way no threshold filters (the #221 sweep still blocked
@@ -733,6 +737,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_CLASSIFIER_ENABLED: (c, v) => { if (c.detection.classifier) c.detection.classifier.enabled = v === 'true'; },
   LLM_FW_CLASSIFIER_THRESHOLD: (c, v) => { const n = envFloat('LLM_FW_CLASSIFIER_THRESHOLD', v, { min: 0, max: 1 }); if (c.detection.classifier) c.detection.classifier.blockThreshold = n; },
   LLM_FW_CLASSIFIER_ESCALATE: (c, v) => { const n = parseFloat(v); if (!Number.isNaN(n) && c.detection.classifier) c.detection.classifier.escalateThreshold = n; },
+  LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION: (c, v) => { if (c.detection.classifier) c.detection.classifier.requireCorroboration = v === 'true'; },
   // Comma-separated surface list, e.g. "tool_result,document" for the
   // indirect-only deployment. Unknown names are dropped rather than trusted;
   // a value with NO valid surface is ignored entirely (an empty list would

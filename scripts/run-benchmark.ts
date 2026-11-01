@@ -22,6 +22,9 @@
  *   classifier       cheap + the trained ONNX classifier stage (if integrated)
  *   classifier-indirect  cheap + classifier scoped to tool_result/document only
  *                    (the untrusted surfaces) — the issue #221 indirect-only mode
+ *   classifier-corroborated  classifier, blocking only when the heuristic or
+ *                    embedding stage found the same text suspicious too
+ *                    (detection.classifier.requireCorroboration)
  * model: Ollama tag for judge presets (default qwen2.5:3b)
  * --json:  print machine-readable results (single JSON object) to stdout
  * --only:  comma-separated dataset names to run (default: all)
@@ -104,7 +107,7 @@ export function applySweepValue(c: Config, sweep: Sweep, value: number): void {
 function buildConfig(preset: string, model: string): Config {
   const c: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config
   c.detection.judgeModel = model
-  if (preset === 'cheap' || preset === 'classifier' || preset === 'classifier-indirect') {
+  if (preset === 'cheap' || preset === 'classifier' || preset === 'classifier-indirect' || preset === 'classifier-corroborated') {
     c.detection.judgeEnabled = false
   } else if (preset === 'judge-suspicious') {
     c.detection.judgeEnabled = true
@@ -119,7 +122,8 @@ function buildConfig(preset: string, model: string): Config {
   }
   // Classifier stage (optional; only present once integrated).
   const cls = c.detection.classifier
-  if (cls) cls.enabled = preset === 'classifier' || preset === 'classifier-indirect'
+  if (cls) cls.enabled = preset === 'classifier' || preset === 'classifier-indirect' || preset === 'classifier-corroborated'
+  if (cls && preset === 'classifier-corroborated') cls.requireCorroboration = true
   // Indirect-only mode: the classifier scans ONLY the untrusted data surfaces,
   // so its (measured, issue #221) false-positive cost on natural user prompts
   // is never paid. DEFAULT_CONFIG's surface list already excludes the trusted

@@ -252,6 +252,12 @@ export interface ClassifierConfig {
   // second opinion instead of silently passing. Below escalateThreshold the
   // classifier signal is treated as noise. Also LLM_FW_CLASSIFIER_ESCALATE.
   escalateThreshold?: number;
+  // Block on the classifier only when the heuristic or embedding stage found
+  // the same text suspicious too (heuristic >= 20, or the embedding over its
+  // warn threshold with the margin): the signal that routes a text to the
+  // judge. Alone, a classifier hit is reported as a warn. Also
+  // LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION.
+  requireCorroboration?: boolean;
   // Surfaces the classifier stage scans (issue #221 surface-scoping). The
   // model is trained on natural prompts; on the TRUSTED developer surfaces it
   // is confidently wrong in a way no threshold filters (measured: it blocks

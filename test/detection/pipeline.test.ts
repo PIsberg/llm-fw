@@ -899,7 +899,10 @@ describe('Pipeline', () => {
       expect(first.action).toBe('block')
       expect(first.stage).toBe('indirect-instruction')
       const event = onBlock.mock.calls[0]![0]
-      expect(event.payload_full).not.toBe(TOOL_TEXT)
+      // The preview is a display line; the mark goes by the key of the
+      // scanned text, which the event's full payload now also holds.
+      expect(event.payload_preview).not.toBe(TOOL_TEXT)
+      expect(event.payload_full).toBe(TOOL_TEXT)
       suppressions.addKey(event.suppressionKey as string, event.payload_preview as string)
 
       onBlock.mockClear()

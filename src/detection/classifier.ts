@@ -5,7 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
-import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -141,7 +141,7 @@ export class InjectionClassifier {
    * sent the request, as the sandbox detector names it; see below for what
    * they change.
    */
-  async classify(text: string, source?: string, client?: string): Promise<ClassifierVerdict | null> {
+  async classify(text: string, source?: string, client?: string, toolName?: string): Promise<ClassifierVerdict | null> {
     if (!this.config.classifier?.enabled || !text) return null
     // Lazy-load on first use so toggling the stage on from the dashboard
     // activates it without a restart (the first request pays the one-time load).
@@ -162,8 +162,11 @@ export class InjectionClassifier {
     // CLAUDE.md, a memory file, a block Claude Code did not write) is scored
     // beside the typed text, each on its own; the verdict is the highest. The
     // heuristic and embedding stages still read every sentence; from any
-    // other client, so does this one.
-    const scored = source === 'prompt' ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), client) : text
+    // other client, so does this one. A tool result is read for Claude Code's
+    // subagent frame only when it answers the subagent tool (`toolName`).
+    const scored = source === 'prompt'
+      ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), client)
+      : source === 'tool_result' && client === 'claude-code' ? unwrapClaudeCodeToolResult(text, toolName) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
     let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
     // Each part is a forward pass, and a turn can hold any number of reminder

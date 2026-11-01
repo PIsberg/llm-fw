@@ -73,6 +73,22 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.115
+
+**Unchanged from 2026.10.114: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** `detection.classifier.requireCorroboration` is new and off by
+default, and the classifier is off here, so no verdict moved. With the classifier on, the
+same corpora measure 25.3% plain and 3.6% corroborated on the realistic set; see
+[BENCHMARK.md](BENCHMARK.md).
+
+## Result, ruleset 2026.10.114
+
+**Unchanged from 2026.10.113: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** A tool-result block that is exactly a base64 image is now
+left to the media stage, and the classifier no longer scores Claude Code's frame around a
+subagent's tool result. No row in these corpora holds an image block, and the classifier is
+off here, so no verdict moved.
+
 ## Result, ruleset 2026.10.113
 
 **Unchanged from 2026.10.112: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

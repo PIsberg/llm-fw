@@ -47,7 +47,9 @@ type ScanCursor = { item: { text: string; source: ScanSource } | null }
 // A deferred warn. `reported` is set once its event has been emitted, and the
 // record is shared with the item cache, so a history item an agent resends on
 // every call warns in the event log once rather than once per request (#290).
-interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean }
+// scanned: the text the stage scored, when `prompt` is only a display line;
+// it becomes the event's full payload and its suppression key.
+interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean; scanned?: string }
 /** Why a non-empty request body cannot be read exactly as JSON, or null when it can. */
 function malformedBody(body: string): string | null {
   if (body.trim() === '') return null
@@ -512,13 +514,16 @@ export class Pipeline {
       .filter(tr => !memorySet.has(tr.result))
       .map(tr => {
         const trustedPath = trustedReadPath(tr.toolName, tr.toolInput, trustedRoots)
-        return trustedPath ? { text: tr.result, source: 'tool_result' as const, trustedPath } : { text: tr.result, source: 'tool_result' as const }
+        const base = { text: tr.result, source: 'tool_result' as const, toolName: tr.toolName }
+        return trustedPath ? { ...base, trustedPath } : base
       })
     // Prompts and tool results newest first, alternating, so that when the
     // embedding budget below runs out it is old history that goes unread
     // (the requests that first carried it already scanned it), never the
     // newest prompt or the newest tool result.
-    const scanItems: { text: string; source: ScanSource; trustedPath?: string }[] = [
+    // toolName: the tool a tool result answers, which decides whether the
+    // classifier reads Claude Code's subagent frame (unwrapClaudeCodeToolResult).
+    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
         [...toolResults].reverse(),
@@ -618,12 +623,12 @@ export class Pipeline {
       lastYield = performance.now()
     }
 
-    for (const { text: prompt, source, trustedPath } of scanItems) {
+    for (const { text: prompt, source, trustedPath, toolName } of scanItems) {
       at.item = { text: prompt, source }
       await yieldIfDue()
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks.
-      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(prompt).digest('hex') : ''
+      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(prompt).digest('hex') : ''
       const cached = itemKey ? this.itemCache.get(itemKey) : undefined
       if (cached) {
         this.itemCache.delete(itemKey)
@@ -641,6 +646,11 @@ export class Pipeline {
       const suppressionHitsBeforeItem = this.suppressionHits
       // Set when the budget ran out inside this item: its outcome is partial.
       let itemCut = false
+      // detection.classifier.requireCorroboration: a classifier block held
+      // until the cheap stages have read this text, and whether one of them
+      // found it suspicious (the same signal that routes a text to the judge).
+      let classifierPending: { result: PipelineResult; line: string; warnLine: string } | null = null
+      let corroborated = false
       pendingWarn = null
       lastScore = 0
       lastSim = 0
@@ -902,7 +912,7 @@ export class Pipeline {
       // no-op (returns null) when the stage is disabled, and lazy-loads the
       // model on first use when enabled.
       if (this.config.detection.classifier?.enabled && classifierScansSurface(this.config, source)) {
-        const v = await this.classifier.classify(prompt, source, meta.sandboxClient)
+        const v = await this.classifier.classify(prompt, source, meta.sandboxClient, toolName)
         // Per-surface block threshold; equals classifier.blockThreshold unless
         // detection.surfaces overrides it for tool_result/document. Compared
         // against v.score here rather than trusting v.injection, which the
@@ -938,6 +948,10 @@ export class Pipeline {
             const line = `[classifier: injection ${(v.score * 100).toFixed(1)}%] ${prompt.slice(0, 80)}`
             if (this.isSuppressed(prompt, source)) {
               if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
+            } else if (this.config.detection.classifier.requireCorroboration) {
+              // Decided after the cheap stages below have read this text: a
+              // block when one of them found it suspicious, a warn otherwise.
+              classifierPending = { result, line, warnLine: `[classifier: injection ${(v.score * 100).toFixed(1)}% — uncorroborated] ${prompt.slice(0, 80)}` }
             } else {
               this.emit(result, meta, line, source, prompt)
               return result
@@ -1071,6 +1085,7 @@ export class Pipeline {
         // block, and still decide warn-vs-pass below; they just no longer get to
         // suppress the judge on a zero-signal prompt.
         const isSuspicious = h.score >= 20 || (eSim >= embeddingWarnThreshold && eMargin >= embeddingMarginThreshold)
+        if (isSuspicious) corroborated = true
         const reachesJudge = this.config.detection.judgeUnlessBenign
           ? !this.isConfidentlyBenign(h.score, eSim, candidate.text)
           : isSuspicious
@@ -1131,6 +1146,16 @@ export class Pipeline {
         // evaluating other candidates, eventually passing.
       }
 
+      // A held classifier block: refused when a cheap stage found this text
+      // suspicious too, otherwise reported as a warn.
+      if (classifierPending) {
+        if (corroborated) {
+          this.emit(classifierPending.result, meta, classifierPending.line, source, prompt)
+          return classifierPending.result
+        }
+        if (!pendingWarn) pendingWarn = { result: { ...classifierPending.result, action: 'warn' }, prompt: classifierPending.warnLine, source, scanned: prompt }
+      }
+
       // This item did not block. Remember its outcome, then merge it back. Not
       // when the budget cut it short: a later request must read it in full.
       if (itemCut) itemsCut++
@@ -1153,7 +1178,7 @@ export class Pipeline {
     // embedding warn if any candidate crossed the warn threshold; otherwise pass.
     if (opaqueAudit) this.emitNonTextWarn(opaqueAudit, meta)
     if (pendingWarn) {
-      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, null)
+      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, pendingWarn.scanned ?? null)
       pendingWarn.reported = true
       return pendingWarn.result
     }
@@ -1302,7 +1327,10 @@ export class Pipeline {
       method: meta.method,
       path: meta.path,
       payload_preview: label + prompt.slice(0, 120 - label.length),
-      payload_full: prompt,
+      // The text the stage scanned when there is one: a classifier event's
+      // `prompt` is its 80-character display line, and the full text is what
+      // a false positive is diagnosed and marked from.
+      payload_full: scanned ?? prompt,
       action: result.action === 'block' ? 'blocked' : 'warned',
       // In observe mode the event still records what the detector decided —
       // 'blocked' is the verdict, not the outcome — and this flag records that
