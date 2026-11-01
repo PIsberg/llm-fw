@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.120
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** "update" is now an object-gated polite verb, so a log's advice to update a unit or config file ("Please update your unit file to include the new ExecStart line") is no longer read as an order (#477). An update order that names a secret or an attacker target still fires. Measured on main at d32d5c9 against this branch: `verdicts:diff` 0 of 12,901 block verdicts changed; heldout, injecagent (1,054 of 1,054 attacks, 17 of 17 benign) and safeguard counts identical before and after, so the full InjecAgent split holds.
+
 ## Result, ruleset 2026.10.119
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** The exfil-target rule no longer reads an XML element name (`<email>` in a Maven pom), a whole-line unquoted key (a gitconfig `email = …`) or a word inside an identifier (`SEND_TO=`) as the send verb (#391). Each exemption keeps a veto: a key line stays unblanked when a send-class word other than its own key is within 200 characters, and the element exemption covers only `email` around an address that is the whole content of an `<email>` element (a `<send>` or `</forward>` tag keeps its verb). `verdicts:diff` reports 0 of 12,901 block verdicts changed; heldout, injecagent and safeguard counts are identical before and after. Three synthetic shapes went from refused to pass; the diff comment, workflow and guideline shapes listed in the changelog still fire.
