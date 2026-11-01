@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config, PipelineResult } from '../types.js'
-import { deepMerge } from '../config/config.js'
+import { deepMerge, effectiveClassifierBlockThreshold } from '../config/config.js'
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -2575,8 +2575,9 @@ function readSettings(config: Config): SettingsView {
     promptWordingAction: config.detection?.surfaces?.prompt?.wordingAction ?? 'block',
     toolResultHeuristicThreshold: config.detection?.surfaces?.tool_result?.heuristicBlockThreshold ?? config.detection?.heuristicBlockThreshold ?? 50,
     documentHeuristicThreshold: config.detection?.surfaces?.document?.heuristicBlockThreshold ?? config.detection?.heuristicBlockThreshold ?? 50,
-    toolResultClassifierThreshold: config.detection?.surfaces?.tool_result?.classifierBlockThreshold ?? config.detection?.classifier?.blockThreshold ?? 0.9,
-    documentClassifierThreshold: config.detection?.surfaces?.document?.classifierBlockThreshold ?? config.detection?.classifier?.blockThreshold ?? 0.9,
+    // The same resolution the pipeline uses, so the page shows what applies (#587).
+    toolResultClassifierThreshold: effectiveClassifierBlockThreshold(config, 'tool_result'),
+    documentClassifierThreshold: effectiveClassifierBlockThreshold(config, 'document'),
   }
 }
 

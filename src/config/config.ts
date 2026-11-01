@@ -146,11 +146,10 @@ export const DEFAULT_CONFIG: Config = {
     // went from 32 to 10 of 245. Also LLM_FW_TOOL_RESULT_ON_BLOCK.
     // A blocked user prompt that is not the newest is withheld the same way;
     // the newest still refuses (#476). Also LLM_FW_PROMPT_OLDER_TURNS.
-    // The opt-in classifier blocks a tool result only above 0.999, not the
-    // global 0.9: ordinary shell output (a netstat listing, a grep hit, the
-    // dashboard's status JSON) scored 94-99.8% live and every turn that carried
-    // one lost it (#587). The prompt surface keeps the global threshold.
-    surfaces: { tool_result: { onBlock: 'withhold', classifierBlockThreshold: 0.999 }, prompt: { olderTurns: 'withhold' } },
+    // The classifier's stricter tool_result bar (#587) is NOT set here: see
+    // effectiveClassifierBlockThreshold, so it never overrides an operator's
+    // own global classifier threshold.
+    surfaces: { tool_result: { onBlock: 'withhold' }, prompt: { olderTurns: 'withhold' } },
     // Trusted by default: the system prompt is developer-authored and naturally
     // contains instruction-management language that injection heuristics flag, so
     // scanning it blocks legitimate traffic. Enable only when untrusted data is
@@ -644,6 +643,32 @@ function splitList(value: string): string[] {
  * deployment-wide `--observe` — turning a safety promise into its opposite by
  * adding an unrelated block of config.
  */
+// The classifier's block threshold where nothing else sets one.
+const CLASSIFIER_DEFAULT_THRESHOLD = 0.9
+// The classifier's tool_result bar when neither the surface nor the global
+// threshold was set by the operator (#587). Ordinary shell output (a netstat
+// listing, a grep hit, the dashboard's status JSON) scored 94-99.8% live and
+// was withheld at 0.9; all of it is under 0.999.
+export const TOOL_RESULT_CLASSIFIER_DEFAULT = 0.999
+
+/**
+ * The classifier block threshold that applies on `source`. An explicit
+ * per-surface value wins. Otherwise a tool result gets the stricter
+ * TOOL_RESULT_CLASSIFIER_DEFAULT, but only while the global threshold is still
+ * the shipped 0.9: an operator who moved the global one, to 0.7 for recall or
+ * anywhere else, keeps it on tool results too, so the default never silently
+ * loosens a setting someone chose. Every other surface uses the global value.
+ */
+export function effectiveClassifierBlockThreshold(config: Config, source: ScanSource): number {
+  const global = config.detection.classifier?.blockThreshold ?? CLASSIFIER_DEFAULT_THRESHOLD
+  const override = (source === 'tool_result' || source === 'document')
+    ? config.detection.surfaces?.[source]?.classifierBlockThreshold
+    : undefined
+  if (override !== undefined) return override
+  if (source === 'tool_result' && Math.abs(global - CLASSIFIER_DEFAULT_THRESHOLD) < 1e-9) return TOOL_RESULT_CLASSIFIER_DEFAULT
+  return global
+}
+
 export function isObserving(
   deployment: 'enforce' | 'observe' | undefined,
   perRequest: 'enforce' | 'observe' | undefined,

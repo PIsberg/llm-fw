@@ -110,6 +110,12 @@ from 9 of 20 to 2. For more recall on tool output at that cost, set it back:
 { "detection": { "surfaces": { "tool_result": { "classifierBlockThreshold": 0.9 } } } }
 ```
 
+The 0.999 applies only while `detection.classifier.blockThreshold` is the
+shipped 0.9: if you set the global threshold yourself, to 0.7 for recall or
+0.95, tool results use your value, so the default never loosens a threshold you
+chose. An explicit `classifierBlockThreshold` on the surface beats both. The
+dashboard shows the value that applies.
+
 It is hot-reloaded and also in the dashboard's Surfaces settings. The
 `document` surface keeps the global threshold. Full numbers are in
 [BENCHMARK.md](../BENCHMARK.md).
