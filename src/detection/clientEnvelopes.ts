@@ -126,12 +126,34 @@ const NOTIFICATION_FIELDS: ReadonlyMap<string, RegExp> = new Map([
 ])
 const SUMMARY_TEMPLATE = /^(?:Background command|Agent|Remote task|Monitor event:) "([^\n]{0,2000})"( completed(?: \(exit code -?\d{1,5}(?:: [A-Za-z0-9 _-]{1,40})?\))?| failed(?: with exit code -?\d{1,5})?| was [a-z ]{1,40}| finished| was resumed by the user| is still running after [\dhms ]{1,20}, with no new output for [\dhms ]{1,20}| appears to be waiting for interactive input| is blocked| completed|)$/
 
+// The Monitor tool's summaries (2.1.316 binary): the description in quotes,
+// then one of four fixed endings, the exit code optional on two of them.
+const MONITOR_SUMMARY = /^Monitor "([^\n]{0,2000})"(?: ended without producing output(?: \(exit -?\d{1,5}\))?| stream ended| script failed(?: \(exit -?\d{1,5}\))?| stopped)$/
+// The sentence Claude Code appends inside a Monitor notification, after its
+// last element, naming its notification tool. Removed only when it is exactly
+// this sentence with Claude Code's own tool name, on a line of its own, and the
+// last thing in the notification: anything after it, another tool name, or any
+// other loose text, leaves the notification to be scored whole. String
+// equality rather than a regex anchored at the end, which backtracks over a
+// long run of whitespace.
+const NOTIFICATION_TRAILER = "If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one."
+
+/** `content` without Claude Code's Monitor trailer when it ends with exactly that line; otherwise unchanged. */
+function stripNotificationTrailer(content: string): string {
+  const t = content.trimEnd()
+  if (!t.endsWith(NOTIFICATION_TRAILER)) return content
+  const head = t.length - NOTIFICATION_TRAILER.length
+  const lineStart = t.lastIndexOf('\n', head - 1)
+  if (lineStart < 0 || t.slice(lineStart + 1, head).trim() !== '') return content
+  return t.slice(0, lineStart + 1)
+}
+
 /** What one element of Claude Code's markup carries for scoring; null for nothing. */
 function fieldValue(name: string, content: string): string | null {
   const value = content.trim()
   if (NOTIFICATION_FIELDS.get(name)?.test(value)) return null
   if (name === 'summary') {
-    const m = SUMMARY_TEMPLATE.exec(value)
+    const m = SUMMARY_TEMPLATE.exec(value) ?? MONITOR_SUMMARY.exec(value)
     if (m) return m[1]!
   }
   return value
@@ -160,7 +182,8 @@ function markupParts(s: string, depth: number): string[] | null {
     // Claude Code's fixed caveat line carries nothing anyone wrote.
     if (s.slice(start, end) !== LOCAL_COMMAND_CAVEAT) {
       // A slice, so the nested scan cannot search past this element.
-      const content = s.slice(i, c)
+      const raw = s.slice(i, c)
+      const content = m[1] === 'task-notification' ? stripNotificationTrailer(raw) : raw
       const inner = depth < MARKUP_DEPTH ? markupParts(content, depth + 1) : null
       const value = inner ? null : fieldValue(m[1]!, content)
       if (inner) parts.push(...inner)

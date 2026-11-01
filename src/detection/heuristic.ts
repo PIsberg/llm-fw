@@ -756,7 +756,13 @@ export class HeuristicScorer {
           // a README's "we run 20+ specialized problem detectors" was three of
           // the Codex replay's refusals (#391). Not "a digit then +": the
           // leetspeak candidate reads "20+" as "2o+".
-          /\b(?:execute|run|follow|obey|output|do what|comply with)(?: [\w'"]+){0,2}? (?!\w{1,20}\+ )\w{1,20} ?\+ ?\w{1,20}\b(?![+/=])/,
+          /\b(?:execute|follow|obey|output|do what|comply with)(?: [\w'"]+){0,2}? (?!\w{1,20}\+ )\w{1,20} ?\+ ?\w{1,20}\b(?![+/=])/,
+          // "run" alone joins two jobs in CI and agent text ("- name: Run
+          // benchmark + drift gate", "run lint + test"), so after "run" both
+          // operands must be placeholders: holding a digit (p1, part2) or one
+          // or two characters (x, ab). Found replaying real Claude Code traffic,
+          // where the workflow step name blocked a tool result twice.
+          /\brun(?: [\w'"]+){0,2}? (?!\w{1,20}\+ )(?:\w{0,19}\d\w{0,19}|\w{1,2}) ?\+ ?(?:\w{0,19}\d\w{0,19}|\w{1,2})\b(?![+/=])/,
           // The obey verb must aim at the assembled result: "join ... and what
           // discipline did he follow" and "combine ..., then follow the recipe"
           // are a biography and a recipe (#256).
