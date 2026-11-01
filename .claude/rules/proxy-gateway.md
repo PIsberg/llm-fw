@@ -108,6 +108,11 @@ that needs a changelog entry, not a cleanup.
   the client. Pinned by Cases 9 and 10 in `test/proxy/proxy.e2e.test.ts`.
 - **Health endpoints exist only on the gateway.** Nothing answers on the proxy
   or the dashboard.
+- **Both surfaces tell the pipeline which client sent the request**
+  (`SandboxDetector` on the User-Agent, passed as `sandboxClient`). Every
+  Claude Code and Codex unwrap keys on it; the gateway once passed none, and
+  Claude Code's own reminders were scored as typed text there. Pinned by
+  `test/gateway/gateway-client-detection.e2e.test.ts`.
 - **The dashboard exempts loopback only when `Host` names loopback**
   (`isLoopbackHostHeader` in `src/auth.ts`), and has no `requireAuth`. The
   gateway's loopback trust follows the same rule. Without it, any web page

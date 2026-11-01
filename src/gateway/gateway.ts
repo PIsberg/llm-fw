@@ -11,6 +11,7 @@ import { EventBus } from '../dashboard/eventBus.js';
 import { MetricsRegistry } from '../dashboard/metrics.js';
 import { DlpScanner } from '../detection/dlp/scanner.js';
 import { getParser } from '../detection/parsers.js';
+import { SandboxDetector } from '../detection/sandbox.js';
 import { explainBlock, explainGate } from '../detection/explain.js';
 import { resolveAuthPolicy, authorizeClient, credentialFromAuthHeader, tokenMatches, type AuthPolicy } from '../auth.js';
 import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuery, upstreamHostHeader, type GatewayProvider, type GatewayRoute } from './routes.js';
@@ -55,6 +56,7 @@ const log = createLogger('gateway');
 export class GatewayServer {
   private server: http.Server;
   private pipeline: Pipeline;
+  private readonly sandbox = new SandboxDetector();
   private dlp: DlpScanner;
   private eventBus: EventBus;
   private metrics?: MetricsRegistry | undefined;
@@ -607,8 +609,14 @@ export class GatewayServer {
     try {
       // inspect(): a blocked tool result is withheld from the body rather than
       // refusing the request (detection.surfaces.tool_result.onBlock).
+      // Which agent sent this, read from the User-Agent as the proxy reads it.
+      // Without it every client-aware rule was skipped on the gateway: Claude
+      // Code's own reminders, markup tags and notices were scored as typed text,
+      // and its attribution reminder blocked at 99.7% (found live).
+      const sb = this.sandbox.detect(req.headers['user-agent'], req.socket.remoteAddress);
       const inspected = await this.pipeline.inspect(path, text, {
         target, method, path, sessionKey,
+        sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
         onEvent: e => { eventId = e.id; },
         // Per-tenant enforcement: one team can run in observation while the rest
         // of the deployment enforces — how a team gets onboarded without either
