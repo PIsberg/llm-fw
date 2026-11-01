@@ -121,7 +121,9 @@ export function compileTemplate(t: HarnessTemplate): Compiled {
   const first = t.head.search(SLOT)
   const lead = first < 0 ? t.head : t.head.slice(0, first)
   if (lead.length < 20) throw new Error(`harness template ${t.id}: needs 20 fixed characters before its first slot`)
-  return { id: t.id, lead, head: new RegExp(source, 'y'), tail: t.tail }
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from HARNESS_TEMPLATES, a constant in this file: every literal part is escaped and every slot is one of the bounded SLOT_SHAPES, so no input reaches the pattern. Linear time on 200 KB inputs is pinned by test/detection/harnessTemplates.test.ts.
+  const head = new RegExp(source, 'y')
+  return { id: t.id, lead, head, tail: t.tail }
 }
 
 const COMPILED: readonly Compiled[] = HARNESS_TEMPLATES.map(compileTemplate)
