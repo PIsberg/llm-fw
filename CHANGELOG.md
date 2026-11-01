@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-01
+
+### Upgrade notes
+
+Three defaults move in this release; each is described in its entry below.
+
+- **Codex CLI signed in with ChatGPT is now inspected** (`proxy.inspectChatgptBackend: true`). Its traffic used to be tunnelled unscanned, so it can now be refused like any other client's. `proxy.inspectChatgptBackend: false` restores the tunnel.
+- **`llm-fw start` checks the npm registry once for a newer version.** It never delays startup and sends nothing about you or your traffic. `updateCheck: false` or `LLM_FW_UPDATE_CHECK=false` switches it off.
+- **With the opt-in classifier on, a classifier hit alone is a warn** (`detection.classifier.requireCorroboration: true`), and a tool result needs 0.999 rather than 0.9 to block. Both mean fewer blocks; set `requireCorroboration: false` for the classifier's full recall. Nothing changes with the classifier off, which is the default.
+
+Detection moves from ruleset 2026.10.109 (0.9.3) to 2026.10.124.
+
 ### Added
 
 - **The MCP Traffic tab groups its rows by tool (#591).** Every call and every result was its own row, so one tool's traffic was buried under the rest. A summary table at the top of the tab now has one row per tool with its calls, results and last-seen time; clicking a tool shows only its rows below, clicking again shows all. For that, the event of a returned tool result now names the tool it answers (`mcpTool`, and the preview reads `Tool result returned from <tool> (id ...)`), from the request's own `tool_use`. Verified failing-first in `test/dashboard/events-traffic.spec.ts` (Playwright: counts per tool, the filter on and off) and `test/proxy/proxy-mcp.e2e.test.ts` (the tool name on a result event, red without the proxy change).
@@ -3278,7 +3290,8 @@ Initial release.
 - Test suite: unit, integration, Playwright e2e, and load (performance + accuracy) tests; a deterministic detection-accuracy regression gate (precision/recall with per-category floors) run in CI.
 - Distribution: npm publish workflow (publishes with provenance on a GitHub Release).
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/PIsberg/llm-fw/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/PIsberg/llm-fw/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/PIsberg/llm-fw/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/PIsberg/llm-fw/compare/v0.8.0...v0.9.1
