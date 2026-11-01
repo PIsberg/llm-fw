@@ -117,14 +117,14 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
  * against the proxy's CA, then `POST /v1/messages` with `Connection: close`.
  * The latency is the whole exchange, tunnel and handshake included.
  */
-export function createSender(proxyPort: number, mockPort: number, proxyCaPem: string): SendFn {
+export function createSender(proxyPort: number, mockPort: number, proxyCaPem: string, timeoutMs = REQUEST_TIMEOUT_MS): SendFn {
   return (body: string) =>
     new Promise((resolve, reject) => {
       const t0 = performance.now()
       const elapsed = (): number => Math.round((performance.now() - t0) * 100) / 100
       const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort })
 
-      socket.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      socket.setTimeout(timeoutMs, () => {
         socket.destroy()
         reject(new Error('request timed out'))
       })

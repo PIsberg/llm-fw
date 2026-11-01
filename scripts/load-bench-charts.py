@@ -236,7 +236,8 @@ def chart_overview(data: dict, out: Path, dpi: int) -> None:
         best = max(steps, key=lambda s: s["throughputRps"])
         one = steps[0]
         tiles.append((w, WORKLOAD_LABEL.get(w, w), f"{fmt_num(best['throughputRps'])} req/s",
-                      f"peak, at {clients(best['concurrency'])}",
+                      f"peak, at {clients(best['concurrency'])}"
+                      + (f" · first request {fmt_ms(data['coldFirstRequestMs'][w])}" if w in (data.get("coldFirstRequestMs") or {}) else ""),
                       f"{fmt_ms(one['latency']['p50Ms'])} p50 · {fmt_ms(one['latency']['p99Ms'])} p99 at {clients(one['concurrency'])}",
                       f"{fmt_ms(one['cpuMsPerRequest'])} CPU per request at {clients(one['concurrency'])}"))
     peak_rss = max(s["peakRssMb"] for s in data["steps"])

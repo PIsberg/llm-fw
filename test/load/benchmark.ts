@@ -46,6 +46,7 @@ const IDLE_MS = 3000
 const OTHER_WARN_PCT = 10
 /** A speed probe this much slower than the fastest flags throttling. */
 const DRIFT_WARN_PCT = 20
+const COLD_TIMEOUT_MS = 300_000
 const PROXY_PORT = 19_380
 const DASH_PORT = 19_931
 
@@ -226,12 +227,18 @@ async function main(): Promise<void> {
   const upstream = await startMockUpstream()
   const { fw, proxyCaPem, initMs, processReadyMs } = await Firewall.start(upstream.caPem)
   const send = createSender(PROXY_PORT, upstream.port, proxyCaPem)
+  // One request per workload with no practical timeout, before any level:
+  // the first agent request scans its whole history cold, and if a client
+  // gives up on it the firewall still finishes it while every later request
+  // misses the item cache too, so the run never reaches steady state.
+  const sendCold = createSender(PROXY_PORT, upstream.port, proxyCaPem, COLD_TIMEOUT_MS)
   console.log(`Ready: pid ${fw.pid}, model and pipeline init ${fmtMs(initMs)}, process start to ready ${fmtMs(processReadyMs)}.\n`)
 
   const runStartWallMs = Date.now()
   let failed = false
   const steps: StepResult[] = []
   const speedProbes: { at: string; ms: number }[] = []
+  const coldFirstRequestMs: Record<string, number> = {}
   try {
     // Idle baseline: the resident cost of an installed firewall doing nothing.
     const idle0 = await fw.snap(true)
@@ -242,7 +249,9 @@ async function main(): Promise<void> {
 
     for (const w of WORKLOADS as Workload[]) {
       speedProbes.push({ at: `before ${w}`, ms: speedProbeMs() })
-      console.log(`${w}: ${DESCRIPTIONS[w]} (speed probe ${speedProbes.at(-1)!.ms} ms)`)
+      const cold = await sendCold(bodyFor(w, benign, attacks).body)
+      coldFirstRequestMs[w] = Math.round(cold.latencyMs)
+      console.log(`${w}: ${DESCRIPTIONS[w]} (speed probe ${speedProbes.at(-1)!.ms} ms, first request ${fmtMs(cold.latencyMs)}, status ${cold.statusCode})`)
       for (const vus of LEVELS) {
         if (WARMUP_MS > 0) await drive(send, w, vus, WARMUP_MS, benign, attacks)
         fw.alive()
@@ -338,6 +347,7 @@ async function main(): Promise<void> {
       descriptions: Object.fromEntries(WORKLOADS.map(w => [w, DESCRIPTIONS[w as Workload]])),
       startup: { initMs, processReadyMs, idle, idleAfter },
       speedProbes,
+      coldFirstRequestMs,
       warnings,
       steps,
       timeline: fw.timeline.map(p => ({
