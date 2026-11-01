@@ -189,3 +189,22 @@ describe('Pipeline: a classifier event keeps the text the classifier scored', ()
     expect(events[0]!.payload_preview).toMatch(/^\[classifier: injection 99\.0%\] FLAGGED/)
   })
 })
+
+// The per-item verdict cache was keyed on the text, its surface, trusted path
+// and tool name, but not the client, while Claude Code's own wrappers are read
+// for what they carry only in its requests. One proxy serves several agents:
+// the same text first passed from Claude Code came back cached for any other
+// client (#605).
+describe('Pipeline: the item cache keeps verdicts per client', () => {
+  it('scores a Claude Code reminder from another client afresh, after passing it from Claude Code', async () => {
+    fakeClassify.mockImplementation(async (t: string) => /hasn't heard from you/.test(t) ? [{ label: 'INJECTION', score: 0.999 }] : [{ label: 'SAFE', score: 0.99 }])
+    const pipeline = new Pipeline(config())
+    // The classifier loads on first use, and the cache is cleared when it
+    // does: warm up first, as a running proxy is after its first request.
+    await pipeline.run('/v1/messages', JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hello' }] }), FROM_CLAUDE_CODE)
+    const body = JSON.stringify({ model: 'm', messages: [{ role: 'user', content: [{ type: 'text', text: NUDGE }] }] })
+    expect((await pipeline.run('/v1/messages', body, FROM_CLAUDE_CODE)).action).toBe('pass')
+    expect((await pipeline.run('/v1/messages', body, { ...META, sandboxClient: 'unknown' })).action).toBe('block')
+    expect((await pipeline.run('/v1/messages', body, FROM_CLAUDE_CODE)).action).toBe('pass')
+  })
+})

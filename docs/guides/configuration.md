@@ -141,7 +141,9 @@ completed with no output)` are not scored. Codex's `<environment_context>`
 message is scored as its values without the tags, and its thread-title
 request as the prompt or conversation after the fixed instructions (that
 one at every stage: the embedding stage blocked 6 of 16 ordinary prompts
-inside it). These envelopes are unwrapped only when a user-turn text is
+inside it). Claude Code's mid-turn wrapper is read as the message it carries
+at every stage too, on its own or inside a `<system-reminder>`: around
+"continue" the embedding stage blocked at 0.8608. These envelopes are unwrapped only when a user-turn text is
 exactly one; anything after or around it keeps the whole text scored. Every
 other markup tag Claude Code wraps its own text in (69 in Claude Code
 2.1.316: task notifications, `<bash-stdout>`, `<tick>`, `<total_tokens>`,
