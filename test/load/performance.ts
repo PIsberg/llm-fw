@@ -7,12 +7,17 @@
  *   LOAD_P99_MS       p99 ceiling in ms   (default: 5000)
  *   LOAD_OUTPUT_FILE  path to write JSON results (optional)
  *
+ * Also measures CPU and peak memory of the process (#598), and in CI draws
+ * per-second charts into the job summary ($GITHUB_STEP_SUMMARY).
+ *
  * Exit code: 0 = pass, 1 = threshold violated.
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 import { setupHarness, percentile, printTable, fmtMs, type SendFn } from './lib/harness.js'
+import { startResourceSampler } from './lib/resources.js'
+import { mermaidLine } from './lib/charts.js'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 
@@ -70,8 +75,10 @@ async function main(): Promise<void> {
 
   const testStart = Date.now()
   const deadline  = testStart + DURATION_MS
+  const stopSampler = startResourceSampler(1000)
   const workers   = Array.from({ length: VUS }, () => runWorker(harness.send, benignPrompts, deadline))
   const results   = await Promise.all(workers)
+  const resources = stopSampler()
 
   await harness.teardown()
 
@@ -115,7 +122,26 @@ async function main(): Promise<void> {
     ['False positive rate',  `${fpr.toFixed(2)}%`],
     ['Errors',               totalErr],
     ['Error rate',           `${errRate.toFixed(2)}%`],
+    ['CPU (avg, one core)',  `${resources.cpuPct}%`],
+    ['Peak RSS',             `${resources.peakRssMb} MB`],
+    ['Peak heap',            `${resources.peakHeapMb} MB`],
   ])
+
+  // Per-second charts in the CI job summary, which renders Mermaid (#598).
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const secs = timeSeries.map(b => String(b.second))
+    const res = resources.series.map(s => String(Math.round(s.t)))
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+      `## Load scenario A: ${VUS} workers, ${DURATION_MS / 1000} s`,
+      '',
+      `${totalReqs} requests, ${rps} per second, p50 ${fmtMs(p50)}, p99 ${fmtMs(p99)}, CPU ${resources.cpuPct}% of one core, peak RSS ${resources.peakRssMb} MB.`,
+      '',
+      mermaidLine('Throughput per second', 'requests', secs, timeSeries.map(b => b.rps)),
+      mermaidLine('p95 latency per second', 'ms', secs, timeSeries.map(b => b.p95Ms)),
+      mermaidLine('RSS', 'MB', res, resources.series.map(s => s.rssMb)),
+      mermaidLine('CPU', '% of one core', res, resources.series.map(s => s.cpuPct)),
+    ].join('\n'))
+  }
 
   // Assertions
   const failures: string[] = []
@@ -143,6 +169,7 @@ async function main(): Promise<void> {
         errors: totalErr,
         errRate: parseFloat(errRate.toFixed(4)),
         timeSeries,
+        resources,
       },
       passed,
       failures,

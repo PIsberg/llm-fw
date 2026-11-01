@@ -67,6 +67,7 @@
     "fuzz:rules": "node --import tsx/esm scripts/fuzz-rules.ts",
     "scan-server": "node --import tsx/esm scripts/scan-server.ts",
     "bench:competitors": "node --import tsx/esm test/eval/competitors/run.ts",
+    "perf:trend": "node --import tsx/esm scripts/perf-trend.ts",
     "bench:trend": "node --import tsx/esm scripts/bench-trend.ts",
     "bench:compare": "node --import tsx/esm scripts/bench-compare.ts",
     "client-tags": "node --import tsx/esm scripts/client-tags.ts",
