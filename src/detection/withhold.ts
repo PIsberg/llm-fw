@@ -96,7 +96,14 @@ export function withholdText(body: string, text: string, notice: string): string
       for (const [k, v] of Object.entries(value)) visit(value as Record<string, unknown>, k, v, group)
     }
   }
-  const top = data as Record<string, unknown>
+  // Google's Cloud Code API (Antigravity, Gemini CLI) wraps the Gemini request
+  // in `request` (#594), so its messages are one level down. Grouped at the
+  // envelope, the whole conversation was one message.
+  const envelope = data as Record<string, unknown>
+  const inner = envelope.request
+  const top = !('contents' in envelope) && inner && typeof inner === 'object' && Array.isArray((inner as Record<string, unknown>).contents)
+    ? inner as Record<string, unknown>
+    : envelope
   for (const [k, v] of Object.entries(top)) {
     if (!Array.isArray(v)) { visit(top, k, v, k); continue }
     for (const [i, el] of v.entries()) visit(v as unknown as Record<string, unknown>, String(i), el, `${k}#${i}`)

@@ -45,6 +45,7 @@ describe('injectCanary', () => {
     ['OpenAI developer parts', '/v1/chat/completions', { model: 'm', messages: [{ role: 'developer', content: [{ type: 'text', text: SYSTEM }] }, { role: 'user', content: 'hi' }] }],
     ['Responses instructions', '/v1/responses', { model: 'm', instructions: SYSTEM, input: 'hi' }],
     ['Gemini systemInstruction', '/v1beta/models/g:generateContent', { systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }],
+    ['Cloud Code request.systemInstruction', '/v1internal:streamGenerateContent?alt=sse', { model: 'm', project: 'p', request: { systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: 'hi' }] }] } }],
     ['Bedrock Converse system', '/model/m/converse', { system: [{ text: SYSTEM }], messages: [{ role: 'user', content: [{ text: 'hi' }] }] }],
   ]
   it.each(cases)('adds the token to the system prompt: %s', (_name, path, body) => {

@@ -55,6 +55,14 @@ export function rewriteBlockedJsonResponse(body: string, blockedNames: Set<strin
   }
   const note = `[llm-fw blocked tool call(s): ${[...blockedNames].join(', ')}]`
 
+  // Google's Cloud Code API (Antigravity, Gemini CLI) wraps the Gemini
+  // response in `response` (#594): rewrite the response and keep the envelope.
+  const wrapped = data?.response as Record<string, unknown> | undefined
+  if (wrapped && typeof wrapped === 'object' && Array.isArray(wrapped.candidates)) {
+    data.response = JSON.parse(rewriteBlockedJsonResponse(JSON.stringify(wrapped), blockedNames)) as unknown
+    return JSON.stringify(data)
+  }
+
   // Anthropic shape: top-level content[] holding tool_use blocks.
   if (Array.isArray(data.content)) {
     const blocks = data.content as Array<Record<string, unknown>>

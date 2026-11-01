@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Detection moves from ruleset 2026.10.124 to 2026.11.1. Before and after on every corpus: 0 of 12,901 block verdicts changed. Held-out recall unchanged (heldout 23/31, injecagent 1054/1054, safeguard 495/650); `npm run fpr` unchanged (9/336; Dolly, oasst1 and Aya samples 0 blocked).
+
+### Added
+
+- **Antigravity, Gemini CLI and Gemini Code Assist are inspected by default (ruleset 2026.11.1, #594).** They send their Gemini turns to Google's Cloud Code API (`cloudcode-pa.googleapis.com`, and `daily-cloudcode-pa.googleapis.com` for Antigravity), which was tunnelled uninspected. Both hosts are now default targets. `generateContent` and `streamGenerateContent` get the full request pipeline on the Gemini body inside `request`, including withholding a blocked tool output, and the tool calls in each streamed response are scanned. `countTokens` gets DLP. Account, quota, model-list and settings methods are forwarded, and any other `/v1internal:` method is forwarded with an "Unrecognized LLM endpoint" warning. Setup: [client-setup.md](docs/guides/client-setup.md#antigravity-cli-agy-gemini-cli-gemini-code-assist).
+
+### Fixed
+
+- **Gemini tool outputs held as `{ output }` or `{ error }` are scanned as text (ruleset 2026.11.1, #594).** Gemini CLI and Antigravity send tool results this way. They were read as JSON, so every line break became the two characters `\n` and a rule anchored on a line start never matched (as #292 was for Anthropic). Any other response shape is still scanned as JSON, so no field goes unscanned.
+
 ## [0.9.4] - 2026-11-01
 
 ### Upgrade notes

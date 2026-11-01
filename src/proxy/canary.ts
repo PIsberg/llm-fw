@@ -15,7 +15,7 @@ import { randomBytes } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getParser, AnthropicParser, OpenAIParser, GeminiParser, BedrockParser } from '../detection/parsers.js'
+import { getParser, AnthropicParser, OpenAIParser, GeminiParser, CloudCodeParser, BedrockParser } from '../detection/parsers.js'
 import { streamErrorEvent } from './streamError.js'
 
 /** Why a canary cut ended the stream, in the error event the client is shown. */
@@ -81,7 +81,9 @@ export function injectCanary(path: string, body: string, token: string): string 
       msg.content = next
     }
   } else if (parser instanceof GeminiParser) {
-    const si = (data.systemInstruction ?? data.system_instruction) as Json | undefined
+    // Google's Cloud Code API wraps the Gemini request in `request` (#594).
+    const req = parser instanceof CloudCodeParser && data.request && typeof data.request === 'object' && !Array.isArray(data.request) ? data.request as Json : data
+    const si = (req.systemInstruction ?? req.system_instruction) as Json | undefined
     if (!si || !Array.isArray(si.parts) || !si.parts.length) return null
     si.parts = [...(si.parts as unknown[]), { text: line }]
   } else if (parser instanceof BedrockParser) {

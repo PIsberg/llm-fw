@@ -389,6 +389,36 @@ Which route it takes depends on how you signed in:
   on the firewall host. Codex must trust the llm-fw CA for this route, as for
   the API-key route: `llm-fw setup` configures it.
 
+### Antigravity CLI (`agy`), Gemini CLI, Gemini Code Assist
+
+These send their Gemini turns to Google's Cloud Code API, not to the Gemini
+API: Gemini CLI and Gemini Code Assist to `cloudcode-pa.googleapis.com`,
+Antigravity to `daily-cloudcode-pa.googleapis.com`. Both hosts are default
+targets, so no configuration is needed beyond pointing the tool at the proxy
+and trusting the CA:
+
+- `agy` is a Go binary. It honours `HTTPS_PROXY` and reads the OS trust
+  store, so `llm-fw setup` covers it; in sinkhole mode the hosts file covers
+  it too.
+- Gemini CLI is Node: `HTTPS_PROXY` plus `NODE_EXTRA_CA_CERTS`, as for
+  Claude Code.
+
+What is inspected on those hosts:
+
+|Path|What llm-fw does|
+|---|---|
+|`/v1internal:generateContent`, `/v1internal:streamGenerateContent`|The full request pipeline on the Gemini body inside `request`: prompts, system instruction, tool definitions and tool results, DLP, a blocked tool result withheld. The tool calls in each `response` event are scanned as for Gemini.|
+|`/v1internal:countTokens`|DLP, as for every token-counting endpoint.|
+|Account, quota, model-list and settings methods (`loadCodeAssist`, `fetchAvailableModels`, `retrieveUserQuota` and similar)|Forwarded; they carry no conversation.|
+|Any other `/v1internal:` method|Forwarded, with an "Unrecognized LLM endpoint" warning on the dashboard, so a method that does carry conversation is visible.|
+
+Antigravity's Claude models go to `api.anthropic.com`, which was already
+inspected.
+
+To stop inspecting these hosts, set `targets` without them (an array in a
+config file replaces the built-in list, see
+[configuration.md](configuration.md)).
+
 ### Cursor, VS Code, Antigravity
 
 Electron IDEs bypass the OS hosts file, so use the IDE's proxy setting rather

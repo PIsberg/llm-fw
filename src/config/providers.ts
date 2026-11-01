@@ -44,7 +44,15 @@ export const AI_PROVIDERS: AiProvider[] = [
   { name: 'Anthropic', hosts: ['api.anthropic.com'], domains: ['anthropic.com', 'claude.ai', 'claude.com'] },
   {
     name: 'Google',
-    hosts: ['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'],
+    // cloudcode-pa is Google's Cloud Code API: Gemini CLI and Gemini Code
+    // Assist call it, and Antigravity its daily- variant (#594). Its
+    // generateContent wraps a Gemini body; see CloudCodeParser.
+    hosts: [
+      'generativelanguage.googleapis.com',
+      'aiplatform.googleapis.com',
+      'cloudcode-pa.googleapis.com',
+      'daily-cloudcode-pa.googleapis.com',
+    ],
     // Only the API domain. google.com / googleusercontent.com are labelled via
     // INFRA_SERVICES below — keeping them out of here keeps them off the URL
     // filter allowlist, which would otherwise trust every Google property

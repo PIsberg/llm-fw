@@ -70,6 +70,10 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
 
     let data: Record<string, unknown>
     try { data = JSON.parse(payload) as Record<string, unknown> } catch { continue }
+    // Google's Cloud Code API (Antigravity, Gemini CLI) wraps each Gemini
+    // event in `response` (#594).
+    const wrapped = data.response as Record<string, unknown> | undefined
+    if (wrapped && typeof wrapped === 'object' && Array.isArray(wrapped.candidates)) data = wrapped
 
     const type = typeof data.type === 'string' ? data.type : undefined
     const index = typeof data.index === 'number' ? data.index : undefined
