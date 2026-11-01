@@ -55,7 +55,7 @@ const MID_TURN_OPEN = 'The user sent a new message while you were working:\n'
 const MID_TURN_CLOSE = '\n\nThis is how Claude Code surfaces messages the user sends mid-turn — within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.'
 
 /** The text inside <session>, without the title line after it; null when it is not one. */
-function sessionInner(trimmed: string): string | null {
+export function sessionInner(trimmed: string): string | null {
   if (!trimmed.startsWith(SESSION_OPEN)) return null
   let end = trimmed.length
   if (!trimmed.endsWith(SESSION_CLOSE)) {

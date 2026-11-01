@@ -46,6 +46,20 @@ Environment overrides:
 |----------|--------|
 | `LLM_FW_SUPPRESSIONS_ENABLED` | `true`/`false` — enable or disable the suppression list (default `true`) |
 
+### Harness prompt templates
+
+A suppression matches one exact text, so it cannot help with a prompt an agent harness sends again and again with different work appended. Claude Code reviews changes for security with two such prompts. One opens every request with the same 2,200 characters of instructions, then the diff; they name SQL injection, hardcoded passwords and `eval()`, and the harmful-request stage refused each review on them alone. The other lists the changed files, then the diff, and its fixed wording put any review at the embedding stage's warn line, whatever the diff.
+
+Such templates are listed in `HARNESS_TEMPLATES` (`src/detection/harnessTemplates.ts`). A user prompt that starts with one is scored without the template's fixed text, on every stage; the rest of the prompt (the diff, the file list, the task) is scored in full. Rules that keep it from being a way in:
+
+- Only the exact fixed text is removed. One character different, and the prompt is scored whole.
+- A part that varies is a slot of a fixed shape: one word (a language name), or a list of file paths, one per line, with no spaces. A sentence in a slot means no match.
+- Claude Code also sends these prompts inside its session-title request (`<session>`, then a fixed line asking for a title). That wrapper goes too, but only around a template.
+- Only the user-prompt surface. The same text in a tool result or a document is scored whole.
+- It is not tied to a client: the security review arrives without Claude Code's User-Agent. That is safe because removing fixed text can only make a prompt shorter. An attacker who copies a template gains nothing, and the attack after it is still scored.
+
+A diff of attack text still blocks. A security review of llm-fw's own detectors or attack fixtures is refused on the diff, as any other prompt carrying that text would be. New templates are added in the source, with a ruleset change; `test/detection/harnessTemplates.test.ts` checks every entry.
+
 ## Per-Surface Detection Sensitivity
 
 By default, the heuristic block threshold and embedding margin are global — the same numbers apply whether the text came from the user prompt or from a tool result an attacker might control. Since `tool_result` and `document` are the two surfaces an attacker can influence *without* ever talking to your model directly (the indirect-injection vector), you can tune them independently — tighter or looser — without touching prompt-surface sensitivity for your actual users.
