@@ -25,6 +25,10 @@ describe('client envelopes: linear time on long unclosed shapes', () => {
     ['attribute spaces', () => `<channel${fill(' ')}!`],
     ['siblings that never close inside', () => `<task-notification>${fill('<status><summary>x</status>')}</task-notification></summary>`],
     ['many valid elements', () => fill('<tick>1</tick>\n')],
+    // The Monitor trailer is matched at the end of a notification's content.
+    ['blank lines before a notification end', () => `<task-notification>\n<task-id>a</task-id>${fill('\n \t')}\n</task-notification>`],
+    ['repeated Monitor trailers', () => `<task-notification>\n<task-id>a</task-id>${fill("\nIf this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.")}x\n</task-notification>`],
+    ['a long Monitor summary', () => `<task-notification>\n<summary>Monitor "${fill('"a')}" stream ended</summary>\n</task-notification>`],
   ])('unwraps 200 KB of %s in under 1.5 s', (_label, make) => {
     const text = make()
     const t0 = performance.now()

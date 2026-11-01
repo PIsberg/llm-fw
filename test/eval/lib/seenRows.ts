@@ -26,6 +26,10 @@ export const SEEN_ROWS: Readonly<Record<string, ReadonlyArray<readonly [number, 
     // keeps blocking them.
     [76, '#486'], [293, '#486'], [858, '#486'], [980, '#486'], [1472, '#486'],
     [1565, '#486'], [1644, '#486'], [1942, '#486'], [1964, '#486'],
+    // The "run <word> + <word>" narrowing (live replay FPs): the one row it
+    // moved, read to check why. It had scored only through a quoted install
+    // step, "Run sudo chmod +x ...", not through the jailbreak it carries.
+    [499, 'live replay FPs, 2026-11-01, #626'],
   ],
   'heldout': [
     [21, '#486'],
