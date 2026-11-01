@@ -131,23 +131,20 @@ const SUMMARY_TEMPLATE = /^(?:Background command|Agent|Remote task|Monitor event
 const MONITOR_SUMMARY = /^Monitor "([^\n]{0,2000})"(?: ended without producing output(?: \(exit -?\d{1,5}\))?| stream ended| script failed(?: \(exit -?\d{1,5}\))?| stopped)$/
 // The sentence Claude Code appends inside a Monitor notification, after its
 // last element, naming its notification tool. Removed only when it is exactly
-// this sentence, on a line of its own, and the last thing in the notification:
-// anything after it, or any other loose text, leaves the notification to be
-// scored whole. String checks rather than a regex anchored at the end, which
-// backtracks over a long run of whitespace.
-const TRAILER_HEAD = 'If this event is something the user would act on now, send a '
-const TRAILER_TAIL = ". Routine or benign output doesn't need one."
-const TOOL_NAME = /^[A-Za-z]\w{0,63}$/
+// this sentence with Claude Code's own tool name, on a line of its own, and the
+// last thing in the notification: anything after it, another tool name, or any
+// other loose text, leaves the notification to be scored whole. String
+// equality rather than a regex anchored at the end, which backtracks over a
+// long run of whitespace.
+const NOTIFICATION_TRAILER = "If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one."
 
 /** `content` without Claude Code's Monitor trailer when it ends with exactly that line; otherwise unchanged. */
 function stripNotificationTrailer(content: string): string {
   const t = content.trimEnd()
-  if (!t.endsWith(TRAILER_TAIL)) return content
-  const head = t.lastIndexOf(TRAILER_HEAD)
-  if (head < 0) return content
+  if (!t.endsWith(NOTIFICATION_TRAILER)) return content
+  const head = t.length - NOTIFICATION_TRAILER.length
   const lineStart = t.lastIndexOf('\n', head - 1)
   if (lineStart < 0 || t.slice(lineStart + 1, head).trim() !== '') return content
-  if (!TOOL_NAME.test(t.slice(head + TRAILER_HEAD.length, t.length - TRAILER_TAIL.length))) return content
   return t.slice(0, lineStart + 1)
 }
 
