@@ -23,6 +23,7 @@ import { PromptMonitorModule } from '../modules/builtin/promptMonitor.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
 import { RULESET_VERSION } from '../detection/ruleset.js'
+import { parseExportQuery, filterEvents, toCsv, toJsonl, readAuditEvents, eventTime } from './eventExport.js'
 
 const log = createLogger('dashboard');
 
@@ -287,6 +288,8 @@ const HTML = `<!DOCTYPE html>
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); box-shadow: var(--focus); }
+  .events-export { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-left: 12px; font-size: 0.8rem; color: var(--text-2); }
+  .events-export input, .events-export select { font-size: 0.8rem; }
   .events-filter { width: 100%; max-width: 460px; padding: 8px 12px 8px 34px; font-size: 0.85rem;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23788398' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: 11px center; }
@@ -689,6 +692,12 @@ const HTML = `<!DOCTYPE html>
   <div id="tab-events" class="tab-panel active">
     <div class="panel-toolbar">
       <input id="events-filter" class="events-filter" type="search" placeholder="Filter by event ID, endpoint, target or payload" oninput="filterEvents(this.value)">
+      <span class="events-export" title="Download events as a file: from the audit log when it is on, otherwise the events held in memory">
+        <label>From <input id="export-since" type="datetime-local"></label>
+        <label>To <input id="export-until" type="datetime-local"></label>
+        <select id="export-format" aria-label="Export format"><option value="jsonl">JSONL</option><option value="csv">CSV</option></select>
+        <button type="button" class="btn" onclick="exportEvents()">Export</button>
+      </span>
     </div>
     <div class="table-wrap">
       <table id="events-table">
@@ -1291,6 +1300,16 @@ function applyFilter(tr) {
 function filterEvents(value) {
   eventsFilter = String(value || '').trim().toLowerCase();
   document.querySelectorAll('#events-body tr.event-row').forEach(applyFilter);
+}
+// #592: download the events between two local times as JSONL or CSV.
+function exportEvents() {
+  const p = new URLSearchParams();
+  const since = document.getElementById('export-since').value;
+  const until = document.getElementById('export-until').value;
+  if (since) p.set('since', new Date(since).toISOString());
+  if (until) p.set('until', new Date(until).toISOString());
+  p.set('format', document.getElementById('export-format').value);
+  window.location.href = '/api/events/export?' + p.toString();
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
@@ -2886,6 +2905,35 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       const events = eventBus.getRecent(limit, page)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(events))
+      return
+    }
+
+    // #592: the event stream as a file, filtered by time and kind. From the
+    // audit log when it is on, otherwise the in-memory buffer (eventExport.ts).
+    if (req.method === 'GET' && path === '/api/events/export') {
+      const q = parseExportQuery(url.searchParams)
+      if ('error' in q) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: q.error }))
+        return
+      }
+      const fromAudit = config.audit?.enabled === true
+      const source = fromAudit ? readAuditEvents(config.audit?.file ?? join(getLlmFwDir(), 'audit.jsonl')) : Promise.resolve(eventBus.getAll())
+      source.then(all => {
+        const events = filterEvents(all, q).sort((a, b) => (eventTime(a) || 0) - (eventTime(b) || 0))
+        const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')
+        res.writeHead(200, {
+          'Content-Type': q.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8',
+          'Content-Disposition': `attachment; filename="llm-fw-events-${stamp}.${q.format}"`,
+          'X-Llm-Fw-Export-Source': fromAudit ? 'audit' : 'memory',
+          'X-Llm-Fw-Export-Count': String(events.length),
+        })
+        res.end(q.format === 'csv' ? toCsv(events) : toJsonl(events))
+      }).catch((err: unknown) => {
+        log.warn('event export failed', { err: (err as Error).message })
+        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'export failed' }))
+      })
       return
     }
 

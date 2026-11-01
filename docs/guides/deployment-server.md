@@ -540,6 +540,24 @@ JSON object `{ "schema": 1, "ruleset": "...", "events": [...] }`. The file
 stays the durable record, and the shipper drops rather than backlogs when the
 collector is down. `LLM_FW_AUDIT_FILE` relocates the file.
 
+**Exporting a time range.** The dashboard's Events tab has an Export control,
+and the same download is an API call behind the dashboard's auth:
+
+```bash
+curl -o events.csv 'http://127.0.0.1:7731/api/events/export?since=2026-10-31&until=2026-11-01T12:00:00Z&kind=mcp,classifier&format=csv'
+```
+
+`since` and `until` are ISO 8601 dates or times, inclusive; `kind` is a comma
+separated list of event kinds (`prompt`, `mcp`, `classifier`, `dlp`, `taint`
+and the rest of the Events tab's kinds); `format` is `jsonl` (the default) or
+`csv`. The events come from the audit log when it is on, its rotated
+generation included, and otherwise from the in-memory ring of the last 100;
+the `X-Llm-Fw-Export-Source` header says which, `X-Llm-Fw-Export-Count` how
+many. Payloads follow the source: the audit log has them only with
+`LLM_FW_AUDIT_PAYLOADS=true`. A CSV cell that a spreadsheet would run as a
+formula (a leading `=`, `+`, `-` or `@`) is prefixed with a quote, since event
+text can come from an attacker.
+
 ---
 
 ## Health checks and monitoring
