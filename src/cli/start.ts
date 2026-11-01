@@ -23,6 +23,7 @@ import { watchForStopRequest } from './stopRequest.js';
 import { killPreviousInstance } from './stop.js';
 import { nodeRuntimeAdvisory } from './nodeAdvisory.js';
 import { checkForUpdate, shouldCheckForUpdates, startupBanner } from './updateCheck.js';
+import { ownsSinkhole } from './sinkholeOwner.js';
 import { RULESET_VERSION } from '../detection/ruleset.js';
 import { execSync, execFileSync } from 'node:child_process';
 
@@ -177,8 +178,11 @@ export async function run(args: string[] = []): Promise<void> {
     catch { return false; }
   })();
   // In standalone mode the sinkhole is meaningless (it redirects 127.0.0.1 on
-  // THIS host, not the remote clients), so never activate it.
-  const sinkholeActive = !standalone && (config.proxy.mode === 'sinkhole' || hostsHasSinkhole);
+  // THIS host, not the remote clients), so never activate it. The hosts marker
+  // alone counts only on the default data dir: another instance's marker must
+  // not make a dev or test instance adopt, and on exit tear down, its sinkhole
+  // (#617, sinkholeOwner.ts).
+  const sinkholeActive = ownsSinkhole({ standalone, mode: config.proxy.mode, hostsHasSinkhole, customLlmFwDir: Boolean(process.env.LLM_FW_DIR) });
 
   // Re-apply sinkhole infrastructure if it was removed by the previous stop.
   // This makes every `start` self-healing: hosts entries and port redirect are

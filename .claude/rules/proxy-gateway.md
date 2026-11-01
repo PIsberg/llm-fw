@@ -10,7 +10,7 @@ that binds a port.
 | Forward proxy (CONNECT only) | 8080 | `127.0.0.1` | always, on `llm-fw start` |
 | Dashboard, HTTP API, `/metrics`, `/ca.crt`, `/crl` | 7731 | `127.0.0.1` | always |
 | Gateway | 8081 | `127.0.0.1` | `--gateway` or `LLM_FW_GATEWAY_ENABLED` |
-| Sinkhole TLS | 8443 | `127.0.0.1`, hardwired | `proxy.mode === 'sinkhole'` or a hosts-file marker |
+| Sinkhole TLS | 8443 | `127.0.0.1`, hardwired | `proxy.mode === 'sinkhole'`, or a hosts-file marker on the default `LLM_FW_DIR` only (`src/cli/sinkholeOwner.ts`, #617) |
 
 `src/cli/start.ts` wires all of them. Flags are applied gateway, then observe,
 then standalone.
@@ -83,6 +83,14 @@ Rules that must not regress:
   `detection.surfaces.prompt.olderTurns: 'withhold'` (the default, #476); the
   newest message still refuses. Withholding must never change the newest
   message: if it would, refuse. Pinned by the same unit file and Case 4a3.
+
+- The hosts-file sinkhole marker is machine-wide. An instance with its own
+  `LLM_FW_DIR` (a dev run, a test server, a scratch Playwright run) owns the
+  sinkhole only when its own config says `proxy.mode: 'sinkhole'`; the marker
+  alone counts only on the default data dir. Without that, a second
+  instance bound for 8443 and, on a graceful exit, restored the hosts file and
+  deleted the 443 portproxy rule the installed instance depends on (#617).
+  Pinned by `test/cli/sinkholeOwner.test.ts`.
 
 ## Asymmetries to preserve, or fix deliberately
 
