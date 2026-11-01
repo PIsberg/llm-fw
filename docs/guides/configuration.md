@@ -154,7 +154,12 @@ scored for what they carry: the contents and attribute values, without the
 tags. In a task notification, a field Claude Code fills with an id, a status
 word or its own `.output` path is not scored, and a summary in one of its
 templates (`Background command "..." completed (exit code 0)`) is scored as
-the text it quotes; a value of any other shape is scored as it is. In a
+the text it quotes; a value of any other shape is scored as it is. A few
+fixed lines Claude Code writes as a whole user turn are not scored either
+(`[Request interrupted by user]`, the structured-output reminder, the notice
+after a safety-classifier stop, the clipboard line of `/copy`), nor the line
+it puts in front of a compaction summary or the tool list it adds there; the
+summary itself is. In a
 tool result from Claude Code, its frame around what a subagent hands back
 (the pointer to a report delivered elsewhere, the `[Subagent hand-back]`
 header, a line listing the tools used, the `agentId` and `<usage>` trailer)

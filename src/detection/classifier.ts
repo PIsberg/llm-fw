@@ -5,7 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { loadWithVisibility } from './modelLoad.js'
-import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
+import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, isClaudeCodePromptNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -168,6 +168,7 @@ export class InjectionClassifier {
       ? unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), client)
       : source === 'tool_result' && client === 'claude-code' ? unwrapClaudeCodeToolResult(text, toolName) : text
     if (!scored.trim() || (source === 'tool_result' && isClaudeCodeNotice(scored))) return { injection: false, score: 0 }
+    if (source === 'prompt' && client === 'claude-code' && isClaudeCodePromptNotice(scored)) return { injection: false, score: 0 }
     let parts = source === 'prompt' && client === 'claude-code' ? unwrapClaudeCodeReminders(scored) : [scored]
     // Each part is a forward pass, and a turn can hold any number of reminder
     // blocks: the model sees at most MAX_PARTS, the rest joined and scored
