@@ -231,6 +231,32 @@ table is re-measured, update that file in the same change.
 | oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000); 0.05% (1/2,000) on Linux CI, #272 | — / 11.85% (237/2,000) |
 | aya-sample (human-written prompts, 70 languages, benign only) | 2,795 | — / 0% (0/2,795) | — / 41.50% (1,160/2,795) |
 
+**The classifier with corroboration** (`detection.classifier.requireCorroboration`,
+preset `classifier-corroborated`) blocks on the classifier only when the
+heuristic or embedding stage found the same text suspicious too; alone, a
+classifier hit is a warn. Measured 2026-11-01 on the code of the PR that adds
+it, both presets in the same run, every split:
+
+| Dataset | Cheap (from the table above) | + classifier | + classifier, corroborated |
+|---|---|---|---|
+| gandalf | 86.6% / — | 100% / — | 89.3% / — |
+| safeguard | 76.3% / 0.07% | 92.3% / 0.14% | 80.8% / 0.14% |
+| deepset | 28.3% / 0% | 43.3% / 0% | 28.3% / 0% |
+| heldout | 74.2% / 0% | 83.9% / 4.8% | 77.4% / 4.8% |
+| jailbreak-classification | 57.4% / — (measured 2026-10-30) | 82.3% / 1.41% | 72.7% / 1.10% |
+| indirect-identifier-free | 20.0% / 10.0% (measured 2026-08-30) | 75.0% / 45.0% | 22.5% / 5.0% |
+| injecagent | 100% / 0% | 100% / 35.3% | 100% / 0% |
+| benign-realistic (benign only) | — / 2.68% | — / 25.3% | — / 3.6% |
+| oasst1-sample (benign only) | — / 0% | — / 11.85% | — / 0.10% |
+| aya-sample (benign only) | — / 0% | — / 41.50% | — / 0% |
+
+Corroboration keeps about a third of the classifier's recall gain on the
+direct splits (safeguard +4.5 points over cheap against +16.0) and drops
+nearly all of its false positives on ordinary prompts. On a replay of the
+author's own Claude Code traffic it turned all 87 remaining classifier-only
+blocks into warns. It is off by default; the plain classifier column is what
+the weekly Classifier Benchmark gates.
+
 Pooled across the four attack splits, direct-injection recall is **74.2%
 (633/853)** at `2026.10.101` (74.6%, 636/853, at `2026.10.21`; the difference is
 3 safeguard rows), up from 67.5% (576/853) at `2026.10.12`. The #221 rulesets

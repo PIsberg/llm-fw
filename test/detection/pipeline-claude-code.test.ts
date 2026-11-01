@@ -170,3 +170,22 @@ describe("Pipeline: Claude Code's subagent frame is read only on its subagent to
     expect((await pipeline.run('/v1/messages', answering('Read'), FROM_CLAUDE_CODE)).action).toBe('block')
   })
 })
+
+// A classifier event kept only its 80-character display line as the full
+// payload, so diagnosing a classifier false positive meant finding the turn in
+// the agent's own transcript (2026-10-31). Every other stage stores the text
+// it scanned; so does the classifier now, and "Mark false positive" gets the
+// real text instead of the line.
+describe('Pipeline: a classifier event keeps the text the classifier scored', () => {
+  it('stores the full text as the payload, and the line as the preview', async () => {
+    fakeClassify.mockImplementation(async (t: string) => /FLAGGED/.test(t) ? [{ label: 'INJECTION', score: 0.99 }] : [{ label: 'SAFE', score: 0.99 }])
+    const events: Array<{ payload_preview: string; payload_full: string; stage: string }> = []
+    const pipeline = new Pipeline(config(), e => { events.push(e as never) })
+    const text = `FLAGGED ${'x'.repeat(300)} end of the turn`
+    const r = await pipeline.run('/v1/messages', JSON.stringify({ model: 'm', messages: [{ role: 'user', content: [{ type: 'text', text }] }] }), FROM_CLAUDE_CODE)
+    expect(r.action).toBe('block')
+    expect(events.map(e => e.stage)).toEqual(['classifier'])
+    expect(events[0]!.payload_full).toBe(text)
+    expect(events[0]!.payload_preview).toMatch(/^\[classifier: injection 99\.0%\] FLAGGED/)
+  })
+})

@@ -102,6 +102,21 @@ that surface only; the second line is optional and trades recall for precision
 on benign tool output. Measured numbers for both settings are in
 [BENCHMARK.md](../BENCHMARK.md).
 
+**Requiring corroboration.** With `detection.classifier.requireCorroboration`
+(also `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION=true`) the classifier blocks only
+when the heuristic or embedding stage found the same text suspicious too: a
+heuristic score of 20 or more, or an embedding similarity over the warn
+threshold with the margin, the same signal that routes a text to the judge. A
+classifier hit with neither is reported as a warn that names it
+`uncorroborated` and keeps the text it scored, so it can be marked as a false
+positive. It is off by default. Measured on every eval split, it keeps about a
+third of the classifier's recall gain (safeguard 80.8% against 92.3% plain and
+76.3% with the classifier off) and drops nearly all of its false positives on
+ordinary prompts (multilingual Aya 0% against 41.5%, conversational oasst1
+0.10% against 11.85%); the full table is in
+[BENCHMARK.md](../BENCHMARK.md). A warm key: it applies
+without a restart.
+
 **What the classifier does not score.** The model reads any instruction to
 the model as an injection, including the ones an agent writes into its own
 turns, so the agent's own sentences are left out of its input (the heuristic
@@ -389,7 +404,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_112 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_113 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -405,6 +420,7 @@ _112 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_CACHE_CONTROL_ENABLED` | `modules.cacheControl.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
+| `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION` | `detection.classifier.requireCorroboration` | `false` |
 | `LLM_FW_CLASSIFIER_SURFACES` | `detection.classifier.surfaces` | `4 entries` |
 | `LLM_FW_CLASSIFIER_THRESHOLD` | `detection.classifier.blockThreshold` | `0.9` |
 | `LLM_FW_CRESCENDO_CROSS_REQUEST` | `crescendo.crossRequest` | `false` |
