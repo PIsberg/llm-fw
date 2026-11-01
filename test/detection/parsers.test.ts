@@ -643,7 +643,7 @@ describe('getParser', () => {
 
 describe('parsers', () => {
   it('has an entry per supported provider family', () => {
-    expect(parsers.length).toBe(5)
+    expect(parsers.length).toBe(6)
   })
 })
 
@@ -839,6 +839,24 @@ describe('GeminiParser – extractToolResults', () => {
     expect(result).toHaveLength(1)
     expect(result[0].toolUseId).toBe('get_weather')
     expect(result[0].result).toBe(JSON.stringify({ tempC: 21, note: 'sunny' }))
+  })
+
+  // Gemini's convention is `{ output }` for a result and `{ error }` for a
+  // failure, and Gemini CLI and Antigravity follow it. Read as JSON, the line
+  // breaks of the output became the two characters `\n`, so a rule anchored
+  // on a line start never saw one (#292 for Anthropic) and a blocked output
+  // could not be withheld, which refused the whole turn (#594).
+  it('reads `output` and `error` as the text they hold', () => {
+    const body = (response: unknown) => JSON.stringify({ contents: [{ role: 'user', parts: [{ functionResponse: { name: 'run', response } }] }] })
+    expect(g.extractToolResults(body({ output: 'line one\nline two' }))[0].result).toBe('line one\nline two')
+    expect(g.extractToolResults(body({ error: 'exit 1' }))[0].result).toBe('exit 1')
+    expect(g.extractToolResults(body({ output: 'out', error: 'err' }))[0].result).toBe('out\nerr')
+  })
+
+  it('keeps any other response object as JSON, so no field goes unscanned', () => {
+    const body = (response: unknown) => JSON.stringify({ contents: [{ role: 'user', parts: [{ functionResponse: { name: 'run', response } }] }] })
+    expect(g.extractToolResults(body({ output: 'out', note: 'x' }))[0].result).toBe(JSON.stringify({ output: 'out', note: 'x' }))
+    expect(g.extractToolResults(body({ output: { rows: ['a'] } }))[0].result).toBe(JSON.stringify({ output: { rows: ['a'] } }))
   })
 
   it('falls back to "unknown" when functionResponse.name is missing', () => {

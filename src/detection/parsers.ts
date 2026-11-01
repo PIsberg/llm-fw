@@ -791,6 +791,25 @@ class CohereParser implements PayloadParser {
   }
 }
 
+/**
+ * The text of a Gemini `functionResponse.response`. Gemini's convention is
+ * `{ output }` for a result and `{ error }` for a failure, which Gemini CLI and
+ * Antigravity follow; held as strings they are read as the text they are, one
+ * per line. Read as JSON, every line break became the two characters `\n`, so
+ * a rule anchored on a line start never saw one and a blocked output could not
+ * be withheld (#594). Any other shape keeps its JSON form, so no field goes
+ * unscanned.
+ */
+function geminiResponseText(response: unknown): string {
+  if (response && typeof response === 'object' && !Array.isArray(response)) {
+    const entries = Object.entries(response)
+    if (entries.length > 0 && entries.every(([k, v]) => (k === 'output' || k === 'error') && typeof v === 'string')) {
+      return entries.map(([, v]) => v as string).join('\n')
+    }
+  }
+  return toolResultText(response)
+}
+
 class GeminiParser implements PayloadParser {
   supports(path: string): boolean {
     // Matches both stable (/v1/) and beta (/v1beta/, /v1beta1/) Gemini and
@@ -884,7 +903,7 @@ class GeminiParser implements PayloadParser {
           for (const part of content.parts) {
             const fr = part?.functionResponse
             if (fr && typeof fr === 'object') {
-              const resText = toolResultText(fr.response ?? fr)
+              const resText = geminiResponseText(fr.response ?? fr)
               const byId = typeof fr.id === 'string' ? calls.filter(c => c.id === fr.id) : []
               const byName = calls.filter(c => c.name === fr.name)
               const call = byId.length === 1 ? byId[0] : typeof fr.id !== 'string' && byName.length === 1 ? byName[0] : undefined
@@ -944,6 +963,43 @@ class GeminiParser implements PayloadParser {
       return out
     } catch { return [] }
   }
+}
+
+/**
+ * The Gemini body inside a Google Cloud Code envelope, serialised again: the
+ * object under `key` when there is one, otherwise the body itself, so a client
+ * that sends a bare Gemini body is still read.
+ */
+function cloudCodeInner(body: string, key: 'request' | 'response'): string {
+  try {
+    const inner = JSON.parse(body)?.[key]
+    return inner && typeof inner === 'object' && !Array.isArray(inner) ? JSON.stringify(inner) : body
+  } catch { return body }
+}
+
+/**
+ * Google's Cloud Code API (`cloudcode-pa.googleapis.com`, and the
+ * `daily-cloudcode-pa` host Antigravity calls), the backend of Antigravity,
+ * Gemini CLI and Gemini Code Assist (#594). `/v1internal:generateContent` and
+ * `:streamGenerateContent` take a Gemini request wrapped as
+ * `{ model, project, request: { contents, systemInstruction, tools } }`, and
+ * answer with Gemini responses wrapped as `{ response: { candidates }, traceId }`,
+ * one per SSE event when streamed. Every extractor reads the Gemini body inside.
+ * The account, quota and telemetry methods on the same host carry no
+ * conversation and are not matched.
+ */
+class CloudCodeParser extends GeminiParser {
+  override supports(path: string): boolean {
+    const p = path.split('?')[0] ?? ''
+    return p === '/v1internal:generateContent' || p === '/v1internal:streamGenerateContent'
+  }
+
+  override extractPrompts(body: string): string[] { return super.extractPrompts(cloudCodeInner(body, 'request')) }
+  override extractSystem(body: string): string[] { return super.extractSystem(cloudCodeInner(body, 'request')) }
+  override extractTools(body: string): any[] { return super.extractTools(cloudCodeInner(body, 'request')) }
+  override extractToolResults(body: string): ToolResultItem[] { return super.extractToolResults(cloudCodeInner(body, 'request')) }
+  override extractMediaBlocks(body: string): MediaBlock[] { return super.extractMediaBlocks(cloudCodeInner(body, 'request')) }
+  override extractToolUses(body: string): { toolName: string; args: any }[] { return super.extractToolUses(cloudCodeInner(body, 'response')) }
 }
 
 /**
@@ -1148,6 +1204,7 @@ export const parsers: PayloadParser[] = [
   new OpenAIParser(),
   new CohereParser(),
   new GeminiParser(),
+  new CloudCodeParser(),
   new BedrockParser(),
 ]
 
@@ -1219,4 +1276,4 @@ export function extractToolDescriptions(tools: unknown[]): string[] {
   return out
 }
 
-export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, BedrockParser }
+export { AnthropicParser, OpenAIParser, CohereParser, GeminiParser, CloudCodeParser, BedrockParser }

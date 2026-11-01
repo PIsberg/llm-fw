@@ -146,6 +146,18 @@ function looksLikeJsonBody(body: string): boolean {
 const NON_LLM_JSON_PATH_SUFFIXES = [
   '/api/event_logging/v2/batch',
   '/api/event_logging',
+  // Google's Cloud Code API (#594): account, quota, model-list, experiment and
+  // settings methods Antigravity and Gemini CLI call beside generateContent.
+  // Any other `/v1internal:` method stays warned until it has a parser.
+  '/v1internal:loadCodeAssist',
+  '/v1internal:onboardUser',
+  '/v1internal:fetchAvailableModels',
+  '/v1internal:retrieveUserQuota',
+  '/v1internal:retrieveUserQuotaSummary',
+  '/v1internal:listExperiments',
+  '/v1internal:recordCodeAssistMetrics',
+  '/v1internal:getCodeAssistGlobalUserSetting',
+  '/v1internal:setCodeAssistGlobalUserSetting',
 ]
 
 /**

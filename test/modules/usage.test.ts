@@ -63,6 +63,17 @@ describe('parseUsage — Gemini', () => {
     expect(parseUsage(body, { 'content-type': 'text/event-stream' }))
       .toEqual({ inputTokens: 70, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 9 })
   })
+
+  // #594: Antigravity and Gemini CLI reach Gemini through Google's Cloud Code
+  // API, which wraps every response event in `response`.
+  it('reads usageMetadata inside a Cloud Code `response` envelope', () => {
+    const body = sse([
+      [null, { response: { candidates: [], usageMetadata: { promptTokenCount: 70, candidatesTokenCount: 1 } }, traceId: 't' }],
+      [null, { response: { candidates: [], usageMetadata: { promptTokenCount: 70, candidatesTokenCount: 9, cachedContentTokenCount: 30 } }, traceId: 't' }],
+    ])
+    expect(parseUsage(body, { 'content-type': 'text/event-stream' }))
+      .toEqual({ inputTokens: 40, cacheWriteTokens: 0, cacheReadTokens: 30, outputTokens: 9 })
+  })
 })
 
 describe('parseUsage — transport', () => {

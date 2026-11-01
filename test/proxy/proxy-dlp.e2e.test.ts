@@ -151,6 +151,7 @@ const TOKEN_COUNT_ROUTES: [string, string, (secret: string) => Buffer][] = [
   ['api.anthropic.com', '/v1/messages/count_tokens?beta=true', anthropicBody],
   ['api.openai.com', '/v1/responses/input_tokens', s => Buffer.from(JSON.stringify({ model: 'gpt-5', input: 'Here is my deploy token: ' + s }), 'utf-8')],
   ['generativelanguage.googleapis.com', '/v1beta/models/gemini-2.5-pro:countTokens', s => Buffer.from(JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Here is my deploy token: ' + s }] }] }), 'utf-8')],
+  ['cloudcode-pa.googleapis.com', '/v1internal:countTokens', s => Buffer.from(JSON.stringify({ request: { model: 'models/gemini-2.5-pro', contents: [{ role: 'user', parts: [{ text: 'Here is my deploy token: ' + s }] }] } }), 'utf-8')],
 ]
 
 describe('Proxy DLP redact mode (E2E)', { timeout: 20000 }, () => {

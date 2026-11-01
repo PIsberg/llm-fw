@@ -14,4 +14,5 @@ export function isTokenCountRequest(path: string): boolean {
   return p === '/v1/messages/count_tokens' // Anthropic
     || p.endsWith('/responses/input_tokens') // OpenAI Responses
     || /\/models\/[^/]+:countTokens$/.test(p) // Gemini, Vertex AI
+    || p === '/v1internal:countTokens' // Google Cloud Code (Antigravity, Gemini CLI)
 }

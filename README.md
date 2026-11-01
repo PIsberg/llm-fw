@@ -160,6 +160,7 @@ The firewall ships with a built-in registry of every major AI provider (`src/con
 | OpenAI / Azure OpenAI | `api.openai.com`, `*.openai.azure.com` | OpenAI |
 | Anthropic | `api.anthropic.com` | Anthropic Messages |
 | Google Gemini / Vertex AI | `generativelanguage.googleapis.com`, `aiplatform.googleapis.com` | Gemini |
+| Google Cloud Code (Antigravity, Gemini CLI, Gemini Code Assist) | `cloudcode-pa.googleapis.com`, `daily-cloudcode-pa.googleapis.com` | Gemini, wrapped in a `request` envelope |
 | Mistral | `api.mistral.ai` | OpenAI |
 | Groq | `api.groq.com` | OpenAI |
 | OpenRouter | `openrouter.ai` | OpenAI |

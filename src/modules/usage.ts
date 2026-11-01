@@ -72,9 +72,11 @@ function fold(acc: Usage | null, data: unknown): Usage | null {
     return next
   }
 
-  if (isObj(data.usageMetadata)) {
+  // Gemini, or Google's Cloud Code API (Antigravity, Gemini CLI), which wraps
+  // each Gemini response in `response`.
+  const m = isObj(data.usageMetadata) ? data.usageMetadata : isObj(response?.usageMetadata) ? response.usageMetadata : undefined
+  if (m) {
     // Gemini: cached tokens are part of promptTokenCount.
-    const m = data.usageMetadata
     const cached = num(m.cachedContentTokenCount)
     const next = out()
     next.inputTokens = num(m.promptTokenCount) - cached
