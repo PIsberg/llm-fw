@@ -34,7 +34,9 @@ beforeEach(() => {
 
 function config() {
   const c = structuredClone(DEFAULT_CONFIG)
-  c.detection.classifier = { ...c.detection.classifier, enabled: true, blockThreshold: 0.9 }
+  // The plain classifier: these tests pin what it is shown, so a classifier
+  // hit alone must still block. Corroboration has its own file.
+  c.detection.classifier = { ...c.detection.classifier, enabled: true, blockThreshold: 0.9, requireCorroboration: false }
   return c
 }
 

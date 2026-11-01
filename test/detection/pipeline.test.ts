@@ -814,7 +814,8 @@ describe('Pipeline', () => {
     // was withheld at the global 0.9. The shipped default raises the bar on
     // tool_result only; the prompt surface keeps the global threshold.
     it('the default tool_result surface blocks only above 0.999, the prompt surface keeps 0.9 (#587)', async () => {
-      const config = makeConfig({ classifier: { ...DEFAULT_CONFIG.detection.classifier!, enabled: true } })
+      // Corroboration off: this pins the threshold, which corroboration would mask.
+      const config = makeConfig({ classifier: { ...DEFAULT_CONFIG.detection.classifier!, enabled: true, requireCorroboration: false } })
       const pipeline = new Pipeline(config, undefined)
       mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.95 })
       expect((await pipeline.run('/v1/messages', toolResultBody, META)).action).not.toBe('block')

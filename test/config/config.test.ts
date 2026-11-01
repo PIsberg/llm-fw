@@ -229,6 +229,16 @@ describe('loadConfig env overrides', () => {
     delete process.env.LLM_FW_CLASSIFIER_SURFACES
   })
 
+  it('requires corroboration for a classifier block by default, and LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION=false turns it off', async () => {
+    expect((await loadConfig()).detection.classifier?.requireCorroboration).toBe(true)
+    process.env.LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION = 'false'
+    try {
+      expect((await loadConfig()).detection.classifier?.requireCorroboration).toBe(false)
+    } finally {
+      delete process.env.LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION
+    }
+  })
+
   it('LLM_FW_CLASSIFIER_SURFACES with no valid surface is ignored (never yields an empty list)', async () => {
     process.env.LLM_FW_CLASSIFIER_SURFACES = 'bogus,also-bogus'
     const cfg = await loadConfig()

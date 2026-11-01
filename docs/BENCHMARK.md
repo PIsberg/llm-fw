@@ -260,8 +260,10 @@ Corroboration keeps about a third of the classifier's recall gain on the
 direct splits (safeguard +4.5 points over cheap against +16.0) and drops
 nearly all of its false positives on ordinary prompts. On a replay of the
 author's own Claude Code traffic it turned all 87 remaining classifier-only
-blocks into warns. It is off by default; the plain classifier column is what
-the weekly Classifier Benchmark gates.
+blocks into warns. It is on by default since ruleset 2026.10.124, so the
+corroborated column is what an operator who turns the classifier on gets; the
+plain classifier column (`requireCorroboration: false`, set explicitly by the
+`classifier` preset) is still what the weekly Classifier Benchmark gates.
 
 Pooled across the four attack splits, direct-injection recall is **74.2%
 (633/853)** at `2026.10.101` (74.6%, 636/853, at `2026.10.21`; the difference is

@@ -164,6 +164,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.124 (classifier requireCorroboration on by default;
+  // the classifier is off here, so no verdict moves).
   // Held at ruleset 2026.10.123 (live replay FPs: "run <word> + <word>" needs
   // placeholder operands; Monitor notification trailer and summaries; measured
   // unchanged).

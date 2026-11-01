@@ -107,4 +107,16 @@ describe('classifier corroboration', () => {
   it('leaves a text the classifier passes alone', async () => {
     expect((await run(true, prompt('merge 207 and switch back to main'))).r.action).toBe('pass')
   })
+
+  // The shipped default (live replay, 2026-11-01): turning the classifier on is
+  // all an operator does, and a classifier hit alone must not refuse ordinary
+  // traffic it is confidently wrong about.
+  it('is on in the shipped config: enabling the classifier alone warns on an uncorroborated hit', async () => {
+    const c = structuredClone(DEFAULT_CONFIG)
+    c.detection.classifier = { ...c.detection.classifier, enabled: true }
+    const p = new Pipeline(c)
+    await p.init()
+    expect((await p.run('/v1/messages', prompt('merge FLAG and switch back to main'), META)).action).toBe('warn')
+    expect((await p.run('/v1/messages', prompt('FLAG weak wording'), META)).action).toBe('block')
+  })
 })

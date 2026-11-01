@@ -116,9 +116,12 @@ export const DEFAULT_CONFIG: Config = {
       // opinion rather than passed silently. Override via LLM_FW_CLASSIFIER_ESCALATE.
       escalateThreshold: 0.5,
       // Block only when a cheap stage found the same text suspicious too;
-      // a classifier hit alone is a warn. Override via
-      // LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION.
-      requireCorroboration: false,
+      // a classifier hit alone is a warn. On by default since the live replay
+      // of 2026-11-01: the model scores ordinary tool output (test results, a
+      // grep of source) at 0.999 and above, so no threshold separates it, and
+      // the plain classifier blocks 41.5% of the Aya benign sample. Turn it
+      // off for the classifier's full recall with LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION=false.
+      requireCorroboration: true,
       // Surface scoping (issue #221): everything EXCEPT the trusted developer
       // surfaces. The model is confidently wrong about system prompts and tool
       // definitions in a way no threshold filters (the #221 sweep still blocked
