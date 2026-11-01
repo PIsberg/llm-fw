@@ -73,6 +73,12 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.118
+
+**Unchanged from 2026.10.117: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000
+each, the Aya sample 0 of 2,795.** The classifier no longer scores Claude Code's fixed
+user-turn notices (#606); the classifier is off here, so no verdict moved.
+
 ## Result, ruleset 2026.10.117
 
 **Unchanged from 2026.10.116: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000

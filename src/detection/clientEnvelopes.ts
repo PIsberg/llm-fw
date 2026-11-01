@@ -78,7 +78,9 @@ function sessionInner(trimmed: string): string | null {
 // beside the elements keeps the whole text scored. <system-reminder> blocks
 // are read by unwrapClaudeCodeReminders instead, which also drops the
 // harness's own sentences inside them.
-const MARKUP_TAGS: ReadonlySet<string> = new Set([...CLAUDE_CODE_TAGS].filter(t => t !== 'system-reminder' && t !== 'system_reminder'))
+// Plus the tool list Claude Code adds after a compaction, whose name lives
+// outside the constant block `npm run client-tags` reads (#606).
+const MARKUP_TAGS: ReadonlySet<string> = new Set([...[...CLAUDE_CODE_TAGS].filter(t => t !== 'system-reminder' && t !== 'system_reminder'), 'tools-used-before-summary'])
 // One opening tag, matched sticky at a known position. Bounded name, value
 // and attribute sizes; each attribute consumes at least four characters.
 const MARKUP_OPEN = /<([a-z][a-z0-9_-]{0,63})((?:[ \t]+[A-Za-z_][\w:-]{0,63}="[^"]{0,2000}")*)[ \t]*(\/?)>/y
@@ -119,6 +121,8 @@ const NOTIFICATION_FIELDS: ReadonlyMap<string, RegExp> = new Map([
   ['task-type', /^[a-z_]{1,32}$/],
   ['status', /^[a-z_]{1,32}$/],
   ['output-file', /^(?:[A-Za-z]:\\|\/)[^\n<>"|?*]{0,400}[\\/][A-Za-z0-9_-]{1,64}\.output$/],
+  // Tool names, comma separated: nothing a sentence could be made of.
+  ['tools-used-before-summary', /^[\w.:-]{1,128}(?:, [\w.:-]{1,128}){0,127}$/],
 ])
 const SUMMARY_TEMPLATE = /^(?:Background command|Agent|Remote task|Monitor event:) "([^\n]{0,2000})"( completed(?: \(exit code -?\d{1,5}(?:: [A-Za-z0-9 _-]{1,40})?\))?| failed(?: with exit code -?\d{1,5})?| was [a-z ]{1,40}| finished| was resumed by the user| is still running after [\dhms ]{1,20}, with no new output for [\dhms ]{1,20}| appears to be waiting for interactive input| is blocked| completed|)$/
 
@@ -172,6 +176,10 @@ function markupParts(s: string, depth: number): string[] | null {
  * own markup tags is read the same way (see MARKUP_TAGS).
  */
 export function unwrapClaudeCodeEnvelope(raw: string, client?: string): string {
+  // The line Claude Code puts in front of the summary after a compaction
+  // (#606); the summary is the model's own account of the session and stays
+  // scored.
+  if (client === 'claude-code' && raw.startsWith(COMPACTION_OPENER)) return raw.slice(COMPACTION_OPENER.length).replace(/^\s+/, '')
   const text = unwrapExactEnvelope(raw)
   if (client !== 'claude-code' || text !== raw) return text
   const parts = markupParts(raw, 0)
@@ -260,6 +268,25 @@ const CLAUDE_NOTICES: ReadonlySet<string> = new Set([
   '[Request interrupted by user]',
   '[Request interrupted by user for tool use]',
 ])
+
+// Fixed lines Claude Code writes as a whole user-turn text, and the clipboard
+// line of its /copy command once its <local-command-stdout> is unwrapped
+// (#606, from a replay of real user turns; templates in the 2.1.316 binary).
+// Only from Claude Code, only on the prompt surface, and only exactly.
+const COMPACTION_OPENER = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.'
+const CLAUDE_PROMPT_NOTICES: ReadonlySet<string> = new Set([
+  '[Request interrupted by user]',
+  '[Request interrupted by user for tool use]',
+  '[structured-output-enforce] You MUST call the StructuredOutput tool to complete this request. Call this tool now.',
+  'Your response above was stopped by a safety classifier — this is not a tool or API error. The rest of it was withheld, and tool calls in it that had not finished did not run. Do not produce that content again, even reworded.',
+])
+const CLAUDE_CLIPBOARD_LINE = /^Copied to clipboard \(\d{1,9} characters, \d{1,9} lines\)(?:; the file below is unaffected)?(?:\nAlso written to (?:[A-Za-z]:\\|\/)[^\n<>"|?*]{1,500})?$/
+
+/** True for a user-turn text that is exactly one of Claude Code's own notices. */
+export function isClaudeCodePromptNotice(text: string): boolean {
+  const t = text.trim()
+  return CLAUDE_PROMPT_NOTICES.has(t) || CLAUDE_CLIPBOARD_LINE.test(t)
+}
 
 /** True for a text that is exactly one of Claude Code's own notices. */
 export function isClaudeCodeNotice(text: string): boolean {
