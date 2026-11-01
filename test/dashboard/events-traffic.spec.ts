@@ -133,6 +133,48 @@ test.describe('Events feed shows only harmful events (#337)', () => {
   })
 })
 
+test.describe('MCP Traffic grouped by tool (#591)', () => {
+  // Every call and every result is its own row, so a busy session buries one
+  // tool's traffic under the rest. Each tool gets a summary row with its
+  // counts; clicking it shows only that tool's events, clicking again shows all.
+  test('summarises calls and results per tool, and narrows the list to one tool', async ({ page }) => {
+    const ev = (id: string, text: string, mcpTool?: string) => JSON.stringify({
+      id, timestamp: `2026-11-01 05:0${id.slice(-1)}:00Z`, stage: 'mcp-filter', score: 0, similarity: 0,
+      target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'passed', kind: 'mcp', mcpTool,
+      payload_preview: text, payload_full: text,
+    })
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' + [
+        ev('e1', 'Exposed 14 tools to LLM'),
+        ev('e2', 'Tool invoked by LLM: Bash', 'Bash'),
+        ev('e3', 'Tool result returned from Bash (id toolu_1)', 'Bash'),
+        ev('e4', 'Tool invoked by LLM: Read', 'Read'),
+        ev('e5', 'Tool invoked by LLM: Bash', 'Bash'),
+      ].map(e => `data: ${e}\n\n`).join(''),
+    }))
+
+    await page.goto('/')
+    await page.click('button:has-text("MCP Traffic")')
+    const tools = page.locator('#mcp-tools-body tr.mcp-tool-row')
+    await expect(tools).toHaveCount(3, { timeout: 10_000 })
+    const bash = tools.filter({ hasText: 'Bash' })
+    await expect(bash.locator('.mcp-calls')).toHaveText('2')
+    await expect(bash.locator('.mcp-results')).toHaveText('1')
+    await expect(tools.filter({ hasText: 'Read' }).locator('.mcp-calls')).toHaveText('1')
+    await expect(tools.filter({ hasText: 'tool list' })).toHaveCount(1)
+
+    const visible = page.locator('#mcp-body tr.event-row:visible')
+    await expect(visible).toHaveCount(5)
+    await bash.click()
+    await expect(visible).toHaveCount(3)
+    await expect(bash).toHaveClass(/selected/)
+    await bash.click()
+    await expect(visible).toHaveCount(5)
+  })
+})
+
 test.describe('A block remediation link opens the event (#319)', () => {
   // A blocked client is told to open /#event=<id>. Before, the link was
   // /#events, which opened the dashboard and selected nothing, and the table

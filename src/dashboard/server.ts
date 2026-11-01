@@ -341,6 +341,10 @@ const HTML = `<!DOCTYPE html>
   tr.event-row { transition: background 0.1s; }
   tr.event-row:hover { background: var(--bg-sunken); cursor: pointer; }
   tr.event-row.selected { background: var(--accent-soft); }
+  .mcp-tools-wrap { margin-bottom: 4px; }
+  tr.mcp-tool-row { cursor: pointer; }
+  tr.mcp-tool-row.selected { background: var(--accent-soft); }
+  tr.mcp-tool-row.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   tr.event-row.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
   /* ── Badges & chips ─────────────────────────────────────────────────────── */
@@ -723,6 +727,13 @@ const HTML = `<!DOCTYPE html>
 
   <div id="tab-mcp" class="tab-panel">
     <p class="panel-intro">MCP and tool-use traffic that passed every check: the tools each request exposed to the model. Blocks and warnings stay in Events.</p>
+    <div class="table-wrap mcp-tools-wrap">
+      <table id="mcp-tools-table" class="mcp-tools">
+        <thead><tr><th>Tool</th><th>Calls</th><th>Results</th><th>Last seen</th></tr></thead>
+        <tbody id="mcp-tools-body"></tbody>
+      </table>
+    </div>
+    <p class="panel-intro mcp-tools-hint">Click a tool to show only its traffic below; click it again to show everything.</p>
     <div class="table-wrap">
       <table id="mcp-table">
         <thead>
@@ -1232,6 +1243,39 @@ const noEventsRow = document.getElementById('no-events');
 // the MCP Traffic tab and count only there.
 const mcpBody = document.getElementById('mcp-body');
 let mcpCount = 0;
+// #591: one summary row per tool, its calls and results counted; clicking one
+// shows only that tool's rows in the list below, clicking again shows all.
+const mcpToolsBody = document.getElementById('mcp-tools-body');
+const mcpTools = new Map();
+let mcpToolFilter = null;
+function mcpToolOf(ev) {
+  if (ev.mcpTool) return ev.mcpTool;
+  return /^Exposed \\d+ tools/.test(ev.payload_preview || '') ? '(tool list)' : '(other)';
+}
+function noteMcpTool(ev, tr) {
+  const name = mcpToolOf(ev);
+  tr.dataset.tool = name;
+  let g = mcpTools.get(name);
+  if (!g) {
+    const row = document.createElement('tr');
+    row.className = 'mcp-tool-row';
+    row.onclick = () => selectMcpTool(name);
+    g = { row, calls: 0, results: 0, last: '' };
+    mcpTools.set(name, g);
+    mcpToolsBody.appendChild(row);
+  }
+  const preview = ev.payload_preview || '';
+  if (/^Tool result/.test(preview)) g.results++;
+  else if (/^Tool invoked/.test(preview)) g.calls++;
+  g.last = ev.timestamp || g.last;
+  g.row.innerHTML = '<td>' + esc(name) + '</td><td class="mcp-calls">' + g.calls + '</td><td class="mcp-results">' + g.results + '</td><td class="td-time">' + esc(g.last) + '</td>';
+  g.row.classList.toggle('selected', name === mcpToolFilter);
+}
+function selectMcpTool(name) {
+  mcpToolFilter = mcpToolFilter === name ? null : name;
+  mcpTools.forEach((g, n) => g.row.classList.toggle('selected', n === mcpToolFilter));
+  mcpBody.querySelectorAll('tr.event-row').forEach(applyFilter);
+}
 function appendRow(ev) {
   const isPassed = ev.action === 'passed';
   const body = isPassed ? mcpBody : tbody;
@@ -1268,6 +1312,7 @@ function appendRow(ev) {
   tr.dataset.search = [ev.id, ev.method, ev.path, ev.target, ev.stage, ev.payload_preview].join(' ').toLowerCase();
   body.insertBefore(tr, body.firstChild);
   while (body.rows.length > 200) body.deleteRow(body.rows.length - 1);
+  if (isPassed) noteMcpTool(ev, tr);
   applyFilter(tr);
   if (ev.id && ev.id === deepLinkEventId()) openDeepLinkedEvent(tr, ev);
 }
@@ -1295,7 +1340,9 @@ window.addEventListener('hashchange', () => {
 // Filter the Events table by id, endpoint, target, stage or payload.
 let eventsFilter = '';
 function applyFilter(tr) {
-  tr.style.display = !eventsFilter || (tr.dataset.search || '').includes(eventsFilter) ? '' : 'none';
+  const searchOk = !eventsFilter || (tr.dataset.search || '').includes(eventsFilter);
+  const toolOk = tr.parentNode !== mcpBody || !mcpToolFilter || tr.dataset.tool === mcpToolFilter;
+  tr.style.display = searchOk && toolOk ? '' : 'none';
 }
 function filterEvents(value) {
   eventsFilter = String(value || '').trim().toLowerCase();
@@ -1320,6 +1367,7 @@ const es = new EventSource('/events');
 // The tiles count the same replay, so they start from zero too.
 es.onopen = () => {
   tbody.replaceChildren(); mcpBody.replaceChildren(); mcpCount = 0;
+  mcpToolsBody.replaceChildren(); mcpTools.clear(); mcpToolFilter = null;
   modulesBody.replaceChildren();
   document.getElementById('mcp-count').textContent = '0';
   resetStats(); loadModuleStats(); loadModeChips();
