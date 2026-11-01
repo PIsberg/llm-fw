@@ -290,6 +290,10 @@ const IMPERATIVE_OBJECT_RE = new RegExp([
 // check the reverted 2026.08.8 verb-tiering skipped.
 const POLITE_OBJECT_GATED_VERBS = new Set([
   'complete', 'confirm', 'submit', 'apply', 'register', 'subscribe', 'fill', 'forward',
+  // "Please update your unit file to include the new ExecStart line" is a log's
+  // advice to the operator, and an order only when its object is sensitive or
+  // attacker-named (#477). Measured over the full injecagent split before merge.
+  'update',
 ])
 
 // "Please add" is how build tools phrase their warnings: PMD's "Please add the
