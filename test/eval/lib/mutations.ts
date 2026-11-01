@@ -96,6 +96,10 @@ export interface ResilienceCount { kept: number; total: number }
  * after "bypassing <vendor>'s limits" joined the restrictions wording and the
  * corpus gained a persona row: every mutation 100% but synonyms 76 and
  * no-punctuation 68. Still passing, on purpose: the two above.
+ *
+ * Measured on ruleset 2026.10.117 (#557): those two closed for their shape
+ * (the positional override's synonyms for "above", a policy blob whose key
+ * and value are only separated by a space), every mutation 100%.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
   homoglyph: { kept: 68, total: 69 },
@@ -105,8 +109,8 @@ export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
   'markdown-fence': { kept: 76, total: 77 },
   blockquote: { kept: 76, total: 77 },
   'polite-prefix': { kept: 76, total: 77 },
-  synonyms: { kept: 75, total: 77 },
-  'no-punctuation': { kept: 67, total: 69 },
+  synonyms: { kept: 76, total: 77 },
+  'no-punctuation': { kept: 68, total: 69 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {
