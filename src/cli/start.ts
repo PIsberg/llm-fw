@@ -22,6 +22,8 @@ import { lanIPv4 } from '../config/net.js';
 import { watchForStopRequest } from './stopRequest.js';
 import { killPreviousInstance } from './stop.js';
 import { nodeRuntimeAdvisory } from './nodeAdvisory.js';
+import { checkForUpdate, shouldCheckForUpdates, startupBanner } from './updateCheck.js';
+import { RULESET_VERSION } from '../detection/ruleset.js';
 import { execSync, execFileSync } from 'node:child_process';
 
 /**
@@ -129,6 +131,9 @@ export async function run(args: string[] = []): Promise<void> {
   const nodeAdvisory = nodeRuntimeAdvisory();
   if (nodeAdvisory) console.warn(`⚠ ${nodeAdvisory}`);
   const config = await loadConfig();
+  // package.json sits two levels up from both src/cli and dist/cli.
+  const { version } = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+  console.log(startupBanner(version, RULESET_VERSION));
 
   // Standalone server mode: expose the proxy (and dashboard/CA download) on all
   // interfaces so other machines on the network can route their LLM traffic
@@ -558,6 +563,11 @@ export async function run(args: string[] = []): Promise<void> {
   // is already listening: the banner is a nag, not a gate, and the firewall runs
   // either way. Anything else would turn a lapsed invoice into an open door.
   for (const line of unlicensedBanner()) console.log(line);
+
+  // Never awaited: startup is done, and the check says nothing on failure.
+  if (shouldCheckForUpdates(config)) {
+    void checkForUpdate(version).then(msg => { if (msg) console.log(`\n  ${msg}`); });
+  }
 
   // Keep process alive
   setInterval(() => { }, 1 << 30);
