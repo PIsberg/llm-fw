@@ -42,7 +42,7 @@ const SESSION_CLOSE = '</session>'
 // of two fixed lines, the first scored 100.0% on its own (live, 2026-10-31,
 // around prompts scored 0.00-0.05% alone). The language is the user's
 // setting.
-const TITLE_LINE = "Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions."
+export const SESSION_TITLE_LINE = "Write the title in the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions."
 const TITLE_LINE_LANGUAGE = /^Write the title in [\p{L} ()-]{1,40}\. Keep technical terms and code identifiers in their original form\.$/u
 // The output of a command the user ran in Claude Code, and the fixed line
 // recorded above it. Scored 95.9-99.3% with the tags, under 1% without; the
@@ -55,14 +55,14 @@ const MID_TURN_OPEN = 'The user sent a new message while you were working:\n'
 const MID_TURN_CLOSE = '\n\nThis is how Claude Code surfaces messages the user sends mid-turn — within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.'
 
 /** The text inside <session>, without the title line after it; null when it is not one. */
-function sessionInner(trimmed: string): string | null {
+export function sessionInner(trimmed: string): string | null {
   if (!trimmed.startsWith(SESSION_OPEN)) return null
   let end = trimmed.length
   if (!trimmed.endsWith(SESSION_CLOSE)) {
     const close = trimmed.lastIndexOf(`${SESSION_CLOSE}\n\n`)
     if (close < 0) return null
     const line = trimmed.slice(close + SESSION_CLOSE.length + 2)
-    if (line !== TITLE_LINE && !TITLE_LINE_LANGUAGE.test(line)) return null
+    if (line !== SESSION_TITLE_LINE && !TITLE_LINE_LANGUAGE.test(line)) return null
     end = close + SESSION_CLOSE.length
   }
   if (end < SESSION_OPEN.length + SESSION_CLOSE.length) return null

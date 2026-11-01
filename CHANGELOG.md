@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Detection moves from ruleset 2026.10.124 to 2026.11.1. Before and after on every corpus: 0 of 12,901 block verdicts changed. Held-out recall unchanged (heldout 23/31, injecagent 1054/1054, safeguard 495/650); `npm run fpr` unchanged (9/336; Dolly, oasst1 and Aya samples 0 blocked).
+Detection moves from ruleset 2026.10.124 to 2026.11.2. Before and after on every corpus: 0 of 12,901 block verdicts changed (2026.11.2 cannot move one: none of the 32,219 strings in the corpus and eval data matches a harness template, and only a match changes what is scored). Held-out recall unchanged (heldout 23/31, injecagent 1054/1054, safeguard 495/650); `npm run fpr` unchanged (9/336; Dolly, oasst1 and Aya samples 0 blocked).
 
 ### Added
 
@@ -16,6 +16,7 @@ Detection moves from ruleset 2026.10.124 to 2026.11.1. Before and after on every
 
 ### Fixed
 
+- **Claude Code's security reviews are no longer refused or warned for their own instructions (ruleset 2026.11.2).** One review prompt opens every request with the same fixed instructions, which name SQL injection, hardcoded passwords and `eval()`, so the harmful-request stage refused every review on that text alone, whatever the diff. The other (the changed files, then the diff) put every review at the embedding warn line, alone or inside Claude Code's session-title request. A user prompt that starts with a registered harness template is now scored without the template's fixed text. The diff and everything else in it are still scored on every stage, so a diff that carries attack text is still refused. Only the exact fixed text is removed: one character different, or a sentence where a slot (one word, or a list of file paths) is, and the prompt is scored whole. Further templates are entries in one list. See [Harness prompt templates](docs/guides/tuning.md#harness-prompt-templates).
 - **Gemini tool outputs held as `{ output }` or `{ error }` are scanned as text (ruleset 2026.11.1, #594).** Gemini CLI and Antigravity send tool results this way. They were read as JSON, so every line break became the two characters `\n` and a rule anchored on a line start never matched (as #292 was for Anthropic). Any other response shape is still scanned as JSON, so no field goes unscanned.
 
 ## [0.9.4] - 2026-11-01

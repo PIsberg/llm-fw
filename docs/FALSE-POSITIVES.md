@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.2
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** A user prompt that starts with a registered harness template (Claude Code's two security-review prompts) is scored without the template's fixed text. None of the 32,219 strings in `test/eval/data`, `test/detection/fixtures` and `test/load/data` matches a template (run through `stripHarnessTemplate`; one benign corpus row opens with the same sentence as the second review prompt but lacks its line breaks, so it does not match), and only a match changes what is scored, so no verdict here can move. On the live event ring of 2026-11-01, run again with the author's config: 8 distinct review requests were refused or warned; 4 now pass, and the 4 reviews of llm-fw's own detector diffs still block on the diff. The review prompts' fixed text alone, around a one-line diff, now scores as the diff alone does (embedding similarity 0.815 for both, against 0.849 with the text).
+
 ## Result, ruleset 2026.11.1
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** Two changes for Google's Cloud Code API (#594): withholding groups messages inside its `request` envelope, and a Gemini tool result held as `{ output }` or `{ error }` is scanned as text rather than JSON. No corpus here carries either shape, and a before and after verdict dump over every corpus changed 0 of 12,901 block verdicts.

@@ -55,6 +55,13 @@ and cut the ruleset. An exemption for a fixed harness sentence or field shape
 keeps everything else scored, and gets a guard test that puts an attack in
 the exempted slot.
 
+A fixed prompt a harness sends with work appended (Claude Code's security
+review) is an entry in `HARNESS_TEMPLATES` (`src/detection/harnessTemplates.ts`),
+not new code: copy its fixed text byte for byte from a real event, turn each
+varying part into a slot, cut the ruleset. Slots hold one word, never a
+sentence. `test/detection/harnessTemplates.test.ts` walks the list, so the
+entry needs no test of its own.
+
 ## Other languages
 
 A non-English miss goes in stage 1: a rule in `heuristic.ts` for a language

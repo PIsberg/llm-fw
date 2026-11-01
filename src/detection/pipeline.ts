@@ -4,6 +4,7 @@ import { isObserving, effectiveClassifierBlockThreshold } from '../config/config
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope } from './clientEnvelopes.js'
+import { stripHarnessTemplate } from './harnessTemplates.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
@@ -620,8 +621,11 @@ export class Pipeline {
       lastYield = performance.now()
     }
 
-    for (const { text: prompt, source, trustedPath, toolName } of scanItems) {
-      at.item = { text: prompt, source }
+    for (const { text: itemText, source, trustedPath, toolName } of scanItems) {
+      // The item as it is in the body, which a withhold has to find; every
+      // stage below reads it without a harness template's fixed text.
+      at.item = { text: itemText, source }
+      const prompt = stripHarnessTemplate(itemText, source).text
       await yieldIfDue()
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks. So is the client:
