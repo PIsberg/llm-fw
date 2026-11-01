@@ -5,6 +5,9 @@ import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS, AI_PROVIDER_INTERCEPT_DOMAINS }
 import { getLlmFwDir } from './paths.js';
 
 export const DEFAULT_CONFIG: Config = {
+  // Say on `llm-fw start` when npm has a newer release (#597). Override via
+  // LLM_FW_UPDATE_CHECK.
+  updateCheck: true,
   proxy: {
     mode: 'proxy',
     // Fail-safe pass-through. OFF by default. Flip on (LLM_FW_BYPASS=true) to turn
@@ -802,6 +805,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   // Applied AFTER every other override (see loadConfig), because it relaxes
   // modes that those overrides may themselves have set.
   LLM_FW_ENFORCEMENT: (c, v) => { if (v === 'observe' || v === 'enforce') c.enforcement = v; },
+  LLM_FW_UPDATE_CHECK: (c, v) => { c.updateCheck = v === 'true'; },
   LLM_FW_AUDIT_ENABLED: (c, v) => { if (c.audit) c.audit.enabled = v === 'true'; },
   LLM_FW_AUDIT_FILE: (c, v) => { if (c.audit) c.audit.file = v; },
   LLM_FW_AUDIT_PAYLOADS: (c, v) => { if (c.audit) c.audit.includePayloads = v === 'true'; },

@@ -747,6 +747,10 @@ export interface GatewayConfig {
 
 export interface Config {
   proxy: ProxyConfig;
+  // Ask the npm registry for a newer release once `llm-fw start` is up, and
+  // say so on the console (#597). One GET, nothing sent; skipped under CI.
+  // Default true. Also LLM_FW_UPDATE_CHECK.
+  updateCheck?: boolean;
   detection: DetectionConfig;
   dashboard: DashboardConfig;
   gateway?: GatewayConfig;

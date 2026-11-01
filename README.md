@@ -226,6 +226,17 @@ install, the package's entries change nothing), so add `--ignore-scripts` to
 the install command, as the install scripts above do, if you want a silent
 install.
 
+**Updating.** `llm-fw start` prints the version it runs and, once it is up,
+says when npm has a newer release. To update:
+
+```bash
+npm install -g --ignore-scripts llm-fw@latest
+llm-fw stop && llm-fw start
+```
+
+The check is one GET to the public npm registry with nothing sent; switch it off
+with `updateCheck: false` or `LLM_FW_UPDATE_CHECK=false`.
+
 ---
 
 ## Quick Start

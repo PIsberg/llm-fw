@@ -370,6 +370,15 @@ with what it rewrites and what to watch for, is in
 [Token savings](token-savings.md). The design is in
 [SPEC-modules.md](../specs/SPEC-modules.md).
 
+**Update check.** `llm-fw start` prints its version and ruleset first, and once
+every listener is bound asks the npm registry
+(`https://registry.npmjs.org/llm-fw/latest`) for the newest release. When it is
+newer, the console says so with the command to update. The request is one GET
+with nothing sent about you or your traffic; it never delays startup, gives up
+after 2 seconds, says nothing when offline, and is skipped when `CI` is set.
+`updateCheck: false` (or `LLM_FW_UPDATE_CHECK=false`) switches it off. Read once
+at startup, so a change needs a restart.
+
 ## Logging
 
 Structured JSON to `stdout` for informational records and `stderr` for
@@ -411,7 +420,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_113 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_114 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -526,6 +535,7 @@ _113 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TOOLUSE_SCAN_ENABLED` | `responseScan.toolUse.enabled` | `true` |
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
 | `LLM_FW_TRUSTED_PATHS` | `detection.surfaces.tool_result` |  |
+| `LLM_FW_UPDATE_CHECK` | `updateCheck` | `true` |
 | `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |
 | `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `false` |
 

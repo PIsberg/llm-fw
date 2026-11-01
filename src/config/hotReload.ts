@@ -224,6 +224,8 @@ const COLD_PATHS: Path[] = [
   ['extraTargets'],
   ['proxy', 'interceptDomains'],
   ['proxy', 'inspectChatgptBackend'],
+  // Read once, after the listeners bind.
+  ['updateCheck'],
 ]
 
 /**
