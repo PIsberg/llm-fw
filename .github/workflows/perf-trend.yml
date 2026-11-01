@@ -1,0 +1,129 @@
+name: Nightly Performance Trend
+
+# Load scenario A (benign stress, test/load/performance.ts) once a night on the
+# same runner type, one row per run (throughput, latency percentiles, CPU,
+# peak memory) appended to a JSONL history, and the last 30 runs drawn as
+# charts in the job summary (scripts/perf-trend.ts), so a version can be
+# compared with the ones before it (#598). It reports and does not gate:
+# runner noise moves these numbers more than most changes, and scenario A's
+# own p99 ceiling already fails a run that is slow outright.
+#
+# The history is a single JSONL file on the orphan branch `perf-trend-data`,
+# kept the way nightly.yml keeps `bench-trend-data`: not on main, which
+# requires a pull request and a review that a scheduled job cannot supply.
+on:
+  schedule:
+    - cron: '7 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-performance-trend
+  cancel-in-progress: false
+
+jobs:
+  perf-trend:
+    name: Performance trend (scenario A)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # required to commit perf-trend.jsonl back
+
+    env:
+      LLM_FW_MODEL_DIR: ${{ github.workspace }}/.hf-model-cache
+      TREND_BRANCH: perf-trend-data
+      TREND_FILE: perf-trend.jsonl
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache embedding model
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.hf-model-cache
+          key: llm-fw-model-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-whisper
+
+      - name: Fetch trend history
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin \
+            "+refs/heads/$TREND_BRANCH:refs/remotes/origin/$TREND_BRANCH" || true
+          if git rev-parse --verify --quiet "refs/remotes/origin/$TREND_BRANCH"; then
+            git show "origin/$TREND_BRANCH:$TREND_FILE" > "$TREND_FILE"
+            echo "Loaded $(wc -l < "$TREND_FILE") prior trend rows."
+          else
+            echo "::notice::Branch $TREND_BRANCH not found: starting an empty history."
+            : > "$TREND_FILE"
+          fi
+
+      # Fixed values, so one night compares with the next.
+      - name: Run load scenario A
+        id: perf
+        continue-on-error: true
+        run: npm run test:load:perf
+        env:
+          LOAD_VUS: '3'
+          LOAD_DURATION_S: '30'
+          LOAD_P99_MS: '8000'
+          LOAD_OUTPUT_FILE: ${{ runner.temp }}/perf.json
+
+      - name: Append to the trend and draw it
+        if: ${{ !cancelled() && hashFiles(format('{0}/perf.json', runner.temp)) != '' }}
+        run: npm run perf:trend -- --file="$TREND_FILE" --result="$RUNNER_TEMP/perf.json"
+
+      # Built with plumbing rather than `git commit`, as in nightly.yml: the
+      # working tree is main's, and the data branch must hold only $TREND_FILE.
+      - name: Commit updated trend data
+        if: ${{ !cancelled() }}
+        env:
+          GIT_AUTHOR_NAME: 'github-actions[bot]'
+          GIT_AUTHOR_EMAIL: 'github-actions[bot]@users.noreply.github.com'
+          GIT_COMMITTER_NAME: 'github-actions[bot]'
+          GIT_COMMITTER_EMAIL: 'github-actions[bot]@users.noreply.github.com'
+        run: |
+          set -euo pipefail
+          if [ ! -s "$TREND_FILE" ]; then
+            echo "No trend data written; nothing to commit."
+            exit 0
+          fi
+          GIT_INDEX_FILE="$RUNNER_TEMP/trend.index"
+          export GIT_INDEX_FILE
+          rm -f "$GIT_INDEX_FILE"
+          blob="$(git hash-object -w "$TREND_FILE")"
+          git update-index --add --cacheinfo "100644,$blob,$TREND_FILE"
+          tree="$(git write-tree)"
+          msg='ci: nightly performance trend update [skip ci]'
+          if git rev-parse --verify --quiet "refs/remotes/origin/$TREND_BRANCH"; then
+            parent="$(git rev-parse "refs/remotes/origin/$TREND_BRANCH")"
+            if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+              echo "No trend changes to commit."
+              exit 0
+            fi
+            commit="$(git commit-tree "$tree" -p "$parent" -m "$msg")"
+          else
+            commit="$(git commit-tree "$tree" -m "$msg")"
+          fi
+          git push origin "$commit:refs/heads/$TREND_BRANCH"
+
+      - name: Fail job if scenario A failed
+        if: steps.perf.outcome == 'failure'
+        run: |
+          echo "::error::Load scenario A failed its own thresholds (p99, false positives or errors). See the 'Run load scenario A' step."
+          exit 1

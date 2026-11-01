@@ -144,6 +144,28 @@ Each virtual user runs a loop: pick a random benign prompt → wrap it in an Ant
 | False Positive Rate | `FP / total_requests × 100` |
 | Error rate | Requests that raised a network exception |
 | Time series | Per-second `{ rps, p50Ms, p95Ms }` for the throughput chart |
+| CPU | User plus system CPU time over the run, as a percentage of one core (onnxruntime runs inference on several threads, so it exceeds 100%) |
+| Peak RSS / peak heap | Highest resident set size and V8 heap used, sampled every second |
+| Resource series | Per-second `{ t, rssMb, heapMb, cpuPct }` (`test/load/lib/resources.ts`) |
+
+The proxy, the mock upstream and the load generator share one process, so CPU
+and memory are the firewall plus a small, constant harness overhead: compare
+runs with each other, not with a production RSS. Measured locally, 2 workers
+for 6 s: 656 requests at 109 per second, p99 44 ms, CPU 874% of one core, peak
+RSS 632 MB. In CI the scenario writes these, with per-second charts of
+throughput, p95 latency, RSS and CPU, to the job summary (GitHub renders the
+Mermaid blocks).
+
+### The nightly trend
+
+`.github/workflows/perf-trend.yml` runs scenario A every night with fixed
+values (3 workers, 30 s) and `npm run perf:trend` appends one row per run
+(throughput, p50/p95/p99, CPU, peak RSS and heap, commit) to `perf-trend.jsonl`
+on the orphan branch `perf-trend-data`, then draws the last 30 runs as charts in
+the job summary. It reports and does not gate: runner noise moves these
+numbers more than most changes, and the p99 ceiling below already fails a run
+that is slow outright. Read the history with
+`git show origin/perf-trend-data:perf-trend.jsonl`.
 
 ### Pass / fail thresholds
 
