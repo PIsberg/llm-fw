@@ -295,8 +295,24 @@ hits, as Claude Code's resent history is) with one new tool result.
 | `LLM_FW_MODEL_DIR` | `<repo>/.hf-model-cache` | Model cache; the child's `LLM_FW_DIR` is a temp dir, so without it every run downloads the model |
 
 The run also records the startup cost (model load, process start to ready), an
-idle baseline before the load and one after it, and a timeline sampled every
-500 ms. `results.json` carries every request's latency for the distribution
+idle baseline before the load and one after it, a timeline sampled every
+500 ms, and the latency of each workload's first request
+(`coldFirstRequestMs`), sent before any level with a 300 s timeout: for the
+agent workload that is the whole history scanned cold. Without that priming
+request, a cold scan that outlived the 10 s client timeout kept running in the
+firewall while every later request missed the item cache and repeated it, and
+a whole run recorded 0 agent requests per second.
+
+### Noisy runs
+
+Two runs of one commit on one laptop measured chat at 1 client at 52 and at
+8.7 requests per second. So each level also records machine-wide CPU from
+`os.cpus()`, split into the firewall, the load generator and other processes,
+and a fixed single-thread probe (SHA-256 over 32 MB) runs before each workload
+and at the end. Other processes above 10% of the machine in a level, or a probe
+that slows by 20% or more over the run (thermal or power throttling), prints a
+WARNING, lands in `warnings` in `results.json`, and puts "Noisy run" on the
+overview chart. Treat such a run as noise and repeat it on a quiet machine. `results.json` carries every request's latency for the distribution
 chart, plus the version, ruleset, commit (and whether tracked files were
 dirty), Node, CPU model and core count, which the charts print in their footer.
 
@@ -312,7 +328,7 @@ python scripts/load-bench-charts.py reports/load-bench/<run>/results.json
 | `overview.png` | Headline tiles: peak throughput, p50/p99 and CPU per request per workload, memory, startup, worst event-loop delay |
 | `throughput-latency.png` | Per workload: requests per second, and p50/p95/p99 latency, against concurrency |
 | `latency-distribution.png` | Per workload: latency CDF, one curve per concurrency level |
-| `cpu-memory.png` | CPU as a percentage of one core, CPU time per request, peak RSS, against concurrency |
+| `cpu-memory.png` | CPU as a percentage of one core, CPU time per request, peak RSS, and other processes' share of the machine, against concurrency |
 | `timeline.png` | RSS, heap, CPU and event-loop delay over the whole run, measured windows shaded |
 
 ---

@@ -85,8 +85,21 @@ it that way if you change the workloads.
   every concurrency level, 1 client included, is onnxruntime's intra-op threads
   spin-waiting, not detection work. Measured 2026-11-01: chat at 1 client used
   1,092% with spinning (the default) and 191% with
-  `session.intra_op.allow_spinning` off, at similar throughput. Do not read the
-  ceiling as "detection needs 12 cores".
+  `session.intra_op.allow_spinning` off, at similar throughput (#631). Do not
+  read the ceiling as "detection needs 12 cores".
+- **Check `warnings` before anything else.** The run records machine-wide CPU
+  per level (`machine.otherPct`: other processes, as a share of all threads)
+  and a fixed SHA-256 speed probe before each workload and at the end
+  (`speedProbes`). Other processes above 10% in a level, or a probe that slows
+  by 20% or more, prints a WARNING and puts "Noisy run" on the overview chart.
+  A noisy run is not a result: on 2026-11-01 the probe went from 19 ms to
+  69 ms mid-run (a laptop on the Balanced power plan, with other sessions
+  busy) and every agent level timed out. Report it as noisy and rerun.
+- **`coldFirstRequestMs`** is the first request of each workload, sent before
+  any level with a 300 s timeout. For `agent` it is the whole history scanned
+  cold, which is what an agent's first turn costs. It is primed this way
+  because an abandoned cold scan still runs to the end, and every request that
+  arrives meanwhile misses the item cache and repeats it.
 - **Flat throughput with rising latency is saturation**, not a regression: past
   that level every added client only queues. Quote the knee, the level where
   throughput stops growing, and p99 there.
