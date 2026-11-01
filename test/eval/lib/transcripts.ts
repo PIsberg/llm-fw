@@ -129,3 +129,14 @@ export function dedupe(items: Iterable<ReplayItem>): ReplayItem[] {
   }
   return out
 }
+
+/**
+ * A fixed sample of `n` items: those whose key hashes lowest with `seed`. The
+ * same items for the same seed whatever the input order, so a sampled run on
+ * one tree can be diffed item by item against one on another (#608).
+ */
+export function sampleItems(items: readonly ReplayItem[], n: number, seed: string): ReplayItem[] {
+  if (n >= items.length) return [...items]
+  const rank = (it: ReplayItem): string => createHash('sha1').update(`${seed}\0${it.key}`).digest('hex')
+  return [...items].map(it => ({ it, r: rank(it) })).sort((a, b) => (a.r < b.r ? -1 : a.r > b.r ? 1 : 0)).slice(0, n).map(x => x.it)
+}

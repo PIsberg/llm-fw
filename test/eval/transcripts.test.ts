@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { claudeCodeItems, codexItems, dedupe } from './lib/transcripts.js'
+import { claudeCodeItems, codexItems, dedupe, sampleItems } from './lib/transcripts.js'
 import { diffReplays, type ReplayRecord } from './lib/replayDiff.js'
 import { getParser } from '../../src/detection/parsers.js'
 
@@ -76,5 +76,26 @@ describe('diffing two replays', () => {
     expect(d.changed).toHaveLength(2)
     expect(d.unblocked.map(r => [r.key, r.stage])).toEqual([['a', 'classifier']])
     expect(d.newlyBlocked.map(r => [r.key, r.stage])).toEqual([['b', 'embedding']])
+  })
+})
+
+// #608: a full 14-day replay takes most of a day, so a quick before/after run
+// replays a sample. The sample must be the same items on both trees, or the
+// two runs cannot be diffed item by item.
+describe('sampling replay items', () => {
+  const many = Array.from({ length: 200 }, (_, i) => claudeCodeItems(JSON.stringify({ type: 'user', message: { role: 'user', content: `prompt number ${i}` } }), 's.jsonl')[0]!)
+
+  it('takes n items, the same n for the same seed whatever the input order', () => {
+    const a = sampleItems(many, 25, 'seed-1')
+    const b = sampleItems([...many].reverse(), 25, 'seed-1')
+    expect(a).toHaveLength(25)
+    expect(new Set(a.map(i => i.key))).toEqual(new Set(b.map(i => i.key)))
+  })
+
+  it('draws another sample for another seed, and everything when n is larger', () => {
+    const a = new Set(sampleItems(many, 25, 'seed-1').map(i => i.key))
+    const c = sampleItems(many, 25, 'seed-2').map(i => i.key)
+    expect(c.some(k => !a.has(k))).toBe(true)
+    expect(sampleItems(many, 500, 'x')).toHaveLength(200)
   })
 })
