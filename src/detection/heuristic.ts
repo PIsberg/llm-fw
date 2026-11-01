@@ -173,8 +173,11 @@ export class HeuristicScorer {
           /\b(?:ignore|disregard|discard|forget(?: about)?|override)\b (?:(?:all|the|any|of) )*(?:previous|prior|above|earlier|preceding|original|initial|former|old) (?:directions|orders|conditions)\b[^.!?;:,]{0,20}?(?:\s*[.;:!,]\s*|\s+(?:and|then)\s+)(?:and |then )?(?:instead |just |now |only |simply |please )?(?:say|print|output|write|tell|reveal|return|respond|reply|answer|repeat|translate|make|give|show|list|spell|provide|generate|act|pretend|follow|do|send|display|describe|explain|start|begin|ignore|forget|disregard|now|instead)\b/,
           // "Ignore the above and instead ...": the bare positional form, with
           // the hijacking instruction required so "Ignore the above, I pasted
-          // the wrong file" stays a person correcting themselves.
-          /\b(?:ignore|disregard) (?:all of )?the (?:above|preceding)\b,?\s*(?:and |then |[.;:] ?)(?:now |please |simply |only )?(?:instead|just|rather|say|print|output|respond|reply|reveal|tell|repeat|spell|translate)\b/,
+          // the wrong file" stays a person correcting themselves. Its synonyms
+          // too (#557: "Disregard the earlier and instead ..." passed the
+          // mutation gate); a noun after them ("the earlier draft") never
+          // matches, since the hijack must follow at once.
+          /\b(?:ignore|disregard) (?:all of )?the (?:above|preceding|foregoing|earlier|previous|prior)\b,?\s*(?:and |then |[.;:] ?)(?:now |please |simply |only )?(?:instead|just|rather|say|print|output|respond|reply|reveal|tell|repeat|spell|translate)\b/,
           // The three patterns below once matched their nouns with no override
           // frame and blocked ordinary sentences alone (#247): "What is your
           // goal for this quarter?", "Our new task for the sprint is ...",
@@ -944,6 +947,10 @@ export class HeuristicScorer {
           // every OpenAI chat completion carries "refusal": null, so a pasted
           // response or a tool printing one blocked.
           /["'<]?\b(safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)\b["'>]?\s*[:=>]\s*(?:["'<]\s*)?(off|disabled|false|none|no|0)\b(?=\s*(?:["'<>,;.!)}\]]|$|[\w-]+\s*[:=]))/i,
+          // The same blob with its punctuation stripped (#557): a quoted key
+          // then a quoted permissive value, nothing between them but space.
+          // Both quoted, so prose ("the safety team said "no"") stays out.
+          /["'](safety|safety_?(checks?|filters?|settings?|level)|guardrails?|restrictions?|refusals?|content_?(policy|filter|moderation)|moderation|filtering|censorship|nsfw_?filter)["'][ \t]{1,8}["'](off|disabled|false|none|no|0)["']/i,
           /["'<]?\b(allow_?(all|everything)|unrestricted_?mode|uncensored_?mode|god_?mode|jailbreak(_?mode)?|dan_?mode)\b["'>]?\s*[:=>]\s*(?:["'<]\s*)?(true|1|yes|on|enabled)\b/i,
           /<\/?(policy|ruleset|config|permissions?|safety|guardrails?)>[^<]{0,80}(allow_all|unrestricted|disabled|no restrictions)/i,
           /(the following|this) (policy|configuration|config|ruleset|manifest) (applies|governs|overrides|takes precedence|is now active)\b[^.!?]{0,60}(allow|unrestricted|no (restrictions?|limits?|filter)|disabled)/i,
