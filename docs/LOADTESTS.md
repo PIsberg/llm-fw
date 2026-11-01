@@ -474,6 +474,62 @@ The HuggingFace model is cached across runs with `actions/cache` keyed on `packa
 
 ---
 
+## Recorded results: load benchmark, 2026-11-01
+
+`npm run bench:load` with the defaults, llm-fw 0.9.4, ruleset 2026.11.1, commit
+dad5805, Node 26.12.1, Windows 11 on an i7-1260P laptop (16 threads, 32 GB),
+Balanced power plan. Charts and the run's own numbers are in
+[`load-results/2026-11-01_bench/`](load-results/2026-11-01_bench/).
+
+**The run flagged itself as noisy, mildly.** Other processes used 10.5% of the
+machine at agent with 2 clients and 17.3% at attack with 32 (the other 16 levels
+stayed between 1.6% and 9.0%), and the CPU speed probe read 21.3 ms before the
+agent workload against 16.3 to 17.5 ms at the other three points. Two earlier
+runs that day, with the probe at 69 and 164 ms, were discarded. Two shorter
+partial runs of the same code (3 and 6 s per level) measured higher: chat at 1
+client 52.4 and 56.6 req/s, at 4 clients 69.2 and 76.5; agent at 1 client 5.25
+and 5.99. This run is 7 to 31% below them on chat and agent, so read its figures
+as a lower bound for this laptop, not as a capacity claim.
+
+![Overview](load-results/2026-11-01_bench/overview.png)
+
+| Workload | Peak throughput | p50 / p99 at 1 client | CPU per request at 1 client | First request (cold) |
+|---|---|---|---|---|
+| Chat prompt | 62.9 req/s at 32 clients | 20 / 31 ms | 242 ms | 151 ms |
+| Agent request, 64 KB | 5.24 req/s at 16 clients | 229 / 316 ms | 2.76 s | 3.80 s |
+| Attack, refused | 315.9 req/s at 4 clients | 3.9 / 6.5 ms | 3.1 ms | 5 ms |
+
+- **Throughput saturates early.** Chat goes from 48.7 req/s at 1 client to
+  52.8 at 2 and never passes 63; agent stays between 4.3 and 5.2 at every level.
+  Past that, an added client only queues: chat p50 doubles with each doubling
+  of clients (20, 38, 75, 140, 286, 518 ms).
+- **CPU sits at about 1,190% of one core whenever the embedding stage runs**,
+  from 1 client to 32, and falls to 0.5% when the load stops. That is
+  onnxruntime's intra-op threads spin-waiting, not work: with spinning off,
+  chat at 1 client used 191% at similar throughput (#631). CPU per request is
+  therefore inflated by the same factor. The refusal path, which never reaches
+  the model, uses 76 to 103%.
+- **The event loop is the cost to everyone else.** At agent with 32 clients
+  its p99 delay is 2.22 s, so any request reaching the process then waits that
+  long before it is read. At chat with 1 client it is 28 ms.
+- **Memory:** 594 MB idle after start, 512 to 530 MB under chat, up to 666 MB
+  under agent and 786 MB under attack, 719 MB idle after the run.
+- **Startup:** 1.32 s to load the cached model and build the pipeline, 1.98 s
+  from process start to ready.
+- **A cold 64 KB agent request takes 3.80 s** (its whole history scanned for the
+  first time); later ones, with the history in the item cache, 229 ms.
+- One benign chat prompt is refused every time it is drawn, about 1% of chat
+  requests (#632). Attacks that pass are all one corpus row: expected with the
+  judge off, and measured properly by `npm run scorecard`.
+
+![Throughput and latency](load-results/2026-11-01_bench/throughput-latency.png)
+
+![Latency distribution](load-results/2026-11-01_bench/latency-distribution.png)
+
+![CPU and memory](load-results/2026-11-01_bench/cpu-memory.png)
+
+![Timeline](load-results/2026-11-01_bench/timeline.png)
+
 ## Recorded results — 2026-08-20
 
 Run on a local Windows 11 machine (no GPU), ruleset 2026.08.11, at the suite's
