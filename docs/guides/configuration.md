@@ -120,14 +120,18 @@ It is hot-reloaded and also in the dashboard's Surfaces settings. The
 `document` surface keeps the global threshold. Full numbers are in
 [BENCHMARK.md](../BENCHMARK.md).
 
-**Requiring corroboration.** With `detection.classifier.requireCorroboration`
-(also `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION=true`) the classifier blocks only
+**Requiring corroboration.** With `detection.classifier.requireCorroboration`,
+on by default since ruleset 2026.10.124, the classifier blocks only
 when the heuristic or embedding stage found the same text suspicious too: a
 heuristic score of 20 or more, or an embedding similarity over the warn
 threshold with the margin, the same signal that routes a text to the judge. A
 classifier hit with neither is reported as a warn that names it
 `uncorroborated` and keeps the text it scored, so it can be marked as a false
-positive. It is off by default. Measured on every eval split, it keeps about a
+positive. It is on by default because the model scores ordinary tool output
+(test results, a `grep` of source code) at 0.999 and above in real Claude Code
+traffic, so no threshold separates it. Set it to `false` (or
+`LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION=false`) for the classifier's full
+recall at its false-positive cost. Measured on every eval split, it keeps about a
 third of the classifier's recall gain (safeguard 80.8% against 92.3% plain and
 76.3% with the classifier off) and drops nearly all of its false positives on
 ordinary prompts (multilingual Aya 0% against 41.5%, conversational oasst1
@@ -454,7 +458,7 @@ _114 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_CACHE_CONTROL_ENABLED` | `modules.cacheControl.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ENABLED` | `detection.classifier.enabled` | `false` |
 | `LLM_FW_CLASSIFIER_ESCALATE` | `detection.classifier.escalateThreshold` | `0.5` |
-| `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION` | `detection.classifier.requireCorroboration` | `false` |
+| `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION` | `detection.classifier.requireCorroboration` | `true` |
 | `LLM_FW_CLASSIFIER_SURFACES` | `detection.classifier.surfaces` | `4 entries` |
 | `LLM_FW_CLASSIFIER_THRESHOLD` | `detection.classifier.blockThreshold` | `0.9` |
 | `LLM_FW_CRESCENDO_CROSS_REQUEST` | `crescendo.crossRequest` | `false` |

@@ -123,7 +123,10 @@ function buildConfig(preset: string, model: string): Config {
   // Classifier stage (optional; only present once integrated).
   const cls = c.detection.classifier
   if (cls) cls.enabled = preset === 'classifier' || preset === 'classifier-indirect' || preset === 'classifier-corroborated'
-  if (cls && preset === 'classifier-corroborated') cls.requireCorroboration = true
+  // Explicit for every preset: the shipped default requires corroboration, so
+  // without this the plain 'classifier' preset (the published column and the
+  // weekly bench:compare baseline) would silently measure the corroborated one.
+  if (cls) cls.requireCorroboration = preset === 'classifier-corroborated'
   // Indirect-only mode: the classifier scans ONLY the untrusted data surfaces,
   // so its (measured, issue #221) false-positive cost on natural user prompts
   // is never paid. DEFAULT_CONFIG's surface list already excludes the trusted
