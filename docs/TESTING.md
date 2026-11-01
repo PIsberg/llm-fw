@@ -52,7 +52,7 @@ The pipeline half takes about 50 to 90 seconds. The fixture is committed, so the
 
 Every false positive reported from live use so far was traffic no corpus held (the agents' own wrappers, skill bodies, tool output quoting a security document), so this is the measure of "does ordinary use block". It cannot run in CI: the transcripts are private. `--out run.jsonl` keeps the full text of every blocked item for diagnosis; write it under the ignored `scratch/`. Two runs compare row by row with `--diff before.jsonl after.jsonl`, the way `verdicts:diff` does for the eval splits.
 
-It is slow on purpose, being every stage on real sizes: about 1 s per item with the classifier on (300 items in 6.5 minutes, 2026-10-31). `--count` sizes a window first (50,189 distinct items over 14 days on the author's machine, 7,622 over 3), and `--shard i/n` splits a run across processes; each loads its own models, so leave about 2 GB of RAM per shard.
+It is slow on purpose, being every stage on real sizes: about 1 s per item with the classifier on (300 items in 6.5 minutes, 2026-10-31). `--count` sizes a window first (50,189 distinct items over 14 days on the author's machine, 7,622 over 3), and `--shard i/n` splits a run across processes; each loads its own models, so leave about 2 GB of RAM per shard. Shards contend for the CPU: onnxruntime gives every process all the cores, so four shards on one 16-thread machine ran at 8 to 10 s per item each instead of about 1.3. Prefer one or two. For a quick before and after, `--sample N` replays a fixed N items (`--seed` picks which), the same items on both trees, so `--diff` still compares them one by one: 100 items took 96 s including the model load (2026-11-01).
 
 ---
 

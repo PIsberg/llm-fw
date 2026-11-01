@@ -5,6 +5,7 @@
  *   npm run replay:transcripts -- [--since 14] [--out run.jsonl] [--default-config]
  *                                 [--no-claude] [--no-codex] [--limit N] [--match <substr>]
  *                                 [--shard i/n] [--count] [--kind prompt,reminder,tool_result]
+ *                                 [--sample N] [--seed S]
  *   npm run replay:transcripts -- --diff before.jsonl after.jsonl
  *
  * Reads Claude Code transcripts under ~/.claude/projects (subagents included)
@@ -28,7 +29,7 @@ import path from 'node:path';
 import { Pipeline } from '../src/detection/pipeline.js';
 import { DEFAULT_CONFIG, loadConfig } from '../src/config/config.js';
 import type { BlockEvent, Config } from '../src/types.js';
-import { claudeCodeItems, codexItems, dedupe, type ReplayItem } from '../test/eval/lib/transcripts.js';
+import { claudeCodeItems, codexItems, dedupe, sampleItems, type ReplayItem } from '../test/eval/lib/transcripts.js';
 import { diffReplays, type ReplayRecord } from '../test/eval/lib/replayDiff.js';
 
 const args = process.argv.slice(2);
@@ -72,7 +73,12 @@ async function replay(): Promise<void> {
   // --kind prompt,reminder keeps only those items: a change to one surface
   // is measured without paying for the tool results it cannot move.
   const kinds = opt('--kind')?.split(',');
-  const todo = dedupe(items).filter(it => !kinds || kinds.includes(it.kind)).filter((_, k) => k % shardN === shardI).slice(0, limit);
+  // --sample N keeps a fixed N (seeded by --seed): the same items on two trees,
+  // so a quick run still diffs item by item (#608).
+  const sample = opt('--sample');
+  const filtered = dedupe(items).filter(it => !kinds || kinds.includes(it.kind));
+  const picked = sample ? sampleItems(filtered, Number(sample), opt('--seed') ?? 'llm-fw') : filtered;
+  const todo = picked.filter((_, k) => k % shardN === shardI).slice(0, limit);
   if (flag('--count')) {
     const by = new Map<string, number>();
     for (const it of todo) by.set(`${it.client} ${it.kind}`, (by.get(`${it.client} ${it.kind}`) ?? 0) + 1);
