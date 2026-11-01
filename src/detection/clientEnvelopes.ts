@@ -1,3 +1,5 @@
+import { CLAUDE_CODE_TAGS } from './clientTags.js'
+
 // Envelopes an agent client wraps its own text in, recognised so the
 // wrapper is not scanned as if the text had written it.
 //
@@ -67,8 +69,116 @@ function sessionInner(trimmed: string): string | null {
   return trimmed.slice(SESSION_OPEN.length, end - SESSION_CLOSE.length)
 }
 
-/** What a Claude Code envelope carries (nested ones too); otherwise the text unchanged. */
-export function unwrapClaudeCodeEnvelope(raw: string): string {
+// Every other tag Claude Code wraps its own text in, generated from its binary
+// (clientTags.ts). A user turn Claude Code sent that is nothing but these
+// elements, whitespace between them, is scored for what they carry: the
+// contents and attribute values, one element per line. Only the tags go, so a
+// tag gives an attacker nothing: an instruction inside one is still scored,
+// and a tag that is not Claude Code's, one that does not close, or any text
+// beside the elements keeps the whole text scored. <system-reminder> blocks
+// are read by unwrapClaudeCodeReminders instead, which also drops the
+// harness's own sentences inside them.
+const MARKUP_TAGS: ReadonlySet<string> = new Set([...CLAUDE_CODE_TAGS].filter(t => t !== 'system-reminder' && t !== 'system_reminder'))
+// One opening tag, matched sticky at a known position. Bounded name, value
+// and attribute sizes; each attribute consumes at least four characters.
+const MARKUP_OPEN = /<([a-z][a-z0-9_-]{0,63})((?:[ \t]+[A-Za-z_][\w:-]{0,63}="[^"]{0,2000}")*)[ \t]*(\/?)>/y
+const MARKUP_ATTR = /[A-Za-z_][\w:-]{0,63}="([^"]{0,2000})"/g
+const MARKUP_DEPTH = 4
+
+/** Index of the `</name>` that closes an element whose content starts at `from`, counting nested opens of the same name; -1 if none. */
+function markupClose(s: string, from: number, name: string): number {
+  const open = `<${name}`
+  const close = `</${name}>`
+  let depth = 1
+  let j = from
+  let nextOpen = s.indexOf(open, from)
+  for (;;) {
+    const c = s.indexOf(close, j)
+    if (c < 0) return -1
+    while (nextOpen !== -1 && nextOpen < c) {
+      const after = s.charCodeAt(nextOpen + open.length)
+      // '>', ' ', '\t', '/': an open tag of this name, not a longer name.
+      if (after === 62 || after === 32 || after === 9 || after === 47) depth++
+      nextOpen = s.indexOf(open, nextOpen + 1)
+    }
+    if (--depth === 0) return c
+    j = c + close.length
+  }
+}
+
+// Claude Code's task notifications. The real model scored one 99.97% with its
+// tags dropped, from its fixed words alone: the summary template 97.94% around
+// a description that scores 0.00%, the output path 98.89% (2026-10-31). A
+// field Claude Code fills with an id, a status word or its own output path
+// carries nothing and is not scored, but only in exactly that shape (its own
+// parser reads them as single-line values). A summary in one of Claude Code's
+// templates is scored as the text it quotes; any other summary is scored whole.
+const NOTIFICATION_FIELDS: ReadonlyMap<string, RegExp> = new Map([
+  ['task-id', /^[A-Za-z0-9_-]{1,64}$/],
+  ['tool-use-id', /^toolu_[A-Za-z0-9]{8,64}$/],
+  ['task-type', /^[a-z_]{1,32}$/],
+  ['status', /^[a-z_]{1,32}$/],
+  ['output-file', /^(?:[A-Za-z]:\\|\/)[^\n<>"|?*]{0,400}[\\/][A-Za-z0-9_-]{1,64}\.output$/],
+])
+const SUMMARY_TEMPLATE = /^(?:Background command|Agent|Remote task|Monitor event:) "([^\n]{0,2000})"( completed(?: \(exit code -?\d{1,5}(?:: [A-Za-z0-9 _-]{1,40})?\))?| failed(?: with exit code -?\d{1,5})?| was [a-z ]{1,40}| finished| was resumed by the user| is still running after [\dhms ]{1,20}, with no new output for [\dhms ]{1,20}| appears to be waiting for interactive input| is blocked| completed|)$/
+
+/** What one element of Claude Code's markup carries for scoring; null for nothing. */
+function fieldValue(name: string, content: string): string | null {
+  const value = content.trim()
+  if (NOTIFICATION_FIELDS.get(name)?.test(value)) return null
+  if (name === 'summary') {
+    const m = SUMMARY_TEMPLATE.exec(value)
+    if (m) return m[1]!
+  }
+  return value
+}
+
+const isSpace = (code: number): boolean => code === 32 || code === 9 || code === 10 || code === 13
+
+/** What a run of Claude Code elements carries; null when the text is anything else. */
+function markupParts(s: string, depth: number): string[] | null {
+  const parts: string[] = []
+  let i = 0
+  for (;;) {
+    while (i < s.length && isSpace(s.charCodeAt(i))) i++
+    if (i >= s.length) return parts
+    if (s.charCodeAt(i) !== 60) return null
+    MARKUP_OPEN.lastIndex = i
+    const m = MARKUP_OPEN.exec(s)
+    if (!m || !MARKUP_TAGS.has(m[1]!)) return null
+    for (const a of m[2]!.matchAll(MARKUP_ATTR)) if (a[1]!.trim()) parts.push(a[1]!)
+    const start = i
+    i += m[0].length
+    if (m[3]) continue
+    const c = markupClose(s, i, m[1]!)
+    if (c < 0) return null
+    const end = c + m[1]!.length + 3
+    // Claude Code's fixed caveat line carries nothing anyone wrote.
+    if (s.slice(start, end) !== LOCAL_COMMAND_CAVEAT) {
+      // A slice, so the nested scan cannot search past this element.
+      const content = s.slice(i, c)
+      const inner = depth < MARKUP_DEPTH ? markupParts(content, depth + 1) : null
+      const value = inner ? null : fieldValue(m[1]!, content)
+      if (inner) parts.push(...inner)
+      else if (value) parts.push(value)
+    }
+    i = end
+  }
+}
+
+/**
+ * What a Claude Code envelope carries (nested ones too); otherwise the text
+ * unchanged. With `client` 'claude-code', a text made only of Claude Code's
+ * own markup tags is read the same way (see MARKUP_TAGS).
+ */
+export function unwrapClaudeCodeEnvelope(raw: string, client?: string): string {
+  const text = unwrapExactEnvelope(raw)
+  if (client !== 'claude-code' || text !== raw) return text
+  const parts = markupParts(raw, 0)
+  return parts === null ? raw : parts.join('\n')
+}
+
+function unwrapExactEnvelope(raw: string): string {
   let text = raw
   for (let depth = 0; depth < 3; depth++) {
     if (text === LOCAL_COMMAND_CAVEAT) return ''
@@ -139,6 +249,7 @@ const HARNESS_OPENERS: readonly RegExp[] = [
   /^The following (?:deferred )?tools (?:just became|are now) available/,
   /^Tool loaded\.$/,
   /^Background security review of committed or pushed changes/,
+  /^The date has changed\. Today's date is now \d{4}-\d{2}-\d{2}\./,
 ]
 // Inside a harness block, "Contents of <path> (<what it is>):" opens a file
 // the user or a repository wrote, which runs to the next such line.
@@ -146,6 +257,15 @@ const isFileHeader = (line: string): boolean => line.startsWith('Contents of ') 
 
 /** The file bodies of a harness block, or the whole block when it is not one. */
 function reminderParts(inner: string): string[] {
+  // A block that is only one of Claude Code's envelopes (a message sent
+  // mid-turn) or only its markup (<total_tokens>, about 100 of 116 blocked
+  // reminders in a replay of real transcripts, 2026-10-31) is scored for what
+  // it carries.
+  const block = inner.trim()
+  const envelope = unwrapExactEnvelope(block)
+  if (envelope !== block) return envelope.trim() ? [envelope.trim()] : []
+  const markup = markupParts(block, 0)
+  if (markup !== null) return markup
   const lines = inner.split('\n')
   const first = lines.find(l => l.trim() !== '')?.trim() ?? ''
   if (!HARNESS_OPENERS.some(re => re.test(first))) return inner.trim() ? [inner.trim()] : []

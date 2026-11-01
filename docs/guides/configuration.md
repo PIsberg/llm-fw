@@ -127,7 +127,17 @@ message is scored as its values without the tags, and its thread-title
 request as the prompt or conversation after the fixed instructions (that
 one at every stage: the embedding stage blocked 6 of 16 ordinary prompts
 inside it). These envelopes are unwrapped only when a user-turn text is
-exactly one; anything after or around it keeps the whole text scored. The
+exactly one; anything after or around it keeps the whole text scored. Every
+other markup tag Claude Code wraps its own text in (69 in Claude Code
+2.1.316: task notifications, `<bash-stdout>`, `<tick>`, `<total_tokens>`,
+pasted content and more) is listed in `src/detection/clientTags.ts`,
+generated from its binary by `npm run client-tags`. A user-turn text from
+Claude Code, or a reminder block, that is nothing but those elements is
+scored for what they carry: the contents and attribute values, without the
+tags. In a task notification, a field Claude Code fills with an id, a status
+word or its own `.output` path is not scored, and a summary in one of its
+templates (`Background command "..." completed (exit code 0)`) is scored as
+the text it quotes; a value of any other shape is scored as it is. The
 reminder blocks from any other client, or on any other surface, are
 scored as they are. llm-fw's own withhold notices (`[llm-fw withheld this
 ...]`) are never scored, on any surface. Measured on the real model: the

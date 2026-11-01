@@ -1,0 +1,58 @@
+name: Client Tags
+
+# Claude Code wraps its own text in markup tags (task notifications, command
+# output, skill envelopes). The classifier scores a user turn made only of
+# those tags for what they carry, from the list in src/detection/clientTags.ts,
+# which `npm run client-tags` extracts from a Claude Code build. Three ruleset
+# cuts on 2026-10-31 were tags that list did not hold yet, each found because it
+# blocked someone. This job reads the newest release every week and fails when
+# it adds or drops a tag, so the next one is found here instead.
+#
+# The binary is downloaded with `npm pack` and only read, never run.
+on:
+  schedule:
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/client-tags.ts'
+      - 'src/detection/clientTags.ts'
+      - '.github/workflows/client-tags.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Claude Code tags match src/detection/clientTags.ts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # The extractor reads a file with Node and tsx; no native package is
+      # needed, and onnxruntime's install script once failed this job on a
+      # nuget.org timeout.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download the newest Claude Code build
+        run: |
+          npm pack @anthropic-ai/claude-code-linux-x64@latest --pack-destination "$RUNNER_TEMP"
+          tar -xzf "$RUNNER_TEMP"/anthropic-ai-claude-code-linux-x64-*.tgz -C "$RUNNER_TEMP"
+
+      - name: Compare its tags with the committed list
+        run: npm run client-tags -- --from "$RUNNER_TEMP/package/claude" --check
