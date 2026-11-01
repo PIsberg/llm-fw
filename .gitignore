@@ -45,3 +45,7 @@ test/eval/data/local/
 # Diagnostic / SAST scan outputs
 .clinic/
 results.sarif
+
+# Load benchmark output and the model cache it shares with CI
+reports/load-bench/
+.hf-model-cache/

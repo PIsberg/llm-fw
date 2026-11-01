@@ -23,19 +23,6 @@ import type { Config } from '../../../src/types.js'
 // Must be patched before any ProxyServer instance is created.
 ;(UpstreamResolver.prototype as any).resolve = (_h: string) => Promise.resolve('127.0.0.1')
 
-function dechunk(body: string): string {
-  let pos = 0, result = ''
-  while (pos < body.length) {
-    const nl = body.indexOf('\r\n', pos)
-    if (nl === -1) break
-    const size = parseInt(body.slice(pos, nl).trim(), 16)
-    if (Number.isNaN(size) || size === 0) break
-    result += body.slice(nl + 2, nl + 2 + size)
-    pos = nl + 2 + size + 2
-  }
-  return result
-}
-
 export interface SendResult {
   statusCode: number
   latencyMs: number
@@ -51,32 +38,13 @@ export interface Harness {
 const TARGET_HOST = 'api.anthropic.com'
 const REQUEST_TIMEOUT_MS = 10_000
 
-export async function setupHarness(proxyPort: number, dashPort: number): Promise<Harness> {
-  const tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-load-'))
-  process.env.LLM_FW_DIR = tempDir
-  const proxyCaPem = new CertFactory().generateCA().cert
-
-  // Both TLS legs stay verified: the proxy checks the mock upstream against the
-  // throwaway CA trusted here, and send() checks the proxy against its own CA.
-  const upstreamCert = issueUpstreamCert(TARGET_HOST)
-  const restoreTrust = trustCA(upstreamCert.ca)
-
-  // Mock upstream HTTPS server — accepts any request and returns a dummy 200.
-  const mockUpstream = https.createServer({ key: upstreamCert.key, cert: upstreamCert.cert }, (req, res) => {
-    req.resume()
-
-    req.on('end', () => {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ id: 'mock', choices: [{ message: { content: 'ok' } }] }))
-    })
-    req.on('error', () => { /* ignore */ })
-  })
-  await new Promise<void>(r => mockUpstream.listen(0, '127.0.0.1', () => r()))
-  const mockPort = (mockUpstream.address() as { port: number }).port
-
-  // Proxy config optimised for load testing: no judge, no loop detection,
-  // no DoS rate limiting so the circuit breaker doesn't fire under load.
-  const config: Config = {
+/**
+ * Proxy config used under load: no judge, no DLP, no loop detection and no DoS
+ * rate limiting, so the circuit breaker never fires and every request reaches
+ * the detection stages.
+ */
+export function loadTestConfig(proxyPort: number, dashPort: number): Config {
+  return {
     ...DEFAULT_CONFIG,
     proxy: { ...DEFAULT_CONFIG.proxy, port: proxyPort },
     detection: { ...DEFAULT_CONFIG.detection, judgeEnabled: false },
@@ -91,15 +59,69 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
     },
     targets: [TARGET_HOST],
   }
+}
 
+export interface MockUpstream {
+  port: number
+  /** PEM of the CA that issued the mock's certificate; the proxy must trust it. */
+  caPem: string
+  close: () => Promise<void>
+}
+
+/** A mock HTTPS upstream that accepts any request and answers a dummy 200. */
+export async function startMockUpstream(): Promise<MockUpstream> {
+  const upstreamCert = issueUpstreamCert(TARGET_HOST)
+  const server = https.createServer({ key: upstreamCert.key, cert: upstreamCert.cert }, (req, res) => {
+    req.resume()
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ id: 'mock', choices: [{ message: { content: 'ok' } }] }))
+    })
+    req.on('error', () => { /* ignore */ })
+  })
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()))
+  const port = (server.address() as { port: number }).port
+  return { port, caPem: upstreamCert.ca, close: () => new Promise<void>(r => server.close(() => r())) }
+}
+
+export async function setupHarness(proxyPort: number, dashPort: number): Promise<Harness> {
+  const tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-load-'))
+  process.env.LLM_FW_DIR = tempDir
+  const proxyCaPem = new CertFactory().generateCA().cert
+
+  // Both TLS legs stay verified: the proxy checks the mock upstream against the
+  // throwaway CA trusted here, and send() checks the proxy against its own CA.
+  const mockUpstream = await startMockUpstream()
+  const restoreTrust = trustCA(mockUpstream.caPem)
+
+  const config = loadTestConfig(proxyPort, dashPort)
   const eventBus = new EventBus(config.dashboard)
   const proxy = new ProxyServer(config, eventBus)
   await proxy.init() // loads embedding model — cached in CI
   proxy.start()
 
-  const send: SendFn = (body: string) =>
+  const send = createSender(proxyPort, mockUpstream.port, proxyCaPem)
+
+  const teardown = async () => {
+    restoreTrust()
+    await proxy.stop()
+    await mockUpstream.close()
+    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch {}
+  }
+
+  return { send, teardown }
+}
+
+/**
+ * Send one request through the proxy: a fresh CONNECT tunnel, TLS verified
+ * against the proxy's CA, then `POST /v1/messages` with `Connection: close`.
+ * The latency is the whole exchange, tunnel and handshake included.
+ */
+export function createSender(proxyPort: number, mockPort: number, proxyCaPem: string): SendFn {
+  return (body: string) =>
     new Promise((resolve, reject) => {
-      const t0 = Date.now()
+      const t0 = performance.now()
+      const elapsed = (): number => Math.round((performance.now() - t0) * 100) / 100
       const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort })
 
       socket.setTimeout(REQUEST_TIMEOUT_MS, () => {
@@ -127,7 +149,7 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
         const firstLine = buf.slice(0, buf.indexOf('\r\n'))
         if (!firstLine.includes('200')) {
           socket.destroy()
-          return resolve({ statusCode: parseInt(firstLine.split(' ')[1] ?? '502', 10), latencyMs: Date.now() - t0 })
+          return resolve({ statusCode: parseInt(firstLine.split(' ')[1] ?? '502', 10), latencyMs: elapsed() })
         }
 
         const tlsSocket = tls.connect({ socket, servername: TARGET_HOST, ca: proxyCaPem, rejectUnauthorized: true }, () => {
@@ -149,15 +171,8 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
             const headerEnd = res.indexOf('\r\n\r\n')
             if (headerEnd === -1) return reject(new Error('malformed response'))
             const headerPart = res.slice(0, headerEnd)
-            let resBody = res.slice(headerEnd + 4)
             const statusCode = parseInt(headerPart.split('\r\n')[0]?.split(' ')[1] ?? '200', 10)
-            const hdrs: Record<string, string> = {}
-            for (const line of headerPart.split('\r\n').slice(1)) {
-              const ci = line.indexOf(': ')
-              if (ci > 0) hdrs[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
-            }
-            if (hdrs['transfer-encoding'] === 'chunked') resBody = dechunk(resBody)
-            resolve({ statusCode, latencyMs: Date.now() - t0 })
+            resolve({ statusCode, latencyMs: elapsed() })
           } catch (e) {
             reject(e)
           }
@@ -165,15 +180,6 @@ export async function setupHarness(proxyPort: number, dashPort: number): Promise
         tlsSocket.on('error', reject)
       })
     })
-
-  const teardown = async () => {
-    restoreTrust()
-    await proxy.stop()
-    await new Promise<void>(r => mockUpstream.close(() => r()))
-    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch {}
-  }
-
-  return { send, teardown }
 }
 
 /** Return the p-th percentile of a pre-sorted array. */
