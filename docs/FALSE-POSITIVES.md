@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.121
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** A security fix to 2026.10.120: the object-gated "update" also fires on a second object list (`UPDATE_OBJECT_RE`: agent instruction files, shell profiles, CI workflows, access, policy and secret stores), so the gate that cleared operations advice no longer clears an update order aimed at those. `verdicts:diff` 0 of 12,901 block verdicts changed; heldout, injecagent and safeguard counts identical to main at d32d5c9.
+
 ## Result, ruleset 2026.10.120
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** "update" is now an object-gated polite verb, so a log's advice to update a unit or config file ("Please update your unit file to include the new ExecStart line") is no longer read as an order (#477). An update order that names a secret or an attacker target still fires. Measured on main at d32d5c9 against this branch: `verdicts:diff` 0 of 12,901 block verdicts changed; heldout, injecagent (1,054 of 1,054 attacks, 17 of 17 benign) and safeguard counts identical before and after, so the full InjecAgent split holds.
