@@ -1144,7 +1144,7 @@ export class ProxyServer {
               score: 100, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
               payload_preview: `Blocked tool result (id ${tr.toolUseId})`, payload_full: tr.result,
-              action: 'blocked', kind: 'mcp'
+              action: 'blocked', kind: 'mcp', ...(tr.toolName ? { mcpTool: tr.toolName } : {})
             })
             return
           } else if (resResult.audit) {
@@ -1152,14 +1152,15 @@ export class ProxyServer {
               stage: 'mcp-filter', score: 50, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
               payload_preview: `Audit: would block tool result (id ${tr.toolUseId}) — ${resResult.reason ?? ''}`, payload_full: tr.result,
-              action: 'warned', kind: 'mcp'
+              action: 'warned', kind: 'mcp', ...(tr.toolName ? { mcpTool: tr.toolName } : {})
             })
           } else {
             emitEvent({
               stage: 'mcp-filter', score: 0, similarity: 0,
               target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Tool result returned (id ${tr.toolUseId})`, payload_full: tr.result,
-              action: 'passed', kind: 'mcp'
+              // The tool it answers, so the MCP tab can group calls and results (#591).
+              payload_preview: tr.toolName ? `Tool result returned from ${tr.toolName} (id ${tr.toolUseId})` : `Tool result returned (id ${tr.toolUseId})`, payload_full: tr.result,
+              action: 'passed', kind: 'mcp', ...(tr.toolName ? { mcpTool: tr.toolName } : {})
             })
           }
         }

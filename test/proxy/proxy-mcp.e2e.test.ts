@@ -293,6 +293,23 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'execute_command')).toBe(true)
   })
 
+  // #591: a tool result's event names the tool it answers, so the dashboard
+  // can group each tool's calls and results.
+  it('names the tool a returned tool result answers', async () => {
+    const res = await send('/v1/messages', JSON.stringify({
+      model: 'claude-3-haiku-20240307', max_tokens: 16,
+      messages: [
+        { role: 'user', content: 'weather?' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_w1', name: 'get_weather', input: { city: 'Lund' } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_w1', content: 'sunny, 12 C' }] },
+      ],
+    }))
+    expect(res.statusCode).toBe(200)
+    const ev = mcpEvents().find(e => e.action === 'passed' && e.payload_preview.includes('toolu_w1'))
+    expect(ev?.mcpTool).toBe('get_weather')
+    expect(ev?.payload_preview).toBe('Tool result returned from get_weather (id toolu_w1)')
+  })
+
   it('passes an allowed tool_use through a JSON response untouched', async () => {
     const res = await send('/v1/messages', toolRequest('json-allowed'))
     expect(res.statusCode).toBe(200)
