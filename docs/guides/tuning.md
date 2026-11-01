@@ -54,9 +54,9 @@ Three threshold knobs are exposed for `tool_result`/`document` (the user prompt 
 
 - `heuristicBlockThreshold` — the Stage 1 score at which that surface blocks.
 - `embeddingMarginThreshold` — the minimum contrastive margin required (the gap between the top injection-anchor cosine and the top benign-anchor cosine) for that surface's Stage 2 to act on an embedding match; overrides the global default (`0.02`) for this surface only.
-- `classifierBlockThreshold` — the opt-in classifier's block threshold on that surface, for when the classifier is enabled.
+- `classifierBlockThreshold` — the opt-in classifier's block threshold on that surface, for when the classifier is enabled. The shipped default is `0.999` on `tool_result` (#587; see [the configuration guide](configuration.md)) and the global threshold on `document`.
 
-(The embedding stage's absolute block and warn cosines, `detection.embeddingBlockThreshold` and `detection.embeddingWarnThreshold`, stay global: only the contrastive margin requirement is overridable per surface.) Leaving `detection.surfaces` unset is **bit-identical** to prior behavior.
+(The embedding stage's absolute block and warn cosines, `detection.embeddingBlockThreshold` and `detection.embeddingWarnThreshold`, stay global: only the contrastive margin requirement is overridable per surface.) Leaving `detection.surfaces` unset gives the shipped defaults: tool results withheld rather than refused, older prompts withheld, and the classifier's `0.999` bar on tool results; the heuristic and embedding thresholds stay global.
 
 ### Configuration
 

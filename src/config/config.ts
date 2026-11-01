@@ -146,7 +146,11 @@ export const DEFAULT_CONFIG: Config = {
     // went from 32 to 10 of 245. Also LLM_FW_TOOL_RESULT_ON_BLOCK.
     // A blocked user prompt that is not the newest is withheld the same way;
     // the newest still refuses (#476). Also LLM_FW_PROMPT_OLDER_TURNS.
-    surfaces: { tool_result: { onBlock: 'withhold' }, prompt: { olderTurns: 'withhold' } },
+    // The opt-in classifier blocks a tool result only above 0.999, not the
+    // global 0.9: ordinary shell output (a netstat listing, a grep hit, the
+    // dashboard's status JSON) scored 94-99.8% live and every turn that carried
+    // one lost it (#587). The prompt surface keeps the global threshold.
+    surfaces: { tool_result: { onBlock: 'withhold', classifierBlockThreshold: 0.999 }, prompt: { olderTurns: 'withhold' } },
     // Trusted by default: the system prompt is developer-authored and naturally
     // contains instruction-management language that injection heuristics flag, so
     // scanning it blocks legitimate traffic. Enable only when untrusted data is

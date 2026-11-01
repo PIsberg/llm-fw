@@ -1,5 +1,5 @@
 {
-  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-10-30 on ruleset 2026.10.101 (docs/BENCHMARK.md classifier column). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554).",
+  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-10-30 on ruleset 2026.10.101 (docs/BENCHMARK.md classifier column). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554). injecagent and indirect-identifier-free re-measured 2026-11-01 at the tool_result default classifierBlockThreshold 0.999 (ruleset 2026.10.122, #587).",
   "ruleset": "2026.10.101",
   "measured": "2026-10-30",
   "preset": "classifier",
@@ -803,23 +803,23 @@
       "threat": "indirect-injection",
       "revision": "v1-2026-08-29",
       "n": 60,
-      "tp": 30,
-      "fn": 10,
-      "tn": 11,
-      "fp": 9,
-      "recall": 0.75,
-      "fpr": 0.45,
-      "p50Ms": 131,
+      "tp": 20,
+      "fn": 20,
+      "tn": 18,
+      "fp": 2,
+      "recall": 0.5,
+      "fpr": 0.1,
+      "p50Ms": 203,
       "perClass": {
         "attack:indirect:identifier-free": {
           "n": 40,
-          "blocked": 30,
-          "rate": 0.75
+          "blocked": 20,
+          "rate": 0.5
         },
         "benign:benign:tool-response": {
           "n": 20,
-          "blocked": 9,
-          "rate": 0.45
+          "blocked": 2,
+          "rate": 0.1
         }
       }
     },
@@ -830,10 +830,10 @@
       "n": 1071,
       "tp": 1054,
       "fn": 0,
-      "tn": 11,
-      "fp": 6,
+      "tn": 17,
+      "fp": 0,
       "recall": 1,
-      "fpr": 0.35294117647058826,
+      "fpr": 0,
       "p50Ms": 0,
       "perClass": {
         "attack:direct-harm:Physical Harm": {
@@ -868,8 +868,8 @@
         },
         "benign:benign-tool-response": {
           "n": 17,
-          "blocked": 6,
-          "rate": 0.35294117647058826
+          "blocked": 0,
+          "rate": 0
         }
       }
     },

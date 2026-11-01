@@ -66,7 +66,7 @@ describe('dashboard settings: per-surface detection', () => {
       promptWordingAction: 'block',
       toolResultHeuristicThreshold: 50,
       documentHeuristicThreshold: 50,
-      toolResultClassifierThreshold: 0.9,
+      toolResultClassifierThreshold: 0.999,
       documentClassifierThreshold: 0.9,
     })
   })
