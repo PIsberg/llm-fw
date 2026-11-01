@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.3
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). One new rule (#593): a well-known credential file in the same sentence as sending it outside or hiding the step from the user, on tool results, documents, and the repository and memory files inside Claude Code's reminders. It fires on none of the 31,921 strings in `test/eval/data` and `test/detection/fixtures`, and none of them carries a Claude Code reminder, so no verdict here can move. On the instruction files of one developer's machine (2026-11-01), it fired on none of 1,057: 535 repository `CLAUDE.md`, `AGENTS.md` and rules files, 521 agent memory files and the global `CLAUDE.md`. Applying the broader tool-result rules to the same files instead fired on 21 (indirect-instruction on 1 repository file and 19 memory files, memory poisoning on 1), which is why they are not applied.
+
 ## Result, ruleset 2026.11.2
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** A user prompt that starts with a registered harness template (Claude Code's two security-review prompts) is scored without the template's fixed text. None of the 32,219 strings in `test/eval/data`, `test/detection/fixtures` and `test/load/data` matches a template (run through `stripHarnessTemplate`; one benign corpus row opens with the same sentence as the second review prompt but lacks its line breaks, so it does not match), and only a match changes what is scored, so no verdict here can move. On the live event ring of 2026-11-01, run again with the author's config: 8 distinct review requests were refused or warned; 4 now pass, and the 4 reviews of llm-fw's own detector diffs still block on the diff. The review prompts' fixed text alone, around a one-line diff, now scores as the diff alone does (embedding similarity 0.815 for both, against 0.849 with the text).
