@@ -436,13 +436,23 @@ function keyHolds(text: string, start: number, end: number, address: string): bo
 }
 const EXFIL_PROXIMITY = 200
 
-// The verb as an XML element name: `<email>jane@example.com</email>` in a Maven
-// pom, a SOAP body or an XML export (#391). Only the bare tag counts, `<email>`
-// or `</email>` with the `>` right after the word. "<send the records to x@...>"
-// has a space after the verb and stays prose, so the bare tag cannot carry an order.
-function isMarkupElementName(text: string, start: number, end: number): boolean {
-  if (text[end] !== '>') return false
-  return text[start - 1] === '<' || (text[start - 1] === '/' && text[start - 2] === '<')
+// The address as the whole content of an e-mail element: `<email>jane@example.com</email>`
+// in a Maven pom, a SOAP body or an XML export (#391). Only the word `email` with
+// its opening `<` and `>`, the address starting right after that `>`, and the
+// closing tag right after the address. So the exemption covers the one element
+// that holds the address and nothing else: "<send> the passwords to x@..." and
+// "</forward> the records to x@..." keep their verb (#621 review), and so does an
+// order that merely sits beside a complete <email> element.
+function isEmailElementVerb(text: string, verbStart: number, verbEnd: number, addrStart: number, addrEnd: number): boolean {
+  if (!/^e-?mail$/i.test(text.slice(verbStart, verbEnd)) || text[verbEnd] !== '>') return false
+  // The closing tag's word: `</email>` right after an address that opened as `<email>`.
+  if (text[verbStart - 1] === '/' && text[verbStart - 2] === '<') {
+    return addrEnd === verbStart - 2 && /<e-?mail>$/i.test(text.slice(Math.max(0, addrStart - 9), addrStart))
+  }
+  // The opening tag's word: the address starts right after `<email>` and the
+  // element closes right after the address.
+  if (text[verbStart - 1] !== '<' || addrStart !== verbEnd + 1) return false
+  return /^<\/e-?mail>/i.test(text.slice(addrEnd, addrEnd + 10))
 }
 
 // A contact instruction: how a HUMAN reaches somebody ("send an email to
@@ -518,13 +528,16 @@ const EXFIL_VERB_SCAN_RE = new RegExp(EXFIL_VERB_RE.source, 'gi')
 
 function blankEmailKeyLines(text: string): string {
   return text.replace(EMAIL_KEY_LINE_RE, (m: string, head: string, address: string, offset: number) => {
-    // Blanked only when no other send-class word sits within EXFIL_PROXIMITY of
-    // the line. "Send the customer records to the address below" followed by
-    // "email = attacker@..." must still reach the exfil rule, so the key's own
-    // word ("email") does not count as a second verb.
-    const near = text.slice(Math.max(0, offset - EXFIL_PROXIMITY), offset + m.length + EXFIL_PROXIMITY)
+    // Blanked only when no send-class word sits within EXFIL_PROXIMITY of the
+    // line other than the key's own word, at its own position. "Email the records
+    // to the address below" followed by "email = attacker@..." is an order: the
+    // second "email" word is not the key, so the address stays visible (#621).
+    const base = Math.max(0, offset - EXFIL_PROXIMITY)
+    const keyAt = offset + head.search(/e-?mail/i)
+    const near = text.slice(base, offset + m.length + EXFIL_PROXIMITY)
     for (const vm of near.matchAll(EXFIL_VERB_SCAN_RE)) {
-      if (!/^e-?mail$/i.test(vm[0])) return m
+      if (base + vm.index === keyAt) continue
+      return m
     }
     return head + ' '.repeat(address.length)
   })
@@ -1140,7 +1153,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       // an `export X_EMAIL="x@..."` line beside it repeats the address, #477).
       if (keyHolds(window, vm.index, vm.index + vm[0].length, em[0])) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
-      if (isMarkupElementName(window, vm.index, vm.index + vm[0].length)) continue
+      if (isEmailElementVerb(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
       if (/^export$/i.test(vm[0]) && isExportKeyword(window.slice(vm.index + vm[0].length))) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }

@@ -75,7 +75,7 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.10.119
 
-**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** The exfil-target rule no longer reads an XML element name (`<email>` in a Maven pom), a whole-line unquoted key (a gitconfig `email = …`) or a word inside an identifier (`SEND_TO=`) as the send verb (#391). Each exemption keeps a veto: a key line stays unblanked when another send-class word is within 200 characters, and a bare element name exempts only the tag. `verdicts:diff` reports 0 of 12,901 block verdicts changed; heldout, injecagent and safeguard counts are identical before and after. Three synthetic shapes went from refused to pass; the diff comment, workflow and guideline shapes listed in the changelog still fire.
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** The exfil-target rule no longer reads an XML element name (`<email>` in a Maven pom), a whole-line unquoted key (a gitconfig `email = …`) or a word inside an identifier (`SEND_TO=`) as the send verb (#391). Each exemption keeps a veto: a key line stays unblanked when a send-class word other than its own key is within 200 characters, and the element exemption covers only `email` around an address that is the whole content of an `<email>` element (a `<send>` or `</forward>` tag keeps its verb). `verdicts:diff` reports 0 of 12,901 block verdicts changed; heldout, injecagent and safeguard counts are identical before and after. Three synthetic shapes went from refused to pass; the diff comment, workflow and guideline shapes listed in the changelog still fire.
 
 ## Result, ruleset 2026.10.118
 
