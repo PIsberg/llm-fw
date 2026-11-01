@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { deepMerge, loadConfig, DEFAULT_CONFIG } from '../../src/config/config.js'
+import { deepMerge, loadConfig, DEFAULT_CONFIG, effectiveClassifierBlockThreshold } from '../../src/config/config.js'
 
 describe('deepMerge', () => {
   it('overrides primitive values from the source', () => {
@@ -264,5 +264,31 @@ describe('loadConfig env overrides', () => {
     process.env.LLM_FW_WORKER_INFERENCE = 'false'
     expect((await loadConfig()).detection.workerInference).toBe(false)
     delete process.env.LLM_FW_WORKER_INFERENCE
+  })
+})
+
+// #587 and its review: tool results get a stricter classifier bar by default,
+// but never at the expense of a threshold the operator set.
+describe('effectiveClassifierBlockThreshold', () => {
+  const withDetection = (detection: Record<string, unknown>) =>
+    ({ ...DEFAULT_CONFIG, detection: { ...DEFAULT_CONFIG.detection, ...detection } }) as typeof DEFAULT_CONFIG
+
+  it('gives tool results 0.999 and every other surface the global 0.9 by default', () => {
+    expect(effectiveClassifierBlockThreshold(DEFAULT_CONFIG, 'tool_result')).toBe(0.999)
+    expect(effectiveClassifierBlockThreshold(DEFAULT_CONFIG, 'prompt')).toBe(0.9)
+    expect(effectiveClassifierBlockThreshold(DEFAULT_CONFIG, 'document')).toBe(0.9)
+  })
+
+  it('keeps an operator\'s own global threshold on tool results, stricter or looser', () => {
+    for (const t of [0.7, 0.95]) {
+      const c = withDetection({ classifier: { ...DEFAULT_CONFIG.detection.classifier, blockThreshold: t } })
+      expect(effectiveClassifierBlockThreshold(c, 'tool_result')).toBe(t)
+    }
+  })
+
+  it('lets an explicit surface value win over both defaults', () => {
+    const c = withDetection({ surfaces: { tool_result: { classifierBlockThreshold: 0.9 }, document: { classifierBlockThreshold: 0.97 } } })
+    expect(effectiveClassifierBlockThreshold(c, 'tool_result')).toBe(0.9)
+    expect(effectiveClassifierBlockThreshold(c, 'document')).toBe(0.97)
   })
 })

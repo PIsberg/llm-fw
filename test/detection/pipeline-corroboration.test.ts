@@ -94,6 +94,8 @@ describe('classifier corroboration', () => {
   })
 
   it('applies to tool results too', async () => {
+    // Above the tool_result default bar (0.999, #587), so corroboration, not the threshold, decides.
+    fakeClassify.mockImplementation(async (t: string) => t.includes('FLAG') ? [{ label: 'INJECTION', score: 0.9995 }] : [{ label: 'SAFE', score: 0.99 }])
     expect((await run(true, toolResult('FLAG output'))).r.action).toBe('warn')
     expect((await run(true, toolResult('FLAG weak output'))).r.action).toBe('block')
   })

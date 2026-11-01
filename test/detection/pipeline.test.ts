@@ -618,7 +618,8 @@ describe('Pipeline', () => {
     it('mention-framed content on the tool_result surface still blocks (gate is prompt/system-scoped)', async () => {
       mockScore.mockReturnValue({ score: 0, matches: [] })
       mockCheck.mockResolvedValue({ similarity: 0, nearest: '', chunkCount: 1 })
-      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.93 })
+      // Above the tool_result default threshold (0.999, #587): this test pins the gate's scope, not the threshold.
+      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.9995 })
       const body = JSON.stringify({
         messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: TRANSLATION_PROMPT }] }],
       })
@@ -750,7 +751,8 @@ describe('Pipeline', () => {
     })
 
     it('classifier.surfaces=[tool_result,document]: the same text on tool_result still blocks', async () => {
-      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.99 })
+      // Above the tool_result default threshold (0.999, #587): this test pins scoping, not the threshold.
+      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.9995 })
       const config = makeConfig({ classifier: { enabled: true, blockThreshold: 0.9, surfaces: ['tool_result', 'document'] } })
       const pipeline = new Pipeline(config, undefined)
       const result = await pipeline.run('/v1/messages', toolResultBody, META)
@@ -805,6 +807,23 @@ describe('Pipeline', () => {
       expect((await pipeline.run('/v1/messages', promptBody, META)).action).toBe('block')
       // ...but not the 0.999 override on tool_result.
       expect((await pipeline.run('/v1/messages', toolResultBody, META)).action).toBe('pass')
+    })
+
+    // #587: with the classifier on and no per-surface override, ordinary shell
+    // output (a netstat listing, a grep hit, a status JSON) scored 94-99.8% and
+    // was withheld at the global 0.9. The shipped default raises the bar on
+    // tool_result only; the prompt surface keeps the global threshold.
+    it('the default tool_result surface blocks only above 0.999, the prompt surface keeps 0.9 (#587)', async () => {
+      const config = makeConfig({ classifier: { ...DEFAULT_CONFIG.detection.classifier!, enabled: true } })
+      const pipeline = new Pipeline(config, undefined)
+      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.95 })
+      expect((await pipeline.run('/v1/messages', toolResultBody, META)).action).not.toBe('block')
+      expect((await pipeline.run('/v1/messages', promptBody, META)).action).toBe('block')
+      // A fresh pipeline: the first one cached its verdict for this tool result.
+      mockClassifierClassify.mockResolvedValue({ injection: true, score: 0.9995 })
+      const strong = await new Pipeline(config, undefined).run('/v1/messages', toolResultBody, META)
+      expect(strong.action).toBe('block')
+      expect(strong.stage).toBe('classifier')
     })
 
     it('a score under a RAISED per-surface threshold still escalates to the judge (gray zone follows the override)', async () => {

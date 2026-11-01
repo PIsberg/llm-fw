@@ -244,11 +244,17 @@ it, both presets in the same run, every split:
 | deepset | 28.3% / 0% | 43.3% / 0% | 28.3% / 0% |
 | heldout | 74.2% / 0% | 83.9% / 4.8% | 77.4% / 4.8% |
 | jailbreak-classification | 57.4% / — (measured 2026-10-30) | 82.3% / 1.41% | 72.7% / 1.10% |
-| indirect-identifier-free | 20.0% / 10.0% (measured 2026-08-30) | 75.0% / 45.0% | 22.5% / 5.0% |
-| injecagent | 100% / 0% | 100% / 35.3% | 100% / 0% |
+| indirect-identifier-free | 20.0% / 10.0% (measured 2026-08-30) | 50.0% / 10.0% ‡ | 22.5% / 5.0% |
+| injecagent | 100% / 0% | 100% / 0% ‡ | 100% / 0% |
 | benign-realistic (benign only) | — / 2.68% | — / 25.3% | — / 3.6% |
 | oasst1-sample (benign only) | — / 0% | — / 11.85% | — / 0.10% |
 | aya-sample (benign only) | — / 0% | — / 41.50% | — / 0% |
+
+‡ At the classifier's `tool_result` block threshold of 0.999, the shipped
+default since ruleset 2026.10.122 (#587), re-measured 2026-11-01 with
+`--sweep=tool_result.classifierBlockThreshold=0.9,0.999`. At the global 0.9 the
+same two rows read 75.0% / 45.0% and 100% / 35.3%. The corroborated column was
+re-run at 0.999 too and is unchanged.
 
 Corroboration keeps about a third of the classifier's recall gain on the
 direct splits (safeguard +4.5 points over cheap against +16.0) and drops
@@ -364,8 +370,11 @@ keeping the full 20% to 75% probe recall gain. Second, unlike the prompt
 surface, the tool_result surface DOES have a usable threshold lever: of the 40
 benign tool_result rows across the two corpora the classifier at 0.9 blocks 16
 where the cheap pipeline blocks 3, but at 0.999 that falls to 6 while probe
-recall holds at 50% (20/40, still 2.5x the cheap pipeline). Operators choose
-the point; neither is a default, because the classifier itself is not.
+recall holds at 50% (20/40, still 2.5x the cheap pipeline). Since ruleset
+2026.10.122 (#587) 0.999 is the `tool_result` default for anyone who turns the
+classifier on: a live Claude Code session lost about one shell command in seven
+to withholding at 0.9 (a `netstat` listing, a `grep` hit, a status JSON, all
+scoring 94% to 99.8% and all under 0.999). Set it to 0.9 for the probe's 75%.
 
 InjecAgent recall is unaffected by any of these configurations (the
 deterministic `indirectInstruction` rules catch those rows before the
@@ -378,13 +387,13 @@ was already making by leaving it off.
 
 | Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
 |---|---|---|---|
-| injecagent (tool-result poisoning) | 1,071 | 100% (1,054/1,054) / 0% (0/17) | 100% (1,054/1,054) / 35.3% (6/17) † |
+| injecagent (tool-result poisoning) | 1,071 | 100% (1,054/1,054) / 0% (0/17) | 100% (1,054/1,054) / 0% (0/17) at the `tool_result` default 0.999 (re-measured 2026-11-01, #587); 35.3% (6/17) † at 0.9 |
 
 The surface-scoped `indirectInstruction` detector catches the planted
-instruction before any model runs. Adding the classifier does not help here and
-costs a great deal of precision (35% FPR — it fires on instruction-shaped benign
-tool responses), so the cheap detector alone is the better operating point on
-this surface.
+instruction before any model runs. Adding the classifier does not help recall
+here. At the old 0.9 bar it cost a great deal of precision (35% FPR: it fires on
+instruction-shaped benign tool responses); at the 0.999 default it blocks none
+of the 17 benign rows.
 
 † FPR over only 17 synthetic benign rows — indicative, not precise. The same
 caveat applies to heldout's 21 benign rows: a 4.8% FPR there is 1 prompt.

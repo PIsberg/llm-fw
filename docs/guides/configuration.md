@@ -91,15 +91,33 @@ indirect-injection detector with no false-positive cost on user prompts:
 ```json
 {
   "detection": {
-    "classifier": { "enabled": true, "surfaces": ["tool_result", "document"] },
-    "surfaces": { "tool_result": { "classifierBlockThreshold": 0.999 } }
+    "classifier": { "enabled": true, "surfaces": ["tool_result", "document"] }
   }
 }
 ```
 
-`classifierBlockThreshold` under `detection.surfaces` raises the block bar on
-that surface only; the second line is optional and trades recall for precision
-on benign tool output. Measured numbers for both settings are in
+`classifierBlockThreshold` under `detection.surfaces` sets the block bar on
+that surface only. On `tool_result` it defaults to `0.999` (ruleset
+2026.10.122, #587), not the global `0.9`: ordinary shell output (a `netstat`
+listing, a `grep` hit, a status JSON) scored 94% to 99.8% in a live Claude Code
+session and was withheld at 0.9. Measured over InjecAgent and the
+identifier-free probe, 0.999 keeps InjecAgent recall at 100% and takes its
+benign false positives from 6 of 17 to 0, while the probe's recall falls from
+75% to 50% (the cheap pipeline alone is 20%) and its benign false positives
+from 9 of 20 to 2. For more recall on tool output at that cost, set it back:
+
+```json
+{ "detection": { "surfaces": { "tool_result": { "classifierBlockThreshold": 0.9 } } } }
+```
+
+The 0.999 applies only while `detection.classifier.blockThreshold` is the
+shipped 0.9: if you set the global threshold yourself, to 0.7 for recall or
+0.95, tool results use your value, so the default never loosens a threshold you
+chose. An explicit `classifierBlockThreshold` on the surface beats both. The
+dashboard shows the value that applies.
+
+It is hot-reloaded and also in the dashboard's Surfaces settings. The
+`document` surface keeps the global threshold. Full numbers are in
 [BENCHMARK.md](../BENCHMARK.md).
 
 **Requiring corroboration.** With `detection.classifier.requireCorroboration`

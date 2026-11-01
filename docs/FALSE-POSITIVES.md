@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.10.122
+
+**Unchanged with the shipped defaults: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795**, because the classifier is off by default. For anyone who turns it on, its `tool_result` block threshold now defaults to 0.999 instead of the global 0.9 (#587). Six ordinary Claude Code tool results from one live session (the dashboard's status JSON, the head of a source file, two `grep` hits, a `netstat` listing, a process listing) scored 94.3% to 99.8% and were withheld; all six are under 0.999. Measured with the classifier preset: InjecAgent benign false positives 6 of 17 to 0 with recall 100% either way; the identifier-free probe's benign false positives 9 of 20 to 2, its recall 75% to 50%. See [BENCHMARK.md](BENCHMARK.md).
+
 ## Result, ruleset 2026.10.121
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** A security fix to 2026.10.120: the object-gated "update" also fires on a second object list (`UPDATE_OBJECT_RE`: agent instruction files, shell profiles, CI workflows, access, policy and secret stores), so the gate that cleared operations advice no longer clears an update order aimed at those. `verdicts:diff` 0 of 12,901 block verdicts changed; heldout, injecagent and safeguard counts identical to main at d32d5c9.

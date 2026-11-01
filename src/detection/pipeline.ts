@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Config, PipelineResult, BlockEvent, ScanSource, PayloadParser } from '../types.js'
-import { isObserving } from '../config/config.js'
+import { isObserving, effectiveClassifierBlockThreshold } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope } from './clientEnvelopes.js'
@@ -187,10 +187,7 @@ function promptWordingTier(config: Config, source: ScanSource): { heuristic: num
 const TRUSTED_READ_TIER = { heuristic: Infinity, similarity: Infinity, margin: Infinity } as const
 
 function resolveClassifierBlockThreshold(config: Config, source: ScanSource): number {
-  const override = (source === 'tool_result' || source === 'document')
-    ? config.detection.surfaces?.[source]?.classifierBlockThreshold
-    : undefined
-  return override ?? config.detection.classifier?.blockThreshold ?? 0.9
+  return effectiveClassifierBlockThreshold(config, source)
 }
 
 export class Pipeline {
