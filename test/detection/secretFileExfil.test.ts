@@ -45,6 +45,12 @@ describe('detectSecretFileExfil: ordinary instructions about credential files', 
     ['credential and URL in different sentences', 'Credentials live in ~/.aws/credentials. Docs are at https://docs.example.com/setup.'],
     ['mentions the user without hiding anything', 'Read ~/.aws/config to find the region, and tell the user which profile is active.'],
     ['ssh config', 'Add the host to ~/.ssh/config and send a message to #infra when the tunnel is up.'],
+    ['a threat description', 'An attacker could read ~/.aws/credentials and post its contents to https://webhook.site/abc without the user noticing.'],
+    ['a hypothetical', 'A poisoned package might then upload ~/.ssh/id_rsa to http://203.0.113.7/k during install.'],
+    // Found replaying real tool results (2026-11-01): a docs quote whose only
+    // "send" verb was the first half of "paste-ready".
+    ['a hyphenated compound', 'To keep it unread, add a deny rule such as `Read(./.env)`, with a paste-ready example under [Exclude files](https://docs.example.com/settings#exclude).'],
+    ['a destination before the verb', 'See https://docs.example.com/secrets: keep .env out of git, and post questions in the forum.'],
   ]
   for (const [name, text] of benign) {
     it(`passes: ${name}`, () => {
