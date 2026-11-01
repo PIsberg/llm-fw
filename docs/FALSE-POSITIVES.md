@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.1
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795.** Two changes for Google's Cloud Code API (#594): withholding groups messages inside its `request` envelope, and a Gemini tool result held as `{ output }` or `{ error }` is scanned as text rather than JSON. No corpus here carries either shape, and a before and after verdict dump over every corpus changed 0 of 12,901 block verdicts.
+
 ## Result, ruleset 2026.10.124
 
 **Unchanged with the shipped defaults: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795**, because the classifier is off by default. For anyone who turns it on, `detection.classifier.requireCorroboration` is now on by default: a classifier hit blocks only when the heuristic or embedding stage found the same text suspicious too, and is a warn otherwise. The model scored ordinary tool output (Godot test results, a `grep` of a Python file) at 0.999 and above, so no threshold could separate it. On the same 300-item replay of the author's Claude Code traffic (author's config, classifier on), blocks went from 12 to 6 across 2026.10.123 and this ruleset, with 0 newly blocked of the 286 items in both runs; the 6 left are llm-fw's own detector source, attack fixtures and a security-review diff of detector code, which are attack text. The trade, measured when the switch was added (BENCHMARK.md): safeguard recall 80.8% against 92.3% with the plain classifier (76.3% with it off), Aya benign 0% against 41.5%.

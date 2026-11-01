@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Detection moves from ruleset 2026.10.124 to 2026.11.1. Before and after on every corpus: 0 of 12,901 block verdicts changed.
+Detection moves from ruleset 2026.10.124 to 2026.11.1. Before and after on every corpus: 0 of 12,901 block verdicts changed. Held-out recall unchanged (heldout 23/31, injecagent 1054/1054, safeguard 495/650); `npm run fpr` unchanged (9/336; Dolly, oasst1 and Aya samples 0 blocked).
 
 ### Added
 
