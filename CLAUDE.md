@@ -31,6 +31,7 @@ Keep this file short. Detail lives in `.claude/rules/`, loaded on demand.
 | Any documentation change | [.claude/rules/docs.md](.claude/rules/docs.md) |
 | Cutting a release | the `release` skill in `.claude/skills/release/` |
 | Dependency updates, Dependabot PRs | the `dependencies` skill in `.claude/skills/dependencies/` |
+| Load testing, benchmarking throughput, latency, CPU or memory | the `load-benchmark` skill in `.claude/skills/load-benchmark/` |
 
 ## Where things are
 

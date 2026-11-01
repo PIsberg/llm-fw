@@ -64,15 +64,19 @@ This means the full proxy pipeline runs on every request:
 ```
 test/load/
 ├── lib/
-│   └── harness.ts          # Shared setup: proxy + mock upstream + send helper
+│   ├── harness.ts          # Shared setup: proxy + mock upstream + send helper
+│   ├── firewallProcess.ts  # The benchmark's firewall, in a child process
+│   └── benchStats.ts       # The benchmark's latency/CPU arithmetic and request bodies
 ├── data/
 │   ├── benign.json         # 30 safe prompts (coding, math, language, etc.)
 │   └── malicious.json      # 30 attack prompts (injections, jailbreaks, etc.)
 ├── performance.ts          # Scenario A — pure benign stress test
-└── accuracy.ts             # Scenario B — mixed benign/malicious accuracy test
+├── accuracy.ts             # Scenario B — mixed benign/malicious accuracy test
+└── benchmark.ts            # Load benchmark — concurrency sweep, firewall in its own process
 
 scripts/
-└── gen-load-charts.ts      # Reads two JSON result files → emits 4 SVG charts
+├── gen-load-charts.ts      # Reads two JSON result files → emits 4 SVG charts
+└── load-bench-charts.py    # Reads a benchmark result → emits 5 PNG charts
 
 docs/
 └── load-results/
@@ -237,6 +241,79 @@ Heuristic scorer → Embedding similarity → (no judge)
 The heuristic reliably catches prompts containing explicit trigger phrases ("ignore all previous instructions", "disregard", "override your system prompt"). The embedding stage catches additional attacks via cosine similarity to known attack templates. Together they block roughly 40–50% of a mixed prompt corpus that includes subtle roleplay and persona-based jailbreaks.
 
 When the judge is enabled (`llm-fw setup-judge`), those subtle attacks are caught at Stage 3, raising TPR above 95%. The load test TPR floor is therefore intentionally conservative: it tests what the first two pipeline stages achieve in isolation, so a regression in heuristic or embedding coverage will still fail the gate.
+
+---
+
+## Load benchmark: the current version, swept
+
+**Files:** `test/load/benchmark.ts`, `test/load/lib/firewallProcess.ts`,
+`scripts/load-bench-charts.py`. **Run:** `npm run bench:load`. The repeatable
+procedure, with how to read the numbers, is the `load-benchmark` skill in
+`.claude/skills/load-benchmark/`.
+
+Scenario A answers "is it still fast enough" with one concurrency level. The
+benchmark answers "how much load does this version take, and what does that
+cost": it sweeps concurrency levels for three workloads and reports throughput,
+latency percentiles, CPU, memory and event-loop delay at each. It reports and
+does not gate, and it is not run in CI.
+
+### What differs from scenario A
+
+| | Scenario A | Benchmark |
+|---|---|---|
+| Firewall process | shared with the load generator | its own child process, reporting over IPC |
+| CPU and memory | firewall plus the TLS clients | the firewall alone, every thread counted |
+| Prompts | 30 fixed, so the item cache answers repeats | new text on every request, so every scan is cold |
+| Request shape | one short prompt | short prompt, 64 KB coding-agent request, attack prompt |
+| Concurrency | one level | a sweep (default 1, 2, 4, 8, 16, 32) |
+| Output | JSON, Mermaid in the job summary | JSON plus five PNG charts |
+
+The pipeline caches a clean item's verdict by its text (`itemCache` in
+`src/detection/pipeline.ts`), so scenario A's throughput after the first 30
+requests is mostly cache hits. The benchmark's `chat` workload appends a ticket
+number to each prompt, and its `agent` workload resends a fixed history (cache
+hits, as Claude Code's resent history is) with one new tool result.
+
+### Workloads
+
+| Workload | Each request |
+|---|---|
+| `chat` | a prompt from `benign.json` plus "This is for ticket N." |
+| `agent` | system prompt, three tool definitions, a resent history of file reads padded to `LOAD_BENCH_AGENT_KB` (default 64 KB), then one new 3 KB tool result of generated TypeScript |
+| `attack` | a prompt from `malicious.json`; most are refused, which never reaches the embedding model |
+
+### Knobs
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOAD_BENCH_WORKLOADS` | `chat,agent,attack` | Which workloads, in order |
+| `LOAD_BENCH_CONCURRENCY` | `1,2,4,8,16,32` | Concurrency levels |
+| `LOAD_BENCH_STEP_S` | `10` | Measured seconds per level |
+| `LOAD_BENCH_WARMUP_S` | `2` | Unmeasured seconds before each level |
+| `LOAD_BENCH_AGENT_KB` | `64` | Size of an agent request |
+| `LOAD_BENCH_OUT` | `reports/load-bench/<timestamp>` | Output directory (gitignored) |
+| `LLM_FW_MODEL_DIR` | `<repo>/.hf-model-cache` | Model cache; the child's `LLM_FW_DIR` is a temp dir, so without it every run downloads the model |
+
+The run also records the startup cost (model load, process start to ready), an
+idle baseline before the load and one after it, and a timeline sampled every
+500 ms. `results.json` carries every request's latency for the distribution
+chart, plus the version, ruleset, commit (and whether tracked files were
+dirty), Node, CPU model and core count, which the charts print in their footer.
+
+### Charts
+
+```bash
+pip install matplotlib
+python scripts/load-bench-charts.py reports/load-bench/<run>/results.json
+```
+
+| File | Chart |
+|---|---|
+| `overview.png` | Headline tiles: peak throughput, p50/p99 and CPU per request per workload, memory, startup, worst event-loop delay |
+| `throughput-latency.png` | Per workload: requests per second, and p50/p95/p99 latency, against concurrency |
+| `latency-distribution.png` | Per workload: latency CDF, one curve per concurrency level |
+| `cpu-memory.png` | CPU as a percentage of one core, CPU time per request, peak RSS, against concurrency |
+| `timeline.png` | RSS, heap, CPU and event-loop delay over the whole run, measured windows shaded |
 
 ---
 

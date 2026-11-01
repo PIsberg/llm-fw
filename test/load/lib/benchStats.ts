@@ -45,6 +45,53 @@ export function cpuPctBetween(a: CpuPoint, b: CpuPoint): number {
   return round2(((b.cpuMicros - a.cpuMicros) / 1000 / wall) * 100)
 }
 
+/** The part of `os.cpus()` the machine-load arithmetic reads. */
+export interface CoreTimes { times: { user: number; nice: number; sys: number; idle: number; irq: number } }
+
+export interface MachineLoad {
+  /** Every process on the machine, as a percentage of all its threads. */
+  busyPct: number
+  firewallPct: number
+  generatorPct: number
+  /** Everything else: other processes competing with the run. */
+  otherPct: number
+}
+
+/**
+ * Machine-wide CPU between two `os.cpus()` readings, split into the firewall,
+ * the load generator and everything else. `firewallCpuPct` and
+ * `generatorCpuPct` are percentages of ONE core, as cpuPctBetween returns.
+ * A busy machine is the first thing to rule out before calling a slow run
+ * a regression.
+ */
+export function machineLoad(before: readonly CoreTimes[], after: readonly CoreTimes[], firewallCpuPct: number, generatorCpuPct: number): MachineLoad {
+  let busy = 0
+  let total = 0
+  after.forEach((core, i) => {
+    const b = before[i]?.times ?? { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 }
+    const a = core.times
+    const coreBusy = (a.user - b.user) + (a.nice - b.nice) + (a.sys - b.sys) + (a.irq - b.irq)
+    busy += coreBusy
+    total += coreBusy + (a.idle - b.idle)
+  })
+  const cores = after.length || 1
+  const busyPct = total > 0 ? round2((busy / total) * 100) : 0
+  const firewallPct = round2(firewallCpuPct / cores)
+  const generatorPct = round2(generatorCpuPct / cores)
+  return { busyPct, firewallPct, generatorPct, otherPct: Math.max(0, round2(busyPct - firewallPct - generatorPct)) }
+}
+
+/**
+ * How much slower the slowest run of a fixed CPU probe was than the fastest,
+ * in percent. A laptop that throttles mid-run shows here even when no other
+ * process is busy.
+ */
+export function speedDrift(probeMs: readonly number[]): number {
+  if (probeMs.length < 2) return 0
+  const fastest = Math.min(...probeMs)
+  return fastest > 0 ? round2(((Math.max(...probeMs) - fastest) / fastest) * 100) : 0
+}
+
 export function countStatuses(statuses: readonly number[]): Record<string, number> {
   const out: Record<string, number> = {}
   for (const s of statuses) out[String(s)] = (out[String(s)] ?? 0) + 1

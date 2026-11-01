@@ -7,6 +7,8 @@ import {
   agentBody,
   attackBody,
   parseLevels,
+  machineLoad,
+  speedDrift,
 } from './lib/benchStats.js'
 
 // The load benchmark (npm run bench:load) sweeps concurrency against a
@@ -31,6 +33,37 @@ describe('cpuPctBetween', () => {
 
   it('is zero when no wall time passed', () => {
     expect(cpuPctBetween({ wallMs: 5, cpuMicros: 1 }, { wallMs: 5, cpuMicros: 9 })).toBe(0)
+  })
+})
+
+describe('machineLoad', () => {
+  // Two cores; core 0 busy 600 of 1000 ms, core 1 busy 200 of 1000 ms.
+  const before = [
+    { times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } },
+    { times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } },
+  ]
+  const after = [
+    { times: { user: 500, nice: 0, sys: 100, idle: 400, irq: 0 } },
+    { times: { user: 100, nice: 0, sys: 100, idle: 800, irq: 0 } },
+  ]
+
+  it('splits machine-wide CPU into firewall, load generator and everything else', () => {
+    // Firewall used 50% of one core, the generator 20%: of two cores, 25% and 10%.
+    expect(machineLoad(before, after, 50, 20)).toEqual({ busyPct: 40, firewallPct: 25, generatorPct: 10, otherPct: 5 })
+  })
+
+  it('never reports negative other load from sampling skew', () => {
+    expect(machineLoad(before, after, 70, 20).otherPct).toBe(0)
+  })
+})
+
+describe('speedDrift', () => {
+  it('is the slowest probe over the fastest, as a percentage slower', () => {
+    expect(speedDrift([100, 125, 110])).toBe(25)
+  })
+
+  it('is zero with fewer than two probes', () => {
+    expect(speedDrift([100])).toBe(0)
   })
 })
 

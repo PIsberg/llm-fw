@@ -54,7 +54,7 @@ document that reports it, so it can be re-run rather than taken on trust.
 | [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md) | Before and after accuracy across every tuning round | |
 | [BENCHMARK-AGENTDOJO.md](BENCHMARK-AGENTDOJO.md) | AgentDojo agentic-benchmark results | see the doc (needs the Python harness) |
 | [ML-INDIRECT-STUDY.md](ML-INDIRECT-STUDY.md) | Multilingual indirect-injection embedding feasibility study | |
-| [LOADTESTS.md](LOADTESTS.md) | Load-test harness, throughput and latency results | `npm run test:load` |
+| [LOADTESTS.md](LOADTESTS.md) | Load-test harness, the concurrency-sweep benchmark (throughput, latency, CPU, memory), recorded results | `npm run test:load`, `npm run bench:load` |
 
 ## Specifications and plans
 

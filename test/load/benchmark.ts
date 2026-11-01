@@ -23,10 +23,11 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname, resolve } from 'node:path'
 import os from 'node:os'
+import { createHash } from 'node:crypto'
 import { createSender, startMockUpstream, printTable, fmtMs, type SendFn } from './lib/harness.js'
 import {
-  summarizeLatencies, cpuPctBetween, countStatuses, parseLevels,
-  chatBody, agentBody, attackBody, type LatencySummary,
+  summarizeLatencies, cpuPctBetween, countStatuses, parseLevels, machineLoad, speedDrift,
+  chatBody, agentBody, attackBody, type LatencySummary, type MachineLoad,
 } from './lib/benchStats.js'
 import type { Probe } from './lib/firewallProcess.js'
 import { RULESET_VERSION } from '../../src/detection/ruleset.js'
@@ -41,6 +42,10 @@ const WARMUP_MS = Number(process.env.LOAD_BENCH_WARMUP_S ?? '2') * 1000
 const AGENT_KB = Number(process.env.LOAD_BENCH_AGENT_KB ?? '64')
 const SAMPLE_MS = 500
 const IDLE_MS = 3000
+/** A level where other processes used this much of the machine is flagged. */
+const OTHER_WARN_PCT = 10
+/** A speed probe this much slower than the fastest flags throttling. */
+const DRIFT_WARN_PCT = 20
 const PROXY_PORT = 19_380
 const DASH_PORT = 19_931
 
@@ -78,6 +83,8 @@ interface StepResult {
   meanRssMb: number
   peakHeapMb: number
   eventLoop: { p50Ms: number; p99Ms: number; maxMs: number }
+  /** Machine-wide CPU while the level ran, as percentages of all threads. */
+  machine: MachineLoad
   startWallMs: number
   endWallMs: number
   /** Every request's latency, ms, for the distribution charts. */
@@ -162,6 +169,22 @@ class Firewall {
 
 interface Hit { latencyMs: number; status: number; idx: number }
 
+/**
+ * A fixed single-thread CPU job (SHA-256 over 32 MB, best of three). Run
+ * before each workload and at the end: if it slows down, the machine did
+ * (thermal or power throttling), whatever the firewall was doing.
+ */
+const PROBE_BUF = Buffer.alloc(32 * 1024 * 1024, 7)
+function speedProbeMs(): number {
+  let best = Infinity
+  for (let i = 0; i < 3; i++) {
+    const t = performance.now()
+    createHash('sha256').update(PROBE_BUF).digest()
+    best = Math.min(best, performance.now() - t)
+  }
+  return Math.round(best * 10) / 10
+}
+
 let seq = 0
 /** The body, and the index in the data file of the prompt it carries. */
 function bodyFor(w: Workload, benign: string[], attacks: { prompt: string }[]): { body: string; idx: number } {
@@ -208,6 +231,7 @@ async function main(): Promise<void> {
   const runStartWallMs = Date.now()
   let failed = false
   const steps: StepResult[] = []
+  const speedProbes: { at: string; ms: number }[] = []
   try {
     // Idle baseline: the resident cost of an installed firewall doing nothing.
     const idle0 = await fw.snap(true)
@@ -217,13 +241,20 @@ async function main(): Promise<void> {
     console.log(`Idle: RSS ${idle.rssMb} MB, heap ${idle.heapUsedMb} MB, CPU ${idle.cpuPct}% of one core.\n`)
 
     for (const w of WORKLOADS as Workload[]) {
-      console.log(`${w}: ${DESCRIPTIONS[w]}`)
+      speedProbes.push({ at: `before ${w}`, ms: speedProbeMs() })
+      console.log(`${w}: ${DESCRIPTIONS[w]} (speed probe ${speedProbes.at(-1)!.ms} ms)`)
       for (const vus of LEVELS) {
         if (WARMUP_MS > 0) await drive(send, w, vus, WARMUP_MS, benign, attacks)
         fw.alive()
         const a = await fw.snap(true)
+        const cpus0 = os.cpus()
+        const gen0 = process.cpuUsage()
+        const genT0 = performance.now()
         const { hits, errors } = await drive(send, w, vus, STEP_MS, benign, attacks)
         const b = await fw.snap(true)
+        const genWall = performance.now() - genT0
+        const gen = process.cpuUsage(gen0)
+        const generatorCpuPct = genWall > 0 ? ((gen.user + gen.system) / 1000 / genWall) * 100 : 0
         const durationS = (b.wallMs - a.wallMs) / 1000
         const inStep = fw.timeline.filter(p => p.wallMs > a.wallMs && p.wallMs <= b.wallMs)
         const probes = [a, ...inStep, b]
@@ -249,6 +280,7 @@ async function main(): Promise<void> {
           meanRssMb: Math.round((probes.reduce((s, p) => s + p.rssMb, 0) / probes.length) * 10) / 10,
           peakHeapMb: Math.max(...probes.map(p => p.heapUsedMb)),
           eventLoop: { p50Ms: b.elP50Ms, p99Ms: b.elP99Ms, maxMs: b.elMaxMs },
+          machine: machineLoad(cpus0, os.cpus(), cpuPctBetween(a, b), generatorCpuPct),
           startWallMs: a.wallMs,
           endWallMs: b.wallMs,
           latencies: latencies.map(l => Math.round(l * 10) / 10),
@@ -260,7 +292,8 @@ async function main(): Promise<void> {
           `  ${String(vus).padStart(3)} VUs  ${String(step.throughputRps).padStart(7)} req/s  ` +
           `p50 ${fmtMs(step.latency.p50Ms).padStart(7)}  p99 ${fmtMs(step.latency.p99Ms).padStart(7)}  ` +
           `CPU ${String(step.cpuPct).padStart(6)}%  RSS ${step.peakRssMb} MB  loop p99 ${step.eventLoop.p99Ms} ms` +
-          (errors ? `  errors ${errors}` : '') + (unexpected ? `  unexpected ${unexpected}` : ''),
+          (errors ? `  errors ${errors}` : '') + (unexpected ? `  unexpected ${unexpected}` : '') +
+          (step.machine.otherPct >= OTHER_WARN_PCT ? `  OTHER PROCESSES ${step.machine.otherPct}% of the machine` : ''),
         )
         await new Promise(r => setTimeout(r, 1000))
       }
@@ -271,8 +304,20 @@ async function main(): Promise<void> {
     await new Promise(r => setTimeout(r, IDLE_MS))
     const after1 = await fw.snap(true)
     const idleAfter = { cpuPct: cpuPctBetween(after0, after1), rssMb: after1.rssMb, heapUsedMb: after1.heapUsedMb }
-    console.log(`
-Idle after load: RSS ${idleAfter.rssMb} MB, heap ${idleAfter.heapUsedMb} MB, CPU ${idleAfter.cpuPct}% of one core.`)
+    console.log(`\nIdle after load: RSS ${idleAfter.rssMb} MB, heap ${idleAfter.heapUsedMb} MB, CPU ${idleAfter.cpuPct}% of one core.`)
+
+    speedProbes.push({ at: 'end', ms: speedProbeMs() })
+    const drift = speedDrift(speedProbes.map(p => p.ms))
+    const warnings: string[] = []
+    const noisy = steps.filter(s => s.machine.otherPct >= OTHER_WARN_PCT)
+    if (noisy.length > 0) {
+      const worst = noisy.reduce((m, s) => (s.machine.otherPct > m.machine.otherPct ? s : m))
+      warnings.push(`other processes used ${OTHER_WARN_PCT}% or more of the machine in ${noisy.length} of ${steps.length} levels (worst ${worst.machine.otherPct}%, ${worst.workload} at ${worst.concurrency})`)
+    }
+    if (drift >= DRIFT_WARN_PCT) {
+      warnings.push(`the CPU speed probe varied by ${drift}% over the run (${speedProbes.map(p => `${p.ms} ms ${p.at}`).join(', ')}): the machine slowed down`)
+    }
+    for (const w of warnings) console.log(`WARNING: ${w}. Treat this run as noisy and run it again on a quiet machine.`)
 
     const output = {
       kind: 'llm-fw-load-benchmark',
@@ -292,6 +337,8 @@ Idle after load: RSS ${idleAfter.rssMb} MB, heap ${idleAfter.heapUsedMb} MB, CPU
       config: { workloads: WORKLOADS, concurrency: LEVELS, stepS: STEP_MS / 1000, warmupS: WARMUP_MS / 1000, agentKb: AGENT_KB, sampleMs: SAMPLE_MS },
       descriptions: Object.fromEntries(WORKLOADS.map(w => [w, DESCRIPTIONS[w as Workload]])),
       startup: { initMs, processReadyMs, idle, idleAfter },
+      speedProbes,
+      warnings,
       steps,
       timeline: fw.timeline.map(p => ({
         t: Math.round((p.wallMs - runStartWallMs) / 100) / 10,
