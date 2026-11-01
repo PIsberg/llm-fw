@@ -164,6 +164,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.10.119 (#391: exfil-target exemptions for XML element
+  // names, unquoted key lines and identifiers; measured unchanged, 0 of 12,901
+  // block verdicts moved).
   // Held at ruleset 2026.10.118 (classifier: Claude Code's fixed user-turn
   // notices, opt-in stage; measured unchanged).
   // Held at ruleset 2026.10.117 (#557: positional-override synonyms, policy

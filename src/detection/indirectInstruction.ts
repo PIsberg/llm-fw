@@ -436,6 +436,25 @@ function keyHolds(text: string, start: number, end: number, address: string): bo
 }
 const EXFIL_PROXIMITY = 200
 
+// The address as the whole content of an e-mail element: `<email>jane@example.com</email>`
+// in a Maven pom, a SOAP body or an XML export (#391). Only the word `email` with
+// its opening `<` and `>`, the address starting right after that `>`, and the
+// closing tag right after the address. So the exemption covers the one element
+// that holds the address and nothing else: "<send> the passwords to x@..." and
+// "</forward> the records to x@..." keep their verb (#621 review), and so does an
+// order that merely sits beside a complete <email> element.
+function isEmailElementVerb(text: string, verbStart: number, verbEnd: number, addrStart: number, addrEnd: number): boolean {
+  if (!/^e-?mail$/i.test(text.slice(verbStart, verbEnd)) || text[verbEnd] !== '>') return false
+  // The closing tag's word: `</email>` right after an address that opened as `<email>`.
+  if (text[verbStart - 1] === '/' && text[verbStart - 2] === '<') {
+    return addrEnd === verbStart - 2 && /<e-?mail>$/i.test(text.slice(Math.max(0, addrStart - 9), addrStart))
+  }
+  // The opening tag's word: the address starts right after `<email>` and the
+  // element closes right after the address.
+  if (text[verbStart - 1] !== '<' || addrStart !== verbEnd + 1) return false
+  return /^<\/e-?mail>/i.test(text.slice(addrEnd, addrEnd + 10))
+}
+
 // A contact instruction: how a HUMAN reaches somebody ("send an email to
 // security@acme.io", "For questions, email maintainers@widget.dev", "Please
 // email us at help@shop.example"). Every README, SECURITY.md, auto-reply and
@@ -498,8 +517,34 @@ function blankGitIdentityLines(text: string): string {
 const EMAIL_KEY_VALUE_RE = /(?<![\w.-])(["']?)(?:author|maintainer)?[_-]?e-?mail\1([ \t]*[:=][ \t]*)(["'])([^"'\s<>@]{1,64}@[^"'\s<>@]{1,255})(?=\3[ \t]*(?:[,}\])\r\n]|$))/gim
 const QUOTED_IDENTITY_RE = /([[,:=(][ \t]{0,8})(["'])([^"'<>\n]{1,80}<)([^"'<>\s@]{1,64}@[^"'<>\s@]{1,255})(?=>\2)/g
 
+// The same key with the address unquoted, alone on its line: a gitconfig
+// `\temail = jane@...` under [user], an env file's `EMAIL=...`. Git and every
+// .env file write it this way, and the address is the whole value (#391).
+const EMAIL_KEY_LINE_RE = /^([ \t]*(?:author|maintainer)?[_-]?e-?mail[ \t]*=[ \t]*)([^"'\s<>@]{1,64}@[^"'\s<>@]{1,255})(?=[ \t]*\r?$)/gim
+// Only ever scanned with matchAll, never exec: EXFIL_VERB_RE carries lastIndex
+// between calls, and a stale one hid a verb at the start of the text from this
+// veto, so the same input was blanked or not depending on what ran before it.
+const EXFIL_VERB_SCAN_RE = new RegExp(EXFIL_VERB_RE.source, 'gi')
+
+function blankEmailKeyLines(text: string): string {
+  return text.replace(EMAIL_KEY_LINE_RE, (m: string, head: string, address: string, offset: number) => {
+    // Blanked only when no send-class word sits within EXFIL_PROXIMITY of the
+    // line other than the key's own word, at its own position. "Email the records
+    // to the address below" followed by "email = attacker@..." is an order: the
+    // second "email" word is not the key, so the address stays visible (#621).
+    const base = Math.max(0, offset - EXFIL_PROXIMITY)
+    const keyAt = offset + head.search(/e-?mail/i)
+    const near = text.slice(base, offset + m.length + EXFIL_PROXIMITY)
+    for (const vm of near.matchAll(EXFIL_VERB_SCAN_RE)) {
+      if (base + vm.index === keyAt) continue
+      return m
+    }
+    return head + ' '.repeat(address.length)
+  })
+}
+
 function blankAttributionFields(text: string): string {
-  return text
+  return blankEmailKeyLines(text)
     .replace(EMAIL_KEY_VALUE_RE, (m: string, _q: string, _sep: string, _vq: string, address: string) => m.slice(0, m.length - address.length) + ' '.repeat(address.length))
     .replace(QUOTED_IDENTITY_RE, (_m: string, lead: string, quote: string, head: string, address: string) => lead + quote + head + ' '.repeat(address.length))
 }
@@ -1009,8 +1054,10 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // with "please" (#391, replaying Codex CLI tool output).
   const verbHits: { i: number; v: string }[] = []
   // Nor a segment of a dotted name: Gradle's "Please set
-  // gradle.publish.key" paired "publish" with "please" (#477).
-  const inPath = (i: number, len: number): boolean => /[\\/]/.test(hay[i - 1] ?? '') || /[\\/]/.test(hay[i + len] ?? '') ||
+  // gradle.publish.key" paired "publish" with "please" (#477). Nor a word
+  // inside an identifier: an env file's "SEND_TO=ops@..." paired "send" with
+  // the address (#391), since `_` is not a letter for the boundary check.
+  const inPath = (i: number, len: number): boolean => /[\\/_]/.test(hay[i - 1] ?? '') || /[\\/_]/.test(hay[i + len] ?? '') ||
     (hay[i - 1] === '.' && hay[i + len] === '.')
   for (const v of ML_VERBS) {
     for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
@@ -1106,6 +1153,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       // an `export X_EMAIL="x@..."` line beside it repeats the address, #477).
       if (keyHolds(window, vm.index, vm.index + vm[0].length, em[0])) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
+      if (isEmailElementVerb(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
       if (/^export$/i.test(vm[0]) && isExportKeyword(window.slice(vm.index + vm[0].length))) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
