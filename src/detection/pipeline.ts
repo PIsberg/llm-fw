@@ -3,7 +3,7 @@ import { Config, PipelineResult, BlockEvent, ScanSource, PayloadParser } from '.
 import { isObserving } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
-import { unwrapCodexEnvelope } from './clientEnvelopes.js'
+import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope } from './clientEnvelopes.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
@@ -627,8 +627,10 @@ export class Pipeline {
       at.item = { text: prompt, source }
       await yieldIfDue()
       // The trusted path is part of the key: the same text read from a
-      // trusted root warns and from anywhere else blocks.
-      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(prompt).digest('hex') : ''
+      // trusted root warns and from anywhere else blocks. So is the client:
+      // Claude Code's own wrappers are read for what they carry only in its
+      // requests, and one proxy serves several agents (#605).
+      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(meta.sandboxClient ?? '').update('\0').update(prompt).digest('hex') : ''
       const cached = itemKey ? this.itemCache.get(itemKey) : undefined
       if (cached) {
         this.itemCache.delete(itemKey)
@@ -996,8 +998,11 @@ export class Pipeline {
       // Yields between steps on a large text, so one request does not hold the
       // event loop for its whole scan (#464); the candidates are the same.
       // A Codex AGENTS.md envelope is scanned as the file inside it (#459),
-      // a Codex title request as the prompt after its fixed instructions.
-      const candidates = await extractCandidatesYielding(unwrapCodexEnvelope(prompt))
+      // a Codex title request as the prompt after its fixed instructions,
+      // and from Claude Code, its mid-turn wrapper in a user turn as the
+      // message inside (#605). Only in a user turn: Claude Code never puts it
+      // in a tool result, where any tool's output could print it.
+      const candidates = await extractCandidatesYielding(unwrapCodexEnvelope(meta.sandboxClient === 'claude-code' && source === 'prompt' ? unwrapClaudeCodeMidTurn(prompt) : prompt))
       let plainMatches: string[] | undefined
       for (const candidate of candidates) {
         // Stage 1: heuristic. A whole-text candidate of a large text is the

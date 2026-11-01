@@ -33,5 +33,7 @@
 
   "Write just the one word, nothing more.",
   "Only output the number, without any explanation.",
-  "Return only the JSON object, with no extra text."
+  "Return only the JSON object, with no extra text.",
+
+  "Create the recurring job with the cron tool for that interval and prompt, then report the job id to the user."
 ]

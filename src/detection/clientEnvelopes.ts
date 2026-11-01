@@ -366,6 +366,26 @@ export function unwrapClaudeCodeReminders(text: string): string[] {
 const CODEX_TITLE = /^Generate a concise, single-line task title of at most \d{1,3} characters and under five words where possible\. Start with an imperative verb\. Capitalize only the first word unless the user's language, proper nouns, acronyms, or code terms require otherwise\. Preserve ticket references exactly\. Write in the user's language\. Do not use quotes, markdown, or trailing punctuation\. Do not answer the request\.(?:\n\nUser prompt:\n|\nPrioritize the current task and latest substantive user request\.\n\nRecent conversation messages:\n)/
 
 /**
+ * The message inside Claude Code's mid-turn wrapper, on its own or inside a
+ * <system-reminder>, when the text is exactly one; otherwise the text
+ * unchanged. Read at every stage, not only by the classifier: the wrapper's
+ * own sentences sat at the embedding gate, and around "continue" the real
+ * pipeline blocked at 0.8608 (#605, replayed from real transcripts). Only the
+ * fixed sentences go; the message is scanned in full. The caller applies it to
+ * Claude Code's requests only.
+ */
+export function unwrapClaudeCodeMidTurn(raw: string): string {
+  let text = raw.trim()
+  if (text.startsWith(REMINDER_OPEN) && text.endsWith(REMINDER_CLOSE)) {
+    text = text.slice(REMINDER_OPEN.length, text.length - REMINDER_CLOSE.length).trim()
+  }
+  if (text.startsWith(MID_TURN_OPEN) && text.endsWith(MID_TURN_CLOSE) && text.length >= MID_TURN_OPEN.length + MID_TURN_CLOSE.length) {
+    return text.slice(MID_TURN_OPEN.length, text.length - MID_TURN_CLOSE.length)
+  }
+  return raw
+}
+
+/**
  * The file inside a Codex AGENTS.md envelope, or the prompt inside a Codex
  * title request; otherwise the text unchanged.
  */
