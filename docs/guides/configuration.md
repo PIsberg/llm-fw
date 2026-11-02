@@ -69,6 +69,24 @@ reads every byte. Raising it costs latency roughly linearly; `0` removes the
 bound entirely, which is how a 1 MB prompt used to take 423 s. See
 [detection-stages.md](detection-stages.md#cost-on-long-prompts).
 
+`detection.embedding.spinWait` (default `false`, `LLM_FW_EMBEDDING_SPIN_WAIT`,
+restart required) lets the embedding model's threads spin between work items
+instead of sleeping. Off, the firewall uses far less CPU on a machine it shares
+with your agent and your builds, and serves fewer requests at saturation. Turn
+it on for a gateway serving many clients, where throughput matters more. Measured
+on an i7-1260P with `npm run bench:load`, chat workload:
+
+| | `false` (default) | `true` |
+| --- | --- | --- |
+| CPU at 1 client (of one core) | 191% | 1,181% |
+| CPU time per request | 59 ms | 230 ms |
+| Throughput at 1 client | 32.1 req/s | 51.5 req/s |
+| Peak throughput | 42.7 req/s | 65.1 req/s |
+| p50 latency at 1 client | 30 ms | 19 ms |
+
+The classifier stage always runs with spinning off: there it saves most of 1,164%
+of one core at a light load and costs 3% at saturation.
+
 `detection.embeddingMaxPassesPerRequest` (default `128`,
 `LLM_FW_EMBEDDING_MAX_PASSES`) bounds the same stage per request, across every
 text the request carries: 16 distinct 40 KB messages in one body took 26 s to
@@ -442,7 +460,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_114 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_115 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -477,6 +495,7 @@ _114 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_EMBEDDING_MARGIN` | `detection.embeddingMarginThreshold` | `0.02` |
 | `LLM_FW_EMBEDDING_MAX_CHUNKS` | `detection.embeddingMaxChunks` | `24` |
 | `LLM_FW_EMBEDDING_MAX_PASSES` | `detection.embeddingMaxPassesPerRequest` | `128` |
+| `LLM_FW_EMBEDDING_SPIN_WAIT` | `detection.embedding.spinWait` | `false` |
 | `LLM_FW_EMBEDDING_WARN_THRESHOLD` | `detection.embeddingWarnThreshold` | `0.8` |
 | `LLM_FW_ENFORCEMENT` | `enforcement` | _unset_ |
 | `LLM_FW_EXTRA_TARGETS` | `extraTargets` | `0 entries` |

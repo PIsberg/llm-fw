@@ -226,6 +226,8 @@ const COLD_PATHS: Path[] = [
   ['proxy', 'inspectChatgptBackend'],
   // Read once, after the listeners bind.
   ['updateCheck'],
+  // Read once, when the model session is built.
+  ['detection', 'embedding', 'spinWait'],
 ]
 
 /**

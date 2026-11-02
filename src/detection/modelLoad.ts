@@ -89,3 +89,7 @@ export async function loadWithVisibility<T>(
     if (timer) clearTimeout(timer)
   }
 }
+
+// onnxruntime's intra-op threads spin between work items by default, which holds
+// the process at about 1,190% of one core at any load reaching a model (#631).
+export const NO_SPINNING = { extra: { session: { intra_op: { allow_spinning: '0' } } } }

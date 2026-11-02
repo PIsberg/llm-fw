@@ -166,6 +166,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.11 (#631: spinning off changes how the model's
+  // threads wait, not what they compute; 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.10 (#637: planted commands, read only on the files
   // in Claude Code reminders, which no eval string carries; measured unchanged
   // by construction).

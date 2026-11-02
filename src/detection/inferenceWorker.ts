@@ -81,6 +81,9 @@ export class InferenceWorkerClient {
   private crashCount = 0
   private permanentlyDisabled = false
   private terminating = false
+  // Remembered and sent with every embedding request: a respawned worker has
+  // not seen the ensure() that set it, and loads the model on its next embed.
+  private embeddingSpinWait = false
 
   constructor(private readonly workerFactory: WorkerFactory = defaultWorkerFactory) {}
 
@@ -135,7 +138,7 @@ export class InferenceWorkerClient {
     }
   }
 
-  private request(req: { kind: 'embed' | 'classify' | 'ensure'; text?: string; model?: 'embed' | 'classify' }): Promise<WorkerResponse> {
+  private request(req: { kind: 'embed' | 'classify' | 'ensure'; text?: string; model?: 'embed' | 'classify'; spinWait?: boolean }): Promise<WorkerResponse> {
     if (this.permanentlyDisabled) return Promise.reject(new WorkerUnavailableError())
     const worker = this.getWorker()
     const id = this.nextId++
@@ -147,7 +150,7 @@ export class InferenceWorkerClient {
 
   /** Embed ONE text (never batched — see the q8 calibration note above). */
   async embed(text: string): Promise<Float32Array> {
-    const res = await this.request({ kind: 'embed', text })
+    const res = await this.request({ kind: 'embed', text, spinWait: this.embeddingSpinWait })
     if (res.ok && res.kind === 'embed') return res.result
     throw new Error('unexpected inference worker response for embed')
   }
@@ -162,8 +165,9 @@ export class InferenceWorkerClient {
   /** Lazily load a model in the worker without running inference on any
    *  text — used by init() to probe availability (mirrors the in-process
    *  catch-and-disable path around the initial pipeline() call). */
-  async ensure(model: 'embed' | 'classify'): Promise<void> {
-    const res = await this.request({ kind: 'ensure', model })
+  async ensure(model: 'embed' | 'classify', options?: { spinWait: boolean }): Promise<void> {
+    if (model === 'embed' && options) this.embeddingSpinWait = options.spinWait
+    const res = await this.request({ kind: 'ensure', model, spinWait: this.embeddingSpinWait })
     if (!(res.ok && res.kind === 'ensure')) throw new Error('unexpected inference worker response for ensure')
   }
 

@@ -197,6 +197,40 @@ describe('EmbeddingChecker', () => {
 describe('EmbeddingChecker worker isolation (Task C3)', () => {
   const workerCfg = { ...DEFAULT_CONFIG.detection, workerInference: true }
 
+  // onnxruntime's intra-op threads spin between work items: 1,190% of one core
+  // at any load that reaches this stage, against 191% with spinning off (#631).
+  describe('detection.embedding.spinWait', () => {
+    const NO_SPIN = { extra: { session: { intra_op: { allow_spinning: '0' } } } }
+    const loadOptions = () => (pipeline as unknown as MockFn).mock.calls[0]![2] as Record<string, unknown>
+
+    it('loads the model with spinning off by default', async () => {
+      const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection, fakeClient())
+      await checker.init()
+      expect(loadOptions()).toEqual({ dtype: 'q8', session_options: NO_SPIN })
+    })
+
+    it('leaves the runtime default when it is on', async () => {
+      const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embedding: { spinWait: true } }, fakeClient())
+      await checker.init()
+      expect(loadOptions()).toEqual({ dtype: 'q8' })
+    })
+
+    it('tells the worker, which loads the model when inference runs there', async () => {
+      const off = fakeClient()
+      await new EmbeddingChecker(workerCfg, off).init()
+      expect(off.ensure).toHaveBeenCalledWith('embed', { spinWait: false })
+      const on = fakeClient()
+      await new EmbeddingChecker({ ...workerCfg, embedding: { spinWait: true } }, on).init()
+      expect(on.ensure).toHaveBeenCalledWith('embed', { spinWait: true })
+    })
+
+    it('still applies when a dead worker falls back to loading in-process', async () => {
+      const client = fakeClient({ ensure: vi.fn().mockRejectedValue(new WorkerUnavailableError()) })
+      await new EmbeddingChecker(workerCfg, client).init()
+      expect(loadOptions()).toEqual({ dtype: 'q8', session_options: NO_SPIN })
+    })
+  })
+
   function fakeClient(overrides: Partial<{
     isAvailable: MockFn
     ensure: MockFn
@@ -223,7 +257,7 @@ describe('EmbeddingChecker worker isolation (Task C3)', () => {
     const client = fakeClient()
     const checker = new EmbeddingChecker(workerCfg, client)
     await checker.init()
-    expect(client.ensure).toHaveBeenCalledWith('embed')
+    expect(client.ensure).toHaveBeenCalledWith('embed', { spinWait: false })
     expect(pipeline).not.toHaveBeenCalled()
     expect(checker.isInitialized()).toBe(true)
   })

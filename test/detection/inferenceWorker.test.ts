@@ -6,9 +6,9 @@ import { InferenceWorkerClient, WorkerUnavailableError, type WorkerFactory } fro
 // A minimal fake Worker: an EventEmitter with postMessage()/terminate(), so
 // tests can drive message/error/exit events without spawning a real thread.
 class FakeWorker extends EventEmitter {
-  posted: { id: number; kind: string; text?: string; model?: string }[] = []
+  posted: { id: number; kind: string; text?: string; model?: string; spinWait?: boolean }[] = []
   terminated = false
-  postMessage(msg: { id: number; kind: string; text?: string; model?: string }): void {
+  postMessage(msg: { id: number; kind: string; text?: string; model?: string; spinWait?: boolean }): void {
     this.posted.push(msg)
   }
   terminate(): Promise<number> {
@@ -55,6 +55,17 @@ describe('InferenceWorkerClient (Task C3)', () => {
     worker.emit('message', { id: worker.posted[0].id, ok: true, kind: 'embed', result: vector })
 
     await expect(promise).resolves.toEqual(vector)
+  })
+
+  it('sends the spin setting with every embedding request, so a respawned worker keeps it', async () => {
+    const { client, workers } = makeClient()
+    void client.ensure('embed', { spinWait: true }).catch(() => {})
+    void client.embed('text').catch(() => {})
+    expect(workers[0]!.posted[0]).toMatchObject({ kind: 'ensure', model: 'embed', spinWait: true })
+    expect(workers[0]!.posted[1]).toMatchObject({ kind: 'embed', spinWait: true })
+    workers[0]!.emit('exit', 1)
+    void client.embed('text again').catch(() => {})
+    expect(workers[1]!.posted[0]).toMatchObject({ kind: 'embed', spinWait: true })
   })
 
   it('classify() and ensure() round-trip through the same worker', async () => {
