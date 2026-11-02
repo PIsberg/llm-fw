@@ -130,14 +130,14 @@ export interface DetectionConfig {
   // LLM_FW_INTENT_MENTION_ENABLED. Scoped to the prompt/system surface — never
   // applied to untrusted tool_result/document data.
   intentMention?: boolean;
-  // Operator-driven false-positive suppression (see suppressions.ts). When a
-  // prompt/system candidate's normalized text matches an operator-approved
-  // suppression (added via the dashboard's "mark false positive" feedback),
-  // downgrade what would otherwise be a BLOCK to a warn. ON by default; an
-  // empty suppression list (the default, fresh-install state) is a no-op, so
-  // enabling this never changes behaviour until an operator actually marks a
-  // false positive. Also LLM_FW_SUPPRESSIONS_ENABLED. Scoped to prompt/system
-  // — never applied to untrusted tool_result/document data.
+  // Operator-driven false-positive suppression (see suppressions.ts). A text
+  // the operator marked (the dashboard's "mark false positive" feedback) is
+  // downgraded from a BLOCK to a warn, and a near copy of it has the marked
+  // lines removed before it is scanned. ON by default; an empty suppression
+  // list (the default, fresh-install state) is a no-op, so enabling this never
+  // changes behaviour until an operator actually marks a false positive. Also
+  // LLM_FW_SUPPRESSIONS_ENABLED. A mark applies only on the surface it was
+  // made on, with prompt and system counting as one.
   suppressions?: boolean;
   // Per-surface sensitivity overrides (Task B3). The untrusted data surfaces
   // (tool_result / document) can be tuned tighter (or looser) than the global
@@ -900,6 +900,8 @@ export interface BlockEvent {
   // the text the stage scanned, which payload_full may only label and quote.
   // Absent on blocks that are not about one scanned text.
   suppressionKey?: string | undefined;
+  // The surface that text was scanned on, which a mark's line keys are scoped to.
+  suppressionSource?: ScanSource | undefined;
   // On a tool-result block: true when the tool result was withheld and the
   // rest of the request forwarded, false when it could not be and the request
   // was refused. Absent on every other block.

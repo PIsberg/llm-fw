@@ -45,7 +45,7 @@ const SEND_VERB_RE = /\b(?:send|post|upload|transmit|forward|e-?mail|share|leak|
 // An address is found at its `@`, never by a leading run of address
 // characters, which restarts at every position of a long run
 // (GHSA-gm3q-2gwx-gppq).
-const DESTINATION_RE = /https?:\/\/|(?<=[\w.%+-])@[A-Za-z0-9-]+\.[A-Za-z]{2}|\b\d{1,3}(?:\.\d{1,3}){3}\b/g
+export const DESTINATION_RE = /https?:\/\/|(?<=[\w.%+-])@[A-Za-z0-9-]+\.[A-Za-z]{2}|\b\d{1,3}(?:\.\d{1,3}){3}\b/g
 // A destination before the verb counts too ("To https://..., post ..."),
 // unless it is a reference: a link the sentence points the reader to ("See
 // https://docs...:", "[docs](https://...)"), which is how the one benign

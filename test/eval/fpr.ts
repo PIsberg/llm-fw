@@ -168,6 +168,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // every recall split byte-identical, injecagent 1054/1054.
   // Lowered at ruleset 2026.11.8 (#511: transformers 4.3.2 and a stage 1 rule
   // for what it lost; measured 7/336 from 9/336, see the two ceilings above).
+  // Held at ruleset 2026.11.9 (what an operator's mark covers; this run holds
+  // no marks, measured unchanged, and 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.7 (#477: upper-case requirement ids are not an
   // object, and a verb before is/are/was/were/of is a noun; the rule changes
   // on none of the 31,923 eval strings).

@@ -109,7 +109,7 @@ import { referencesModelInstructions } from './selfReference.js'
 import { detectIndirectInstruction } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
-import { SuppressionStore, suppressionKey } from './suppressions.js'
+import { SuppressionStore, suppressionKey, type NearCopy } from './suppressions.js'
 import { withholdText, withholdNotice } from './withhold.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
@@ -642,7 +642,7 @@ export class Pipeline {
       // The item as it is in the body, which a withhold has to find; every
       // stage below reads it without a harness template's fixed text.
       at.item = { text: itemText, source }
-      const prompt = stripHarnessTemplate(itemText, source).text
+      let prompt = stripHarnessTemplate(itemText, source).text
       await yieldIfDue()
       // A file from Claude Code's reminders: the covert credential-file rule
       // only (see reminderFiles above). Not withheld, since the file is a part
@@ -678,12 +678,32 @@ export class Pipeline {
         lastSim = Math.max(lastSim, cached.sim)
         continue
       }
+      const suppressionHitsBeforeItem = this.suppressionHits
+      // A near copy of a text the operator marked: the marked lines go, and
+      // every stage below reads the rest. Counted as a suppression hit so the
+      // item is not cached: removing the mark has to bring its lines back.
+      const near = this.nearCopyOfMark(prompt, source)
+      let nearWarn: PendingWarn | null = null
+      if (near) {
+        this.suppressionHits++
+        nearWarn = {
+          result: { action: 'warn', stage: (near.stage ?? 'none') as PipelineResult['stage'], score: 0, similarity: 0, prompt: near.text },
+          prompt: `[suppressed-fp] ${near.vouched} of ${near.total} lines match a text marked as a false positive`,
+          source,
+        }
+        // The newest prompt is still the newest with lines removed (see emit).
+        if (itemText === meta.newestPrompt) meta = { ...meta, newestPrompt: near.text }
+        prompt = near.text
+        if (prompt === '') {
+          pendingWarn = firstWarn(pendingWarn, nearWarn)
+          continue
+        }
+      }
       // Track this item's own outcome separately so it can be cached; merged
       // back below (the first warn across all items still wins).
       const warnBeforeItem = pendingWarn
       const scoreBeforeItem = lastScore
       const simBeforeItem = lastSim
-      const suppressionHitsBeforeItem = this.suppressionHits
       // Set when the budget ran out inside this item: its outcome is partial.
       let itemCut = false
       // detection.classifier.requireCorroboration: a classifier block held
@@ -1201,6 +1221,8 @@ export class Pipeline {
         if (!pendingWarn) pendingWarn = { result: { ...classifierPending.result, action: 'warn' }, prompt: classifierPending.warnLine, source, scanned: prompt }
       }
 
+      if (!pendingWarn) pendingWarn = nearWarn
+
       // This item did not block. Remember its outcome, then merge it back. Not
       // when the budget cut it short: a later request must read it in full.
       if (itemCut) itemsCut++
@@ -1295,6 +1317,15 @@ export class Pipeline {
     return hit
   }
 
+  /** What a mark leaves of `text`, when it is a near copy of a marked text and not that text itself. */
+  private nearCopyOfMark(text: string, source: ScanSource): NearCopy | null {
+    if (this.config.detection.suppressions === false) return null
+    const near = this.suppressions.withoutMarkedLines(text, source)
+    // The exact text goes through every stage and downgrades at the block, as
+    // it always has, so its event says which stage it was.
+    return near && !this.suppressions.has(suppressionKey(text, source)) ? near : null
+  }
+
   // Max concurrent specialized-judge queries for RAG data blocks. A prompt with
   // dozens of small code/document blocks would otherwise fire dozens of parallel
   // requests at the single local Ollama instance and overwhelm the GPU/CPU.
@@ -1358,8 +1389,12 @@ export class Pipeline {
     // blocks again on every later request of the session (#295). A withheld
     // tool result is the same: the agent resends it and it is withheld again.
     // Other enforced blocks are all reported: each one refused a request.
+    // Keyed on the scanned text when there is one, not the display line: two
+    // texts flagged on the same sentence read the same there, and the second
+    // was withheld with no event for the operator to mark.
+    const key = scanned !== null ? suppressionKey(scanned, source) : null
     if ((observing || withheld === true) && result.action === 'block'
-      && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${source}\0${result.stage}\0${prompt}`).digest('hex'))) return
+      && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${source}\0${result.stage}\0${key ?? prompt}`).digest('hex'))) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
     // existing Live Traffic UI without a schema change.
@@ -1389,7 +1424,7 @@ export class Pipeline {
       ...(withheld !== undefined ? { withheld } : {}),
       // `prompt` above may be a label and a snippet; the dashboard's "Mark
       // false positive" needs the key of the text this stage scanned.
-      ...(scanned !== null ? { suppressionKey: suppressionKey(scanned, source) } : {}),
+      ...(key !== null ? { suppressionKey: key, suppressionSource: source } : {}),
       heuristicMatches: result.heuristicMatches,
       nearestTemplate: result.nearestTemplate,
       verdict: result.verdict,
