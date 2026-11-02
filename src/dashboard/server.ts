@@ -7,7 +7,7 @@ import { deepMerge, effectiveClassifierBlockThreshold } from '../config/config.j
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
-import { SuppressionStore } from '../detection/suppressions.js'
+import { SuppressionStore, suppressionLines } from '../detection/suppressions.js'
 import { getParser } from '../detection/parsers.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
 import { ocrImage, isOcrCandidate } from '../detection/ocr.js'
@@ -1088,7 +1088,7 @@ function toggleDrawer(id, ev) {
         // Only a block about one scanned text carries a suppressionKey; on a
         // DLP, URL or rate block the button would store an entry nothing reads.
         (ev.action === 'blocked' && ev.suppressionKey
-          ? '<button class="btn btn-sm" id="fp-btn-' + esc(id) + '" title="Remember this exact prompt so an identical future request warns instead of blocking">Mark false positive (suppress future matches)</button>' +
+          ? '<button class="btn btn-sm" id="fp-btn-' + esc(id) + '" title="Remember this text so the same text, or a near copy with some lines changed, warns instead of blocking. Changed lines are still scored">Mark false positive (suppress future matches)</button>' +
             '<span id="fp-status-' + esc(id) + '" class="status-ok"></span>'
           : '') +
         '<details class="report-menu">' +
@@ -1198,7 +1198,7 @@ async function suppressEvent(id, btn) {
     });
     const d = await res.json();
     if (res.ok) {
-      if (status) status.textContent = '✓ Suppressed — an identical prompt will warn, not block';
+      if (status) status.textContent = '✓ Suppressed: this text, or a near copy of it, will warn. Changed lines are still scored';
       btn.textContent = 'Suppressed';
     } else {
       btn.disabled = false;
@@ -1221,8 +1221,8 @@ async function whitelistEvent(id, btn) {
     });
     const d = await res.json();
     if (res.ok) {
-      if (status) status.textContent = '✓ Saved to whitelist';
-      btn.textContent = 'Whitelisted';
+      if (status) status.textContent = '✓ Recorded for audit. This does not change what future requests get';
+      btn.textContent = 'Recorded';
     } else {
       btn.disabled = false;
       if (status) { status.style.color = 'var(--danger)'; status.textContent = 'Error: ' + (d.error || res.status); }
@@ -3523,7 +3523,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             return
           }
           const entry = event.suppressionKey
-            ? suppressionStore.addKey(event.suppressionKey, event.payload_preview || promptText)
+            ? suppressionStore.addKey(event.suppressionKey, event.payload_preview || promptText, event.suppressionSource
+              ? { lines: suppressionLines(promptText, event.suppressionSource), stage: event.stage }
+              : undefined)
             : suppressionStore.add(promptText)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, entry }))

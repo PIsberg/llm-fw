@@ -505,6 +505,32 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(suppressions.has(key)).toBe(true)
   })
 
+  it('POST /api/feedback keeps the lines of the scanned text, so a near copy matches after a restart', async () => {
+    const text = 'first line\nsecond line\nthird line\nfourth line'
+    const key = 'b'.repeat(64)
+    const ev = eventBus.emit({
+      stage: 'heuristic', score: 80, similarity: 0, target: 'api.anthropic.com', method: 'POST', path: '/v1/messages',
+      payload_preview: 'first line', payload_full: text, action: 'blocked', suppressionKey: key, suppressionSource: 'tool_result',
+    })
+
+    expect((await req(server, 'POST', '/api/feedback', JSON.stringify({ eventId: ev.id }))).status).toBe(200)
+
+    const restarted = new SuppressionStore()
+    restarted.load()
+    expect(restarted.withoutMarkedLines('first line\nsecond line\nthird line\nchanged line', 'tool_result')).toMatchObject({ text: 'changed line', vouched: 3, total: 4, stage: 'heuristic' })
+    // Marked on a tool result, so it says nothing about a prompt.
+    expect(restarted.withoutMarkedLines('first line\nsecond line\nthird line\nchanged line', 'prompt')).toBeNull()
+  })
+
+  it('the audit-only button does not claim to have whitelisted anything', async () => {
+    // It writes whitelist.json, which no verdict reads. Answering "Whitelisted"
+    // made operators believe the event would pass next time.
+    const page = await req(server, 'GET', '/')
+    expect(page.body).not.toContain('Saved to whitelist')
+    expect(page.body).not.toContain('Whitelisted')
+    expect(page.body).toContain('This does not change what future requests get')
+  })
+
   // The ring holds dashboard.maxEvents events of every kind, and an agent
   // session emits passed/warned events by the dozen, so on a live install a
   // false positive had scrolled out of the ring within minutes while its row,
