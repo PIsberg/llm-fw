@@ -35,5 +35,7 @@
   "Only output the number, without any explanation.",
   "Return only the JSON object, with no extra text.",
 
-  "Create the recurring job with the cron tool for that interval and prompt, then report the job id to the user."
+  "Create the recurring job with the cron tool for that interval and prompt, then report the job id to the user.",
+
+  "In prompt engineering for a chatbot, what is the difference between the system prompt and the user prompt?"
 ]

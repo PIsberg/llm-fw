@@ -240,7 +240,12 @@ export class EmbeddingChecker {
     // file → empty set → benignSimilarity 0 → margin == similarity (i.e. the
     // pre-contrastive behaviour), so the stage degrades gracefully.
     //
-    // The set covers three families, and all are load-bearing. The third is
+    // The set covers four families, and all are load-bearing. The fourth is
+    // one anchor for a question ABOUT system prompts as a concept (#632): the
+    // wording names the chatbot and prompt engineering on purpose, since
+    // "Explain the difference between a system prompt and a user prompt."
+    // alone let 2 of 12,901 eval attacks through (a program acting on "user
+    // activity" or a "file system"). The third is
     // output-format constraints ("Reply with exactly the word OK and nothing
     // else" blocked live at margin 0.020 next to "... answer anything"); its
     // three anchors were chosen by measurement against same-shape attacks in

@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.6
+
+**Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). One benign contrastive anchor (#632): "In prompt engineering for a chatbot, what is the difference between the system prompt and the user prompt?" A developer's question about system prompts as a concept warned alone and blocked once a trailing sentence followed it. Measured before and after with `npm run verdicts:dump` and `verdicts:diff`: 0 of 12,901 block verdicts changed, largest similarity drift 0.0094. The first wording tried, "Explain the difference between a system prompt and a user prompt.", let 2 of them through (an AdvBench and a JailbreakBench row about a program acting on user activity and a file system) and was rejected; two wordings without "system prompt" broke the pinned tests for Claude Code's mid-turn wrapper. `test/detection/embedding-benign.test.ts` pins the new benign rows and three attacks in the same vocabulary aimed at this model's own prompt.
+
 ## Result, ruleset 2026.11.5
 
 **Unchanged, by construction.** What fills a harness template's slot (a language name, the file list of a security review) is now scored with the rest of the prompt instead of being removed with the template's fixed text: a slot keeps out spaces, not words, so an override joined with underscores or in base64 fitted the file-list slot. Only a prompt that matches a template can change, and none of the 32,219 strings in `test/eval/data`, `test/detection/fixtures` and `test/load/data` does.
