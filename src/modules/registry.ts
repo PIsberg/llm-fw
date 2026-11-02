@@ -398,28 +398,33 @@ export class ModuleManager {
   }
 
   getSummaryStats(): ModulesSummaryStats {
+    // Every module counts each request it reads, so these totals overlap and
+    // summing them counts one request once per module: 4 more modules that saved
+    // nothing took 67.7 points off a 3,000-line build log. In pipeline order, a module
+    // saw the text after the ones before it had cut theirs, so its count plus
+    // those savings is the size before any module ran. The module reading the
+    // most text gives the total. Savings do add: each is its own cut.
     let totalTokensOriginal = 0
-    let totalTokensPruned = 0
     let totalTokensSaved = 0
     let latest: ModuleEvent | undefined
 
     for (const mod of this.modules.values()) {
       const stats: ModuleStats = mod.getStats()
-      totalTokensOriginal += stats.tokensOriginal
-      totalTokensPruned += stats.tokensPruned
+      totalTokensOriginal = Math.max(totalTokensOriginal, stats.tokensOriginal + totalTokensSaved)
       totalTokensSaved += stats.tokensSaved
       // recentEvents is newest first
       const newest = stats.recentEvents[0]
       if (newest && (!latest || newest.timestamp > latest.timestamp)) latest = newest
     }
 
+    totalTokensOriginal = Math.max(totalTokensOriginal, totalTokensSaved)
     const overallPercentSaved = totalTokensOriginal > 0
       ? Math.round(((totalTokensSaved / totalTokensOriginal) * 100) * 10) / 10
       : 0
 
     return {
       totalTokensOriginal,
-      totalTokensPruned,
+      totalTokensPruned: totalTokensOriginal - totalTokensSaved,
       totalTokensSaved,
       overallPercentSaved,
       ...(latest?.applied === undefined ? {} : { applied: latest.applied }),

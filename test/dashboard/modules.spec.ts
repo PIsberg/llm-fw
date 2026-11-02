@@ -44,11 +44,10 @@ function sse(events: object[]): string {
 // page is fully loaded, and showing the empty state, before anything arrives.
 //
 // After a push, `summary` decides what /api/modules does:
-// - 'never': it never answers, so only the event stream can change the page.
 // - 'last': it answers after the stream's events, so the page's final state is
 //   the summary's, the order that exposes a summary disagreeing with the
 //   event it summarises. push() then resolves once that answer has landed.
-type SummaryOrder = 'never' | 'last'
+type SummaryOrder = 'last'
 
 async function gatedServer(page: Page, initial: Totals) {
   let current = initial
@@ -58,7 +57,6 @@ async function gatedServer(page: Page, initial: Totals) {
   let summaryServed!: () => void
   const served = new Promise<void>(r => { summaryServed = r })
   await page.route('**/api/modules', async (route: Route) => {
-    if (order === 'never') return
     const late = order === 'last'
     if (late) await new Promise(r => setTimeout(r, 300))
     await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: modulesBody(current) })
@@ -83,7 +81,41 @@ async function gatedServer(page: Page, initial: Totals) {
 }
 
 test.describe('Tokens Saved tile (#342)', () => {
-  test('updates from a module event without a page refresh', async ({ page }) => {
+  // A module event carries that one module's running total; the tile shows the
+  // sum across modules. Writing the event's number made the tile jump to one
+  // module's count on every event and back about 500 ms later, so with two
+  // modules active an operator could not tell which number was right.
+  test('never shows one module\'s count, only the total across modules', async ({ page }) => {
+    const server = await gatedServer(page, { saved: 1000, original: 8000, pct: 12.5 })
+    await page.goto('/')
+    await expect(page.locator('#stat-tokens-saved')).toHaveText('1,000')
+
+    // Every value the tile ever holds, not only the one it settles on.
+    await page.evaluate(() => {
+      const seen: string[] = []
+      ;(window as unknown as { seen: string[] }).seen = seen
+      for (const id of ['stat-tokens-saved', 'stat-tokens-pct']) {
+        const el = document.getElementById(id)!
+        new MutationObserver(() => { seen.push(el.textContent ?? '') }).observe(el, { childList: true, characterData: true, subtree: true })
+      }
+    })
+
+    await server.push(
+      { saved: 1500, original: 10_000, pct: 15 },
+      [moduleEvent('m1', { saved: 40, original: 400, pct: 10 }), moduleEvent('m2', { saved: 1460, original: 9600, pct: 15.2 })],
+      'last',
+    )
+
+    await expect(page.locator('#stat-tokens-saved')).toHaveText('1,500')
+    await expect(page.locator('#stat-tokens-pct')).toHaveText('15% saved')
+    const seen = await page.evaluate(() => (window as unknown as { seen: string[] }).seen)
+    expect(seen).not.toContain('40')
+    expect(seen).not.toContain('10% saved')
+    expect(seen).not.toContain('1,460')
+    expect(seen).not.toContain('15.2% saved')
+  })
+
+  test('updates after a module event without a page refresh', async ({ page }) => {
     const server = await gatedServer(page, { saved: 0, original: 0, pct: 0 })
     let navigations = 0
     page.on('framenavigated', f => { if (f === page.mainFrame()) navigations++ })
@@ -92,9 +124,8 @@ test.describe('Tokens Saved tile (#342)', () => {
     await expect(page.locator('#stat-tokens-saved')).toHaveText('0')
     const before = navigations
 
-    // The summary never answers, so the change can only come from the stream.
     const t = { saved: 1234, original: 9872, pct: 12.5, applied: true }
-    await server.push(t, [moduleEvent('m1', t)], 'never')
+    await server.push(t, [moduleEvent('m1', t)], 'last')
 
     await expect(page.locator('#stat-tokens-saved')).toHaveText('1,234', { timeout: 10_000 })
     await expect(page.locator('#stat-tokens-pct')).toHaveText('12.5% saved')

@@ -1402,8 +1402,9 @@ es.onmessage = e => { try { appendRow(JSON.parse(e.data)); } catch(_) {} };
 es.addEventListener('module', e => {
   try {
     const data = JSON.parse(e.data);
-    updateModuleStats(data);
     appendModuleRow(data);
+    // Not the Tokens Saved tile: this event's totals are one module's, and the
+    // tile shows the sum /api/modules answers with. Writing both made it jump.
     scheduleModuleRefresh();
   } catch(_) {}
 });

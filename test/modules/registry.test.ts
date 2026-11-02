@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { ModuleManager } from '../../src/modules/registry.js'
 import type { GatewayModule, GatewayModuleContext, ModuleTransformResult, ModuleStats } from '../../src/modules/types.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
+import { getParser } from '../../src/detection/parsers.js'
 import { applyHotReload } from '../../src/config/hotReload.js'
 import type { Config } from '../../src/types.js'
 
@@ -208,6 +209,55 @@ describe('ModuleManager', () => {
     expect(summary.totalTokensSaved).toBe(2)
     expect(summary.totalTokensOriginal).toBe(10)
     expect(summary.overallPercentSaved).toBe(20)
+  })
+
+  describe('the overall percentage (the Tokens Saved tile)', () => {
+    // Every enabled module adds each request to its own total, so summing them
+    // counted one request once per module, and the share fell with each one on.
+    const buildLog = Array.from({ length: 3000 }, (_, i) => `compiled module number ${i} of the build`).join('\n')
+    const bodyOf = (output: string) => JSON.stringify({
+      model: 'claude-x', max_tokens: 5,
+      messages: [
+        { role: 'user', content: 'What did the build print?' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm run build' } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: output }] },
+      ],
+    })
+    const summaryOf = async (output: string, on: string[]) => {
+      const config = structuredClone(DEFAULT_CONFIG) as Config
+      for (const key of on) (config.modules as unknown as Record<string, { enabled: boolean }>)[key]!.enabled = true
+      const mgr = new ModuleManager(config)
+      const ctx = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: getParser('/v1/messages'), sessionKey: 's', headers: {}, url: '/v1/messages', dryRun: false }
+      await mgr.transformRequest(bodyOf(output), ctx as unknown as GatewayModuleContext)
+      return mgr.getSummaryStats()
+    }
+    const summaryWith = (...on: string[]) => summaryOf(buildLog, on)
+
+    it('does not move when a module that saves nothing is switched on', async () => {
+      const alone = await summaryWith('toolResultTruncate')
+      const withOthers = await summaryWith('toolResultTruncate', 'ansiStrip', 'progressCollapse', 'tokenPruner', 'toolResultPruner')
+      expect(alone.totalTokensSaved).toBeGreaterThan(0)
+      expect(withOthers.totalTokensSaved).toBe(alone.totalTokensSaved)
+      expect(Math.abs(withOthers.overallPercentSaved - alone.overallPercentSaved)).toBeLessThan(1)
+    })
+
+    it('counts a request once, however many modules read it', async () => {
+      const one = await summaryWith('ansiStrip')
+      const three = await summaryWith('ansiStrip', 'progressCollapse', 'tokenPruner')
+      expect(one.totalTokensOriginal).toBeGreaterThan(1000)
+      expect(three.totalTokensOriginal).toBe(one.totalTokensOriginal)
+    })
+
+    it('adds what earlier modules cut back to what a later module saw', async () => {
+      // repeatCollapse runs first and shrinks what the pruner reads, so the
+      // pruner's own count is the size after the cut, not the size before.
+      const repeats = Array.from({ length: 3000 }, () => 'the same line of output, again').join('\n')
+      const whole = await summaryOf(repeats, ['toolResultPruner'])
+      const cut = await summaryOf(repeats, ['repeatCollapse', 'toolResultPruner'])
+      expect(cut.totalTokensSaved).toBeGreaterThan(1000)
+      expect(cut.totalTokensOriginal).toBe(whole.totalTokensOriginal)
+      expect(cut.totalTokensPruned).toBe(cut.totalTokensOriginal - cut.totalTokensSaved)
+    })
   })
 
   it('fails open when a module throws: the request keeps the last good body', async () => {
