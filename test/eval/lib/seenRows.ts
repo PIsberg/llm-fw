@@ -33,5 +33,8 @@ export const SEEN_ROWS: Readonly<Record<string, ReadonlyArray<readonly [number, 
   ],
   'heldout': [
     [21, '#486'],
+    // The transformers 4.3 bump moved these two under the embedding gate. Read
+    // with the maintainer's approval to write a stage 1 rule of their shape.
+    [0, '#511'], [2, '#511'],
   ],
 }

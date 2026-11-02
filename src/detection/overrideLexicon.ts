@@ -302,8 +302,9 @@ export const OVERRIDE_LEXICONS: Record<string, Lexicon> = {
   no: {
     order: 'VO',
     verbs: ['ignorer', 'se bort fra', 'glem', 'glem alt om', 'hopp over'],
-    positionals: ['tidligere', 'foregående', 'ovenstående', 'opprinnelige', 'gamle'],
-    nouns: ['instruksjon*', 'regl*', 'regler', 'anvisning*', 'retningslinj*', 'kommando*', 'ordre*'],
+    // 'før' and 'fortalt': "glem alt du ble fortalt før" (#511, #484).
+    positionals: ['tidligere', 'foregående', 'ovenstående', 'opprinnelige', 'gamle', 'før'],
+    nouns: ['instruksjon*', 'regl*', 'regler', 'anvisning*', 'retningslinj*', 'kommando*', 'ordre*', 'fortalt'],
     breakers: ['og', 'følg', 'ikke', 'aldri'],
   },
   nl: {

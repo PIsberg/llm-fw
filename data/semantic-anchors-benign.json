@@ -16,6 +16,7 @@
   "Answer this question about the documentation.",
   "Generate a README for this project.",
   "List every component that ships with the stereo, based on the passage.",
+  "Which software modules come bundled with the operating system, according to this manual?",
 
   "Ignore my earlier draft and use the version I just pasted.",
   "Disregard the numbers in my last message, they were stale.",
