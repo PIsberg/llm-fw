@@ -164,6 +164,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.7 (#477: upper-case requirement ids are not an
+  // object, and a verb before is/are/was/were/of is a noun; the rule changes
+  // on none of the 31,923 eval strings).
   // Held at ruleset 2026.11.6 (#632: one benign anchor for questions about
   // system prompts; measured unchanged, and 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.5 (a harness template's slot values stay scored;

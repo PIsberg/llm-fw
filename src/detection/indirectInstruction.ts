@@ -121,10 +121,13 @@ const POLITE_IMPERATIVE_RE = new RegExp(
 // break in a long whitespace run rescan the rest of it, quadratic on the event
 // loop (GHSA-gm3q-2gwx-gppq). The last break before the verb still opens the
 // clause, so nothing that matched before is lost.
+// Nor a verb used as a noun, followed by is, are, was, were or of: a licence
+// line's "Use is subject to the Legal Agreements outlined here: https://..."
+// took the URL as the object (#477). An order never reads "Use is ...".
 const SENTENCE_IMPERATIVE_RE = new RegExp(
   '(?:^|[.!?]\\s*|\\n[ \\t]*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
   '(?:also\\s+|then\\s+|immediately\\s+|now\\s+|first\\s+)*' +
-  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)\\s+\\S`,
+  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)(?!\\s+(?:is|are|was|were|of)\\b)\\s+\\S`,
   'gim',
 )
 
@@ -215,7 +218,17 @@ function lineStartBefore(text: string, i: number): number {
   if (end >= 0) return lo + end
   return lo === 0 ? 0 : -Infinity
 }
+// A requirement id in parentheses that ends a spec-driven task item ("add a
+// test that ... (FR-004)", "(SC-002)", "(T025)") matched the "(guest_amy01)"
+// handle object, so every task list an agent read was withheld (#477, 11 of
+// 116 imperative hits replaying real tool results). Only the usual
+// requirement prefixes, in upper case, then digits: a lower-case handle with
+// an underscore, the shape an account name takes, keeps firing.
+const REQUIREMENT_ID_RE = /\((?:FR|NFR|SC|US|T|AC|REQ|TC|BR|UC)-?\d{1,4}\)/g
 function objectWindow(text: string, verbEnd: number): string {
+  return rawObjectWindow(text, verbEnd).replace(REQUIREMENT_ID_RE, ' ')
+}
+function rawObjectWindow(text: string, verbEnd: number): string {
   const base = verbEnd - 1
   const stop = verbEnd + OBJECT_WINDOW
   // Never end mid-token: a path's hash cut after "083192" (of "083192e98768")

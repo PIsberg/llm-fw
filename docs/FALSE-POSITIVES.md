@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.7
+
+**Unchanged, by construction: the indirect-instruction rule gives the same answer before and after on all 31,923 strings in `test/eval/data` and `test/detection/fixtures`**, attacks included, so no verdict in `npm run fpr` or the recall splits can move. Two shapes stop reading as an order (#477): an upper-case requirement id in parentheses at the end of a spec-driven task item (`(FR-004)`, `(SC-002)`, `(T025)`), which matched the `(guest_amy01)` handle object, and a verb used as a noun before is, are, was, were or of (`Use is subject to the Legal Agreements outlined here: https://...`). Measured on the 116 distinct benign imperative hits among 63,639 real tool results outside llm-fw's own sessions: 30 no longer fire, 86 still do; #477 tracks them.
+
 ## Result, ruleset 2026.11.6
 
 **Unchanged: 2.68% overall (9 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). One benign contrastive anchor (#632): "In prompt engineering for a chatbot, what is the difference between the system prompt and the user prompt?" A developer's question about system prompts as a concept warned alone and blocked once a trailing sentence followed it. Measured before and after with `npm run verdicts:dump` and `verdicts:diff`: 0 of 12,901 block verdicts changed, largest similarity drift 0.0094. The first wording tried, "Explain the difference between a system prompt and a user prompt.", let 2 of them through (an AdvBench and a JailbreakBench row about a program acting on user activity and a file system) and was rejected; two wordings without "system prompt" broke the pinned tests for Claude Code's mid-turn wrapper. `test/detection/embedding-benign.test.ts` pins the new benign rows and three attacks in the same vocabulary aimed at this model's own prompt.
