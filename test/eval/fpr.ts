@@ -164,6 +164,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.5 (a harness template's slot values stay scored;
+  // no eval string matches a template, so none can change).
   // Held at ruleset 2026.11.4 (#620: a key or attribute set straight to an
   // address, and a bracketed CLI placeholder, are not send verbs; the rule
   // changes on none of the 31,921 eval strings).

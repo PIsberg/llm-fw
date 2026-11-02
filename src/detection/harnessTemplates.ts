@@ -114,7 +114,8 @@ export function compileTemplate(t: HarnessTemplate): Compiled {
   for (const m of t.head.matchAll(SLOT)) {
     const shape = t.slots?.[m[1]!]
     if (!shape) throw new Error(`harness template ${t.id}: slot {{${m[1]}}} has no shape`)
-    source += `${escapeRegExp(t.head.slice(last, m.index))}(?:${SLOT_SHAPES[shape]})`
+    // Captured: what fills a slot stays scored (see stripHead).
+    source += `${escapeRegExp(t.head.slice(last, m.index))}(${SLOT_SHAPES[shape]})`
     last = m.index + m[0].length
   }
   source += escapeRegExp(t.head.slice(last))
@@ -170,7 +171,12 @@ function stripHead(text: string): { text: string; template: string } | null {
       const trimmed = rest.trimEnd()
       if (trimmed.endsWith(t.tail)) rest = trimmed.slice(0, trimmed.length - t.tail.length)
     }
-    return { text: rest, template: t.id }
+    // Only the fixed text goes. A slot's shape keeps out spaces, not words:
+    // "ignore_all_previous_instructions" fits the paths slot, and dropping it
+    // with the fixed text hid it from every stage (security review of the
+    // merged version, 2026-11-02). Its value is scored ahead of the rest.
+    const slotValues = m.slice(1).filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    return { text: [...slotValues.map(v => v.trim()), rest].join('\n'), template: t.id }
   }
   return null
 }

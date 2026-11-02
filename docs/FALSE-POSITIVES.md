@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.5
+
+**Unchanged, by construction.** What fills a harness template's slot (a language name, the file list of a security review) is now scored with the rest of the prompt instead of being removed with the template's fixed text: a slot keeps out spaces, not words, so an override joined with underscores or in base64 fitted the file-list slot. Only a prompt that matches a template can change, and none of the 32,219 strings in `test/eval/data`, `test/detection/fixtures` and `test/load/data` does.
+
 ## Result, ruleset 2026.11.4
 
 **Unchanged, by construction: the indirect-instruction rule gives the same answer before and after on all 31,921 strings in `test/eval/data` and `test/detection/fixtures`**, attacks included, so no verdict in `npm run fpr` or the recall splits can move. Two shapes stop counting as a send verb next to an address (#620): a key or attribute set straight to an address (`email=pii@...` in a log line, `<vendor email="dev@...">` in a pom), and a word inside angle brackets in the multilingual path (`--out <dir>` in a usage line, where `dir` is a Somali send verb). Measured on the 25 distinct benign exfil-target hits among 63,639 real tool results outside llm-fw's own sessions: 4 no longer fire, 21 still do. Those are mailto links with an "Email" label (7), code where another send-class word sits within 200 characters of an address, and one-off shapes; #620 tracks them. #620's own three synthetic shapes occur in none of the real tool results.
