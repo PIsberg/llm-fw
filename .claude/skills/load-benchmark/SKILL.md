@@ -100,8 +100,9 @@ it that way if you change the workloads.
 - **`coldFirstRequestMs`** is the first request of each workload, sent before
   any level with a 300 s timeout. For `agent` it is the whole history scanned
   cold, which is what an agent's first turn costs. It is primed this way
-  because an abandoned cold scan still runs to the end, and every request that
-  arrives meanwhile misses the item cache and repeats it.
+  because a cold scan outlasts the level timeouts on a slow machine. Requests
+  arriving meanwhile wait on it rather than repeating it (#633), and a client
+  that gives up does not cancel it.
 - **Flat throughput with rising latency is saturation**, not a regression: past
   that level every added client only queues. Quote the knee, the level where
   throughput stops growing, and p99 there.

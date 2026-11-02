@@ -228,9 +228,9 @@ async function main(): Promise<void> {
   const { fw, proxyCaPem, initMs, processReadyMs } = await Firewall.start(upstream.caPem)
   const send = createSender(PROXY_PORT, upstream.port, proxyCaPem)
   // One request per workload with no practical timeout, before any level:
-  // the first agent request scans its whole history cold, and if a client
-  // gives up on it the firewall still finishes it while every later request
-  // misses the item cache too, so the run never reaches steady state.
+  // the first agent request scans its whole history cold. A client that gives up
+  // does not cancel the scan, and later requests wait on it (#633), so a short
+  // timeout here would fail every level on a slow machine for no reason.
   const sendCold = createSender(PROXY_PORT, upstream.port, proxyCaPem, COLD_TIMEOUT_MS)
   console.log(`Ready: pid ${fw.pid}, model and pipeline init ${fmtMs(initMs)}, process start to ready ${fmtMs(processReadyMs)}.\n`)
 

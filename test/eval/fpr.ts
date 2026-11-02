@@ -166,6 +166,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.14 (#633: concurrent scans of one item share its
+  // outcome; a scan that blocks shares nothing, 0 of 12,901 moved).
   // Held at ruleset 2026.11.13 (#643: a checklist item opens a clause on the
   // tool-result surface; no eval string holds a checkbox, 0 of 12,901 moved).
   // Held at ruleset 2026.11.12 (#641: words joined by underscores or invisible
