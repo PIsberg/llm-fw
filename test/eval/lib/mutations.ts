@@ -92,6 +92,9 @@ export interface ResilienceCount { kept: number; total: number }
  * themselves), policy JSON with its colons stripped, a persona line at the
  * encoder's line.
  *
+ * Re-measured on ruleset 2026.11.8, 79 seeds (71 without the encoded ones) after
+ * #511 added two corpus attacks: every rewording blocked all of them.
+ *
  * Measured on ruleset 2026.10.108, 77 seeds (69 without the encoded ones),
  * after "bypassing <vendor>'s limits" joined the restrictions wording and the
  * corpus gained a persona row: every mutation 100% but synonyms 76 and
@@ -102,15 +105,15 @@ export interface ResilienceCount { kept: number; total: number }
  * and value are only separated by a space), every mutation 100%.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 68, total: 69 },
-  leetspeak: { kept: 68, total: 69 },
-  'zero-width': { kept: 68, total: 69 },
-  casing: { kept: 68, total: 69 },
-  'markdown-fence': { kept: 76, total: 77 },
-  blockquote: { kept: 76, total: 77 },
-  'polite-prefix': { kept: 76, total: 77 },
-  synonyms: { kept: 76, total: 77 },
-  'no-punctuation': { kept: 68, total: 69 },
+  homoglyph: { kept: 70, total: 71 },
+  leetspeak: { kept: 70, total: 71 },
+  'zero-width': { kept: 70, total: 71 },
+  casing: { kept: 70, total: 71 },
+  'markdown-fence': { kept: 78, total: 79 },
+  blockquote: { kept: 78, total: 79 },
+  'polite-prefix': { kept: 78, total: 79 },
+  synonyms: { kept: 78, total: 79 },
+  'no-punctuation': { kept: 70, total: 71 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {
