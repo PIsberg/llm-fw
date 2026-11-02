@@ -406,6 +406,58 @@ export function unwrapClaudeCodeReminders(text: string): string[] {
   return outside ? [outside, ...parts] : parts
 }
 
+export interface ReminderFile {
+  /** The path in the file's header line. */
+  path: string
+  /** 'repository': checked into the codebase, so anyone who can push wrote it. 'memory': the agent's own auto-memory. */
+  kind: 'repository' | 'memory'
+  body: string
+}
+
+const FILE_HEADER_RE = /^Contents of (.{1,1024}) \(([^()\n]{1,200})\):\s*$/
+function reminderFileKind(what: string): ReminderFile['kind'] | null {
+  if (what.includes('checked into the codebase')) return 'repository'
+  if (what.includes('auto-memory')) return 'memory'
+  // The user's own instruction files (private global or project ones) are
+  // the user's text, like what they type.
+  return null
+}
+
+/**
+ * The repository and memory files inside the blocks Claude Code itself wrote
+ * into a user turn (#593). Only adds texts to score: nothing is removed from
+ * the turn, so a header typed or forged anywhere gains nothing.
+ */
+export function claudeCodeReminderFiles(text: string): ReminderFile[] {
+  const files: ReminderFile[] = []
+  let open = text.indexOf(REMINDER_OPEN)
+  while (open >= 0) {
+    const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length)
+    if (close < 0) break
+    const lines = text.slice(open + REMINDER_OPEN.length, close).split('\n')
+    const first = lines.find(l => l.trim() !== '')?.trim() ?? ''
+    if (HARNESS_OPENERS.some(re => re.test(first))) {
+      let current: { path: string; kind: ReminderFile['kind'] | null; body: string[] } | null = null
+      const flush = (): void => {
+        const body = current?.body.join('\n').trim()
+        if (current?.kind && body) files.push({ path: current.path, kind: current.kind, body })
+      }
+      for (const line of lines) {
+        const header = isFileHeader(line) ? FILE_HEADER_RE.exec(line.trimEnd()) : null
+        if (header) {
+          flush()
+          current = { path: header[1]!, kind: reminderFileKind(header[2]!), body: [] }
+        } else if (current) {
+          current.body.push(line)
+        }
+      }
+      flush()
+    }
+    open = text.indexOf(REMINDER_OPEN, close + REMINDER_CLOSE.length)
+  }
+  return files
+}
+
 // Codex names a thread by asking the model in a side request whose user
 // message is fixed instructions, then the user's prompt or the recent
 // conversation (codex-rs/tui/src/app/thread_title.rs). The embedding stage put

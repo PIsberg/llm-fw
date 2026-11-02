@@ -164,6 +164,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.3 (#593: covert credential-file rule on tool
+  // results, documents and Claude Code reminder files; no eval string carries
+  // a reminder or matches the rule; measured unchanged).
   // Held at ruleset 2026.11.2 (harness prompt templates: no string in the
   // eval data matches one; measured unchanged).
   // Held at ruleset 2026.11.1 (#594: Cloud Code envelope withheld per message,

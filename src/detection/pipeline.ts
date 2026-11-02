@@ -3,7 +3,8 @@ import { Config, PipelineResult, BlockEvent, ScanSource, PayloadParser } from '.
 import { isObserving, effectiveClassifierBlockThreshold } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
-import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope } from './clientEnvelopes.js'
+import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles } from './clientEnvelopes.js'
+import { detectSecretFileExfil } from './secretFileExfil.js'
 import { stripHarnessTemplate } from './harnessTemplates.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
@@ -521,7 +522,22 @@ export class Pipeline {
     // newest prompt or the newest tool result.
     // toolName: the tool a tool result answers, which decides whether the
     // classifier reads Claude Code's subagent frame (unwrapClaudeCodeToolResult).
-    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined }[] = [
+    // The repository and memory files inside Claude Code's own reminders
+    // (#593). They stay scored as part of the prompt, as before; each body is
+    // also read, on its own surface, by the one rule for a covert
+    // credential-file task (secretFileExfil.ts). Not by the other untrusted-
+    // surface rules: measured over 1,055 real instruction and memory files,
+    // those fired on 21 and would have refused every request that carried one.
+    const seenReminderFiles = new Set<string>()
+    const reminderFiles = userPromptTexts.flatMap(t => claudeCodeReminderFiles(t)).flatMap(f => {
+      const source = f.kind === 'memory' ? 'memory' as const : 'document' as const
+      const key = `${source}\0${f.path}\0${f.body}`
+      if (seenReminderFiles.has(key)) return []
+      seenReminderFiles.add(key)
+      const trustedPath = f.kind === 'repository' ? trustedReadPath('Read', { file_path: f.path }, trustedRoots) : null
+      return [{ text: f.body, source, reminderFile: true, ...(trustedPath ? { trustedPath } : {}) }]
+    })
+    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
         [...toolResults].reverse(),
@@ -531,6 +547,7 @@ export class Pipeline {
         : []),
       ...memoryTexts.map(text => ({ text, source: 'memory' as const })),
       ...extractToolDescriptions(parser.extractTools(body)).map(text => ({ text, source: 'tool_definition' as const })),
+      ...reminderFiles,
     ].filter(item => item.text && item.text.length > 0)
 
     // Non-text content (issue #60). Text-bearing media blocks (text/* docs,
@@ -621,12 +638,32 @@ export class Pipeline {
       lastYield = performance.now()
     }
 
-    for (const { text: itemText, source, trustedPath, toolName } of scanItems) {
+    for (const { text: itemText, source, trustedPath, toolName, reminderFile } of scanItems) {
       // The item as it is in the body, which a withhold has to find; every
       // stage below reads it without a harness template's fixed text.
       at.item = { text: itemText, source }
       const prompt = stripHarnessTemplate(itemText, source).text
       await yieldIfDue()
+      // A file from Claude Code's reminders: the covert credential-file rule
+      // only (see reminderFiles above). Not withheld, since the file is a part
+      // of a prompt text: a block refuses the request.
+      if (reminderFile) {
+        const secret = this.config.indirectInstruction?.enabled ? detectSecretFileExfil(prompt) : null
+        if (secret) {
+          const line = `[indirect: secret-file ${secret.reason} "${secret.path}"] ${secret.snippet}`
+          if (this.config.indirectInstruction?.mode === 'block' && !trustedPath && !this.isSuppressed(prompt, source)) {
+            const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
+            this.emit(result, meta, line, source, prompt)
+            return result
+          }
+          pendingWarn = firstWarn(pendingWarn, {
+            result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
+            prompt: trustedPath ? `[trusted-path] ${trustedPath}: ${line}` : line,
+            source,
+          })
+        }
+        continue
+      }
       // The trusted path is part of the key: the same text read from a
       // trusted root warns and from anywhere else blocks. So is the client:
       // Claude Code's own wrappers are read for what they carry only in its
@@ -727,7 +764,9 @@ export class Pipeline {
       // to the untrusted-data surfaces only: on the user-prompt surface an
       // imperative is normal input, so running it there would false-positive.
       if (this.config.indirectInstruction?.enabled && (source === 'tool_result' || source === 'document')) {
+        const secret = detectSecretFileExfil(prompt)
         const ind = detectIndirectInstruction(prompt, this.config.indirectInstruction)
+          ?? (secret ? { verb: secret.path, reason: `secret-file ${secret.reason}`, snippet: secret.snippet } : null)
         if (ind) {
           if (this.config.indirectInstruction.mode === 'block' && !trustedPath) {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
