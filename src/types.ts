@@ -642,6 +642,8 @@ export interface ModuleEvent {
   tokensPruned: number;
   tokensSaved: number;
   percentSaved: number;
+  // This module's running totals, not the sum across modules: that is
+  // ModulesSummaryStats, from GET /api/modules.
   totalTokensSaved: number;
   overallPercentSaved: number;
   // false when the request went upstream unmodified (observe mode): the
