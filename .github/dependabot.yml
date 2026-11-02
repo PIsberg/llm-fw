@@ -76,7 +76,9 @@ updates:
       # held at 1.24.3 moved 0 of 23,938 (npm run verdicts:dump / :diff,
       # #312). The cosine thresholds are calibrated on onnxruntime 1.24
       # vectors, so a minor that moves onnxruntime arrives with a stage-2
-      # recalibration, not as a bump. Patches still flow.
+      # recalibration, not as a bump. Patches still flow. The move to 4.3.2
+      # was measured by hand with a stage 1 rule for what it lost (#511,
+      # ruleset 2026.11.8); the next minor gets the same treatment.
       # test/ci/transformersPin.test.ts pins this.
       - dependency-name: '@huggingface/transformers'
         update-types:

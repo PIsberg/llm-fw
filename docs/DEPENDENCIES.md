@@ -45,18 +45,7 @@ To check by hand: `npm pack --dry-run`, and
 
 | Package | Version | Licence | Why |
 | --- | --- | --- | --- |
-| `@huggingface/transformers` | `~4.2.0` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. 4.3.1 was tried and reverted, and 4.3.2 re-measured on 2026-10-29 with the same result: 14 of 27,912 eval verdicts changed and the `heldout` recall floor went red (#511). |
-
-### Known install warning: `boolean@3.2.0` is deprecated
-
-`npm i llm-fw` prints `npm warn deprecated boolean@3.2.0`. The chain is
-`@huggingface/transformers@4.2.0` to `onnxruntime-node@1.24.3` to `global-agent@^3` to
-`boolean`. This repository's `overrides` replace `global-agent` with 4.x, which has no
-`boolean`, so a checkout installs clean. npm honours `overrides` only from the root
-project, so a user's install does not. A direct `global-agent@^4` dependency would not
-help, because `onnxruntime-node` would still get its own nested 3.x. The fix is
-`@huggingface/transformers` 4.3.1 (`onnxruntime-node@1.30.0` requires `global-agent@^4.1.3`),
-held back by #511.
+| `@huggingface/transformers` | `~4.3.2` | Apache-2.0 | Runs the embedding model (`Xenova/multilingual-e5-small`) for stage 2 of detection in `src/detection/embedding.ts`, locally, with no network call at request time. The only direct runtime dependency. Pinned to a minor because a model-runtime change can move verdicts. Moved from 4.2 to 4.3.2 in ruleset 2026.11.8 (#511): 11 of 12,901 eval verdicts changed, every recall floor held, and a packed install reports 0 vulnerabilities and no deprecation warning, measured 2026-11-02. |
 
 ### Transitive, and why they are there
 
@@ -65,7 +54,7 @@ These are not chosen by llm-fw. They arrive with `@huggingface/transformers`:
 | Package | Pulled in by | Role |
 | --- | --- | --- |
 | `onnxruntime-node` | transformers | Native ONNX inference, the part that does the maths |
-| `onnxruntime-web` | transformers | WASM build of the same runtime; present but not the path llm-fw uses on Node |
+| `onnxruntime-web` | transformers | WASM build of the same runtime; present but not the path llm-fw uses on Node. transformers 4.3.2 pins it to a dev snapshot (`1.31.0-dev.20260914-8d85527a0`); nothing in `src/` imports it |
 | `onnxruntime-common` | both runtimes | Shared types and tensor code |
 | `sharp` | transformers | Image decoding for vision pipelines llm-fw does not run; hard dependency of transformers. Its libvips binaries are LGPL, see [NOTICE.md](../NOTICE.md) |
 | `@huggingface/jinja`, `@huggingface/tokenizers` | transformers | Chat templates and the tokenizer for the embedding model |
@@ -73,7 +62,7 @@ These are not chosen by llm-fw. They arrive with `@huggingface/transformers`:
 | `protobufjs` and `@protobufjs/*`, `long`, `flatbuffers`, `guid-typescript`, `platform` | onnxruntime-web | Model file parsing |
 | `@types/node`, `undici-types` | `protobufjs` | Type declarations that protobufjs lists as a runtime dependency. They are never loaded; they are in the tree only because of that declaration |
 
-`package.json` `overrides` raises `qs`, `adm-zip`, `sharp`, `global-agent` and `minimatch` (a
+`package.json` `overrides` raises `qs` and `minimatch` (a
 development-only dependency of ESLint, `@typescript-eslint`, `eslint-plugin-sonarjs` and
 Stryker, held at 11 for GHSA-g3hv-75wg-m249) for this repository's own tree and CI. npm applies `overrides` from the root project only, so a
 consumer still resolves the parents' ranges. Read the `//overrides` note there before

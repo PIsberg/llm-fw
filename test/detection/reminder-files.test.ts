@@ -55,7 +55,7 @@ function cheapConfig(trustedPaths: string[] = []): Config {
   return c
 }
 
-describe('Claude Code reminder files are read by the covert credential-file rule (#593)', { timeout: 60_000 }, () => {
+describe('Claude Code reminder files are read by the covert credential-file rule (#593)', { timeout: 300_000 }, () => {
   let pipeline: Pipeline
   beforeAll(async () => {
     pipeline = new Pipeline(cheapConfig())

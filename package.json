@@ -94,7 +94,7 @@
     "scan:socket": "socket scan"
   },
   "dependencies": {
-    "@huggingface/transformers": "~4.2.0"
+    "@huggingface/transformers": "~4.3.2"
   },
   "//peerDependencies": "OCR is off by default (nonText.ocr), loaded through a dynamic import in src/detection/ocr.ts, and already degrades to opaque handling when the import fails. As a hard dependency it cost every install ~50 MB and 13 packages for a feature most installs never switch on. An OPTIONAL peer is the only form npm does not install by default: optionalDependencies are installed unless the user passes --omit=optional.",
   "peerDependencies": {
@@ -126,12 +126,9 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^5.0.3"
   },
-  "//overrides": "READ THIS BEFORE TRUSTING AN ENTRY HERE. npm honours `overrides` only from the ROOT project, so every entry below cleans this repo's own node_modules and CI and nothing else. Anyone who installs llm-fw as a dependency still resolves the parent's original pin. Verified with `npm install <tarball> --omit=dev --dry-run`, which still yields sharp 0.34.5, adm-zip 0.5.18 and global-agent 3.0.0. A consumer-visible fix has to come from the parent's own range, so treat a cleared `npm audit` here as a statement about this repo, not about what users install. Drop an entry once the parent's range covers the fix.",
+  "//overrides": "READ THIS BEFORE TRUSTING AN ENTRY HERE. npm honours `overrides` only from the ROOT project, so every entry below cleans this repo's own node_modules and CI and nothing else. Anyone who installs llm-fw as a dependency still resolves the parent's original pin. Check with `npm install <tarball>` in an empty directory: sharp, adm-zip and global-agent left this list once transformers 4.3.2 covered them (#511, 2026-11-02: 0 vulnerabilities). A consumer-visible fix has to come from the parent's own range, so treat a cleared `npm audit` here as a statement about this repo, not about what users install. Drop an entry once the parent's range covers the fix.",
   "overrides": {
     "qs": "^6.16.3",
-    "adm-zip": "^0.6.1",
-    "sharp": "^0.35.5",
-    "global-agent": "^4.1.3",
     "minimatch": "^11.0.1"
   },
   "allowScripts": {
