@@ -268,6 +268,16 @@ describe('loadConfig env overrides', () => {
     expect(cfg.detection.workerInference).toBe(false)
   })
 
+  it('detection.embedding.spinWait is off by default, and LLM_FW_EMBEDDING_SPIN_WAIT turns it on (#631)', async () => {
+    expect(DEFAULT_CONFIG.detection.embedding?.spinWait).toBe(false)
+    expect((await loadConfig()).detection.embedding?.spinWait).toBe(false)
+    process.env.LLM_FW_EMBEDDING_SPIN_WAIT = 'true'
+    expect((await loadConfig()).detection.embedding?.spinWait).toBe(true)
+    process.env.LLM_FW_EMBEDDING_SPIN_WAIT = '1'
+    expect((await loadConfig()).detection.embedding?.spinWait).toBe(false)
+    delete process.env.LLM_FW_EMBEDDING_SPIN_WAIT
+  })
+
   it('LLM_FW_WORKER_INFERENCE toggles detection.workerInference', async () => {
     process.env.LLM_FW_WORKER_INFERENCE = 'true'
     expect((await loadConfig()).detection.workerInference).toBe(true)

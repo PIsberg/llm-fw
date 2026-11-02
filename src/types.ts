@@ -181,6 +181,13 @@ export interface DetectionConfig {
   // same dtype, same single-text (never batched) calls — see embedding.ts's
   // q8 calibration note. Also LLM_FW_WORKER_INFERENCE.
   workerInference?: boolean;
+  embedding?: {
+    // Let onnxruntime's intra-op threads spin between work items (#631). Off:
+    // about 191% of one core at 1 client against 1,092%, at the cost of peak
+    // throughput under saturation. Read once, when the model loads, so a change
+    // needs a restart. Also LLM_FW_EMBEDDING_SPIN_WAIT.
+    spinWait?: boolean;
+  };
 }
 
 // What a WORDING match (Stage 1 heuristic, Stage 2 embedding) does on the

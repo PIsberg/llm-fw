@@ -1,3 +1,4 @@
+import { loadInjectionClassifier } from '../../src/detection/classifier.js'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock the transformers runtime so the test never downloads the ~700 MB model.
@@ -677,5 +678,17 @@ describe('InjectionClassifier worker isolation (Task C3)', () => {
     await c.init()
 
     await expect(c.classify('trigger the crash')).resolves.toBeNull()
+  })
+})
+
+// Measured with the model alone (#631): 1,164% of one core at a light load with
+// spinning, 323% without, and 27.0 against 26.2 passes a second flat out.
+describe('loadInjectionClassifier', () => {
+  it('turns onnxruntime spinning off', async () => {
+    const mock = pipeline as unknown as ReturnType<typeof vi.fn>
+    mock.mockClear()
+    mock.mockResolvedValue(vi.fn())
+    await loadInjectionClassifier()
+    expect(mock.mock.calls[0]![2]).toEqual({ dtype: 'fp32', session_options: { extra: { session: { intra_op: { allow_spinning: '0' } } } } })
   })
 })

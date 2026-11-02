@@ -7,7 +7,7 @@ import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
-import { loadWithVisibility } from './modelLoad.js'
+import { NO_SPINNING, loadWithVisibility } from './modelLoad.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('embedding');
@@ -26,8 +26,11 @@ export type FeatureExtractor = (texts: string[], opts: { pooling: 'mean'; normal
 export const EMBEDDING_MODEL_ID = 'Xenova/multilingual-e5-small'
 export const EMBEDDING_DTYPE = 'q8' as const
 
-export async function loadEmbeddingExtractor(): Promise<FeatureExtractor> {
-  const extractor = (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, { dtype: EMBEDDING_DTYPE })) as unknown as FeatureExtractor
+export async function loadEmbeddingExtractor(spinWait = false): Promise<FeatureExtractor> {
+  const extractor = (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
+    dtype: EMBEDDING_DTYPE,
+    ...(spinWait ? {} : { session_options: NO_SPINNING }),
+  })) as unknown as FeatureExtractor
   return extractor
 }
 
@@ -101,6 +104,10 @@ export class EmbeddingChecker {
     this.workerClient = workerClient ?? getInferenceWorkerClient()
   }
 
+  private spinWait(): boolean {
+    return this.config.embedding?.spinWait === true
+  }
+
   async init(): Promise<void> {
     // The model is large, immutable, and safe to share across instances, so it
     // caches in LLM_FW_MODEL_DIR when set — this lets CI cache it independently
@@ -132,11 +139,11 @@ export class EmbeddingChecker {
       // to loading it in-process right here) — mirrors the in-process
       // catch-and-disable behaviour below for a genuine load failure.
       try {
-        await this.workerClient.ensure('embed')
+        await this.workerClient.ensure('embed', { spinWait: this.spinWait() })
       } catch (err) {
         if (err instanceof WorkerUnavailableError) {
           try {
-            this.extractor = await loadEmbeddingExtractor()
+            this.extractor = await loadEmbeddingExtractor(this.spinWait())
           } catch (loadErr) {
             this.extractor = null
             log.warn(`embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
@@ -149,7 +156,7 @@ export class EmbeddingChecker {
       }
     } else {
       try {
-        this.extractor = await loadWithVisibility(loadEmbeddingExtractor, {
+        this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), {
           label: 'embedding model',
           timeoutMs: this.config.modelLoadTimeoutMs ?? 0,
         })
@@ -262,7 +269,7 @@ export class EmbeddingChecker {
         // extractor lazily below and continue, same as the flag-off path.
       }
     }
-    if (!this.extractor) this.extractor = await loadEmbeddingExtractor()
+    if (!this.extractor) this.extractor = await loadEmbeddingExtractor(this.spinWait())
     return embedRaw(this.extractor, text)
   }
 

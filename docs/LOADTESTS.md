@@ -508,7 +508,10 @@ as a lower bound for this laptop, not as a capacity claim.
   onnxruntime's intra-op threads spin-waiting, not work: with spinning off,
   chat at 1 client used 191% at similar throughput (#631). CPU per request is
   therefore inflated by the same factor. The refusal path, which never reaches
-  the model, uses 76 to 103%.
+  the model, uses 76 to 103%. Spinning has been off by default since ruleset
+  2026.11.11, and on the transformers 4.3 runtime the throughput is not similar:
+  32.1 req/s off against 51.5 on at 1 client, peak 42.7 against 65.1. See
+  `detection.embedding.spinWait` in [Configuration](guides/configuration.md).
 - **The event loop is the cost to everyone else.** At agent with 32 clients
   its p99 delay is 2.22 s, so any request reaching the process then waits that
   long before it is read. At chat with 1 client it is 28 ms.

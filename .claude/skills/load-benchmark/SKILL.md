@@ -83,10 +83,12 @@ it that way if you change the workloads.
   between workloads, and compare `cpuPct` with the idle figures in
   `startup.idle` and `startup.idleAfter`. CPU that sits at the same ceiling at
   every concurrency level, 1 client included, is onnxruntime's intra-op threads
-  spin-waiting, not detection work. Measured 2026-11-01: chat at 1 client used
-  1,092% with spinning (the default) and 191% with
-  `session.intra_op.allow_spinning` off, at similar throughput (#631). Do not
-  read the ceiling as "detection needs 12 cores".
+  spin-waiting, not detection work. Spinning is off by default since #631, so a
+  ceiling near 1,190% means `detection.embedding.spinWait` is on. The benchmark's
+  child takes its config from `loadTestConfig`, not `LLM_FW_*` variables, so to
+  measure spinning on, change the default in `src/config/config.ts` for that run.
+  Measured 2026-11-02, chat at 1 client: 1,181% and 51.5 req/s with spinning, 191%
+  and 32.1 req/s without. Do not read the ceiling as "detection needs 12 cores".
 - **Check `warnings` before anything else.** The run records machine-wide CPU
   per level (`machine.otherPct`: other processes, as a share of all threads)
   and a fixed SHA-256 speed probe before each workload and at the end
