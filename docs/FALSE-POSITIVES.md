@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.10
+
+**Unchanged, by construction.** One new rule (#637), `src/detection/plantedInstruction.ts`, reads for planted commands only on the repository and memory files inside Claude Code's reminders, and no string in `test/eval/data`, `test/detection/fixtures` or `test/load/data` carries a reminder, so no verdict in `npm run fpr` or the recall splits can move. On the instruction files of one developer's machine (2026-11-02) it fires on 0 of 1,064. That is one machine's repositories, so a cloned repository whose CLAUDE.md pipes a download to a shell is refused until its folder is listed in `trustedPaths`; that trade was the maintainer's call.
+
 ## Result, ruleset 2026.11.9
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes what an operator's mark covers, and these runs hold no marks: `npm run verdicts:diff` against the previous ruleset reports 0 of 12,901 block verdicts changed.

@@ -166,6 +166,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.10 (#637: planted commands, read only on the files
+  // in Claude Code reminders, which no eval string carries; measured unchanged
+  // by construction).
   // Lowered at ruleset 2026.11.8 (#511: transformers 4.3.2 and a stage 1 rule
   // for what it lost; measured 7/336 from 9/336, see the two ceilings above).
   // Held at ruleset 2026.11.9 (what an operator's mark covers; this run holds

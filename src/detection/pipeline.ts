@@ -5,6 +5,7 @@ import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles } from './clientEnvelopes.js'
 import { detectSecretFileExfil } from './secretFileExfil.js'
+import { detectPlantedInstruction } from './plantedInstruction.js'
 import { stripHarnessTemplate } from './harnessTemplates.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
@@ -644,14 +645,19 @@ export class Pipeline {
       at.item = { text: itemText, source }
       let prompt = stripHarnessTemplate(itemText, source).text
       await yieldIfDue()
-      // A file from Claude Code's reminders: the covert credential-file rule
-      // only (see reminderFiles above). Not withheld, since the file is a part
+      // A file from Claude Code's reminders: the two rules for instructions planted
+      // in one, and no other (see reminderFiles above). Not withheld, since the file is a part
       // of a prompt text: a block refuses the request.
       if (reminderFile) {
-        const secret = this.config.indirectInstruction?.enabled ? detectSecretFileExfil(prompt) : null
-        if (secret) {
-          const line = `[indirect: secret-file ${secret.reason} "${secret.path}"] ${secret.snippet}`
-          if (this.config.indirectInstruction?.mode === 'block' && !trustedPath && !this.isSuppressed(prompt, source)) {
+        const enabled = this.config.indirectInstruction?.enabled === true
+        const secret = enabled ? detectSecretFileExfil(prompt) : null
+        const planted = enabled && !secret ? detectPlantedInstruction(prompt) : null
+        const line = secret
+          ? `[indirect: secret-file ${secret.reason} "${secret.path}"] ${secret.snippet}`
+          : planted ? `[indirect: planted ${planted.shape}] ${planted.snippet}` : null
+        if (line) {
+          const blocks = secret !== null || planted?.action === 'block'
+          if (blocks && this.config.indirectInstruction?.mode === 'block' && !trustedPath && !this.isSuppressed(prompt, source)) {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
             this.emit(result, meta, line, source, prompt)
             return result
