@@ -449,6 +449,16 @@ function keyHolds(text: string, start: number, end: number, address: string): bo
   const at = keyAssignedAddress(text, start, end)
   return at >= 0 && text.slice(at, at + address.length).toLowerCase() === address.toLowerCase()
 }
+
+// A bare key or attribute set straight to an address: `email=pii@...` in a
+// log line, `<vendor email="dev@...">` in a pom (#620, replaying real tool
+// results). The value must BE an address, right after `=` and an optional
+// quote: "email= the saved passwords to x@..." stays a verb. An order needs a
+// verb with an object, which this word in this position never has.
+const BARE_KEY_ADDRESS_RE = /^=["']?[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}\./
+function bareKeyAddress(text: string, verbEnd: number): boolean {
+  return BARE_KEY_ADDRESS_RE.test(text.slice(verbEnd, verbEnd + 132))
+}
 const EXFIL_PROXIMITY = 200
 
 // The address as the whole content of an e-mail element: `<email>jane@example.com</email>`
@@ -1072,8 +1082,10 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // gradle.publish.key" paired "publish" with "please" (#477). Nor a word
   // inside an identifier: an env file's "SEND_TO=ops@..." paired "send" with
   // the address (#391), since `_` is not a letter for the boundary check.
+  // Nor a CLI placeholder: a usage line's "--out <dir>" paired the Somali send
+  // verb "dir" with an address in the same file (#620).
   const inPath = (i: number, len: number): boolean => /[\\/_]/.test(hay[i - 1] ?? '') || /[\\/_]/.test(hay[i + len] ?? '') ||
-    (hay[i - 1] === '.' && hay[i + len] === '.')
+    (hay[i - 1] === '.' && hay[i + len] === '.') || (hay[i - 1] === '<' && hay[i + len] === '>')
   for (const v of ML_VERBS) {
     for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
   }
@@ -1084,7 +1096,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   for (let em = EMAIL_RE.exec(text); em !== null; em = EMAIL_RE.exec(text)) {
     for (const { i, v } of verbHits) {
       // The verb index is into `hay`, so the key check reads `hay` too.
-      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0]) &&
+      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0]) && !bareKeyAddress(hay, i + v.length) &&
         !(v === 'export' && isExportKeyword(hay.slice(i + v.length)))) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
@@ -1167,6 +1179,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       // A config key set to this same address (`user.email "x@..."`, also when
       // an `export X_EMAIL="x@..."` line beside it repeats the address, #477).
       if (keyHolds(window, vm.index, vm.index + vm[0].length, em[0])) continue
+      if (bareKeyAddress(window, vm.index + vm[0].length)) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
       if (isEmailElementVerb(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
       if (/^export$/i.test(vm[0]) && isExportKeyword(window.slice(vm.index + vm[0].length))) continue
