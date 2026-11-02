@@ -92,6 +92,10 @@ export interface ResilienceCount { kept: number; total: number }
  * themselves), policy JSON with its colons stripped, a persona line at the
  * encoder's line.
  *
+ * Re-measured on ruleset 2026.11.12, 81 seeds (71 without the encoded ones) after
+ * #641 added two encoded corpus attacks: every rewording blocked all of them, but
+ * synonyms at 80, which rewords the joined words of one.
+ *
  * Re-measured on ruleset 2026.11.8, 79 seeds (71 without the encoded ones) after
  * #511 added two corpus attacks: every rewording blocked all of them.
  *
@@ -109,10 +113,10 @@ export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
   leetspeak: { kept: 70, total: 71 },
   'zero-width': { kept: 70, total: 71 },
   casing: { kept: 70, total: 71 },
-  'markdown-fence': { kept: 78, total: 79 },
-  blockquote: { kept: 78, total: 79 },
-  'polite-prefix': { kept: 78, total: 79 },
-  synonyms: { kept: 78, total: 79 },
+  'markdown-fence': { kept: 80, total: 81 },
+  blockquote: { kept: 80, total: 81 },
+  'polite-prefix': { kept: 80, total: 81 },
+  synonyms: { kept: 80, total: 81 },
   'no-punctuation': { kept: 70, total: 71 },
 }
 

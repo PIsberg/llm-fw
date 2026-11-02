@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.12
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Words joined by underscores or invisible characters are now also read with spaces for their joiners (#641), and `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed. These benign corpora hold little code, so the number that matters for this change is real traffic: over 17,224 transcript items from one developer's machine, rule stages only, 8 verdicts moved from pass to block. Six of the 9 runs behind them are attack strings quoted in this repository's own tests. The other three are one identifier, `test_trim_codex_base_instructions_are_replaced_by_a_no_tools_file`, a false positive left in on purpose: exempting names that start with `test_` would pass `test_ignore_all_previous_instructions` too.
+
 ## Result, ruleset 2026.11.11
 
 **Unchanged by verdict diff.** Spinning off changes how the model's threads wait, not what they compute (#631): `npm run verdicts:diff` against the previous ruleset reports 0 of 12,901 block verdicts changed, with a maximum similarity drift of 0.0000. The other figures on this page therefore still hold, and `npm run fpr` was not re-run for this entry; CI runs it on the pull request.

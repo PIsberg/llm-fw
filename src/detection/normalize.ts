@@ -369,6 +369,50 @@ function decodeUrlCandidates(text: string): { text: string; source: string }[] {
  * (or any multi-char token) act as word boundaries. Hyphen-spelled commands
  * ("I-G-N-O-R-E") are collapsed the same way.
  */
+// Words joined by an underscore or an invisible character (#641). The rules read
+// words, so "ignore_all_previous_instructions" was one token to them, and
+// normalize() deletes zero-width characters, leaving one run-together word.
+//
+// Each run is read on its own, since normalize() flattens line breaks and a rule
+// would otherwise match across unrelated identifiers: as one text, 24 of 17,309
+// real texts crossed the block threshold, and alone only 5 of 3,336 distinct
+// runs did, 3 of them attack strings quoted in this repository's tests.
+//
+// Four words for an underscore: "gandalf_ignore_instructions" is a name. Three
+// for an invisible join, which no identifier has. The start only refuses a word
+// character, so a word that fails here is not rescanned from each of its
+// letters, and only a run of under three words ever fails.
+const JOINED_WORDS_RE = /(?<![\p{L}\p{N}\p{M}])[\p{L}\p{N}\p{M}]+(?:[_\uFF3F\u200B-\u200D\u2060\uFEFF\u00AD]+[\p{L}\p{N}\p{M}]+){2,}/gu
+const WORD_JOINER_RE = /[_\uFF3F\u200B-\u200D\u2060\uFEFF\u00AD]+/gu
+const INVISIBLE_JOINER_RE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/u
+const MIN_UNDERSCORE_WORDS = 4
+// Real texts carry 23 such runs at p99 and 266 at most, at about 0.3 ms each. An
+// attacker can send thousands, so past this they share candidates: nothing goes
+// unread, and the cost is bounded by the text's length rather than its runs.
+const MAX_JOINED_CANDIDATES = 64
+
+/**
+ * The distinct runs of joined words, with spaces for their joiners, and nothing
+ * else: a copy of a whole code file would read every other word a second time.
+ * Added after the decoders, not among them, since leetspeak-decoding each
+ * identifier would double the work for nothing a rule reads.
+ */
+function joinedWordsCandidates(text: string): { text: string; source: string }[] {
+  const matched = text.match(JOINED_WORDS_RE)
+  if (!matched) return []
+  const runs: string[] = []
+  for (const run of new Set(matched)) {
+    const spaced = run.replace(WORD_JOINER_RE, ' ')
+    if (INVISIBLE_JOINER_RE.test(run) || spaced.split(' ').length >= MIN_UNDERSCORE_WORDS) runs.push(spaced)
+  }
+  const perCandidate = Math.ceil(runs.length / MAX_JOINED_CANDIDATES)
+  const candidates: { text: string; source: string }[] = []
+  for (let i = 0; i < runs.length; i += perCandidate) {
+    candidates.push({ text: normalize(runs.slice(i, i + perCandidate).join(' . ')), source: 'joined-words' })
+  }
+  return candidates
+}
+
 function decodeSpacedCandidates(text: string): { text: string; source: string }[] {
   const results: { text: string; source: string }[] = []
 
@@ -582,6 +626,9 @@ function* candidateSteps(text: string): Generator<void, { text: string; source: 
       }
     }
   } catch {}
+
+  candidates.push(...joinedWordsCandidates(text))
+  yield
 
   const seen = new Set<string>()
   const uniqueCandidates: { text: string; source: string }[] = []

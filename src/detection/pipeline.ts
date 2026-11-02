@@ -100,7 +100,9 @@ function firstWarn(a: PendingWarn | null, b: PendingWarn | null): PendingWarn | 
 const ITEM_CACHE_MAX = 20_000
 
 function skipsEmbedding(source: string): boolean {
-  return source === 'rot13' || source.startsWith('reversed-')
+  // joined-words: every identifier in a code file. The rules are what it adds;
+  // a forward pass per file would spend the budget on code.
+  return source === 'rot13' || source.startsWith('reversed-') || source === 'joined-words'
 }
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
