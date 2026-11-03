@@ -12,6 +12,19 @@ Toggles take effect on the **next proxy request** — the dashboard and proxy sh
 
 The same toggles are available headless via the `LLM_FW_*_ENABLED` environment variables documented in each defense guide (see the [documentation index](../README.md)), or by editing `~/.llm-fw/config.json` directly.
 
+## An imperative that names no destination
+
+The rule that withholds most ordinary tool results in real traffic is the imperative one: `Add the token as a repository secret`, `Please update your unit file`. Those read exactly like an order, so more wording rules stopped converging (#287). `indirectInstruction.untargetedImperative: "warn"` (`LLM_FW_INDIRECT_UNTARGETED_IMPERATIVE=warn`) lets such a hit warn instead, on a tool result only, when the whole text names no address, URL, account number or handle. It applies live. Documents are still refused, and any text naming a destination is still withheld, however far it sits from the verb.
+
+**It is off by default because of what it costs.** Measured 2026-11-03 on ruleset 2026.11.24, with the rest of the cheap pipeline still running, so these attacks are the ones nothing else blocks:
+
+| Where it looks for a destination | Real tool results no longer withheld | InjecAgent attacks lost | Identifier-free probe |
+| --- | --- | --- | --- |
+| Whole text (what this setting does) | 10 of the 105 flagged, over 43,254 results | 200 of 1,054 | attacks 8 to 2 blocked, benign 1 to 0 |
+| 100 characters around the verb (not offered) | 45 of the 105 | 344 of 1,054 | the same |
+
+The window version clears more and loses more, and an attacker defeats it with one line of padding, so it is not offered. Turn this on only if a withheld result costs you more than an instruction that names no destination, such as one telling the agent to delete something or move funds between accounts it already holds, reaching the model with a warning. Marking a false positive, or `trustedPaths` for a repository you trust, are narrower ways to stop a repeat.
+
 ## False-Positive Suppression List
 
 Every threshold in this firewall is a trade-off, and no threshold is perfect — occasionally a legitimate prompt trips a block. Rather than asking you to loosen a global threshold (and quietly widen the hole for everyone), llm-fw lets you suppress that **text** going forward.

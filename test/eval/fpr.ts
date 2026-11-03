@@ -166,6 +166,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.25 (an opt-in warn tier for imperatives naming no destination, off by default; no default verdict moved).
   // Held at ruleset 2026.11.24 (code-joined overrides read when they name a verb; no eval string has that shape; 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.23 (a named persona declared switched on; 1 attack row moved, no benign one; 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.22 (inference on a worker thread; the same vectors; 0 of 12,901 eval verdicts moved).

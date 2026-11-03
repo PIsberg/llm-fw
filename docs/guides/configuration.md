@@ -356,7 +356,7 @@ stage blocks a tool result that tells the agent to send data or money to an
 address, which is how an injected email or web page exfiltrates. An inbox or
 CRM agent also reads ordinary mail that says exactly that ("please send the Q3
 numbers to finance@acme.com by Friday"), and the text cannot say whether the
-recipient is yours. `indirectInstruction.trustedRecipientDomains` (or
+recipient is yours. To let an imperative in a tool result that names no destination at all warn rather than be withheld, set `indirectInstruction.untargetedImperative: "warn"` (or `LLM_FW_INDIRECT_UNTARGETED_IMPERATIVE=warn`); it costs recall, measured in [Tuning](tuning.md#an-imperative-that-names-no-destination). `indirectInstruction.trustedRecipientDomains` (or
 `LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS=acme.com,acme.co.uk`) lists the
 domains that are: an address on one of them, or on a subdomain, is no longer
 an exfiltration target, and an instruction whose only object is such an
@@ -467,7 +467,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_115 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_116 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -523,6 +523,7 @@ _115 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_INDIRECT_INSTRUCTION_ENABLED` | `indirectInstruction.enabled` | `true` |
 | `LLM_FW_INDIRECT_INSTRUCTION_MODE` | `indirectInstruction.mode` | `block` |
 | `LLM_FW_INDIRECT_TRUSTED_RECIPIENT_DOMAINS` | `indirectInstruction.trustedRecipientDomains` | `0 entries` |
+| `LLM_FW_INDIRECT_UNTARGETED_IMPERATIVE` | `indirectInstruction.untargetedImperative` | `block` |
 | `LLM_FW_INSPECT_CHATGPT_BACKEND` | `proxy.inspectChatgptBackend` | `true` |
 | `LLM_FW_INTENT_MENTION_ENABLED` | `detection.intentMention` | `true` |
 | `LLM_FW_INTERCEPT_DOMAINS` | `proxy.interceptDomains` | `2 entries` |
