@@ -292,6 +292,7 @@ hits, as Claude Code's resent history is) with one new tool result.
 | `LOAD_BENCH_WARMUP_S` | `2` | Unmeasured seconds before each level |
 | `LOAD_BENCH_AGENT_KB` | `64` | Size of an agent request |
 | `LOAD_BENCH_OUT` | `reports/load-bench/<timestamp>` | Output directory (gitignored) |
+| `LOAD_BENCH_DETECTION` | `{}` | JSON merged over `config.detection` in the firewall process, to compare settings: `{"workerInference":true}` |
 | `LLM_FW_MODEL_DIR` | `<repo>/.hf-model-cache` | Model cache; the child's `LLM_FW_DIR` is a temp dir, so without it every run downloads the model |
 
 The run also records the startup cost (model load, process start to ready), an

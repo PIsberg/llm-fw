@@ -5,7 +5,8 @@
  * plus the TLS clients hammering it, which is what scenario A measures.
  *
  * Env: LOAD_PROXY_PORT, LOAD_DASH_PORT, LOAD_UPSTREAM_CA (PEM of the mock
- * upstream's CA, which the proxy's outbound leg must trust), LOAD_SAMPLE_MS.
+ * upstream's CA, which the proxy's outbound leg must trust), LOAD_SAMPLE_MS,
+ * LOAD_BENCH_DETECTION (JSON merged over config.detection, to compare settings).
  *
  * IPC, child to parent:
  *   { type: 'ready', proxyCaPem, initMs, processReadyMs }
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
   const restoreTrust = trustCA(upstreamCa)
 
   const config = loadTestConfig(proxyPort, dashPort)
+  Object.assign(config.detection, JSON.parse(process.env.LOAD_BENCH_DETECTION ?? '{}'))
   const proxy = new ProxyServer(config, new EventBus(config.dashboard))
   const t0 = performance.now()
   await proxy.init() // loads the embedding model

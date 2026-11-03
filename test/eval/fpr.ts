@@ -166,6 +166,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.18 (the tokenizer table is smaller and its tokens are the same; 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.17 (#477: a CI run id is not an account, and a verb
   // before "grew" is a noun; 0 of 12,901 eval verdicts moved).
   // Held at ruleset 2026.11.16 (#620: a mail link's own label is not an order;

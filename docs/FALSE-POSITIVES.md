@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.18
+
+**No verdict moved.** This ruleset changes how the tokenizer stores its vocabulary, not what it produces. The tokens and vectors are identical, `verdicts:diff` reports 0 of 12,901 changed with a largest similarity drift of 0.0000, and `npm run fpr` and `npm run recall:floor` both pass on it.
+
 ## Result, ruleset 2026.11.17
 
 **Fewer false positives on real traffic, none moved in the eval set.** A CI run id is no longer read as an account number, and a verb before "grew" or "grows" reads as a noun (#477). Over 62,250 real tool results from one developer's machine, imperative hits outside this repository's own sessions go from 95 to 85. `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed. `npm run fpr` was not re-run for this entry; CI runs it on the pull request.

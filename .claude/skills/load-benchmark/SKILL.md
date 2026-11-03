@@ -59,6 +59,7 @@ it that way if you change the workloads.
    | `LOAD_BENCH_WARMUP_S` | `2` | unmeasured seconds before each level |
    | `LOAD_BENCH_AGENT_KB` | `64` | agent request size |
    | `LOAD_BENCH_OUT` | `reports/load-bench/<timestamp>` | gitignored |
+   | `LOAD_BENCH_DETECTION` | `{}` | JSON merged over `config.detection`, to compare settings |
    | `LLM_FW_MODEL_DIR` | `<repo>/.hf-model-cache` | the first run downloads the model there (about 35 s) |
 
    It exits 1 only if the firewall process dies or a level sees more than 1%
@@ -86,7 +87,7 @@ it that way if you change the workloads.
   spin-waiting, not detection work. Spinning is off by default since #631, so a
   ceiling near 1,190% means `detection.embedding.spinWait` is on. The benchmark's
   child takes its config from `loadTestConfig`, not `LLM_FW_*` variables, so to
-  measure spinning on, change the default in `src/config/config.ts` for that run.
+  measure spinning on, set `LOAD_BENCH_DETECTION='{"embedding":{"spinWait":true}}'`.
   Measured 2026-11-02, chat at 1 client: 1,181% and 51.5 req/s with spinning, 191%
   and 32.1 req/s without. Do not read the ceiling as "detection needs 12 cores".
 - **Check `warnings` before anything else.** The run records machine-wide CPU
