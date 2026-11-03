@@ -113,6 +113,7 @@ function skipsEmbedding(source: string): boolean {
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
+import { ProbeTracker } from './probeEscalation.js'
 import { detectMemoryPoisoning, extractMemoryBlocks } from './memoryPoisoning.js'
 import { referencesModelInstructions } from './selfReference.js'
 import { detectIndirectInstruction, namesDestination } from './indirectInstruction.js'
@@ -195,6 +196,11 @@ function promptWordingTier(config: Config, source: ScanSource): { heuristic: num
 // A file read from a trusted root (see trustedPaths.ts): every wording match
 // is demoted, with no high-confidence tier. llm-fw's own detection guide
 // scores 380 on the heuristic, so any tier a real attack clears, it clears too.
+// The stages whose warn on a prompt means someone is testing the boundary. A
+// block from any stage counts; a warn from the others is usually about an
+// attachment or a setting, not about what the session is trying.
+const PROBE_WARN_STAGES: ReadonlySet<string> = new Set(['heuristic', 'embedding', 'classifier', 'judge'])
+
 const TRUSTED_READ_TIER = { heuristic: Infinity, similarity: Infinity, margin: Infinity } as const
 
 function resolveClassifierBlockThreshold(config: Config, source: ScanSource): number {
@@ -219,6 +225,8 @@ export class Pipeline {
   // Lives for the lifetime of this Pipeline instance — the same lifetime as
   // the proxy's other per-process session state (QuotaManager, TaintTracker).
   private crescendoMemory = new CrescendoSessionMemory()
+  // Opt-in: sessions that keep testing the boundary (#540).
+  private probes = new ProbeTracker()
   // Per-item outcome cache. An agent resends its whole conversation on every
   // call, and every history item used to go through every stage again:
   // replaying real Claude Code sessions, the first request (103 KB, mostly the
@@ -699,7 +707,10 @@ export class Pipeline {
       // trusted root warns and from anywhere else blocks. So is the client:
       // Claude Code's own wrappers are read for what they carry only in its
       // requests, and one proxy serves several agents (#605).
-      const itemKey = createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(meta.sandboxClient ?? '').update('\0').update(prompt).digest('hex')
+      // So is an escalated session: its prompts reach the judge, so a clean verdict
+      // from before does not answer for them, nor one of theirs for anybody else.
+      const escalated = source === 'prompt' && this.sessionIsEscalated(meta.sessionKey)
+      const itemKey = createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(meta.sandboxClient ?? '').update('\0').update(escalated ? 'escalated' : '').update('\0').update(prompt).digest('hex')
       const cached = this.itemCache.get(itemKey)
       if (cached) {
         this.itemCache.delete(itemKey)
@@ -1200,9 +1211,9 @@ export class Pipeline {
         // suppress the judge on a zero-signal prompt.
         const isSuspicious = h.score >= 20 || (eSim >= embeddingWarnThreshold && eMargin >= embeddingMarginThreshold)
         if (isSuspicious) corroborated = true
-        const reachesJudge = this.config.detection.judgeUnlessBenign
+        const reachesJudge = escalated || (this.config.detection.judgeUnlessBenign
           ? !this.isConfidentlyBenign(h.score, eSim, candidate.text)
-          : isSuspicious
+          : isSuspicious)
         if (!reachesJudge) {
           continue // benign, skip judge and warning
         }
@@ -1452,7 +1463,40 @@ export class Pipeline {
     return { action: 'pass', stage: 'none', score, similarity }
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; withholdingPrompts?: boolean; newestPrompt?: string; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
+  /** Whether this session's prompts go to the judge (#540). Needs the judge on. */
+  private sessionIsEscalated(sessionKey: string | undefined): boolean {
+    return this.config.crescendo?.probeEscalation === true && this.config.detection.judgeEnabled
+      && sessionKey !== undefined && this.probes.isEscalated(sessionKey)
+  }
+
+  /**
+   * A prompt flagged in a session counts toward escalating it. A flagged tool
+   * result does not: the session did not write it. Keyed on the scanned text, so
+   * an agent resending its history adds nothing.
+   */
+  private noteProbe(result: { action: string; stage: string }, meta: { sessionKey?: string; target: string; method: string; path: string }, line: string, source: ScanSource, scanned: string | null): void {
+    if (this.config.crescendo?.probeEscalation !== true || !this.config.detection.judgeEnabled) return
+    if (source !== 'prompt' || meta.sessionKey === undefined) return
+    if (result.action !== 'block' && !(result.action === 'warn' && PROBE_WARN_STAGES.has(result.stage))) return
+    // The operator has vouched for this text, so it is not probing.
+    if (line.startsWith('[suppressed-fp]')) return
+    // A warn reaches emit with its display line and no scanned text.
+    if (!this.probes.note(meta.sessionKey, suppressionKey(scanned ?? line, source))) return
+    this.onBlock?.({
+      stage: 'crescendo',
+      score: 0,
+      similarity: 0,
+      target: meta.target,
+      method: meta.method,
+      path: meta.path,
+      payload_preview: '[probing] this session keeps testing the boundary: its prompts go to the judge for 30 minutes',
+      payload_full: '',
+      action: 'warned',
+    })
+  }
+
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sessionKey?: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; withholdingPrompts?: boolean; newestPrompt?: string; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
+    this.noteProbe(result, meta, prompt, source, scanned)
     if (!this.onBlock) return
     const observing = isObserving(this.config.enforcement, meta.enforcement)
     // inspect() withholds a blocked tool result, and under olderTurns a blocked
