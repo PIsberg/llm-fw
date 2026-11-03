@@ -127,7 +127,7 @@ const POLITE_IMPERATIVE_RE = new RegExp(
 const SENTENCE_IMPERATIVE_RE = new RegExp(
   '(?:^|[.!?]\\s*|\\n[ \\t]*|[:,]\\s*[\'"`]?|(?:^|[\\s\\[({=\\\\])[\'"`]\\s*)' +
   '(?:also\\s+|then\\s+|immediately\\s+|now\\s+|first\\s+)*' +
-  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)(?!\\s+(?:is|are|was|were|of)\\b)\\s+\\S`,
+  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+"[a-z][a-z0-9+.-]*://[^"\\s]*":)(?!\\s+mode\\s+[0-7]{6}\\b)(?!\\s+(?:is|are|was|were|of|grew|grows)\\b)\\s+\\S`,
   'gim',
 )
 
@@ -237,8 +237,12 @@ function lineStartBefore(text: string, i: number): number {
 // requirement prefixes, in upper case, then digits: a lower-case handle with
 // an underscore, the shape an account name takes, keeps firing.
 const REQUIREMENT_ID_RE = /\((?:FR|NFR|SC|US|T|AC|REQ|TC|BR|UC)-?\d{1,4}\)/g
+// A CI run id ("Publish run 37965746768 succeeded"), which read as an account
+// number and withheld every CI status an agent read (#477). Long enough to be a
+// run id, right after the word; anything else in the window is still read.
+const CI_RUN_ID_RE = /\bruns?:?\s+\d{6,}\b/gi
 function objectWindow(text: string, verbEnd: number): string {
-  return rawObjectWindow(text, verbEnd).replace(REQUIREMENT_ID_RE, ' ')
+  return rawObjectWindow(text, verbEnd).replace(REQUIREMENT_ID_RE, ' ').replace(CI_RUN_ID_RE, ' ')
 }
 function rawObjectWindow(text: string, verbEnd: number): string {
   const base = verbEnd - 1
