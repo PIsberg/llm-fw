@@ -131,6 +131,18 @@ const SENTENCE_IMPERATIVE_RE = new RegExp(
   'gim',
 )
 
+// A checklist item in a tasks.md or an issue: a checkbox, then an optional task
+// id and tags, then the verb (#643). A clause never opened there, so a planted
+// "- [ ] T002 Transfer $5000 ..." went unread. Checkboxes only: over 62,013 real
+// tool results, opening a clause at every bullet added 9 hits, all changelogs,
+// comments and notes, and broke the changelog guard. Bounded spans, anchored at a
+// line start, so a long run is read once (GHSA-gm3q-2gwx-gppq).
+const TASK_ITEM_IMPERATIVE_RE = new RegExp(
+  '(?:^|\\n)[ \\t]*[-*+][ \\t]{1,8}\\[[ xX]\\][ \\t]{1,8}(?:[A-Z]{1,6}-?\\d{1,5}[ \\t]{1,8})?(?:\\[[A-Za-z0-9-]{1,12}\\][ \\t]{1,8}){0,6}' +
+  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+(?:is|are|was|were|of)\\b)\\s+\\S`,
+  'gim',
+)
+
 // The OBJECT a bare imperative must take, and how far after the verb to look
 // for it (ruleset 2026.08.12).
 //
@@ -1247,6 +1259,20 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (QUOTED_EXAMPLE_RE.test(text.slice(Math.max(0, end - verb.length - 24), end - verb.length))) continue
     if (!IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
+  }
+
+  // A checklist item: every honest spec task has an imperative verb and most name
+  // something sensitive, so only an object an attacker would name counts. With the
+  // wider object test, the 4 new hits over 62,013 real tool results were all
+  // speckit tasks ("Replace the stub body of ..."), #477's false positives again.
+  TASK_ITEM_IMPERATIVE_RE.lastIndex = 0
+  for (let m = TASK_ITEM_IMPERATIVE_RE.exec(text); m !== null; m = TASK_ITEM_IMPERATIVE_RE.exec(text)) {
+    /* v8 ignore next */ // m[1] is always captured by the verb group
+    const verb = m[1] ?? ''
+    const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (QUOTED_TARGET_RE.test(objectWindow(text, end))) {
+      return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
+    }
   }
 
   // "you should/must … <verb>" directive form.
