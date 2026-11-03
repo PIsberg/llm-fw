@@ -698,6 +698,38 @@ describe('DlpScanner.redact — the whole private key block', () => {
   // so the block extension must stay linear: no header may rescan the rest of
   // the body looking for an END line.
   describe('linear time on large bodies', () => {
+    // Redacting spliced the whole text once per finding, so the time grew with
+    // findings times size: 57 s on 3.2 MB of repeated headers, on the thread
+    // that serves every client. Relative, so a loaded machine does not fail it.
+    it.each([
+      ['headers with no END line', (u: (s: string) => string) => u(begin('RSA PRIVATE KEY') + '\\n')],
+      ['header and armor-looking lines', (u: (s: string) => string) => u(begin('PGP PRIVATE KEY BLOCK') + '\nVersion: x\n')],
+    ])('redacting %s grows with the size of the text', (_label, make) => {
+      const sized = (kb: number) => (unit: string) => unit.repeat(Math.ceil((kb * 1024) / unit.length)).slice(0, kb * 1024)
+      const time = (kb: number) => {
+        const text = make(sized(kb))
+        const findings = scanner.scan(text)
+        const t0 = performance.now()
+        scanner.redact(text, findings)
+        return performance.now() - t0
+      }
+      time(100)
+      const small = time(100)
+      const large = time(1600)
+      expect(large).toBeLessThan(small * 16 * 6 + 200)
+      expect(large).toBeLessThan(2000)
+    })
+
+    it('redacts the same text as before, in order, with text between the findings kept', () => {
+      const key = `${begin('RSA PRIVATE KEY')}\nQUJD\n-----END RSA PRIVATE KEY-----`
+      const text = `first ${key} middle ${key} last`
+      const redacted = scanner.redact(text, scanner.scan(text))
+      expect(redacted.startsWith('first ')).toBe(true)
+      expect(redacted).toContain(' middle ')
+      expect(redacted.endsWith(' last')).toBe(true)
+      expect(redacted).not.toContain('QUJD')
+    })
+
     const KB200 = 200 * 1024
     const fill = (unit: string): string => unit.repeat(Math.ceil(KB200 / unit.length)).slice(0, KB200)
     it.each([
