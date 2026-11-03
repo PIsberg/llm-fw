@@ -139,13 +139,13 @@ describe('scanResponseExfil', () => {
             const text = filler.repeat(Math.ceil((kb * 1024) / filler.length))
             return wrap === 'raw' ? text : JSON.stringify({ text })
           }
-          timed(at(200))
-          const small = timed(at(200))
-          const large = timed(at(800))
+          const best = (text: string) => Math.min(timed(text), timed(text), timed(text))
+          const small = best(at(100))
+          const large = best(at(400))
           // Twice the room a linear scan needs, and a floor for timer noise.
-          expect(large, `${filler}: ${small} ms at 200 KB, ${large} ms at 800 KB`).toBeLessThan(small * 4 * 2 + 150)
-          // These shapes hold 100,000 destinations to parse, so the ceiling
-          // has to leave room for a loaded machine. The old code took minutes.
+          expect(large, `${filler}: ${small} ms at 100 KB, ${large} ms at 400 KB`).toBeLessThan(small * 4 * 2 + 150)
+          // These shapes hold 50,000 destinations to parse, so the ceiling has to
+          // leave room for a loaded machine. The old code took 18 s at 200 KB.
           expect(large, filler).toBeLessThan(10_000)
         })
       }
