@@ -93,6 +93,12 @@ jobs:
           "$RUNNER_TEMP/lean-ctx/lean-ctx" --version
           echo "LLM_FW_LEAN_CTX_BIN=$RUNNER_TEMP/lean-ctx/lean-ctx" >> "$GITHUB_ENV"
 
+      # From source the worker needs tsx, which fails in a worker on Node 22, so
+      # the suite below takes the in-process fallback there and would not notice
+      # the built worker breaking on the supported floor (#671).
+      - name: Built inference worker answers
+        run: node scripts/smoke-worker.mjs
+
       - name: Run tests
         run: npm run test:run
 
