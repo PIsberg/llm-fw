@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { createLogger } from '../logger.js';
+import { compactTokenizer } from './compactTokenizer.js';
 
 const log = createLogger('output-classifier');
 
@@ -80,6 +81,7 @@ export class OutputModerationClassifier {
         'text-classification',
         this.config.classifier.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL,
       )) as unknown as ClassifyFn
+      compactTokenizer((this.classifier as unknown as { tokenizer?: unknown }).tokenizer)
     } catch (err) {
       // Best-effort, exactly like the input classifier: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.

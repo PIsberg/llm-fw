@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { NO_SPINNING, loadWithVisibility } from './modelLoad.js'
+import { compactTokenizer } from './compactTokenizer.js'
 import { createLogger } from '../logger.js';
 
 const log = createLogger('embedding');
@@ -31,6 +32,7 @@ export async function loadEmbeddingExtractor(spinWait = false): Promise<FeatureE
     dtype: EMBEDDING_DTYPE,
     ...(spinWait ? {} : { session_options: NO_SPINNING }),
   })) as unknown as FeatureExtractor
+  compactTokenizer((extractor as unknown as { tokenizer?: unknown }).tokenizer)
   return extractor
 }
 

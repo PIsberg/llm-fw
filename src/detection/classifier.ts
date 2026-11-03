@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
+import { compactTokenizer } from './compactTokenizer.js'
 import { NO_SPINNING, loadWithVisibility } from './modelLoad.js'
 import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, isClaudeCodePromptNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
@@ -52,7 +53,9 @@ export async function loadInjectionClassifier(): Promise<ClassifyFn> {
   // explicitly (the runtime otherwise looks for a quantized variant).
   // Spinning off with no switch, unlike the embedding stage: it costs 3% at
   // saturation here (27.0 against 26.2 passes a second), and saves most of 1,164%.
-  return (await pipeline('text-classification', CLASSIFIER_MODEL_ID, { dtype: CLASSIFIER_DTYPE, session_options: NO_SPINNING })) as unknown as ClassifyFn
+  const classifier = (await pipeline('text-classification', CLASSIFIER_MODEL_ID, { dtype: CLASSIFIER_DTYPE, session_options: NO_SPINNING })) as unknown as ClassifyFn
+  compactTokenizer((classifier as unknown as { tokenizer?: unknown }).tokenizer)
+  return classifier
 }
 
 export class InjectionClassifier {
