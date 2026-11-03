@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { DEFAULT_LOAD_TIMEOUT_MS, loadWithVisibility } from './modelLoad.js'
 import { getLlmFwDir } from '../config/paths.js'
 
 /**
@@ -62,7 +63,7 @@ type Transcriber = (audio: Float32Array, opts?: Record<string, unknown>) => Prom
 
 let transcriberPromise: Promise<Transcriber | null> | null = null
 
-async function getTranscriber(): Promise<Transcriber | null> {
+async function getTranscriber(loadTimeoutMs: number): Promise<Transcriber | null> {
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
       try {
@@ -71,7 +72,12 @@ async function getTranscriber(): Promise<Transcriber | null> {
         // LLM_FW_MODEL_DIR serves both and an air-gapped host can carry it.
         env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
         env.allowLocalModels = false
-        return await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' })
+        // Bounded here, inside the one load every request shares: past the bound
+        // it settles as unavailable for all of them, not once per request.
+        return await loadWithVisibility(
+          async () => await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' }) as unknown as Transcriber,
+          { label: 'speech transcription model', timeoutMs: loadTimeoutMs },
+        )
       } catch {
         return null // offline first run, install issue: degrade to opaque.
       }
@@ -231,7 +237,7 @@ export function resampleTo16k(samples: Float32Array, rate: number): Float32Array
  * the payload is oversized or undecodable, the model is unavailable, or no
  * speech was recognised; callers then fall back to opaque handling.
  */
-export async function transcribeAudio(base64Data: string, mimeType: string | undefined): Promise<string> {
+export async function transcribeAudio(base64Data: string, mimeType: string | undefined, loadTimeoutMs = DEFAULT_LOAD_TIMEOUT_MS): Promise<string> {
   if (!isTranscribeCandidate(mimeType)) return ''
   if (base64Data.length > MAX_TRANSCRIBE_BASE64) return ''
   const decode = AIFF_MIME_RE.test(baseMime(mimeType)) ? decodeAiff : decodeWav
@@ -243,7 +249,7 @@ export async function transcribeAudio(base64Data: string, mimeType: string | und
   }
   if (!decoded) return ''
   const audio = resampleTo16k(decoded.samples, decoded.sampleRate).subarray(0, TARGET_RATE * MAX_TRANSCRIBE_SECONDS)
-  const transcriber = await getTranscriber()
+  const transcriber = await getTranscriber(loadTimeoutMs)
   if (!transcriber) return ''
   try {
     const out = await transcriber(audio, { chunk_length_s: 30, stride_length_s: 5 })

@@ -23,6 +23,9 @@
  * the old wait-forever behaviour for anyone who wants it.
  */
 
+/** detection.modelLoadTimeoutMs's default, for a caller with no config in reach. */
+export const DEFAULT_LOAD_TIMEOUT_MS = 600_000
+
 /** How often to remind the operator that a load is still in flight. */
 const HEARTBEAT_MS = 30_000
 

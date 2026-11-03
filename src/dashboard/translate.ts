@@ -96,6 +96,9 @@ export interface TranslationResult {
  * `source` defaults to 'auto' (let Google detect the input language).
  * Throws on an unknown target code, a non-2xx response, or an unexpected body.
  */
+/** An endpoint that stops answering must not hold a dashboard request for ever. */
+const TRANSLATE_TIMEOUT_MS = 15_000
+
 export async function translateText(
   text: string,
   target: string,
@@ -107,7 +110,7 @@ export async function translateText(
   const params = new URLSearchParams({
     client: 'gtx', sl: source, tl: target, dt: 't', q: text,
   })
-  const res = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`)
+  const res = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`, { signal: AbortSignal.timeout(TRANSLATE_TIMEOUT_MS) })
   if (!res.ok) throw new Error(`translate request failed: HTTP ${res.status}`)
 
   // gtx shape: [[["translated seg","src seg",…], …], …, "detectedLang", …]

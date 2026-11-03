@@ -36,6 +36,10 @@ unseen rows (the number to quote for generalisation); 22 rows were read on
    `Xenova/multilingual-e5-small`, loaded eagerly by `llm-fw start` before any
    listener binds, then resident for the process lifetime. The cosine
    gate is calibrated; changing it invalidates published benchmark numbers.
+   Nothing here waits without a bound. A model load gives up at
+   `detection.modelLoadTimeoutMs` with the outcome a failed load has, and a worker
+   that stops answering fails what it holds so `detection.failMode` applies. Pinned
+   by `test/detection/inferenceHangs.test.ts`.
 3. **Judge LLM** via Ollama (`src/detection/judge.ts`). Off by default,
    asynchronous by default, and never fatal: a failed call returns `ERROR` and
    the pipeline continues.

@@ -90,7 +90,7 @@ export class InjectionClassifier {
       // stage sharing the same worker) instead falls back to loading the
       // model in-process right here.
       try {
-        await this.workerClient.ensure('classify')
+        await loadWithVisibility(() => this.workerClient.ensure('classify'), { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
         this.workerReady = true
       } catch (err) {
         if (err instanceof WorkerUnavailableError) {

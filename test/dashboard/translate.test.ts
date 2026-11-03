@@ -22,6 +22,20 @@ describe('TRANSLATE_LANGUAGES', () => {
 })
 
 describe('translateText', () => {
+  it('gives up on an endpoint that never answers', async () => {
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return new Response(JSON.stringify([[['hola', 'hello']], null, 'en']))
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    try {
+      await translateText('hello', 'es')
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('returns the translated text and detected source language', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

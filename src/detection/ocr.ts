@@ -1,4 +1,5 @@
 import { getLlmFwDir } from '../config/paths.js'
+import { DEFAULT_LOAD_TIMEOUT_MS, loadWithVisibility } from './modelLoad.js'
 import { join } from 'node:path'
 
 /**
@@ -41,16 +42,29 @@ function cacheDir(): string {
   return join(getLlmFwDir(), 'ocr-cache')
 }
 
-async function getWorker(): Promise<Worker | null> {
+/** One recognition takes seconds. Past this the tesseract worker counts as wedged. */
+const RECOGNIZE_TIMEOUT_MS = 60_000
+
+interface OcrBounds {
+  loadTimeoutMs?: number
+  recognizeTimeoutMs?: number
+}
+
+async function getWorker(loadTimeoutMs: number): Promise<Worker | null> {
   if (!workerPromise) {
     workerPromise = (async () => {
       try {
         const { createWorker } = await import('tesseract.js')
-        return (await createWorker('eng', undefined, {
-          cachePath: cacheDir(),
-          // tesseract.js logs progress to console by default — silence it.
-          logger: () => {},
-        })) as unknown as Worker
+        // Bounded here, inside the one load every request shares: past the bound
+        // it settles as unavailable for all of them, not once per request.
+        return await loadWithVisibility(
+          async () => (await createWorker('eng', undefined, {
+            cachePath: cacheDir(),
+            // tesseract.js logs progress to console by default — silence it.
+            logger: () => {},
+          })) as unknown as Worker,
+          { label: 'OCR language data', timeoutMs: loadTimeoutMs },
+        )
       } catch {
         return null // OCR unavailable (offline first run, install issue) — degrade to opaque.
       }
@@ -69,7 +83,7 @@ export function isOcrCandidate(mimeType: string | undefined): boolean {
  * unavailable, the format isn't a supported raster, the payload is oversized,
  * or nothing legible is found — callers then fall back to opaque handling.
  */
-export async function ocrImage(base64Data: string, mimeType: string | undefined): Promise<string> {
+export async function ocrImage(base64Data: string, mimeType: string | undefined, bounds: OcrBounds = {}): Promise<string> {
   if (!isOcrCandidate(mimeType)) return ''
   if (base64Data.length > MAX_OCR_BASE64) return ''
   let buf: Buffer
@@ -79,13 +93,26 @@ export async function ocrImage(base64Data: string, mimeType: string | undefined)
     return ''
   }
   if (buf.length === 0) return ''
-  const worker = await getWorker()
+  const worker = await getWorker(bounds.loadTimeoutMs ?? DEFAULT_LOAD_TIMEOUT_MS)
   if (!worker) return ''
+  const limit = bounds.recognizeTimeoutMs ?? RECOGNIZE_TIMEOUT_MS
+  let deadline: ReturnType<typeof setTimeout> | undefined
   try {
-    const { data } = await worker.recognize(buf)
+    const wedged = new Promise<never>((_resolve, reject) => {
+      deadline = setTimeout(() => reject(new Error(`OCR gave no answer for ${limit} ms`)), limit)
+      deadline.unref?.()
+    })
+    const { data } = await Promise.race([worker.recognize(buf), wedged])
     return (data.text ?? '').trim()
-  } catch {
+  } catch (err) {
+    // The next request gets a new worker; this one may never answer again.
+    if ((err as Error)?.message?.startsWith('OCR gave no answer')) {
+      workerPromise = null
+      void worker.terminate().catch(() => {})
+    }
     return ''
+  } finally {
+    if (deadline) clearTimeout(deadline)
   }
 }
 

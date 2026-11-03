@@ -94,6 +94,23 @@ function endFailedResponse(res: http.ServerResponse): void {
 }
 
 /**
+ * A client that goes silent before its request is in has nothing waiting on it,
+ * but holds its socket and whatever body arrived. The server's own header and
+ * request timeouts never run here: they start on 'listening', and this server only
+ * ever receives connections handed to it. A client waiting for its answer is
+ * silent too, and that wait is the upstream timer's to bound, so it stays open.
+ */
+function closeSilentClients(server: http.Server, idleMs: number): void {
+  if (idleMs <= 0) return
+  let active: { req: http.IncomingMessage; res: http.ServerResponse } | null = null
+  server.on('request', (req, res) => { active = { req, res } })
+  server.setTimeout(idleMs, socket => {
+    const waitingForAnswer = active !== null && active.req.complete && !active.res.writableEnded
+    if (!waitingForAnswer) socket.destroy()
+  })
+}
+
+/**
  * The upstream's connection ended before its response did: no response at all,
  * fewer bytes than its Content-Length, or chunked framing with no last chunk.
  * Passing that on as an ordinary end would make a truncated reply look complete.
@@ -340,7 +357,7 @@ export class ProxyServer {
     // like every other scanner; init()/classify() are no-ops unless
     // responseScan.classifier.enabled is set, so the default config never
     // downloads the model.
-    this.outputClassifier = new OutputModerationClassifier(config.responseScan)
+    this.outputClassifier = new OutputModerationClassifier(config.responseScan, config.detection.modelLoadTimeoutMs)
     // Client credential policy. Resolved once at construction so the generated
     // token is stable for the process lifetime and can be printed at startup.
     // A proxy reachable off-host without this is an open forward relay.
@@ -428,6 +445,7 @@ export class ProxyServer {
       const hostname = tlsSocket.servername || this.config.targets[0] || 'api.anthropic.com'
       const innerServer = http.createServer()
       innerServer.on('upgrade', (req: http.IncomingMessage, socket: Duplex, head: Buffer) => { void this.handleUpgrade(hostname, 443, req, socket, head) })
+      closeSilentClients(innerServer, this.config.proxy.upstreamTimeoutMs)
       innerServer.emit('connection', tlsSocket)
       innerServer.on('request', async (innerReq: http.IncomingMessage, innerRes: http.ServerResponse) => {
         try {
@@ -637,6 +655,7 @@ export class ProxyServer {
       // Without an `upgrade` listener Node destroys every WebSocket handshake,
       // so a Realtime session could not connect through llm-fw at all (#270).
       innerServer.on('upgrade', (req: http.IncomingMessage, socket: Duplex, head: Buffer) => { void this.handleUpgrade(hostname, port, req, socket, head) })
+      closeSilentClients(innerServer, this.config.proxy.upstreamTimeoutMs)
       innerServer.emit('connection', tlsSocket)
       innerServer.on('request', async (innerReq, innerRes) => {
         try { await this.handleRequest(hostname, port, innerReq, innerRes) }

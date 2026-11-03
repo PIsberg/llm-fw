@@ -602,7 +602,7 @@ export class Pipeline {
       if (nonText.ocr) {
         for (const m of media) {
           if (m.text || !m.data || !isOcrCandidate(m.mimeType)) continue
-          const text = await ocrImage(m.data, m.mimeType)
+          const text = await ocrImage(m.data, m.mimeType, { loadTimeoutMs: this.config.detection.modelLoadTimeoutMs ?? 0 })
           if (text) scanItems.push({ text, source: 'document' })
         }
       }
@@ -614,7 +614,7 @@ export class Pipeline {
         for (const m of media) {
           if (m.text || !m.data || m.kind !== 'audio' || !isTranscribeCandidate(m.mimeType)) continue
           if (clips++ >= MAX_TRANSCRIBE_CLIPS) break
-          const text = await transcribeAudio(m.data, m.mimeType)
+          const text = await transcribeAudio(m.data, m.mimeType, this.config.detection.modelLoadTimeoutMs ?? 0)
           if (text) scanItems.push({ text, source: 'document' })
         }
       }

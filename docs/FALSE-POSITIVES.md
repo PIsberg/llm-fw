@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.20
+
+**No verdict moved.** Models that never answer now hit a bound instead of waiting for ever. A model that answers is read exactly as before, and the verdict diff is on this ruleset.
+
 ## Result, ruleset 2026.11.19
 
 **No verdict moved.** The container signals are read once per detector instead of on every request, and nothing else in detection changed.
