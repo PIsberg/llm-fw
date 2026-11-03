@@ -146,6 +146,14 @@ const SENTENCE_IMPERATIVE_RE = new RegExp(
 // tool results, opening a clause at every bullet added 9 hits, all changelogs,
 // comments and notes, and broke the changelog guard. Bounded spans, anchored at a
 // line start, so a long run is read once (GHSA-gm3q-2gwx-gppq).
+// A plain bullet or numbered item, the same shape with no checkbox (#654). Its
+// object test is narrower than a checklist's, below.
+const PLAIN_ITEM_IMPERATIVE_RE = new RegExp(
+  '(?:^|\\n)[ \\t]*(?:[-*+]|\\d{1,4}[.)])[ \\t]{1,8}' +
+  `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+(?:is|are|was|were|of)\\b)\\s+\\S`,
+  'gim',
+)
+
 const TASK_ITEM_IMPERATIVE_RE = new RegExp(
   '(?:^|\\n)[ \\t]*[-*+][ \\t]{1,8}\\[[ xX]\\][ \\t]{1,8}(?:[A-Z]{1,6}-?\\d{1,5}[ \\t]{1,8})?(?:\\[[A-Za-z0-9-]{1,12}\\][ \\t]{1,8}){0,6}' +
   `(${VERB_ALT})\\b(?!['"\`]?\\s*:)(?!\\s+(?:is|are|was|were|of)\\b)\\s+\\S`,
@@ -707,6 +715,19 @@ const ATTACKER_TARGET_RE = new RegExp([
 // What a quoted token in a "please use X instead" clause must not be for the
 // clause to count as a deprecation notice (#477): a destination, or a
 // guest_amy01-style handle.
+// What a plain list item must name to count: an address or an account, written
+// as one (#654). Over 62,311 real tool results, ATTACKER_TARGET_RE plus a handle
+// added 17 hits here: a value ("up to 600000 ms"), an option ("delay_ms=200"), a
+// file name, and a release note's link. A URL is left out for that last reason,
+// so "- Upload the records to https://..." on a plain bullet is not read. A number
+// takes three groups, or two long ones, since "200-500" is a range.
+const PLAIN_ITEM_TARGET_RE = new RegExp([
+  EMAIL_RE.source,
+  '\\b\\d{3,}[-\\s.]\\d{3,}[-\\s.]\\d{3,}',
+  '\\b\\d{4,}[-\\s.]\\d{4,}',
+  '\\b0x[0-9a-fA-F]{6,}\\b',
+  '\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b',
+].join('|'), 'i')
 const QUOTED_TARGET_RE = new RegExp(`${ATTACKER_TARGET_RE.source}|\\b[a-z][a-z0-9]*_[a-z0-9_]*\\d`, 'i')
 
 function snippetAround(text: string, index: number, len: number): string {
@@ -1304,6 +1325,16 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   // something sensitive, so only an object an attacker would name counts. With the
   // wider object test, the 4 new hits over 62,013 real tool results were all
   // speckit tasks ("Replace the stub body of ..."), #477's false positives again.
+  PLAIN_ITEM_IMPERATIVE_RE.lastIndex = 0
+  for (let m = PLAIN_ITEM_IMPERATIVE_RE.exec(text); m !== null; m = PLAIN_ITEM_IMPERATIVE_RE.exec(text)) {
+    /* v8 ignore next */ // m[1] is always captured by the verb group
+    const verb = m[1] ?? ''
+    const end = m.index + m[0].lastIndexOf(verb) + verb.length
+    if (PLAIN_ITEM_TARGET_RE.test(objectWindow(text, end))) {
+      return { verb: verb.toLowerCase(), reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
+    }
+  }
+
   TASK_ITEM_IMPERATIVE_RE.lastIndex = 0
   for (let m = TASK_ITEM_IMPERATIVE_RE.exec(text); m !== null; m = TASK_ITEM_IMPERATIVE_RE.exec(text)) {
     /* v8 ignore next */ // m[1] is always captured by the verb group
