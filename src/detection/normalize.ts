@@ -386,6 +386,19 @@ const JOINED_WORDS_RE = /(?<![\p{L}\p{N}\p{M}])[\p{L}\p{N}\p{M}]+(?:[_\uFF3F\u20
 const WORD_JOINER_RE = /[_\uFF3F\u200B-\u200D\u2060\uFEFF\u00AD]+/gu
 const INVISIBLE_JOINER_RE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/u
 const MIN_UNDERSCORE_WORDS = 4
+// The same words in the other ways code joins them (#652): dots, camelCase. Ordinary
+// code is full of both (11,304 distinct camelCase names and 6,055 dotted paths in
+// local transcripts), so a run is read only when it names an override verb, and a
+// text with no such verb skips this altogether. Three words by underscores count on
+// the same terms, with the verb first: "gandalf_ignore_instructions" is a name, and
+// a prefix on the verb makes four words, which are read anyway. The starts refuse a
+// word character and a joiner, so a run that fails is not rescanned from inside it.
+const OVERRIDE_VERB_RE = /ignore|disregard|forget|override|bypass/i
+const OVERRIDE_WORD_RE = /\b(?:ignore|disregard|forget|override|bypass)\b/i
+const OVERRIDE_FIRST_RE = /^(?:ignore|disregard|forget|override|bypass)\b/i
+const DOTTED_WORDS_RE = /(?<![\p{L}\p{N}.])[\p{L}\p{N}]+(?:\.[\p{L}\p{N}]+){3,}(?![\p{L}\p{N}])/gu
+const CAMEL_WORDS_RE = /(?<![\p{L}\p{N}_])\p{L}\p{Ll}+(?:\p{Lu}\p{Ll}+){3,}(?![\p{L}\p{N}_])/gu
+const CAMEL_HUMP_RE = /(\p{Ll})(\p{Lu})/gu
 // Real texts carry 23 such runs at p99 and 266 at most, at about 0.3 ms each. An
 // attacker can send thousands, so past this they share candidates: nothing goes
 // unread, and the cost is bounded by the text's length rather than its runs.
@@ -398,13 +411,26 @@ const MAX_JOINED_CANDIDATES = 64
  * identifier would double the work for nothing a rule reads.
  */
 function joinedWordsCandidates(text: string): { text: string; source: string }[] {
-  const matched = text.match(JOINED_WORDS_RE)
-  if (!matched) return []
-  const runs: string[] = []
-  for (const run of new Set(matched)) {
+  const runs = new Set<string>()
+  for (const run of new Set(text.match(JOINED_WORDS_RE))) {
     const spaced = run.replace(WORD_JOINER_RE, ' ')
-    if (INVISIBLE_JOINER_RE.test(run) || spaced.split(' ').length >= MIN_UNDERSCORE_WORDS) runs.push(spaced)
+    if (INVISIBLE_JOINER_RE.test(run) || spaced.split(' ').length >= MIN_UNDERSCORE_WORDS || OVERRIDE_FIRST_RE.test(spaced)) runs.add(spaced)
   }
+  if (OVERRIDE_VERB_RE.test(text)) {
+    for (const run of new Set(text.match(DOTTED_WORDS_RE))) {
+      const spaced = run.replaceAll('.', ' ')
+      if (OVERRIDE_WORD_RE.test(spaced)) runs.add(spaced)
+    }
+    for (const run of new Set(text.match(CAMEL_WORDS_RE))) {
+      const spaced = run.replace(CAMEL_HUMP_RE, '$1 $2')
+      if (OVERRIDE_WORD_RE.test(spaced)) runs.add(spaced)
+    }
+  }
+  if (runs.size === 0) return []
+  return joinedCandidates([...runs])
+}
+
+function joinedCandidates(runs: string[]): { text: string; source: string }[] {
   const perCandidate = Math.ceil(runs.length / MAX_JOINED_CANDIDATES)
   const candidates: { text: string; source: string }[] = []
   for (let i = 0; i < runs.length; i += perCandidate) {
