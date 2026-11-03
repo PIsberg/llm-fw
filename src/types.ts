@@ -476,6 +476,13 @@ export interface IndirectInstructionConfig {
   // fire. Empty by default: the text alone cannot tell finance@<own domain>
   // from an attacker's address.
   trustedRecipientDomains?: string[]
+  // What an imperative in a tool result does when the text names no destination
+  // anywhere: no address, URL, account number or handle (#287). 'block', the
+  // default, withholds it. 'warn' forwards it with a warn event, which trades
+  // attacks that name nothing for fewer withheld results. Measured price and
+  // effect in docs/guides/tuning.md: off by default because the price is high.
+  // Documents are refused either way.
+  untargetedImperative?: 'block' | 'warn'
 }
 
 export interface HarmfulRequestConfig {

@@ -115,7 +115,7 @@ import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
 import { detectMemoryPoisoning, extractMemoryBlocks } from './memoryPoisoning.js'
 import { referencesModelInstructions } from './selfReference.js'
-import { detectIndirectInstruction } from './indirectInstruction.js'
+import { detectIndirectInstruction, namesDestination } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
 import { SuppressionStore, suppressionKey, type NearCopy } from './suppressions.js'
@@ -832,7 +832,12 @@ export class Pipeline {
         const ind = detectIndirectInstruction(prompt, this.config.indirectInstruction)
           ?? (secret ? { verb: secret.path, reason: `secret-file ${secret.reason}`, snippet: secret.snippet } : null)
         if (ind) {
-          if (this.config.indirectInstruction.mode === 'block' && !trustedPath) {
+          // #287: an operator can trade an imperative naming no destination for
+          // a warn on a tool result. Only that surface: a document cannot be withheld,
+          // and the cost was measured on tool results alone.
+          const untargeted = this.config.indirectInstruction.untargetedImperative === 'warn' && source === 'tool_result'
+            && ind.reason === 'imperative' && !namesDestination(prompt)
+          if (this.config.indirectInstruction.mode === 'block' && !trustedPath && !untargeted) {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
             const line = `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`
             if (!this.isSuppressed(prompt, source)) {
@@ -843,7 +848,7 @@ export class Pipeline {
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
-            prompt: demotedLine(`[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`),
+            prompt: demotedLine(`${untargeted ? '[untargeted] ' : ''}[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`),
             source,
           }
         }

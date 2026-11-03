@@ -149,6 +149,7 @@ const HOT_PATHS: Path[] = [
   ['indirectInstruction', 'enabled'],
   ['indirectInstruction', 'mode'],
   ['indirectInstruction', 'trustedRecipientDomains'],
+  ['indirectInstruction', 'untargetedImperative'],
   ['harmfulRequest', 'enabled'],
   ['harmfulRequest', 'mode'],
   ['responseScan', 'enabled'],

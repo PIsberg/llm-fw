@@ -27,6 +27,15 @@
 // than any verb anywhere. A descriptive review that merely contains the word
 // "send" ("they send great updates") is not an imperative and does not fire.
 
+/**
+ * Whether a text names somewhere an attacker could send something, anywhere in
+ * it. The whole text, not the words around the verb: an attacker writes the
+ * distance between them, so a window is one line of padding away from a pass.
+ */
+export function namesDestination(text: string): boolean {
+  return QUOTED_TARGET_RE.test(decodeJsonEscapes(text))
+}
+
 export interface IndirectInstructionOptions {
   /** See `indirectInstruction.trustedRecipientDomains` in src/types.ts. */
   trustedRecipientDomains?: readonly string[]
