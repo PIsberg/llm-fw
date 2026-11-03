@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.15
+
+**Unchanged, by construction.** The item cache stays on with the judge enabled (#656). `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed, and it runs with the judge off, so `test/detection/pipeline-judge-cache.test.ts` covers the judge paths: a failed judge is asked again on every route that can decide a verdict, and a block is never remembered. `npm run fpr` was not re-run for this entry; CI runs it on the pull request.
+
 ## Result, ruleset 2026.11.14
 
 **Unchanged, by construction.** Concurrent requests now share a scan of one item instead of repeating it (#633): the outcome shared is the one the item cache would have held, and a scan that blocks shares nothing. `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed. It reads strings one at a time, so `test/detection/pipeline-inflight.test.ts` covers the concurrent path. `npm run fpr` was not re-run for this entry; CI runs it on the pull request.

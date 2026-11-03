@@ -253,6 +253,8 @@ Simple detectors produce false positives on passive context (e.g. any email cont
 
 When a candidate reaches the judge (see above), the request is forwarded to the upstream API without waiting for it. Simultaneously, a background query is sent to Ollama. If Ollama returns `MALICIOUS`, a retroactive warning appears in the dashboard for auditing.
 
+A text the judge has read is not sent to it again while it stays in the item cache, so an agent resending its history does not re-ask, and a warn from the judge is reported once rather than on every turn. A call that could decide a verdict and fails is not remembered: it is asked again on the next request.
+
 **Sync blocking (`judgeBlock: true`)**
 
 If Stage 1 and Stage 2 both pass, the proxy pauses the request and runs a synchronous Ollama check. A `MALICIOUS` verdict blocks the request with a `422` before it reaches the upstream API — the highest-security option.
