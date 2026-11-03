@@ -461,6 +461,11 @@ export interface CrescendoConfig {
   // identity collides, and it is unbounded-memory-growth risk if enabled
   // carelessly.
   crossRequest?: boolean
+  // Send every prompt of a session that keeps testing the boundary to the judge
+  // for a while (#540, src/detection/probeEscalation.ts): three distinct flagged
+  // prompts in ten minutes, held for thirty. Default false, and it does nothing
+  // with the judge off. The session is the client's IP.
+  probeEscalation?: boolean
 }
 
 export interface IndirectInstructionConfig {

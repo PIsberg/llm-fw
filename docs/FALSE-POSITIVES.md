@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.26
+
+**No verdict moved.** A new opt-in, off by default, that also needs the judge on (#540).
+
 ## Result, ruleset 2026.11.25
 
 **No verdict moved.** A new opt-in, off by default (#287). With it on, 10 of 105 flagged real tool results stop being withheld and 200 of 1,054 InjecAgent attacks are lost; see the tuning guide.
