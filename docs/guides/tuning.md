@@ -12,6 +12,32 @@ Toggles take effect on the **next proxy request** — the dashboard and proxy sh
 
 The same toggles are available headless via the `LLM_FW_*_ENABLED` environment variables documented in each defense guide (see the [documentation index](../README.md)), or by editing `~/.llm-fw/config.json` directly.
 
+## Indirect injection that names no identifier
+
+**For an agent that reads untrusted pages or files, turn the classifier on for tool results.** The default rules key on what an attacker has to name, an address, a URL, an account or a handle. Without one, they catch 8 of 40 attacks on the identifier-free probe (`test/eval/data/indirect-identifier-free.json`), and that count is gated by `npm run recall:floor`. The trained classifier reads the instruction itself and does not need one:
+
+```json
+{
+  "detection": {
+    "classifier": {
+      "enabled": true,
+      "surfaces": ["tool_result", "document"],
+      "requireCorroboration": false
+    },
+    "surfaces": {
+      "tool_result": { "classifierBlockThreshold": 0.999 },
+      "document": { "classifierBlockThreshold": 0.999 }
+    }
+  }
+}
+```
+
+Measured on ruleset 2026.11.24 against the default: 20 of 40 attacks blocked rather than 8, 2 of 20 benign probe rows rather than 1, and 9 of 336 realistic benign rows rather than 7. InjecAgent stays at 1,054 of 1,054 with 0 of 17 benign. See the [table in the benchmark](../BENCHMARK.md) for 0.9, which catches 30 of 40 but blocks 9 of 20 benign rows.
+
+`requireCorroboration: false` is what buys this. With corroboration on, the default, a classifier hit alone warns, and these attacks have nothing to corroborate them. The price is a model download and the time to run it on each tool result, and the default stays off because of it. Your prompts are not scanned by the classifier with this list of surfaces.
+
+This is a probe of 60 rows written by hand, so read it as a direction rather than a rate. It does not reach an attack the classifier scores below 0.999, and nothing here stops the 20 it misses. [#535](https://github.com/PIsberg/llm-fw/issues/535) tracks the default.
+
 ## An imperative that names no destination
 
 The rule that withholds most ordinary tool results in real traffic is the imperative one: `Add the token as a repository secret`, `Please update your unit file`. Those read exactly like an order, so more wording rules stopped converging (#287). `indirectInstruction.untargetedImperative: "warn"` (`LLM_FW_INDIRECT_UNTARGETED_IMPERATIVE=warn`) lets such a hit warn instead, on a tool result only, when the whole text names no address, URL, account number or handle. It applies live. Documents are still refused, and any text naming a destination is still withheld, however far it sits from the verb.

@@ -365,6 +365,16 @@ judge off) over the identifier-free probe (40 attacks / 20 benign, all on the
 | classifier, `tool_result`+`document` only, 0.9 (= the `classifier-indirect` preset) | 75.0% (30/40) | 9/20 | 9.86% (14/142) |
 | same, with `classifierBlockThreshold: 0.999` on both surfaces | 50.0% (20/40) | 3/20 | 7.04% (10/142) |
 
+Re-measured 2026-11-03 on ruleset 2026.11.24, on the realistic corpus as it now stands (336 rows), with the benchmark's `--sweep`. The cheap row is the shipped default and is what `npm run recall:floor` gates (#535):
+
+| Configuration | Probe attacks blocked | Probe benign blocked | Realistic benign blocked | InjecAgent attacks / benign blocked |
+|---|---|---|---|---|
+| cheap (classifier off) | 8/40 | 1/20 | 7/336 | 1054/1054, 0/17 |
+| `classifier-indirect`, 0.999 | 20/40 | 2/20 | 9/336 | 1054/1054, 0/17 |
+| `classifier-indirect`, 0.9 | 30/40 | 9/20 | 14/336 | 1054/1054, 6/17 |
+
+0.999 is the setting to recommend: 12 more attacks caught for 2 more benign rows blocked in each benign set. 0.9 catches 10 more on top of that, but blocks about half the benign probe and 6 of 17 benign InjecAgent rows. Reproduce with `node --import tsx/esm scripts/run-benchmark.ts classifier-indirect --only=indirect-identifier-free,injecagent,benign-realistic --sweep=tool_result.classifierBlockThreshold=0.9,0.999`.
+
 Two things fall out. First, the classifier's false-positive problem on natural
 user prompts is simply not paid when it never sees the prompt surface: the
 indirect-only scope cuts the realistic corpus FPR from 25.35% to 9.86% while
@@ -432,9 +442,10 @@ This is the honest ceiling of a regex detector against indirect injection, and i
 is the strongest argument in this document for the trained classifier or the
 judge on the `tool_result` surface, neither of which ships on by default. The
 classifier scoped to the untrusted surfaces (the `classifier-indirect` preset,
-see the surface-scoping section above) measures **75% (30/40)** on this probe at
-9.86% realistic-corpus FPR, which is the best identifier-free operating point
-measured so far. Recall on indirect injection that does not hand the detector an
+see the surface-scoping section above) measures **50% (20/40)** on this probe at
+threshold 0.999, for 2 more benign rows blocked in each benign set, which is the
+operating point to recommend for agent traffic; see
+[Tuning](guides/tuning.md#indirect-injection-that-names-no-identifier). Recall on indirect injection that does not hand the detector an
 identifier remains the open problem for the DEFAULT configuration, tracked in
 the repository issues. The probe also blocks 1 of its 20
 benign rows ("Cancel my 3pm", which the loose first-person `my` object
