@@ -283,6 +283,39 @@ export function jailbreakHeldoutRows(raw: { prompt: unknown; type: unknown }[], 
   return { rows, dropped }
 }
 
+/**
+ * yanismiraoui/prompt_injections, pinned: injections in seven languages, attacks
+ * only, so it measures recall and says nothing about false positives (#536). Its
+ * one column carries no language, so there is no per-language breakdown. Chosen
+ * 2026-11-03 from dataset metadata alone. Report it in aggregate and never read
+ * its rows, including to check its labels: once read, a row is no longer held
+ * out (test/eval/lib/seenRows.ts).
+ */
+const MULTILINGUAL_REVISION = 'bd55359f2f332afc35f277ac3dd08f7111b024c9'
+const MULTILINGUAL_LICENSE = 'Apache-2.0. Source: yanismiraoui/prompt_injections, https://huggingface.co/datasets/yanismiraoui/prompt_injections'
+
+/**
+ * Rows of a dataset that holds only attacks: each one label 1. A prompt already
+ * in another eval split or in corpus.json is dropped, because a rule may have
+ * been fitted to it there, and so is a repeat, compared ignoring case and spacing.
+ */
+export function attackOnlyHeldoutRows(raw: { prompt: unknown }[], knownTexts: string[]): { rows: Row[]; dropped: { known: number; repeated: number; unusable: number } } {
+  const known = new Set(knownTexts.map(textKey))
+  const seen = new Set<string>()
+  const dropped = { known: 0, repeated: 0, unusable: 0 }
+  const rows: Row[] = []
+  for (const r of raw) {
+    const text = typeof r.prompt === 'string' ? r.prompt : ''
+    if (text.trim() === '') { dropped.unusable++; continue }
+    const key = textKey(text)
+    if (known.has(key)) { dropped.known++; continue }
+    if (seen.has(key)) { dropped.repeated++; continue }
+    seen.add(key)
+    rows.push({ text, label: 1, class: 'multilingual-injection' })
+  }
+  return { rows, dropped }
+}
+
 /** Every prompt in the other eval splits and in the tuning corpus. */
 function knownEvalTexts(except: string): string[] {
   const texts: string[] = []
@@ -378,6 +411,19 @@ const FETCHERS: Record<string, () => Promise<void>> = {
     write('jailbreak-classification.json',
       'jackhhao/jailbreak-classification (train + test, deduplicated) - held-out, never tuned on; label 1=jailbreak 0=benign',
       rev, 'injection', rows, { _license: JAILBREAK_LICENSE })
+  },
+
+  /** yanismiraoui/prompt_injections, pinned: held-out multilingual attacks, recall only (#536). */
+  'multilingual-injections': async () => {
+    const dataset = 'yanismiraoui/prompt_injections'
+    const rev = await hfRevision(dataset)
+    if (rev !== MULTILINGUAL_REVISION) throw new Error(`${dataset} is at ${rev}, pinned ${MULTILINGUAL_REVISION}: review the change before re-pinning`)
+    const raw = await hfRows(dataset, 'default', 'train')
+    const { rows, dropped } = attackOnlyHeldoutRows(raw.map(r => ({ prompt: r.prompt_injections })), knownEvalTexts('multilingual-injections.json'))
+    console.log(`  multilingual-injections: ${raw.length} rows, dropped ${dropped.known} already in another split or the corpus, ${dropped.repeated} repeats, ${dropped.unusable} unusable`)
+    write('multilingual-injections.json',
+      'yanismiraoui/prompt_injections (en, fr, de, es, pt, it, ro; deduplicated) - held-out, attacks only; label 1=attack',
+      rev, 'injection', rows, { _license: MULTILINGUAL_LICENSE })
   },
 
   /** xTRam1/safe-guard-prompt-injection — FULL test split (was a 60/60 sample). */
