@@ -227,6 +227,31 @@ describe('EmbeddingChecker worker isolation (Task C3)', () => {
       expect(on.ensure).toHaveBeenCalledWith('embed', { spinWait: true })
     })
 
+    // #669: the same vectors at any count, so this trades CPU against wall time.
+    it('leaves the thread count to the runtime unless one is set', async () => {
+      const checker = new EmbeddingChecker(DEFAULT_CONFIG.detection, fakeClient())
+      await checker.init()
+      expect(loadOptions().session_options).not.toHaveProperty('intraOpNumThreads')
+    })
+
+    it('loads the model with the thread count set', async () => {
+      const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embedding: { spinWait: false, threads: 2 } }, fakeClient())
+      await checker.init()
+      expect(loadOptions()).toEqual({ dtype: 'q8', session_options: { ...NO_SPIN, intraOpNumThreads: 2 } })
+    })
+
+    it('sets the thread count with spinning on too', async () => {
+      const checker = new EmbeddingChecker({ ...DEFAULT_CONFIG.detection, embedding: { spinWait: true, threads: 4 } }, fakeClient())
+      await checker.init()
+      expect(loadOptions()).toEqual({ dtype: 'q8', session_options: { intraOpNumThreads: 4 } })
+    })
+
+    it('tells the worker the thread count', async () => {
+      const client = fakeClient()
+      await new EmbeddingChecker({ ...workerCfg, embedding: { spinWait: false, threads: 2 } }, client).init()
+      expect(client.ensure).toHaveBeenCalledWith('embed', { spinWait: false, threads: 2 })
+    })
+
     it('still applies when a dead worker falls back to loading in-process', async () => {
       const client = fakeClient({ ensure: vi.fn().mockRejectedValue(new WorkerUnavailableError()) })
       await new EmbeddingChecker(workerCfg, client).init()

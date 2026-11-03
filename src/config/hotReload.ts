@@ -230,6 +230,7 @@ const COLD_PATHS: Path[] = [
   ['updateCheck'],
   // Read once, when the model session is built.
   ['detection', 'embedding', 'spinWait'],
+  ['detection', 'embedding', 'threads'],
 ]
 
 /**

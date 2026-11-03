@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.28
+
+**No verdict moved.** A new opt-in, unset by default (#669). The vectors hash the same at thread counts unset, 2, 4 and 8, on short prompts and on 230-word chunks.
+
 ## Result, ruleset 2026.11.27
 
 **No verdict moved.** Plain list items naming an address or account are read (#654). No eval string has that shape, so this says nothing about recall on it; over 62,314 real tool results it adds no hit outside llm-fw's own sessions.

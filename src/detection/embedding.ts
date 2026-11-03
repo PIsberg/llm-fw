@@ -25,11 +25,12 @@ export type FeatureExtractor = (texts: string[], opts: { pooling: 'mean'; normal
 export const EMBEDDING_MODEL_ID = 'Xenova/multilingual-e5-small'
 export const EMBEDDING_DTYPE = 'q8' as const
 
-export async function loadEmbeddingExtractor(spinWait = false): Promise<FeatureExtractor> {
+export async function loadEmbeddingExtractor(spinWait = false, threads?: number): Promise<FeatureExtractor> {
   const { pipeline } = await loadTransformers()
+  const sessionOptions = { ...(spinWait ? {} : NO_SPINNING), ...(threads === undefined ? {} : { intraOpNumThreads: threads }) }
   const extractor = (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
     dtype: EMBEDDING_DTYPE,
-    ...(spinWait ? {} : { session_options: NO_SPINNING }),
+    ...(Object.keys(sessionOptions).length > 0 ? { session_options: sessionOptions } : {}),
   })) as unknown as FeatureExtractor
   compactTokenizer((extractor as unknown as { tokenizer?: unknown }).tokenizer)
   return extractor
@@ -112,6 +113,14 @@ export class EmbeddingChecker {
     return this.config.embedding?.spinWait === true
   }
 
+  private threads(): number | undefined {
+    return this.config.embedding?.threads
+  }
+
+  private loadExtractor(): Promise<FeatureExtractor> {
+    return loadEmbeddingExtractor(this.spinWait(), this.threads())
+  }
+
   private loadBound(): { label: string; timeoutMs: number } {
     return { label: 'embedding model', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 }
   }
@@ -139,7 +148,7 @@ export class EmbeddingChecker {
       // without the stage would quietly stop reading text. Only a timeout disables
       // it, since a load that never ends would not end here either.
       try {
-        await loadWithVisibility(() => this.workerClient.ensure('embed', { spinWait: this.spinWait() }), this.loadBound())
+        await loadWithVisibility(() => this.workerClient.ensure('embed', { spinWait: this.spinWait(), ...(this.threads() === undefined ? {} : { threads: this.threads() }) }), this.loadBound())
       } catch (err) {
         if (err instanceof ModelLoadTimeoutError) {
           log.warn(`embedding model unavailable — semantic similarity stage disabled (${err.message})`)
@@ -148,7 +157,7 @@ export class EmbeddingChecker {
         log.warn(`inference worker unavailable (${(err as Error).message}); running the embedding model on the main thread`)
         this.workerFailed = true
         try {
-          this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
+          this.extractor = await loadWithVisibility(() => this.loadExtractor(), this.loadBound())
         } catch (loadErr) {
           this.extractor = null
           log.warn(`embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
@@ -157,7 +166,7 @@ export class EmbeddingChecker {
       }
     } else {
       try {
-        this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
+        this.extractor = await loadWithVisibility(() => this.loadExtractor(), this.loadBound())
       } catch (err) {
         // The semantic-similarity stage is best-effort. If the model can't be
         // fetched (offline, or HuggingFace rate-limits the download with a 429),
@@ -271,7 +280,7 @@ export class EmbeddingChecker {
     // Pipeline.run() and detection.failMode like any other, and the next scan tries
     // again.
     if (!this.extractor) {
-      this.extractorLoad ??= loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
+      this.extractorLoad ??= loadWithVisibility(() => this.loadExtractor(), this.loadBound())
         .finally(() => { this.extractorLoad = null })
       this.extractor = await this.extractorLoad
     }
