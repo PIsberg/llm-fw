@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.27
+
+**No verdict moved.** Plain list items naming an address or account are read (#654). No eval string has that shape, so this says nothing about recall on it; over 62,314 real tool results it adds no hit outside llm-fw's own sessions.
+
 ## Result, ruleset 2026.11.26
 
 **No verdict moved.** A new opt-in, off by default, that also needs the judge on (#540).
