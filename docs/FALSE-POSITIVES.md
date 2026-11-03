@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.24
+
+**No verdict moved.** Overrides joined by dots or camelCase, or as three words by underscores, are read when they name an override verb. No eval string has that shape, `npm run fpr` is unchanged, and on local transcripts only the attacks themselves would block.
+
 ## Result, ruleset 2026.11.23
 
 **No benign verdict moved.** One attack row moved from pass to block, safeguard #499, by a rule reading a persona told to declare itself switched on. `npm run fpr` is unchanged, and 3 of 730,288 distinct strings in local transcripts fire it, all this repository quoting the shape.
