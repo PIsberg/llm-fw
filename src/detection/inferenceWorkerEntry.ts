@@ -1,7 +1,4 @@
 import { parentPort } from 'node:worker_threads'
-import { env } from '@huggingface/transformers'
-import { join } from 'node:path'
-import { getLlmFwDir } from '../config/paths.js'
 import { embedRaw, loadEmbeddingExtractor, type FeatureExtractor } from './embedding.js'
 import { loadInjectionClassifier, type ClassifyFn } from './classifier.js'
 
@@ -23,12 +20,6 @@ const port = parentPort
 if (!port) {
   throw new Error('inferenceWorkerEntry.ts must be run inside a worker_threads Worker')
 }
-
-// Mirrors embedding.ts / classifier.ts's cache-dir resolution exactly (same
-// env vars), so the worker reads from — and downloads into — the same model
-// cache as the in-process path.
-env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
-env.allowLocalModels = false
 
 let extractorPromise: Promise<FeatureExtractor> | null = null
 function getExtractor(spinWait: boolean): Promise<FeatureExtractor> {

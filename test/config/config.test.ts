@@ -262,10 +262,10 @@ describe('loadConfig env overrides', () => {
     delete process.env.LLM_FW_FAIL_MODE
   })
 
-  it('defaults detection.workerInference to false (Task C3, opt-in isolation)', async () => {
-    expect(DEFAULT_CONFIG.detection.workerInference).toBe(false)
+  it('defaults detection.workerInference to true', async () => {
+    expect(DEFAULT_CONFIG.detection.workerInference).toBe(true)
     const cfg = await loadConfig()
-    expect(cfg.detection.workerInference).toBe(false)
+    expect(cfg.detection.workerInference).toBe(true)
   })
 
   it('detection.embedding.spinWait is off by default, and LLM_FW_EMBEDDING_SPIN_WAIT turns it on (#631)', async () => {

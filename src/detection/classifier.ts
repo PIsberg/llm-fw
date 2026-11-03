@@ -1,11 +1,8 @@
-import { pipeline, env } from '@huggingface/transformers'
 import { DetectionConfig } from '../types.js'
 import { createHash } from 'node:crypto'
-import { getLlmFwDir } from '../config/paths.js'
-import { join } from 'node:path'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { compactTokenizer } from './compactTokenizer.js'
-import { NO_SPINNING, loadWithVisibility } from './modelLoad.js'
+import { ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, isClaudeCodePromptNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
@@ -53,6 +50,7 @@ export async function loadInjectionClassifier(): Promise<ClassifyFn> {
   // explicitly (the runtime otherwise looks for a quantized variant).
   // Spinning off with no switch, unlike the embedding stage: it costs 3% at
   // saturation here (27.0 against 26.2 passes a second), and saves most of 1,164%.
+  const { pipeline } = await loadTransformers()
   const classifier = (await pipeline('text-classification', CLASSIFIER_MODEL_ID, { dtype: CLASSIFIER_DTYPE, session_options: NO_SPINNING })) as unknown as ClassifyFn
   compactTokenizer((classifier as unknown as { tokenizer?: unknown }).tokenizer)
   return classifier
@@ -67,6 +65,8 @@ export class InjectionClassifier {
   // has confirmed it can classify, decoupled from `classifier` (which stays
   // null in worker mode unless a permanent fallback loads it in-process).
   private workerReady = false
+  // The worker could not start for this classifier, so a scan does not ask it first.
+  private workerFailed = false
   private readonly workerClient: InferenceWorkerClient
 
   constructor(config: DetectionConfig, workerClient?: InferenceWorkerClient) {
@@ -79,29 +79,25 @@ export class InjectionClassifier {
   async init(): Promise<void> {
     if (!this.config.classifier?.enabled || this.initAttempted) return
     this.initAttempted = true
-    env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
-    env.allowLocalModels = false
-
     if (this.config.workerInference) {
-      // Task C3: probe (and lazily load) the model INSIDE the persistent
-      // worker thread rather than here. Mirrors the in-process
-      // catch-and-disable behaviour below for a genuine load failure; a
-      // permanently-disabled worker (crashed twice, possibly from another
-      // stage sharing the same worker) instead falls back to loading the
-      // model in-process right here.
+      // The model loads inside the worker thread. A worker that cannot come up
+      // falls back to loading it here rather than disabling the stage (see
+      // EmbeddingChecker.init). Only a timeout disables it.
       try {
         await loadWithVisibility(() => this.workerClient.ensure('classify'), { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
         this.workerReady = true
       } catch (err) {
-        if (err instanceof WorkerUnavailableError) {
-          try {
-            this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
-          } catch (loadErr) {
-            this.classifier = null
-            log.warn('could not load injection classifier — stage disabled', { err: (loadErr as Error).message })
-          }
-        } else {
-          log.warn('could not load injection classifier — stage disabled', { err: (err as Error).message })
+        if (err instanceof ModelLoadTimeoutError) {
+          log.warn('could not load injection classifier — stage disabled', { err: err.message })
+          return
+        }
+        log.warn('inference worker unavailable; running the injection classifier on the main thread', { err: (err as Error).message })
+        this.workerFailed = true
+        try {
+          this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
+        } catch (loadErr) {
+          this.classifier = null
+          log.warn('could not load injection classifier — stage disabled', { err: (loadErr as Error).message })
         }
       }
       return
@@ -118,14 +114,16 @@ export class InjectionClassifier {
   }
 
   isInitialized(): boolean {
-    return this.config.workerInference ? this.workerReady || this.classifier !== null : this.classifier !== null
+    // Not the flag: hot reload can flip it, and classifyRaw loads whichever backend
+    // it then needs. A stage that reported itself off would simply go unread.
+    return this.workerReady || this.classifier !== null
   }
 
   /** The raw single-text forward pass — routes to the worker when enabled,
    *  falling back to loading the model in-process after a permanent worker
    *  failure (second crash). */
   private async classifyRaw(text: string): Promise<{ label: string; score: number }[]> {
-    if (this.config.workerInference && this.workerClient.isAvailable()) {
+    if (this.config.workerInference && !this.workerFailed && this.workerClient.isAvailable()) {
       try {
         return await this.workerClient.classify(text)
       } catch (err) {

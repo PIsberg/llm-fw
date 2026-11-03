@@ -4,8 +4,8 @@ import { createLogger } from '../logger.js';
 const log = createLogger('inference-worker');
 
 /**
- * Task C3 — main-thread client for opt-in worker_threads inference isolation
- * (detection.workerInference, default FALSE). When the flag is on,
+ * Main-thread client for worker_threads inference isolation
+ * (detection.workerInference, on by default). While it is on,
  * EmbeddingChecker / InjectionClassifier route their model forward passes
  * through the SINGLE persistent worker thread this module manages instead of
  * calling @huggingface/transformers in-process — see inferenceWorkerEntry.ts
@@ -125,6 +125,9 @@ export class InferenceWorkerClient {
 
   private getWorker(): Worker {
     if (this.worker) return this.worker
+    // Close ended the old worker, not this client: another pipeline may still use
+    // it, and a new worker's crash must fail what it holds.
+    this.terminating = false
     const { url, execArgv } = resolveWorkerEntry()
     const worker = this.workerFactory(url, { execArgv })
     worker.on('message', (msg: WorkerResponse) => {
@@ -134,6 +137,7 @@ export class InferenceWorkerClient {
       if (msg.ok) pending.resolve(msg)
       else pending.reject(new Error(msg.error))
       this.watchForStall(worker)
+      if (this.pending.size === 0) worker.unref()
     })
     worker.on('error', (err: Error) => this.handleCrash(worker, err))
     worker.on('exit', (code) => {
@@ -177,6 +181,9 @@ export class InferenceWorkerClient {
     const id = this.nextId++
     return new Promise<WorkerResponse>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, inference: req.kind !== 'ensure' })
+      // Held open only while it owes an answer: an idle worker must not keep a
+      // finished script alive, and a script waiting only on an answer must not exit.
+      worker.ref()
       worker.postMessage({ ...req, id })
       // A new pass does not restart the clock: only an answer is progress.
       if (req.kind !== 'ensure' && !this.stallTimer) this.watchForStall(worker)

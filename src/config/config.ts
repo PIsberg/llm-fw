@@ -165,10 +165,12 @@ export const DEFAULT_CONFIG: Config = {
     // explicit default (as a standard 403 block); flip to 'open' to instead
     // forward unscanned + emit an audit event. Also LLM_FW_FAIL_MODE.
     failMode: 'closed',
-    // Task C3 — opt-in worker-thread inference isolation. Off by default:
-    // embedding + classifier forward passes run in-process exactly as today
-    // (bit-identical). Also LLM_FW_WORKER_INFERENCE.
-    workerInference: false,
+    // Forward passes run on a worker thread, because onnxruntime's run is synchronous
+    // and otherwise holds the thread serving every client. Same model, same single-text
+    // calls, bit-identical vectors. Measured: event-loop p99 with 16 agent clients 1,430
+    // to 40 ms, chat peak 49 to 83 req/s, about 30 MB more RSS at startup. False puts
+    // inference back on the main thread. Also LLM_FW_WORKER_INFERENCE.
+    workerInference: true,
     embedding: { spinWait: false },
   },
   dashboard: {

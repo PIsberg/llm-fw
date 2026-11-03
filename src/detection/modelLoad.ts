@@ -23,6 +23,22 @@
  * the old wait-forever behaviour for anyone who wants it.
  */
 
+import { join } from 'node:path'
+import { getLlmFwDir } from '../config/paths.js'
+
+/**
+ * The transformers runtime, imported where a model is actually loaded: about 140 MB
+ * of RSS, which the main thread never needs while inference is on the worker thread.
+ * Points its model cache at LLM_FW_MODEL_DIR when set, so CI can cache the model
+ * apart from the per-instance LLM_FW_DIR the tests point at a throwaway directory.
+ */
+export async function loadTransformers(): Promise<typeof import('@huggingface/transformers')> {
+  const transformers = await import('@huggingface/transformers')
+  transformers.env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
+  transformers.env.allowLocalModels = false
+  return transformers
+}
+
 /** detection.modelLoadTimeoutMs's default, for a caller with no config in reach. */
 export const DEFAULT_LOAD_TIMEOUT_MS = 600_000
 

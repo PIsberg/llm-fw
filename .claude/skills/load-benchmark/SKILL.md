@@ -107,8 +107,9 @@ it that way if you change the workloads.
 - **Flat throughput with rising latency is saturation**, not a regression: past
   that level every added client only queues. Quote the knee, the level where
   throughput stops growing, and p99 there.
-- **Event-loop delay is the number that hurts other clients.** Detection runs
-  on the thread that serves every request, so a p99 delay of N ms means any
+- **Event-loop delay is the number that hurts other clients.** The cheap stage
+  runs on the thread that serves every request, and so does the model with
+  `detection.workerInference` off, so a p99 delay of N ms means any
   request arriving then waits N ms before it is even read.
 - **`unexpected`** counts benign requests not answered 200 and attacks that
   were. `unexpectedPrompts` names the data-file indexes. Benign refusals are
