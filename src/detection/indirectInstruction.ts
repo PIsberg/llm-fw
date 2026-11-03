@@ -505,6 +505,31 @@ function isEmailElementVerb(text: string, verbStart: number, verbEnd: number, ad
   return /^<\/e-?mail>/i.test(text.slice(addrEnd, addrEnd + 10))
 }
 
+// The word `email` as the label of the mail link that holds this address:
+// <a href="mailto:x">Email</a>, alt="Email me", [Email us](mailto:x) (#620). A page
+// or README carrying one was withheld, 7 of 25 benign hits over 63,639 real tool
+// results. A link asks a person to click it; it orders nothing, unless the label
+// names something to send ("Email your saved passwords"), which still fires. Inside
+// the one element only: an order before the link or after its </a> keeps its verb,
+// and so does any other verb. Spans are bounded, so this stays linear.
+const MAIL_LINK_OPEN_RE = /<(?:a|button)\b[^<>]{0,200}$/i
+function isMailLinkLabel(text: string, verbStart: number, verbEnd: number, addrStart: number, addrEnd: number): boolean {
+  if (!/^e-?mail$/i.test(text.slice(verbStart, verbEnd))) return false
+  const linkStart = addrStart - 'mailto:'.length
+  if (linkStart < 0 || text.slice(linkStart, addrStart).toLowerCase() !== 'mailto:') return false
+  if (verbStart >= addrEnd) {
+    if (!MAIL_LINK_OPEN_RE.test(text.slice(Math.max(0, linkStart - 201), linkStart))) return false
+    const between = text.slice(addrEnd, verbStart)
+    if (between.length > 160 || /<\/a\b|[\r\n]/i.test(between)) return false
+    const close = text.slice(verbEnd, verbEnd + 80).search(/<\/a\b/i)
+    const label = text.slice(verbEnd, verbEnd + (close < 0 ? 80 : close))
+    return !IMPERATIVE_OBJECT_RE.test(label)
+  }
+  // Markdown: the label runs up to `](` and the link opens right after it.
+  const label = text.slice(verbEnd, linkStart)
+  return label.length <= 42 && label.endsWith('](') && !/[\]\r\n]/.test(label.slice(0, -2)) && !IMPERATIVE_OBJECT_RE.test(label)
+}
+
 // A contact instruction: how a HUMAN reaches somebody ("send an email to
 // security@acme.io", "For questions, email maintainers@widget.dev", "Please
 // email us at help@shop.example"). Every README, SECURITY.md, auto-reply and
@@ -1207,6 +1232,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       if (bareKeyAddress(window, vm.index + vm[0].length)) continue
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
       if (isEmailElementVerb(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
+      if (isMailLinkLabel(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
       if (/^export$/i.test(vm[0]) && isExportKeyword(window.slice(vm.index + vm[0].length))) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }

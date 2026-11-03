@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.16
+
+**Fewer false positives on real traffic, none moved in the eval set.** The word "Email" as the label of its own mail link no longer pairs with that link's address (#620). Over 62,191 real tool results from one developer's machine, 5 hits are gone. `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed. `npm run fpr` was not re-run for this entry; CI runs it on the pull request.
+
 ## Result, ruleset 2026.11.15
 
 **Unchanged, by construction.** The item cache stays on with the judge enabled (#656). `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed, and it runs with the judge off, so `test/detection/pipeline-judge-cache.test.ts` covers the judge paths: a failed judge is asked again on every route that can decide a verdict, and a block is never remembered. `npm run fpr` was not re-run for this entry; CI runs it on the pull request.
