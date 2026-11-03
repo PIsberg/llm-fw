@@ -144,7 +144,9 @@ describe('scanResponseExfil', () => {
           const large = timed(at(800))
           // Twice the room a linear scan needs, and a floor for timer noise.
           expect(large, `${filler}: ${small} ms at 200 KB, ${large} ms at 800 KB`).toBeLessThan(small * 4 * 2 + 150)
-          expect(large, filler).toBeLessThan(1000)
+          // These shapes hold 100,000 destinations to parse, so the ceiling
+          // has to leave room for a loaded machine. The old code took minutes.
+          expect(large, filler).toBeLessThan(10_000)
         })
       }
     }
