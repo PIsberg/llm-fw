@@ -1,3 +1,4 @@
+import tls from 'node:tls';
 import { platform } from 'node:os';
 import { getLlmFwDir } from '../config/paths.js';
 import { reachableHost, urlHost } from '../config/net.js';
@@ -501,9 +502,12 @@ function issueHostCertFromLoadedCa(
   };
 }
 
+const MAX_CACHED_CONTEXTS = 256;
+
 export class CertFactory {
   private caState: LoadedCaState | null = null;
   private certCache = new Map<string, TLSCredentials>();
+  private contextCache = new Map<string, tls.SecureContext>();
   // Single shared key pair for all host certs — generated once, reused forever.
   private hostKeyPair: KeyPairState | null = null;
 
@@ -624,5 +628,23 @@ export class CertFactory {
     this.certCache.set(hostname, credentials);
 
     return credentials;
+  }
+
+  /**
+   * The host's certificate as a TLS context, built once. Parsing the key and
+   * certificate on every connection took 4% of the busy time of a workload with
+   * one connection per request, on the thread that serves every client. Bounded
+   * because the sinkhole takes the hostname from a client's SNI.
+   */
+  getHostSecureContext(hostname: string): tls.SecureContext {
+    const cached = this.contextCache.get(hostname);
+    if (cached) return cached;
+    const { key, cert } = this.getHostCert(hostname);
+    const context = tls.createSecureContext({ key, cert });
+    this.contextCache.set(hostname, context);
+    if (this.contextCache.size > MAX_CACHED_CONTEXTS) {
+      this.contextCache.delete(this.contextCache.keys().next().value as string);
+    }
+    return context;
   }
 }

@@ -22,6 +22,26 @@ describe('SandboxDetector', () => {
     vi.clearAllMocks()
   })
 
+  // The firewall's own filesystem does not change under it, and this runs twice
+  // for every request on the thread that serves every client.
+  it('reads the filesystem once, however many requests it inspects', () => {
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === '/proc/1/cgroup')
+    vi.mocked(fs.readFileSync).mockReturnValue('11:devices:/kubepods/besteffort/pod123' as unknown as Buffer)
+    const results = [detector.detect('curl/8', '127.0.0.1'), detector.detect('curl/8', '127.0.0.1'), detector.detect(undefined, undefined)]
+    for (const r of results) expect(r.signals).toContain('env-cgroup')
+    expect(fs.readFileSync).toHaveBeenCalledTimes(1)
+    expect(fs.existsSync).toHaveBeenCalledTimes(2)
+  })
+
+  it('still reads the override and Kubernetes variables on every call', () => {
+    expect(detector.detect(undefined, undefined).sandboxed).toBe(false)
+    process.env.LLMFW_SANDBOX = 'true'
+    expect(detector.detect(undefined, undefined).sandboxed).toBe(true)
+    delete process.env.LLMFW_SANDBOX
+    process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1'
+    expect(detector.detect(undefined, undefined).signals).toContain('env-k8s')
+  })
+
   it('detects explicit override', () => {
     process.env.LLMFW_SANDBOX = 'true'
     const result = detector.detect(undefined, undefined)

@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.19
+
+**No verdict moved.** The container signals are read once per detector instead of on every request, and nothing else in detection changed.
+
 ## Result, ruleset 2026.11.18
 
 **No verdict moved.** This ruleset changes how the tokenizer stores its vocabulary, not what it produces. The tokens and vectors are identical, `verdicts:diff` reports 0 of 12,901 changed with a largest similarity drift of 0.0000, and `npm run fpr` and `npm run recall:floor` both pass on it.

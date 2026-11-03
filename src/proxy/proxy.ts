@@ -77,6 +77,8 @@ function decompressBody(buf: Buffer, encoding: string, maxOutput: number): Buffe
  * already started receiving the response) to make the console line actionable
  * instead of an anonymous "upstream timeout".
  */
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
+
 class UpstreamTimeoutError extends Error {
   constructor(
     public readonly host: string,
@@ -252,6 +254,7 @@ function drainRefusedUpload(req: http.IncomingMessage): void {
 export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
+  private upstreamContext: tls.SecureContext | null = null
   private resolver: UpstreamResolver
   private pipeline: Pipeline
   // Every defense scanner is constructed unconditionally; whether it RUNS is
@@ -388,8 +391,7 @@ export class ProxyServer {
     const sinkholeServer = tls.createServer({
       SNICallback: (serverName, cb) => {
         try {
-          const creds = this.certFactory.getHostCert(serverName)
-          cb(null, tls.createSecureContext({ key: creds.key, cert: creds.cert }))
+          cb(null, this.certFactory.getHostSecureContext(serverName))
         } catch (err) { cb(err as Error) }
       },
     })
@@ -599,13 +601,12 @@ export class ProxyServer {
 
     // Intercept and inspect
     try {
-      const creds = this.certFactory.getHostCert(hostname)
+      const secureContext = this.certFactory.getHostSecureContext(hostname)
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 
       const tlsSocket = new tls.TLSSocket(clientSocket, {
         isServer: true,
-        key: creds.key,
-        cert: creds.cert,
+        secureContext,
       })
       tlsSocket.on('error', () => clientSocket.destroy())
 
@@ -1510,9 +1511,11 @@ export class ProxyServer {
     const ip = await this.resolver.resolve(hostname)
     return new Promise<number>((resolve, reject) => {
       const startedAt = Date.now()
-      const upstream = tls.connect({ host: ip, port, servername: hostname }, () => {
+      // One context for every upstream connection, verifying against the same
+      // default CA store a context per connection would load.
+      this.upstreamContext ??= tls.createSecureContext()
+      const upstream = tls.connect({ host: ip, port, servername: hostname, secureContext: this.upstreamContext }, () => {
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
-        const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
         const headers = { ...req.headers, ...extraHeaders, host: hostname }
         for (const [k, v] of Object.entries(headers)) {
           if (v && !HOP_BY_HOP.has(k.toLowerCase())) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
