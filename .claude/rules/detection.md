@@ -34,7 +34,10 @@ unseen rows (the number to quote for generalisation); 22 rows were read on
    normalization. Cheap, deterministic, runs on every request.
 2. **Embedding similarity** (`src/detection/embedding.ts`), model
    `Xenova/multilingual-e5-small`, loaded eagerly by `llm-fw start` before any
-   listener binds, then resident for the process lifetime. The cosine
+   listener binds, then resident for the process lifetime, on a worker thread
+   (`detection.workerInference`, on by default; a worker that cannot start falls
+   back to the main thread and never disables the stage). A test that mocks the
+   model sets the flag false: a worker thread does not see `vi.mock`. The cosine
    gate is calibrated; changing it invalidates published benchmark numbers.
    Nothing here waits without a bound. A model load gives up at
    `detection.modelLoadTimeoutMs` with the outcome a failed load has, and a worker
@@ -80,7 +83,7 @@ write a rule from it; add a new held-out sentence instead.
 
 ## Linear time
 
-Detection runs on the thread that serves every request, and its input is
+Stage 1 runs on the thread that serves every request, and its input is
 often attacker-controlled, so a regex with quadratic worst case stalls every
 client. Two shapes did (GHSA-gm3q-2gwx-gppq): a leading `\b` or `\s*` before a
 character class that can span a long run (`\b[A-Za-z0-9._%+-]+@`,

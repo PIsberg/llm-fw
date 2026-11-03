@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.22
+
+**No verdict moved.** The model runs on a worker thread by default, on the same single-text calls, and its vectors are identical.
+
 ## Result, ruleset 2026.11.21
 
 **No verdict moved.** onnxruntime spinning is off for the output classifier and speech transcription, which no eval string reaches, and their output is the same with it off.

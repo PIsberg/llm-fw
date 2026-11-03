@@ -18,6 +18,10 @@ import { ProtectAiDebertaAdapter } from './protectai-deberta.js'
 import { PromptGuardAdapter } from './prompt-guard.js'
 import { LlamaGuardAdapter } from './llama-guard.js'
 import { LakeraGuardAdapter } from './lakera.js'
+import { DEFAULT_CONFIG } from '../../../src/config/config.js'
+
+// The model is mocked here, and a worker thread does not see vi.mock.
+DEFAULT_CONFIG.detection.workerInference = false
 
 describe('ProtectAiDebertaAdapter', () => {
   beforeEach(() => { fakeDebertaClassify.mockReset() })

@@ -20,6 +20,9 @@ import { EmbeddingChecker } from '../../src/detection/embedding.js'
 import { JudgeClient } from '../../src/detection/judge.js'
 import type { BlockEvent } from '../../src/types.js'
 
+// The model is mocked here, and a worker thread does not see vi.mock.
+DEFAULT_CONFIG.detection.workerInference = false
+
 type MockFn = ReturnType<typeof vi.fn>
 
 // The fake model flags any text holding FLAG. "weak" scores 30 on the

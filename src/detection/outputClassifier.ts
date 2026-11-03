@@ -1,11 +1,8 @@
-import { pipeline, env } from '@huggingface/transformers'
 import { ResponseScanConfig } from '../types.js'
 import { createHash } from 'node:crypto'
-import { getLlmFwDir } from '../config/paths.js'
-import { join } from 'node:path'
 import { createLogger } from '../logger.js';
 import { compactTokenizer } from './compactTokenizer.js';
-import { NO_SPINNING, loadWithVisibility } from './modelLoad.js';
+import { NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js';
 
 const log = createLogger('output-classifier');
 
@@ -75,15 +72,16 @@ export class OutputModerationClassifier {
   async init(): Promise<void> {
     if (!this.config?.classifier?.enabled || this.initAttempted) return
     this.initAttempted = true
-    env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
-    env.allowLocalModels = false
     try {
       const model = this.config.classifier.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL
       this.classifier = await loadWithVisibility(
         // Spinning off with no switch: measured for #650, it is both cheaper and
         // faster here (29 ms a pass against 43, 95% of one core at a light load
         // against 1,105%), with the same output.
-        async () => (await pipeline('text-classification', model, { session_options: NO_SPINNING })) as unknown as ClassifyFn,
+        async () => {
+          const { pipeline } = await loadTransformers()
+          return (await pipeline('text-classification', model, { session_options: NO_SPINNING })) as unknown as ClassifyFn
+        },
         { label: 'response moderation classifier', timeoutMs: this.modelLoadTimeoutMs },
       )
       compactTokenizer((this.classifier as unknown as { tokenizer?: unknown }).tokenizer)

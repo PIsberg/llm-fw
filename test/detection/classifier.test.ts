@@ -15,6 +15,9 @@ import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { InferenceWorkerClient, WorkerUnavailableError } from '../../src/detection/inferenceWorker.js'
 import { withholdNotice, WITHHELD_MARKER } from '../../src/detection/withhold.js'
 
+// The model is mocked here, and a worker thread does not see vi.mock.
+DEFAULT_CONFIG.detection.workerInference = false
+
 type MockFn = ReturnType<typeof vi.fn>
 
 function cfg(overrides: Record<string, unknown> = {}) {
@@ -636,7 +639,8 @@ describe('InjectionClassifier worker isolation (Task C3)', () => {
     expect(v).toEqual({ injection: true, score: 0.97 })
   })
 
-  it('init() disables the stage when the worker cannot load the model (non-fallback error)', async () => {
+  it('init() disables the stage when neither the worker nor the main thread can load the model', async () => {
+    vi.mocked(pipeline).mockRejectedValueOnce(new Error('network down'))
     const client = fakeClient({ ensure: vi.fn().mockRejectedValue(new Error('network down')) })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const c = new InjectionClassifier(workerCfg(), client)

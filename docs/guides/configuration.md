@@ -69,6 +69,13 @@ reads every byte. Raising it costs latency roughly linearly; `0` removes the
 bound entirely, which is how a 1 MB prompt used to take 423 s. See
 [detection-stages.md](detection-stages.md#cost-on-long-prompts).
 
+`detection.workerInference` (default `true`, `LLM_FW_WORKER_INFERENCE`) runs the
+models on a worker thread. onnxruntime's run is synchronous, so on the main thread
+each forward pass stops every other request. With 16 agent clients on an i7-1260P,
+event-loop p99 fell from about 1,450 ms to about 40 ms, and chat at 4 or more clients
+rose from about 49 to about 83 req/s, for about 30 MB more RSS at startup. Verdicts
+are the same either way. A worker that cannot start falls back to the main thread.
+
 `detection.embedding.spinWait` (default `false`, `LLM_FW_EMBEDDING_SPIN_WAIT`,
 restart required) lets the embedding model's threads spin between work items
 instead of sleeping. Off, the firewall uses far less CPU on a machine it shares
@@ -578,7 +585,7 @@ _115 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TRUSTED_PATHS` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_UPDATE_CHECK` | `updateCheck` | `true` |
 | `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |
-| `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `false` |
+| `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `true` |
 
 <!-- CONFIG-REFERENCE-END -->
 

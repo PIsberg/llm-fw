@@ -1,6 +1,4 @@
-import { join } from 'node:path'
-import { DEFAULT_LOAD_TIMEOUT_MS, NO_SPINNING, loadWithVisibility } from './modelLoad.js'
-import { getLlmFwDir } from '../config/paths.js'
+import { DEFAULT_LOAD_TIMEOUT_MS, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 
 /**
  * Opt-in speech transcription for audio blocks (issue #82).
@@ -67,11 +65,9 @@ async function getTranscriber(loadTimeoutMs: number): Promise<Transcriber | null
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
       try {
-        const { pipeline, env } = await import('@huggingface/transformers')
-        // Same cache as the embedding model (see embedding.ts), so a pre-warmed
-        // LLM_FW_MODEL_DIR serves both and an air-gapped host can carry it.
-        env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
-        env.allowLocalModels = false
+        // Same cache as the embedding model, so a pre-warmed LLM_FW_MODEL_DIR serves
+        // both and an air-gapped host can carry it.
+        const { pipeline } = await loadTransformers()
         // Bounded here, inside the one load every request shares: past the bound
         // it settles as unavailable for all of them, not once per request.
         return await loadWithVisibility(

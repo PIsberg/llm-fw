@@ -8,6 +8,9 @@ import { InferenceWorkerClient, WorkerUnavailableError, type WorkerFactory } fro
 class FakeWorker extends EventEmitter {
   posted: { id: number; kind: string; text?: string; model?: string; spinWait?: boolean }[] = []
   terminated = false
+  referenced = true
+  ref(): void { this.referenced = true }
+  unref(): void { this.referenced = false }
   postMessage(msg: { id: number; kind: string; text?: string; model?: string; spinWait?: boolean }): void {
     this.posted.push(msg)
   }
@@ -256,6 +259,33 @@ describe('InferenceWorkerClient (Task C3)', () => {
       await vi.advanceTimersByTimeAsync(STALL_MS * 5)
       expect(workers[0]!.terminated).toBe(false)
     })
+  })
+
+  // An idle worker must not keep a finished script alive, and one holding work must:
+  // a script waiting only on an answer would otherwise exit with the scan unfinished.
+  it('holds the process open only while it has work outstanding', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.embed('text')
+    const worker = workers[0]!
+    expect(worker.referenced).toBe(true)
+    worker.emit('message', { id: worker.posted[0]!.id, ok: true, kind: 'embed', result: new Float32Array(1) })
+    await pending
+    expect(worker.referenced).toBe(false)
+    void client.embed('more').catch(() => {})
+    expect(worker.referenced).toBe(true)
+  })
+
+  // One pipeline closing the shared client must not leave another, still using it,
+  // with a worker whose crash is ignored and whose requests then wait for ever.
+  it('after close(), a new worker\'s crash still fails what it holds', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { client, workers } = makeClient()
+    void client.embed('before').catch(() => {})
+    await client.close()
+    const after = client.embed('after')
+    expect(workers).toHaveLength(2)
+    workers[1]!.emit('exit', 1)
+    await expect(after).rejects.toThrow(/exited with code 1/)
   })
 
   it('close() is a safe no-op when no worker was ever spawned', async () => {

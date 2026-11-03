@@ -513,7 +513,9 @@ as a lower bound for this laptop, not as a capacity claim.
   2026.11.11, and on the transformers 4.3 runtime the throughput is not similar:
   32.1 req/s off against 51.5 on at 1 client, peak 42.7 against 65.1. See
   `detection.embedding.spinWait` in [Configuration](guides/configuration.md).
-- **The event loop is the cost to everyone else.** At agent with 32 clients
+- **The event loop is the cost to everyone else.** Inference has run on a worker
+  thread by default since ruleset 2026.11.22: with 16 agent clients the p99 went
+  from 1,428 to 1,488 ms to 40 to 42 ms in a later run. In this one, at agent with 32 clients
   its p99 delay is 2.22 s, so any request reaching the process then waits that
   long before it is read. At chat with 1 client it is 28 ms.
 - **Memory:** 594 MB idle after start, 512 to 530 MB under chat, up to 666 MB

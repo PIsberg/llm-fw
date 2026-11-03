@@ -1,13 +1,11 @@
-import { pipeline, env } from '@huggingface/transformers'
 import { EmbeddingResult, EmbeddingBudget, DetectionConfig } from '../types.js'
 import { normalizeSemantic } from './normalize.js'
 import { createHash } from 'node:crypto'
-import { getLlmFwDir } from '../config/paths.js'
 import { join, dirname } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
-import { NO_SPINNING, loadWithVisibility } from './modelLoad.js'
+import { ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 import { compactTokenizer } from './compactTokenizer.js'
 import { createLogger } from '../logger.js';
 
@@ -28,6 +26,7 @@ export const EMBEDDING_MODEL_ID = 'Xenova/multilingual-e5-small'
 export const EMBEDDING_DTYPE = 'q8' as const
 
 export async function loadEmbeddingExtractor(spinWait = false): Promise<FeatureExtractor> {
+  const { pipeline } = await loadTransformers()
   const extractor = (await pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
     dtype: EMBEDDING_DTYPE,
     ...(spinWait ? {} : { session_options: NO_SPINNING }),
@@ -93,7 +92,7 @@ export class EmbeddingChecker {
   private config: DetectionConfig
   private cache = new Map<string, EmbeddingResult>()
   private chunkCache = new Map<string, Float32Array>()
-  // Task C3 — opt-in worker-thread isolation. `ready` tracks whether the
+  // Worker-thread inference (detection.workerInference). `ready` tracks whether the
   // stage is usable (either backend), decoupled from `extractor`, since in
   // worker mode `extractor` stays null until/unless a permanent fallback
   // loads it. Defaults to the process-wide shared client; tests inject their
@@ -101,6 +100,8 @@ export class EmbeddingChecker {
   private ready = false
   private readonly workerClient: InferenceWorkerClient
   private extractorLoad: Promise<FeatureExtractor> | null = null
+  // The worker could not start for this checker, so scans do not ask it first.
+  private workerFailed = false
 
   constructor(config: DetectionConfig, workerClient?: InferenceWorkerClient) {
     this.config = config
@@ -116,13 +117,6 @@ export class EmbeddingChecker {
   }
 
   async init(): Promise<void> {
-    // The model is large, immutable, and safe to share across instances, so it
-    // caches in LLM_FW_MODEL_DIR when set — this lets CI cache it independently
-    // of the per-instance LLM_FW_DIR (which the tests point at a throwaway temp
-    // dir). Falls back to <LLM_FW_DIR or ~/.llm-fw>/models.
-    env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
-    env.allowLocalModels = false
-
     // multilingual-e5-small: a 384-dim sentence encoder (drop-in for the
     // former model's dimension) with genuine cross-lingual alignment across
     // 100 languages. This matters because the previous model
@@ -139,25 +133,25 @@ export class EmbeddingChecker {
     // the prefix is REQUIRED — without it E5 embeddings are mis-calibrated.
     // Thresholds are re-tuned for E5's distribution in config.ts.
     if (this.config.workerInference) {
-      // Task C3: the forward pass runs in the persistent worker thread
-      // instead of this process. The model loads lazily INSIDE the worker on
-      // this ensure() call (or, if the worker is already permanently
-      // disabled from an earlier crash elsewhere in this process, falls back
-      // to loading it in-process right here) — mirrors the in-process
-      // catch-and-disable behaviour below for a genuine load failure.
+      // The forward pass runs on the worker thread, and the model loads inside it on
+      // this ensure() call. A worker that cannot come up falls back to loading it
+      // here rather than disabling the stage: this is the default path, and going
+      // without the stage would quietly stop reading text. Only a timeout disables
+      // it, since a load that never ends would not end here either.
       try {
         await loadWithVisibility(() => this.workerClient.ensure('embed', { spinWait: this.spinWait() }), this.loadBound())
       } catch (err) {
-        if (err instanceof WorkerUnavailableError) {
-          try {
-            this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
-          } catch (loadErr) {
-            this.extractor = null
-            log.warn(`embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
-            return
-          }
-        } else {
-          log.warn(`embedding model unavailable — semantic similarity stage disabled (${(err as Error).message})`)
+        if (err instanceof ModelLoadTimeoutError) {
+          log.warn(`embedding model unavailable — semantic similarity stage disabled (${err.message})`)
+          return
+        }
+        log.warn(`inference worker unavailable (${(err as Error).message}); running the embedding model on the main thread`)
+        this.workerFailed = true
+        try {
+          this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
+        } catch (loadErr) {
+          this.extractor = null
+          log.warn(`embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
           return
         }
       }
@@ -260,7 +254,7 @@ export class EmbeddingChecker {
   }
 
   private async embed(text: string): Promise<Float32Array> {
-    if (this.config.workerInference && this.workerClient.isAvailable()) {
+    if (this.config.workerInference && !this.workerFailed && this.workerClient.isAvailable()) {
       try {
         return await this.workerClient.embed(text)
       } catch (err) {
@@ -498,10 +492,8 @@ export class EmbeddingChecker {
   }
 
   isInitialized(): boolean {
-    // Worker mode: `extractor` stays null in the common case (no permanent
-    // fallback yet), so `ready` is the accurate signal there. Flag off:
-    // `ready` and `extractor !== null` become true together (see init()),
-    // preserving the exact original expression for the default path.
-    return this.config.workerInference ? this.ready : this.extractor !== null
+    // Not the flag: hot reload can flip it, and embed() loads whichever backend it
+    // then needs. A stage that reported itself off would simply go unread.
+    return this.ready
   }
 }

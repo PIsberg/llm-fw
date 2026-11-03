@@ -14,6 +14,9 @@ import { pipeline } from '@huggingface/transformers'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { InferenceWorkerClient, WorkerUnavailableError } from '../../src/detection/inferenceWorker.js'
 
+// The model is mocked here, and a worker thread does not see vi.mock.
+DEFAULT_CONFIG.detection.workerInference = false
+
 type MockFn = ReturnType<typeof vi.fn>
 
 const EMBED_X = new Float32Array([1.0, 0.0, 0.0])  // unit x
@@ -274,7 +277,8 @@ describe('EmbeddingChecker worker isolation (Task C3)', () => {
     expect(result.similarity).toBeGreaterThanOrEqual(0)
   })
 
-  it('init() disables the stage when the worker cannot load the model (non-fallback error)', async () => {
+  it('init() disables the stage when neither the worker nor the main thread can load the model', async () => {
+    vi.mocked(pipeline).mockRejectedValueOnce(new Error('network down'))
     const client = fakeClient({ ensure: vi.fn().mockRejectedValue(new Error('network down')) })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const checker = new EmbeddingChecker(workerCfg, client)
