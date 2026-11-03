@@ -164,6 +164,16 @@ Each is a decision, with the reason, rather than an oversight:
   after a restart.
 - **The judge is never fatal**: an unreachable Ollama returns `ERROR` and the
   scan continues without it.
+- **A planted instruction in a repository or memory file is read for named
+  shapes only.** Claude Code delivers `CLAUDE.md`, rules files and memory files
+  inside the user turn, where the tool-result rules do not run. Two narrow
+  rules read them: credential files sent out or hidden
+  (`src/detection/secretFileExfil.ts`), and remote scripts, SSH keys, shell
+  profiles, git remotes, package registries and guardrail weakening
+  (`src/detection/plantedInstruction.ts`). Any other instruction passes as prompt
+  text. No general rule is used because the file cannot be withheld, so a hit
+  refuses every request in that repository, and the tool-result rules fired on
+  21 of 1,055 real files. A new shape is added when one is seen (#637).
 - **Quotas, crescendo state and the verdict caches are per process**, so they
   do not aggregate across replicas.
 - **An upstream error body reaches the client unchanged**, so OpenAI's
