@@ -31,7 +31,8 @@ const UPSTREAM_TIMEOUT_MS = 300
 let upstream: http.Server
 let upstreamPort = 0
 let tempDir: string
-let stall: 'after-headers' | 'before-headers' = 'after-headers'
+let stall: 'after-headers' | 'before-headers' | 'long-generation' = 'after-headers'
+let upstreamClosed: Promise<boolean> = Promise.resolve(false)
 
 /** Resolves with what the client saw: the status, and whether the response ended or was cut. */
 function request(port: number): Promise<{ status: number; outcome: 'end' | 'aborted' | 'hung'; text: string }> {
@@ -80,9 +81,16 @@ describe('Gateway upstream timeout E2E (#531)', { timeout: 30000 }, () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-gw-timeout-'))
     process.env.LLM_FW_DIR = tempDir
     upstream = http.createServer((req, res) => {
+      if (stall === 'long-generation') upstreamClosed = new Promise(r => req.socket.once('close', () => r(true)))
       req.resume()
       req.on('end', () => {
         if (stall === 'before-headers') return
+        if (stall === 'long-generation') {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          const beat = setInterval(() => res.write('data: {"type":"ping"}\n\n'), 20)
+          req.socket.once('close', () => clearInterval(beat))
+          return
+        }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         res.write('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n')
         // ...and then nothing: no more tokens, no end.
@@ -112,6 +120,24 @@ describe('Gateway upstream timeout E2E (#531)', { timeout: 30000 }, () => {
     expect(res.text).toContain('Hel')
     // A clean 'end' would tell the client a truncated stream was complete.
     expect(res.outcome).toBe('aborted')
+  })
+
+  // The provider bills for every token it goes on generating for nobody.
+  it('closes the upstream when the client goes away', async () => {
+    stall = 'long-generation'
+    const payload = JSON.stringify({ model: 'm', stream: true, messages: [{ role: 'user', content: 'Write a long essay.' }] })
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port: GATEWAY_PORT, method: 'POST', path: '/v1/chat/completions',
+        headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)), 'x-llm-fw-key': TOKEN },
+      }, (res) => { res.once('data', () => { req.destroy(); resolve() }); res.on('error', () => {}) })
+      req.on('error', () => {})
+      req.write(payload)
+      req.end()
+      setTimeout(() => reject(new Error('no first bytes')), 4000).unref()
+    })
+    const closed = await Promise.race([upstreamClosed, new Promise<boolean>(r => setTimeout(() => r(false), 3000))])
+    expect(closed).toBe(true)
   })
 
   it('still answers 504 when the upstream stalls before any headers', async () => {

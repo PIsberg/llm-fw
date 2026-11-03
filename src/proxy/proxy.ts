@@ -79,6 +79,32 @@ function decompressBody(buf: Buffer, encoding: string, maxOutput: number): Buffe
  */
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
 
+/**
+ * The request failed. Answer while a status can still be sent; after that only
+ * closing the connection tells the client. Returning without it left a client
+ * reading a stream waiting for an end that never came (#531, proxy half).
+ */
+function endFailedResponse(res: http.ServerResponse): void {
+  if (res.headersSent) {
+    res.destroy()
+    return
+  }
+  res.writeHead(502, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ error: 'proxy error' }))
+}
+
+/**
+ * The upstream's connection ended before its response did: no response at all,
+ * fewer bytes than its Content-Length, or chunked framing with no last chunk.
+ * Passing that on as an ordinary end would make a truncated reply look complete.
+ */
+class UpstreamClosedError extends Error {
+  constructor(hostname: string, port: number, detail: string) {
+    super(`upstream ${hostname}:${port} closed the connection ${detail}`)
+    this.name = 'UpstreamClosedError'
+  }
+}
+
 class UpstreamTimeoutError extends Error {
   constructor(
     public readonly host: string,
@@ -408,10 +434,7 @@ export class ProxyServer {
           await this.handleRequest(hostname, 443, innerReq, innerRes)
         } catch (err) {
           this.logRequestError('sinkhole', hostname, innerReq, err)
-          if (!innerRes.headersSent) {
-            innerRes.writeHead(502, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify({ error: 'proxy error' }))
-          }
+          endFailedResponse(innerRes)
         }
       })
     })
@@ -619,10 +642,7 @@ export class ProxyServer {
         try { await this.handleRequest(hostname, port, innerReq, innerRes) }
         catch (err) {
           this.logRequestError('proxy', hostname, innerReq, err)
-          if (!innerRes.headersSent) {
-            innerRes.writeHead(502, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify({ error: 'proxy error' }))
-          }
+          endFailedResponse(innerRes)
         }
       })
     } catch (err) {
@@ -1492,6 +1512,10 @@ export class ProxyServer {
       log.warn(`${err.message} (${where}). The provider sent no data within the idle window; raise proxy.upstreamTimeoutMs if long non-streaming completions are expected.`, { scope })
       return
     }
+    if (err instanceof UpstreamClosedError) {
+      log.warn(`${err.message} (${where}).`, { scope })
+      return
+    }
     const e = err as Error
     log.error(`request error (${where}): ${e?.message ?? String(err)}`, { scope })
     if (e?.stack) log.error(e.stack)
@@ -1544,6 +1568,17 @@ export class ProxyServer {
       // could fire a spurious "upstream timeout" against an already-resolved
       // request.
       upstream.on('error', (err: Error) => { upstream.setTimeout(0); reject(err) })
+      // Neither an end nor an error: nothing else would ever settle this request.
+      let upstreamEnded = false
+      upstream.on('close', () => {
+        if (!upstreamEnded) reject(new UpstreamClosedError(hostname, port, 'without ending its response'))
+      })
+      // The client went away. Nothing can read the rest, and the provider bills
+      // for every token it goes on generating.
+      res.once('close', () => {
+        upstream.destroy()
+        resolve(respBodyBytes)
+      })
 
       // Parse and stream the response. Any LLM response may carry tool_use
       // invocations, whether or not its request listed tools — inspect them BEFORE the bytes
@@ -1567,6 +1602,9 @@ export class ProxyServer {
       let headersDone = false
       let rawHeaders = ''
       let respBodyBytes = 0
+      // Body bytes as they came off the wire, framing included, to hold against
+      // the Content-Length.
+      let wireBodyBytes = 0
       // 'raw-stream' is the fail-open passthrough after an oversized inspected body.
       // 'sniff' waits for the first body bytes of an untyped response.
       let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' = 'passthrough'
@@ -1665,6 +1703,7 @@ export class ProxyServer {
       }
 
       upstream.on('data', (chunk: Buffer) => {
+        if (headersDone) wireBodyBytes += chunk.length
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
           const sep = rawHeaders.indexOf('\r\n\r\n')
@@ -1672,6 +1711,7 @@ export class ProxyServer {
           headersDone = true
           const headerPart = rawHeaders.slice(0, sep)
           const bodyStart = Buffer.from(rawHeaders.slice(sep + 4), 'binary')
+          wireBodyBytes = bodyStart.length
           const lines = headerPart.split('\r\n')
           status = parseInt((lines[0] ?? '').split(' ')[1] ?? '200', 10)
           for (const line of lines.slice(1)) {
@@ -1727,8 +1767,29 @@ export class ProxyServer {
           if (out.length) { res.write(out); respBodyBytes += out.length }
         }
       })
-      upstream.on('end', async () => {
-        upstream.setTimeout(0) // response complete — disarm the idle timer
+      // What the connection ending means, when it cannot be the response's end.
+      const truncation = (): string | null => {
+        if (!headersDone) return 'before answering'
+        if (req.method === 'HEAD' || status === 204 || status === 304) return null
+        if (dechunker) return dechunker.finished ? null : 'before the last chunk'
+        const declared = Number(respHeaders['content-length'])
+        return Number.isFinite(declared) && wireBodyBytes < declared ? `after ${wireBodyBytes} of ${declared} body bytes` : null
+      }
+      const onUpstreamEnd = async (): Promise<void> => {
+        upstreamEnded = true
+        upstream.setTimeout(0) // the connection ended — disarm the idle timer
+        const cutShort = cut ? null : truncation()
+        if (cutShort) {
+          // What already reached the client still gets its audit; the hold's
+          // unreleased text never reached it and is dropped with the connection.
+          if (mode === 'sse') {
+            this.runResponseExfilScan(sseText, req, hostname, false)
+            this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
+            await this.runResponseHarmScan(sseText, req, hostname, false)
+          }
+          reject(new UpstreamClosedError(hostname, port, cutShort))
+          return
+        }
         if (mode === 'sniff') {
           // Empty or all-whitespace untyped body: nothing to inspect.
           mode = 'passthrough'
@@ -1784,7 +1845,10 @@ export class ProxyServer {
         // large generations rack up cost on the response side, not just input.
         if (this.config.dos.enabled && isLlmRequest) this.quota.addTokens(Math.ceil(respBodyBytes / 4))
         resolve(respBodyBytes)
-      })
+      }
+      // Rejected, not thrown into the void: a scan that throws here used to leave
+      // an unhandled rejection and a client waiting for ever.
+      upstream.on('end', () => { onUpstreamEnd().catch(reject) })
     })
   }
 

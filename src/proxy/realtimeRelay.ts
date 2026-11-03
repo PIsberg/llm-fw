@@ -74,14 +74,33 @@ export function relayRealtimeSession(
   client.on('end', () => { upstream.destroy(); client.destroy() })
   client.on('close', () => upstream.destroy())
   upstream.on('end', () => { client.destroy(); upstream.destroy() })
-  upstream.on('close', () => client.destroy())
+  // Answered 504 rather than cut, once: the close below must not race that write.
+  let answered = false
+  upstream.on('close', () => { if (!answered) client.destroy() })
   upstream.once(sockets.readyEvent, () => upstream.write(sockets.requestHead))
+
+  // Until the upstream answers the handshake nothing else bounds this wait: a
+  // provider that accepts TCP and then says nothing held the client for ever.
+  // Long silences after that are normal, so the deadline ends with the handshake.
+  const timeoutMs = deps.config.proxy.upstreamTimeoutMs
+  const handshakeDeadline = timeoutMs > 0
+    ? setTimeout(() => {
+      answered = true
+      client.end('HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+      upstream.destroy()
+    }, timeoutMs)
+    : null
+  handshakeDeadline?.unref()
+  const endDeadline = (): void => { if (handshakeDeadline) clearTimeout(handshakeDeadline) }
+  upstream.once('close', endDeadline)
+  client.once('close', endDeadline)
 
   let headBuf = Buffer.alloc(0)
   const onHead = (chunk: Buffer): void => {
     headBuf = Buffer.concat([headBuf, chunk])
     const end = headBuf.indexOf('\r\n\r\n')
     if (end < 0) return
+    endDeadline()
     upstream.off('data', onHead)
     client.write(headBuf.subarray(0, end + 4))
     const rest = headBuf.subarray(end + 4)
