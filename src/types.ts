@@ -187,6 +187,12 @@ export interface DetectionConfig {
     // throughput under saturation. Read once, when the model loads, so a change
     // needs a restart. Also LLM_FW_EMBEDDING_SPIN_WAIT.
     spinWait?: boolean;
+    // onnxruntime's intra-op thread count for this model (#669). Unset: the
+    // runtime's default. The vectors are the same at any count, so this trades
+    // CPU on short prompts against wall time on long chunks: measured in
+    // docs/guides/configuration.md. Read once, when the model loads, so a change
+    // needs a restart. Also LLM_FW_EMBEDDING_THREADS.
+    threads?: number;
   };
 }
 

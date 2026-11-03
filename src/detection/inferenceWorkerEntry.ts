@@ -22,8 +22,8 @@ if (!port) {
 }
 
 let extractorPromise: Promise<FeatureExtractor> | null = null
-function getExtractor(spinWait: boolean): Promise<FeatureExtractor> {
-  if (!extractorPromise) extractorPromise = loadEmbeddingExtractor(spinWait)
+function getExtractor(spinWait: boolean, threads: number | undefined): Promise<FeatureExtractor> {
+  if (!extractorPromise) extractorPromise = loadEmbeddingExtractor(spinWait, threads)
   return extractorPromise
 }
 
@@ -39,13 +39,14 @@ interface WorkerRequest {
   text?: string
   model?: 'embed' | 'classify'
   spinWait?: boolean
+  threads?: number
 }
 
 port.on('message', (msg: WorkerRequest) => {
   void (async () => {
     try {
       if (msg.kind === 'embed') {
-        const extractor = await getExtractor(msg.spinWait === true)
+        const extractor = await getExtractor(msg.spinWait === true, msg.threads)
         const result = await embedRaw(extractor, msg.text ?? '')
         port.postMessage({ id: msg.id, ok: true, kind: 'embed', result })
       } else if (msg.kind === 'classify') {
@@ -55,7 +56,7 @@ port.on('message', (msg: WorkerRequest) => {
       } else {
         // 'ensure' — lazily load a model without running inference on any
         // text, used by init() to probe availability.
-        if (msg.model === 'embed') await getExtractor(msg.spinWait === true)
+        if (msg.model === 'embed') await getExtractor(msg.spinWait === true, msg.threads)
         else await getClassifier()
         port.postMessage({ id: msg.id, ok: true, kind: 'ensure' })
       }

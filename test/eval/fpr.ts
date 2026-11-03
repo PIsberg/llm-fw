@@ -166,6 +166,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.28 (an opt-in embedding thread count, unset by default; the vectors hash the same at every count).
   // Held at ruleset 2026.11.27 (plain list items naming an address or account are read; no eval string has that shape; no new hit in real tool results).
   // Held at ruleset 2026.11.26 (an opt-in that sends a probing session's prompts to the judge, off by default; no default verdict moved).
   // Held at ruleset 2026.11.25 (an opt-in warn tier for imperatives naming no destination, off by default; no default verdict moved).

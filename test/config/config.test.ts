@@ -278,6 +278,17 @@ describe('loadConfig env overrides', () => {
     delete process.env.LLM_FW_EMBEDDING_SPIN_WAIT
   })
 
+  it('detection.embedding.threads is unset by default, and LLM_FW_EMBEDDING_THREADS sets it (#669)', async () => {
+    expect(DEFAULT_CONFIG.detection.embedding?.threads).toBeUndefined()
+    process.env.LLM_FW_EMBEDDING_THREADS = '2'
+    expect((await loadConfig()).detection.embedding?.threads).toBe(2)
+    process.env.LLM_FW_EMBEDDING_THREADS = '0'
+    await expect(loadConfig()).rejects.toThrow(/LLM_FW_EMBEDDING_THREADS/)
+    process.env.LLM_FW_EMBEDDING_THREADS = 'two'
+    await expect(loadConfig()).rejects.toThrow(/LLM_FW_EMBEDDING_THREADS/)
+    delete process.env.LLM_FW_EMBEDDING_THREADS
+  })
+
   it('LLM_FW_WORKER_INFERENCE toggles detection.workerInference', async () => {
     process.env.LLM_FW_WORKER_INFERENCE = 'true'
     expect((await loadConfig()).detection.workerInference).toBe(true)

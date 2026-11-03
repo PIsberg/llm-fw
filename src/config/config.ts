@@ -909,6 +909,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   // Opt-in worker-thread inference isolation (Task C3).
   LLM_FW_WORKER_INFERENCE: (c, v) => { c.detection.workerInference = v === 'true'; },
   LLM_FW_EMBEDDING_SPIN_WAIT: (c, v) => { if (c.detection.embedding) c.detection.embedding.spinWait = v === 'true'; },
+  LLM_FW_EMBEDDING_THREADS: (c, v) => { if (c.detection.embedding) c.detection.embedding.threads = envInt('LLM_FW_EMBEDDING_THREADS', v, { min: 1, max: 256 }); },
   LLM_FW_EXTRA_TARGETS: (c, v) => { c.extraTargets = [...(c.extraTargets ?? []), ...splitList(v)]; },
   LLM_FW_INTERCEPT_DOMAINS: (c, v) => { c.proxy.interceptDomains = splitList(v); },
   LLM_FW_INSPECT_CHATGPT_BACKEND: (c, v) => { c.proxy.inspectChatgptBackend = v === 'true'; },

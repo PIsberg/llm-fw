@@ -95,6 +95,7 @@ export class InferenceWorkerClient {
   // Remembered and sent with every embedding request: a respawned worker has
   // not seen the ensure() that set it, and loads the model on its next embed.
   private embeddingSpinWait = false
+  private embeddingThreads: number | undefined
   private stallTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
@@ -175,7 +176,7 @@ export class InferenceWorkerClient {
     }
   }
 
-  private request(req: { kind: 'embed' | 'classify' | 'ensure'; text?: string; model?: 'embed' | 'classify'; spinWait?: boolean }): Promise<WorkerResponse> {
+  private request(req: { kind: 'embed' | 'classify' | 'ensure'; text?: string; model?: 'embed' | 'classify'; spinWait?: boolean; threads?: number }): Promise<WorkerResponse> {
     if (this.permanentlyDisabled) return Promise.reject(new WorkerUnavailableError())
     const worker = this.getWorker()
     const id = this.nextId++
@@ -190,9 +191,13 @@ export class InferenceWorkerClient {
     })
   }
 
+  private embeddingOptions(): { spinWait: boolean; threads?: number } {
+    return { spinWait: this.embeddingSpinWait, ...(this.embeddingThreads === undefined ? {} : { threads: this.embeddingThreads }) }
+  }
+
   /** Embed ONE text (never batched — see the q8 calibration note above). */
   async embed(text: string): Promise<Float32Array> {
-    const res = await this.request({ kind: 'embed', text, spinWait: this.embeddingSpinWait })
+    const res = await this.request({ kind: 'embed', text, ...this.embeddingOptions() })
     if (res.ok && res.kind === 'embed') return res.result
     throw new Error('unexpected inference worker response for embed')
   }
@@ -207,9 +212,12 @@ export class InferenceWorkerClient {
   /** Lazily load a model in the worker without running inference on any
    *  text — used by init() to probe availability (mirrors the in-process
    *  catch-and-disable path around the initial pipeline() call). */
-  async ensure(model: 'embed' | 'classify', options?: { spinWait: boolean }): Promise<void> {
-    if (model === 'embed' && options) this.embeddingSpinWait = options.spinWait
-    const res = await this.request({ kind: 'ensure', model, spinWait: this.embeddingSpinWait })
+  async ensure(model: 'embed' | 'classify', options?: { spinWait: boolean; threads?: number | undefined }): Promise<void> {
+    if (model === 'embed' && options) {
+      this.embeddingSpinWait = options.spinWait
+      this.embeddingThreads = options.threads
+    }
+    const res = await this.request({ kind: 'ensure', model, ...this.embeddingOptions() })
     if (!(res.ok && res.kind === 'ensure')) throw new Error('unexpected inference worker response for ensure')
   }
 
