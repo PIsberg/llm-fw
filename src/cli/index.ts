@@ -63,6 +63,11 @@ switch (command) {
     uninstallService(args);
     break;
   }
+  case 'feedback-export': {
+    const { run } = await import('./feedback.js');
+    run(args);
+    break;
+  }
   case 'license': {
     const { run } = await import('./license.js');
     await run(args);

@@ -21,6 +21,7 @@ export const KNOWN_OPTIONS: Record<string, { flags: string[]; valued: string[] }
   status: { flags: [], valued: [] },
   doctor: { flags: ['--json'], valued: [] },
   '--doctor': { flags: ['--json'], valued: [] },
+  'feedback-export': { flags: [], valued: ['--out'] },
   'install-service': { flags: [], valued: [] },
   'uninstall-service': { flags: [], valued: [] },
   license: {

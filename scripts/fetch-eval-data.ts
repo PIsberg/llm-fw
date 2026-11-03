@@ -156,6 +156,8 @@ const DOLLY_LICENSE = 'CC BY-SA 3.0. Source: databricks-dolly-15k, Copyright (20
  * under test/eval/data/local/: fetched fresh each run, never committed.
  */
 export const DOLLY_FULL_FILE = join(dataDir, 'local', 'dolly-15k-full.json')
+/** Written by `llm-fw feedback-export` (#542), not fetched: the operator's own traffic. */
+export const OPERATOR_FEEDBACK_FILE = join(dataDir, 'local', 'operator-feedback.json')
 const DOLLY_SAMPLE_SIZE = 2000
 /**
  * Line indices (0-based, at DOLLY_REVISION) of the 15 rows the default

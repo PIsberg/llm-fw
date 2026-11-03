@@ -26,6 +26,8 @@ A fifth split, `jailbreak-classification` (`jackhhao/jailbreak-classification`, 
 
 `multilingual-injections` (`yanismiraoui/prompt_injections`, added 2026-11-03, #536) has a floor of its own: 974 attacks in seven languages, 255 blocked on Windows. It is attacks only, kept out of the pooled direct total, and its rows are unread.
 
+`npm run fpr` also reads `test/eval/data/local/operator-feedback.json` when it exists (`llm-fw feedback-export`, #542): your own recorded false positives, report-only and never in CI.
+
 Each floor is the measured count minus one row, because the embedding stage lands a row or two differently on Linux and Windows (safeguard: 491 and 490). The gate prints a notice when a split clears its floor by more than that: raise the floor in the same PR. A loss that is a deliberate trade for a false positive lowers the floor in the PR that makes it, with the rows named by `npm run verdicts:dump` and `npm run verdicts:diff`.
 
 ### Playground examples
