@@ -7,6 +7,14 @@ import { getLlmFwDir } from '../config/paths.js'
 import { MetricsRegistry } from './metrics.js'
 import type { AuditSink } from './auditLog.js'
 
+/**
+ * "YYYY-MM-DD HH:MM:SSZ" in UTC. Not through Intl: building a formatter was the
+ * slowest step of an event, and a refused request emits one.
+ */
+function utcStamp(): string {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ') + 'Z'
+}
+
 export class EventBus {
   private ring: BlockEvent[] = []
   // Blocked events kept apart from the ring, so the passed/warned traffic an
@@ -77,7 +85,7 @@ export class EventBus {
     const event: BlockEvent = {
       ...partial,
       id: randomUUID(),
-      timestamp: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
+      timestamp: utcStamp(),
     }
     this.ring.push(event)
     if (this.ring.length > this.maxSize) this.ring.shift()
@@ -187,7 +195,7 @@ export class EventBus {
       payload: event.payload_full,
       stage: event.stage,
       target: event.target,
-      whitelistedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
+      whitelistedAt: utcStamp(),
       reason,
     }
     entries.push(entry)

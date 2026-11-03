@@ -56,6 +56,19 @@ describe('EventBus timestamps', () => {
     expect(Math.abs(asInstant(ev.timestamp) - Date.now())).toBeLessThan(5_000)
   })
 
+  // Building an Intl formatter is by far the slowest step of an event, and an
+  // attack workload emits one per refusal.
+  it('builds no date formatter per event', () => {
+    const bus = new EventBus(DEFAULT_CONFIG.dashboard)
+    const built = vi.spyOn(Intl, 'DateTimeFormat')
+    try {
+      for (let i = 0; i < 5; i++) seedEvent(bus)
+      expect(built).not.toHaveBeenCalled()
+    } finally {
+      built.mockRestore()
+    }
+  })
+
   it('stamps a whitelist entry the same way', () => {
     const bus = new EventBus(DEFAULT_CONFIG.dashboard)
     const entry = bus.whitelist(seedEvent(bus, `utc check ${Math.random()}`).id)

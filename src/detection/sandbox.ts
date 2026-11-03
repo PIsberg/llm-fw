@@ -8,6 +8,38 @@ export interface SandboxResult {
 }
 
 export class SandboxDetector {
+  // What the firewall's own filesystem says about its container. It does not
+  // change under a running process, and detect() runs twice per request on the
+  // thread that serves every client, so it is read once per detector.
+  private filesystemSignals: { confidence: number; signals: string[] } | null = null
+
+  private readFilesystemSignals(): { confidence: number; signals: string[] } {
+    if (this.filesystemSignals) return this.filesystemSignals
+    let confidence = 0
+    const signals: string[] = []
+    try {
+      if (fs.existsSync('/.dockerenv')) {
+        confidence += 0.5;
+        signals.push('env-dockerenv');
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      if (fs.existsSync('/proc/1/cgroup')) {
+        const cgroup = fs.readFileSync('/proc/1/cgroup', 'utf-8');
+        if (cgroup.includes('docker') || cgroup.includes('containerd') || cgroup.includes('kubepods')) {
+          confidence += 0.4;
+          signals.push('env-cgroup');
+        }
+      }
+    } catch {
+      // ignore
+    }
+    this.filesystemSignals = { confidence, signals }
+    return this.filesystemSignals
+  }
+
   public detect(userAgent: string | undefined, remoteAddress: string | undefined): SandboxResult {
     let confidence = 0.0;
     const signals: string[] = [];
@@ -57,30 +89,13 @@ export class SandboxDetector {
     }
 
     // 3. Firewall's Own Environment
-    try {
-      if (fs.existsSync('/.dockerenv')) {
-        confidence += 0.5;
-        signals.push('env-dockerenv');
-      }
-    } catch {
-      // ignore
-    }
+    const own = this.readFilesystemSignals()
+    confidence += own.confidence
+    signals.push(...own.signals)
 
     if (process.env.KUBERNETES_SERVICE_HOST) {
       confidence += 0.5;
       signals.push('env-k8s');
-    }
-
-    try {
-      if (fs.existsSync('/proc/1/cgroup')) {
-        const cgroup = fs.readFileSync('/proc/1/cgroup', 'utf-8');
-        if (cgroup.includes('docker') || cgroup.includes('containerd') || cgroup.includes('kubepods')) {
-          confidence += 0.4;
-          signals.push('env-cgroup');
-        }
-      }
-    } catch {
-      // ignore
     }
 
     // Cap confidence at 1.0
