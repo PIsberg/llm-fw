@@ -60,6 +60,13 @@ Rules that must not regress:
   `maxBodyBytes` 413: never forward a body nothing could read. Pinned by
   `test/proxy/proxy-request-encoding.e2e.test.ts` and
   `test/gateway/gateway-request-encoding.e2e.test.ts`.
+- A request that fails after its response started closes the client's connection
+  (`endFailedResponse` in `src/proxy/proxy.ts`; the gateway does the same). An upstream
+  connection that ends before its framing does is a failure, never an ordinary end:
+  passing it on makes a truncated reply look complete. A client that goes away closes
+  the upstream, because the provider bills for what it goes on generating. Pinned by
+  `test/proxy/proxy-upstream-stall.e2e.test.ts` and
+  `test/gateway/gateway-upstream-timeout.e2e.test.ts`.
 - Detection runs once, on the complete buffered body. Do not bring back a
   per-chunk "partial" scan: it cannot tell a user prompt from the system
   prompt or a tool result, so it refused requests the full scan passes

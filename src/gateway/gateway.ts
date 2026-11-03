@@ -785,6 +785,9 @@ export class GatewayServer {
         else this.json(res, 502, { error: 'upstream request failed', upstream: route.provider.host });
         resolve();
       });
+      // The client went away. Nothing can read the rest, and the provider bills
+      // for every token it goes on generating.
+      res.once('close', () => { upstream.destroy(); resolve(); });
       if (body.length) upstream.write(body);
       upstream.end();
     });
