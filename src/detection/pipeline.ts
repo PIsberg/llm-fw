@@ -250,6 +250,11 @@ export class Pipeline {
   // cleared with the item cache, and bounded the same way.
   private reportedOnce = new Set<string>()
   private suppressionHits = 0
+  // Calls that could decide a verdict and failed. An item scanned during one is
+  // not cached: the next request must ask again, or an attack the judge could not
+  // read on the first turn would pass on every later one. The asynchronous monitor
+  // is not counted: it cannot change a verdict, so it has nothing to get wrong.
+  private judgeFailures = 0
 
   constructor(
     config: Config,
@@ -641,10 +646,6 @@ export class Pipeline {
     const { heuristicBlockThreshold: ragBlockThreshold } = this.config.detection
     const ragEnabled = this.config.rag?.enabled
 
-    // Item cache (see itemCache). Off with the judge: a judge call that fails
-    // returns ERROR and the scan carries on, and that outcome must not be
-    // remembered as clean.
-    const itemCacheOn = !judgeEnabled
 
     // Forward passes this request may spend in the embedding stage, shared by
     // every check below (see embeddingMaxPassesPerRequest).
@@ -698,8 +699,8 @@ export class Pipeline {
       // trusted root warns and from anywhere else blocks. So is the client:
       // Claude Code's own wrappers are read for what they carry only in its
       // requests, and one proxy serves several agents (#605).
-      const itemKey = itemCacheOn ? createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(meta.sandboxClient ?? '').update('\0').update(prompt).digest('hex') : ''
-      const cached = itemKey ? this.itemCache.get(itemKey) : undefined
+      const itemKey = createHash('sha256').update(source).update('\0').update(trustedPath ?? '').update('\0').update(toolName ?? '').update('\0').update(meta.sandboxClient ?? '').update('\0').update(prompt).digest('hex')
+      const cached = this.itemCache.get(itemKey)
       if (cached) {
         this.itemCache.delete(itemKey)
         this.itemCache.set(itemKey, cached)
@@ -710,10 +711,8 @@ export class Pipeline {
       // event. Nothing may await between the last look here and the claim below,
       // or two requests both see nobody and both scan.
       let known: ItemOutcome | null = cached ?? null
-      if (itemKey) {
-        for (let pending = this.itemsInFlight.get(itemKey); !known && pending; pending = this.itemsInFlight.get(itemKey)) {
-          known = await pending
-        }
+      for (let pending = this.itemsInFlight.get(itemKey); !known && pending; pending = this.itemsInFlight.get(itemKey)) {
+        known = await pending
       }
       if (known) {
         pendingWarn = firstWarn(pendingWarn, known.warn)
@@ -722,6 +721,7 @@ export class Pipeline {
         continue
       }
       const suppressionHitsBeforeItem = this.suppressionHits
+      const judgeFailuresBeforeItem = this.judgeFailures
       // A near copy of a text the operator marked: the marked lines go, and
       // every stage below reads the rest. Counted as a suppression hit so the
       // item is not cached: removing the mark has to bring its lines back.
@@ -742,7 +742,7 @@ export class Pipeline {
           continue
         }
       }
-      if (itemKey) at.claim = this.claimItem(itemKey)
+      at.claim = this.claimItem(itemKey)
       // Track this item's own outcome separately so it can be cached; merged
       // back below (the first warn across all items still wins).
       const warnBeforeItem = pendingWarn
@@ -999,7 +999,7 @@ export class Pipeline {
       // not diluted below the threshold by the surrounding text.
       const entropy = maxWindowEntropy(prompt)
       if (entropy > 5.0 && prompt.length >= 20 && judgeEnabled) {
-        const j = await this.judge.classify(prompt)
+        const j = await this.askJudge(prompt)
         if (j.verdict === 'MALICIOUS') {
           const result: PipelineResult = { action: 'block', stage: 'judge', score: 30, similarity: 0, verdict: 'MALICIOUS', prompt }
           if (this.isSuppressed(prompt, source)) {
@@ -1071,7 +1071,7 @@ export class Pipeline {
           // check above makes for high-entropy payloads.
           const escalateThreshold = this.config.detection.classifier.escalateThreshold ?? 0.5
           if (judgeEnabled && v.score >= escalateThreshold) {
-            const j = await this.judge.classify(prompt)
+            const j = await this.askJudge(prompt)
             if (j.verdict === 'MALICIOUS') {
               // Same intent-mention downgrade rule applies: this is still a
               // classifier-driven signal on the prompt surface, just confirmed
@@ -1206,7 +1206,7 @@ export class Pipeline {
         if (judgeEnabled) {
           if (judgeBlock) {
             // Sync blocking mode
-            const j = await this.judge.classify(candidate.text)
+            const j = await this.askJudge(candidate.text)
             if (j.verdict === 'MALICIOUS') {
               const result: PipelineResult = { action: 'block', stage: 'judge', score: h.score, similarity: eSim, verdict: 'MALICIOUS', prompt: candidate.text }
               if (this.isSuppressed(prompt, source)) {
@@ -1271,7 +1271,7 @@ export class Pipeline {
       // when the budget cut it short: a later request must read it in full.
       if (itemCut) itemsCut++
       let outcome: ItemOutcome | null = null
-      if (itemKey && !itemCut && this.suppressionHits === suppressionHitsBeforeItem) {
+      if (!itemCut && this.suppressionHits === suppressionHitsBeforeItem && this.judgeFailures === judgeFailuresBeforeItem) {
         outcome = { warn: pendingWarn, score: lastScore, sim: lastSim }
         this.itemCache.set(itemKey, outcome)
         if (this.itemCache.size > ITEM_CACHE_MAX) {
@@ -1385,6 +1385,13 @@ export class Pipeline {
     return near && !this.suppressions.has(suppressionKey(text, source)) ? near : null
   }
 
+  /** The judge, on a path where its answer can decide the verdict. */
+  private async askJudge(text: string): ReturnType<JudgeClient['classify']> {
+    const j = await this.judge.classify(text)
+    if (j.verdict === 'ERROR') this.judgeFailures++
+    return j
+  }
+
   // Max concurrent specialized-judge queries for RAG data blocks. A prompt with
   // dozens of small code/document blocks would otherwise fire dozens of parallel
   // requests at the single local Ollama instance and overwhelm the GPU/CPU.
@@ -1406,7 +1413,10 @@ export class Pipeline {
     for (let i = 0; i < unique.length; i += Pipeline.RAG_JUDGE_CONCURRENCY) {
       const batch = unique.slice(i, i + Pipeline.RAG_JUDGE_CONCURRENCY)
       const verdicts = await Promise.all(
-        batch.map(b => this.judge.judgeRagContext(b.block).then(j => ({ b, verdict: j.verdict })))
+        batch.map(b => this.judge.judgeRagContext(b.block).then(j => {
+          if (j.verdict === 'ERROR') this.judgeFailures++
+          return { b, verdict: j.verdict }
+        }))
       )
       const hit = verdicts.find(v => v.verdict === 'MALICIOUS')
       if (hit) return hit.b
