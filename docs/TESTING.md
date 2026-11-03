@@ -24,6 +24,8 @@ Unlike the load test (which *samples* under concurrency through the proxy), this
 
 A fifth split, `jailbreak-classification` (`jackhhao/jailbreak-classification`, added 2026-10-26), is the one no rule was ever tuned on: its 542 jailbreaks have a floor (311 blocked on Windows, 310 on the Linux runner, floor 309) and its 637 benign prompts a ceiling (6 blocked, ceiling 7), so a change that starts blocking unseen benign prompts fails too. Nobody reads its rows. It also prints each split on its unseen rows only: rows read while writing or checking a rule are listed in `test/eval/lib/seenRows.ts` (checked by `test/eval/seenRows.test.ts`), and a split's verdicts on them say nothing about attacks nobody fitted a rule to. The floor gates every row; quote the unseen figure for generalisation.
 
+`multilingual-injections` (`yanismiraoui/prompt_injections`, added 2026-11-03, #536) has a floor of its own: 974 attacks in seven languages, 255 blocked on Windows. It is attacks only, kept out of the pooled direct total, and its rows are unread.
+
 Each floor is the measured count minus one row, because the embedding stage lands a row or two differently on Linux and Windows (safeguard: 491 and 490). The gate prints a notice when a split clears its floor by more than that: raise the floor in the same PR. A loss that is a deliberate trade for a false positive lowers the floor in the PR that makes it, with the rows named by `npm run verdicts:dump` and `npm run verdicts:diff`.
 
 ### Playground examples

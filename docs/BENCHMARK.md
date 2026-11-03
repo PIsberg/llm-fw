@@ -32,6 +32,14 @@ across groups would be dishonest, because they test different jobs:
   interviewer") and short topic fragments as injections, which *depresses*
   measured recall for a firewall whose threat model treats benign role-play as
   safe.
+- **multilingual-injections**: `yanismiraoui/prompt_injections`, its one split
+  (rev `bd55359f2f33`, Apache-2.0), with 60 repeats removed and none already in
+  another split or in `corpus.json`: n=974, all attacks, in English, French,
+  German, Spanish, Portuguese, Italian and Romanian. Added 2026-11-03 (#536), and
+  nobody has read its rows, so **its labels are unchecked** and it may be machine
+  translated. Attacks only, so it measures recall and no false positive rate. It
+  has no language column, so there is no per-language breakdown. Reported in
+  aggregate, apart from the pooled direct-injection total.
 - **jailbreak-classification**: `jackhhao/jailbreak-classification`, train and
   test splits (rev `2f2ceeb39658`, Apache-2.0), with the 112 prompts already in
   another split or in `corpus.json` and 15 repeats removed: n=1,179, 542
@@ -244,6 +252,7 @@ it, both presets in the same run, every split:
 | deepset | 28.3% / 0% | 43.3% / 0% | 28.3% / 0% |
 | heldout | 74.2% / 0% | 83.9% / 4.8% | 77.4% / 4.8% |
 | jailbreak-classification | 57.4% / — (measured 2026-10-30) | 82.3% / 1.41% | 72.7% / 1.10% |
+| multilingual-injections | 26.2% / — (measured 2026-11-03) | 97.8% / — (measured 2026-11-03) | 30.6% / — (measured 2026-11-03) |
 | indirect-identifier-free | 20.0% / 10.0% (measured 2026-08-30) | 50.0% / 10.0% ‡ | 22.5% / 5.0% |
 | injecagent | 100% / 0% | 100% / 0% ‡ | 100% / 0% |
 | benign-realistic (benign only) | — / 2.68% | — / 25.3% | — / 3.6% |

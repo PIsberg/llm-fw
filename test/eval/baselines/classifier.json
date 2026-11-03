@@ -1014,6 +1014,26 @@
       }
     },
     {
+      "name": "multilingual-injections",
+      "threat": "injection",
+      "revision": "bd55359f2f332afc35f277ac3dd08f7111b024c9",
+      "n": 974,
+      "tp": 953,
+      "fn": 21,
+      "tn": 0,
+      "fp": 0,
+      "recall": 0.9784394250513347,
+      "fpr": null,
+      "p50Ms": 37,
+      "perClass": {
+        "attack:multilingual-injection": {
+          "n": 974,
+          "blocked": 953,
+          "rate": 0.9784394250513347
+        }
+      }
+    },
+    {
       "name": "oasst1-sample",
       "threat": "injection",
       "revision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",

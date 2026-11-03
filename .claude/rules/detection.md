@@ -17,10 +17,11 @@ PR with the measured before and after. Never lower one silently to go green.
 ## Held-out splits stay unread
 
 `heldout`, `safeguard-prompt-injection`, `deepset-prompt-injections`,
-`gandalf-ignore-instructions`, `injecagent` and `jailbreak-classification`
-measure attacks nobody fitted a rule to. `jailbreak-classification` is the one
-no rule has ever been tuned on: never open its rows; it is reported in
-aggregate only. When a held-out row exposes a miss, write fresh variants of its shape
+`gandalf-ignore-instructions`, `injecagent`, `jailbreak-classification` and
+`multilingual-injections` measure attacks nobody fitted a rule to.
+`jailbreak-classification` and `multilingual-injections` are the ones no rule
+has ever been tuned on: never open their rows; they are reported in aggregate
+only. When a held-out row exposes a miss, write fresh variants of its shape
 into `corpus.json` and the tests; do not open further held-out rows to tune
 the rule. A row you did read, to write a rule or to check a narrowed one
 still blocks it, goes into `test/eval/lib/seenRows.ts` in the same PR.

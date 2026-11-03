@@ -20,7 +20,7 @@ import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { RULESET_VERSION } from '../../src/detection/ruleset.js'
 import { loadAll } from '../../scripts/run-benchmark.js'
 import { anthropicRequestFor } from './lib/surfaces.js'
-import { DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, evaluateRecallFloor, countUnseen, type SplitCount, type RecallFloor } from './lib/recallFloor.js'
+import { DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, MULTILINGUAL_RECALL_FLOORS, evaluateRecallFloor, countUnseen, type SplitCount, type RecallFloor } from './lib/recallFloor.js'
 import { SEEN_ROWS } from './lib/seenRows.js'
 
 async function main(): Promise<void> {
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
   const counts: Record<string, SplitCount> = {}
   const unseen: Record<string, SplitCount> = {}
-  const floors: Record<string, RecallFloor> = { ...DIRECT_RECALL_FLOORS, ...INDIRECT_RECALL_FLOORS }
+  const floors: Record<string, RecallFloor> = { ...DIRECT_RECALL_FLOORS, ...INDIRECT_RECALL_FLOORS, ...MULTILINGUAL_RECALL_FLOORS }
   for (const dataset of loadAll().filter(d => d.name in floors)) {
     const attackRows = dataset.rows.flatMap((r, i) => (r.label === 1 ? [i] : []))
     const blocked = new Set<number>()
@@ -78,14 +78,22 @@ async function main(): Promise<void> {
     console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})${benign}`)
   }
 
+  console.log('Multilingual recall floor (seven languages, attacks only, #536)')
+  for (const [name, floor] of Object.entries(MULTILINGUAL_RECALL_FLOORS)) {
+    const c = counts[name]
+    console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})`)
+  }
+
   const direct = evaluateRecallFloor(counts, DIRECT_RECALL_FLOORS)
   const indirect = evaluateRecallFloor(counts, INDIRECT_RECALL_FLOORS)
-  for (const name of [...direct.improved, ...indirect.improved]) {
+  const multilingual = evaluateRecallFloor(counts, MULTILINGUAL_RECALL_FLOORS)
+  for (const name of [...direct.improved, ...indirect.improved, ...multilingual.improved]) {
     console.log(`::notice::${name} clears its floor or ceiling by more than the margin: tighten it in test/eval/lib/recallFloor.ts`)
   }
-  if (!direct.passed || !indirect.passed) {
+  if (!direct.passed || !indirect.passed || !multilingual.passed) {
     for (const f of direct.failures) console.log(`::error::direct-injection recall below floor: ${f}`)
     for (const f of indirect.failures) console.log(`::error::indirect-injection recall below floor: ${f}`)
+    for (const f of multilingual.failures) console.log(`::error::multilingual recall below floor: ${f}`)
     console.log('Find the rows that moved: npm run verdicts:dump on the base and the branch, then npm run verdicts:diff.')
     process.exit(1)
   }

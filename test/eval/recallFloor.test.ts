@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateRecallFloor, DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, countUnseen } from './lib/recallFloor.js'
+import { evaluateRecallFloor, DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, MULTILINGUAL_RECALL_FLOORS, countUnseen } from './lib/recallFloor.js'
 
 /**
  * The direct-injection recall floor exists because a slow loss passed every
@@ -122,5 +122,23 @@ describe('INDIRECT_RECALL_FLOORS', () => {
 
   it('is kept apart from the direct-injection floors, so their pooled total stays direct injection', () => {
     expect(Object.keys(DIRECT_RECALL_FLOORS)).not.toContain('indirect-identifier-free')
+  })
+})
+
+describe('the multilingual floor (#536)', () => {
+  const floor = MULTILINGUAL_RECALL_FLOORS['multilingual-injections']!
+
+  it('fails one row under the floor, and passes at it', () => {
+    const at = (blocked: number) => evaluateRecallFloor({ 'multilingual-injections': { blocked, attacks: floor.attacks } }, MULTILINGUAL_RECALL_FLOORS)
+    expect(at(floor.minBlocked).passed).toBe(true)
+    expect(at(floor.minBlocked - 1).passed).toBe(false)
+  })
+
+  it('fails when the split did not run, so a renamed file cannot pass silently', () => {
+    expect(evaluateRecallFloor({}, MULTILINGUAL_RECALL_FLOORS).passed).toBe(false)
+  })
+
+  it('is kept out of the pooled direct total, whose meaning is quoted elsewhere', () => {
+    expect(Object.keys(DIRECT_RECALL_FLOORS)).not.toContain('multilingual-injections')
   })
 })
