@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.14
+
+**Unchanged, by construction.** Concurrent requests now share a scan of one item instead of repeating it (#633): the outcome shared is the one the item cache would have held, and a scan that blocks shares nothing. `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed. It reads strings one at a time, so `test/detection/pipeline-inflight.test.ts` covers the concurrent path. `npm run fpr` was not re-run for this entry; CI runs it on the pull request.
+
 ## Result, ruleset 2026.11.13
 
 **Unchanged, measured on real traffic.** A checklist item now opens a clause for the indirect-instruction rule, when its verb is aimed at an object an attacker would name (#643). Over 62,022 real tool results from one developer's machine, speckit task lists among them, the rule's hits stayed at 734, with 0 new and 0 gone. The wider object test the rule uses elsewhere added 4, all ordinary spec tasks, and opening a clause at every bullet added 9, so neither ships. `npm run verdicts:diff` reports 0 of 12,901 block verdicts changed, and no eval string holds a checkbox, so `npm run fpr` cannot move and was not re-run for this entry; CI runs it on the pull request.

@@ -23,8 +23,14 @@ const YIELD_EVERY_MS = 50
  */
 const MAX_WITHHELD = 16
 
-/** The item a scan is on, so run() can say which one a block came from. */
-type ScanCursor = { item: { text: string; source: ScanSource } | null }
+/**
+ * The item a scan is on, so run() can say which one a block came from, and the
+ * claim it holds on that item, so run() can release it however the scan ends.
+ */
+type ScanCursor = {
+  item: { text: string; source: ScanSource } | null
+  claim: ((outcome: ItemOutcome | null) => void) | null
+}
 
 /**
  * Candidate sources the EMBEDDING stage skips.
@@ -227,6 +233,15 @@ export class Pipeline {
   // since hot reload mutates the config object in place. Insertion-ordered Map
   // as an LRU, bounded at ITEM_CACHE_MAX entries.
   private itemCache = new Map<string, ItemOutcome>()
+  // Items being scanned right now, by the same key. The cache fills only when a
+  // scan of an item ends, so a request arriving during the first cold scan read
+  // the whole history again, and a client retrying after a timeout multiplied the
+  // work instead of sharing it: 3 concurrent requests took 12 forward passes for
+  // 4 items' worth (#633). A waiter gets the outcome the cache would have held, or
+  // null when there is none to share (the owner blocked, threw or was cut by the
+  // budget) and it reads the item itself. An owner holds one claim, and never
+  // waits while holding it, so no two requests can wait on each other.
+  private itemsInFlight = new Map<string, Promise<ItemOutcome | null>>()
   private itemCacheFingerprint = ''
   // Events that describe something an agent resends on every request rather
   // than something the request did: the opaque media in the history, and a
@@ -308,8 +323,15 @@ export class Pipeline {
       withholdingPrompts?: boolean;
     }
   ): Promise<PipelineResult> {
-    const at: ScanCursor = { item: null }
-    const scanned = await this.scan(requestPath, body, meta, at)
+    const at: ScanCursor = { item: null, claim: null }
+    let scanned: PipelineResult
+    try {
+      scanned = await this.scan(requestPath, body, meta, at)
+    } finally {
+      // A block returns from inside the item, and a model can throw: whoever
+      // waits on the claim must not hang.
+      at.claim?.(null)
+    }
     const result = scanned.action === 'block' && at.item ? { ...scanned, blockedItem: at.item } : scanned
     // THE choke point for observe mode. Every caller — proxy, gateway, the
     // library API — takes its verdict from here, so downgrading once makes
@@ -681,9 +703,22 @@ export class Pipeline {
       if (cached) {
         this.itemCache.delete(itemKey)
         this.itemCache.set(itemKey, cached)
-        pendingWarn = firstWarn(pendingWarn, cached.warn)
-        lastScore = Math.max(lastScore, cached.score)
-        lastSim = Math.max(lastSim, cached.sim)
+      }
+      // Another request is scanning this item: wait for its outcome. A null means
+      // it left nothing to share, and the next waiter in line reads the item, so
+      // a text that blocks is scanned by every request and each gets its own
+      // event. Nothing may await between the last look here and the claim below,
+      // or two requests both see nobody and both scan.
+      let known: ItemOutcome | null = cached ?? null
+      if (itemKey) {
+        for (let pending = this.itemsInFlight.get(itemKey); !known && pending; pending = this.itemsInFlight.get(itemKey)) {
+          known = await pending
+        }
+      }
+      if (known) {
+        pendingWarn = firstWarn(pendingWarn, known.warn)
+        lastScore = Math.max(lastScore, known.score)
+        lastSim = Math.max(lastSim, known.sim)
         continue
       }
       const suppressionHitsBeforeItem = this.suppressionHits
@@ -707,6 +742,7 @@ export class Pipeline {
           continue
         }
       }
+      if (itemKey) at.claim = this.claimItem(itemKey)
       // Track this item's own outcome separately so it can be cached; merged
       // back below (the first warn across all items still wins).
       const warnBeforeItem = pendingWarn
@@ -1234,13 +1270,17 @@ export class Pipeline {
       // This item did not block. Remember its outcome, then merge it back. Not
       // when the budget cut it short: a later request must read it in full.
       if (itemCut) itemsCut++
+      let outcome: ItemOutcome | null = null
       if (itemKey && !itemCut && this.suppressionHits === suppressionHitsBeforeItem) {
-        this.itemCache.set(itemKey, { warn: pendingWarn, score: lastScore, sim: lastSim })
+        outcome = { warn: pendingWarn, score: lastScore, sim: lastSim }
+        this.itemCache.set(itemKey, outcome)
         if (this.itemCache.size > ITEM_CACHE_MAX) {
           const oldest = this.itemCache.keys().next().value
           if (oldest !== undefined) this.itemCache.delete(oldest)
         }
       }
+      at.claim?.(outcome)
+      at.claim = null
       pendingWarn = firstWarn(warnBeforeItem, pendingWarn)
       lastScore = Math.max(scoreBeforeItem, lastScore)
       lastSim = Math.max(simBeforeItem, lastSim)
@@ -1275,6 +1315,17 @@ export class Pipeline {
   private emitNonTextWarn(audit: { summary: string; key: string }, meta: { target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; tenant?: string; }): void {
     if (!this.firstReport(`non-text\0${meta.tenant ?? ''}\0${audit.key}`)) return
     this.emit({ action: 'warn', stage: 'non-text', score: 0, similarity: 0, mediaSummary: audit.summary }, meta, `non-text content not scanned: ${audit.summary}`, 'document', null)
+  }
+
+  /** Mark an item as being scanned; the returned function ends that, and shares the outcome. */
+  private claimItem(key: string): (outcome: ItemOutcome | null) => void {
+    let settle!: (outcome: ItemOutcome | null) => void
+    const pending = new Promise<ItemOutcome | null>(resolve => { settle = resolve })
+    this.itemsInFlight.set(key, pending)
+    return outcome => {
+      this.itemsInFlight.delete(key)
+      settle(outcome)
+    }
   }
 
   /**
