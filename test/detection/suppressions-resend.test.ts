@@ -283,7 +283,7 @@ describe('suppressionLines', () => {
 
   it('keeps case and invisible characters, which change what the model reads', () => {
     expect(suppressionLines('A line', 'tool_result')).not.toEqual(suppressionLines('a line', 'tool_result'))
-    expect(suppressionLines('a​line', 'tool_result')).not.toEqual(suppressionLines('aline', 'tool_result'))
+    expect(suppressionLines('a\u200Bline', 'tool_result')).not.toEqual(suppressionLines('aline', 'tool_result'))
   })
 
   it('stores nothing for a text too long to keep, which leaves the exact match', () => {
