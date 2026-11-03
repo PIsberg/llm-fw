@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { DEFAULT_LOAD_TIMEOUT_MS, loadWithVisibility } from './modelLoad.js'
+import { DEFAULT_LOAD_TIMEOUT_MS, NO_SPINNING, loadWithVisibility } from './modelLoad.js'
 import { getLlmFwDir } from '../config/paths.js'
 
 /**
@@ -75,7 +75,9 @@ async function getTranscriber(loadTimeoutMs: number): Promise<Transcriber | null
         // Bounded here, inside the one load every request shares: past the bound
         // it settles as unavailable for all of them, not once per request.
         return await loadWithVisibility(
-          async () => await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' }) as unknown as Transcriber,
+          // Spinning off with no switch: measured for #650 on a 3 s clip, 0.55 s against
+          // 1.25 s, and 6.5 s of CPU against 17.7 s, with the same text.
+          async () => await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8', session_options: NO_SPINNING }) as unknown as Transcriber,
           { label: 'speech transcription model', timeoutMs: loadTimeoutMs },
         )
       } catch {

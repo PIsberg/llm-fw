@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.21
+
+**No verdict moved.** onnxruntime spinning is off for the output classifier and speech transcription, which no eval string reaches, and their output is the same with it off.
+
 ## Result, ruleset 2026.11.20
 
 **No verdict moved.** Models that never answer now hit a bound instead of waiting for ever. A model that answers is read exactly as before, and the verdict diff is on this ruleset.

@@ -117,6 +117,16 @@ describe('model loads that never finish', () => {
     expect(performance.now() - before).toBeLessThan(BOUND_MS)
   })
 
+  // Measured for #650: 0.55 s against 1.25 s on a 3 s clip, with the same text.
+  it('transcription: loads the model with onnxruntime spinning off', async () => {
+    vi.resetModules()
+    const { transcribeAudio } = await import('../../src/detection/transcribe.js')
+    await settled(transcribeAudio(wav(), 'audio/wav', BOUND_MS))
+    expect((pipelineLoad.mock.calls[0] as unknown[])[2]).toMatchObject({
+      session_options: { extra: { session: { intra_op: { allow_spinning: '0' } } } },
+    })
+  })
+
   it('OCR: degrades to opaque, and later requests do not wait again', async () => {
     vi.resetModules()
     const { ocrImage } = await import('../../src/detection/ocr.js')
