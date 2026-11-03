@@ -938,6 +938,8 @@ export interface WhitelistEntry {
   target: string;
   whitelistedAt: string;
   reason?: string | undefined;
+  /** Where the text arrived, for `llm-fw feedback-export`. Absent on older entries. */
+  surface?: ScanSource | undefined;
 }
 
 /** One ordered turn of a conversation, for multi-turn (crescendo) analysis. */

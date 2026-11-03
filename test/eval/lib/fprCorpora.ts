@@ -7,7 +7,9 @@
  * (#256) is one, because it is fetched rather than committed and takes minutes.
  * A `reportOnly` corpus prints its per-category table and its breaches, but its
  * breaches do not fail the run, with one exception: a corpus that scanned
- * nothing still fails, so a missing fetch cannot pass for a clean night.
+ * nothing still fails, so a missing fetch cannot pass for a clean night. A
+ * `whenPresent` corpus joins a plain run only when its file exists: the
+ * operator's own feedback (#542) is local, and absent in CI.
  */
 import { evaluateFprGate, type FprGateInput } from './fprGate.js';
 
@@ -17,11 +19,13 @@ export interface CorpusFlags {
   optIn?: boolean;
   /** Breaches are reported, not failed. */
   reportOnly?: boolean;
+  /** Joins a plain run only when `isPresent` says its file exists. */
+  whenPresent?: boolean;
 }
 
-export function selectCorpora<T extends CorpusFlags>(all: T[], argv: string[]): T[] {
+export function selectCorpora<T extends CorpusFlags>(all: T[], argv: string[], isPresent: (corpus: T) => boolean = () => true): T[] {
   const only = argv.find(a => a.startsWith('--only='));
-  if (only === undefined) return all.filter(c => !c.optIn);
+  if (only === undefined) return all.filter(c => !c.optIn && (!c.whenPresent || isPresent(c)));
 
   const names = only.slice('--only='.length).split(',').map(s => s.trim()).filter(Boolean);
   if (names.length === 0) throw new Error('--only needs at least one corpus name');

@@ -197,6 +197,7 @@ export class EventBus {
       target: event.target,
       whitelistedAt: utcStamp(),
       reason,
+      surface: event.suppressionSource,
     }
     entries.push(entry)
 

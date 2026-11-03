@@ -19,6 +19,10 @@ Commands:
                         Also persists HTTPS_PROXY, NO_PROXY and
                         NODE_EXTRA_CA_CERTS for new shells.
   setup-judge           Install an Ollama model and enable Stage 3 judge
+  feedback-export       Write events recorded as false positives to a local eval
+    [--out <file>]      file for npm run fpr. They are your own traffic: the
+                        default path, in a checkout, is gitignored; elsewhere
+                        --out is required. Moves no threshold.
   uninstall [--yes]     Reverse setup: remove the CA from the OS trust store,
     [--keep-model]      restore the hosts file, delete the :443 port redirect,
     [--purge]           and delete the CA from ~/.llm-fw. Your settings,

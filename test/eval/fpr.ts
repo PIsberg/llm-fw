@@ -50,7 +50,7 @@ import { RULESET_VERSION } from '../../src/detection/ruleset.js';
 import type { Config } from '../../src/types.js';
 import { wilsonInterval, sampleNeededFor, formatInterval } from './lib/wilson.js';
 import { selectCorpora, corpusVerdict } from './lib/fprCorpora.js';
-import { DOLLY_FULL_FILE } from '../../scripts/fetch-eval-data.js';
+import { DOLLY_FULL_FILE, OPERATOR_FEEDBACK_FILE } from '../../scripts/fetch-eval-data.js';
 import { anthropicRequestFor, type EvalRow } from './lib/surfaces.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -592,6 +592,8 @@ interface GatedCorpus {
   reportOnly?: boolean;
   /** How to produce `file` when it is not committed. */
   fetch?: string;
+  /** Scanned by a plain run only when its file exists: it is local, and never in CI. */
+  whenPresent?: boolean;
 }
 
 const CORPORA: GatedCorpus[] = [
@@ -608,6 +610,15 @@ const CORPORA: GatedCorpus[] = [
     name: 'dolly-15k-full', file: DOLLY_FULL_FILE, sloPct: DOLLY_SLO_PCT, ceilings: DOLLY_CATEGORY_CEILINGS,
     optIn: true, reportOnly: true,
     fetch: 'node --import tsx/esm scripts/fetch-eval-data.ts dolly-15k-full',
+  },
+  // What this operator recorded as a false positive (#542): their own traffic,
+  // gitignored, and absent in CI. Report-only, so a run shows whether one came
+  // back; turning one into a gate means writing a synthetic row of its shape
+  // into benign-realistic.json.
+  {
+    name: 'operator-feedback', file: OPERATOR_FEEDBACK_FILE, sloPct: 100, ceilings: {},
+    reportOnly: true, whenPresent: true,
+    fetch: 'llm-fw feedback-export',
   },
 ];
 
@@ -703,7 +714,7 @@ async function main(): Promise<void> {
   console.log('╚══════════════════════════════════════════════════════╝');
   console.log(`  ruleset: ${RULESET_VERSION}  |  production target ${TARGET_PCT}%`);
   // Before the model loads, so a mistyped --only fails in a second, not a minute.
-  const selected = selectCorpora(CORPORA, process.argv.slice(2));
+  const selected = selectCorpora(CORPORA, process.argv.slice(2), c => existsSync(c.file));
   console.log(`  corpora: ${selected.map(c => c.name + (c.reportOnly ? ' (report-only)' : '')).join(', ')}`);
 
   // The shipped default configuration, judge off — what an operator actually

@@ -27,6 +27,29 @@ describe('selectCorpora', () => {
       .toEqual(['dolly-15k-sample', 'dolly-15k-full'])
   })
 
+  // #542: the operator's own feedback is a local file. CI has none, and a run
+  // must not fail or read as clean over a file that was never meant to be there.
+  describe('a corpus that joins only when its file exists', () => {
+    const withLocal = [...corpora, { name: 'operator-feedback', reportOnly: true, whenPresent: true }]
+
+    it('joins a plain run when the file exists', () => {
+      expect(selectCorpora(withLocal, [], () => true).map(c => c.name)).toContain('operator-feedback')
+    })
+
+    it('stays out of a plain run when it does not', () => {
+      expect(selectCorpora(withLocal, [], c => c.name !== 'operator-feedback').map(c => c.name)).not.toContain('operator-feedback')
+    })
+
+    it('runs when named, so a missing file is reported rather than skipped', () => {
+      expect(selectCorpora(withLocal, ['--only=operator-feedback'], () => false).map(c => c.name)).toEqual(['operator-feedback'])
+    })
+
+    it('never fails the run with a breach', () => {
+      const verdict = corpusVerdict(withLocal[3]!, { blocked: 5, scanned: 5, sloPct: 0, ceilings: {}, perClass: { 'operator-feedback': { blocked: 5, total: 5 } } } as never)
+      expect(verdict.failures).toEqual([])
+    })
+  })
+
   it('refuses an unknown name instead of silently scanning nothing', () => {
     expect(() => selectCorpora(corpora, ['--only=dolly-15k-ful'])).toThrow(/dolly-15k-ful.*benign-realistic, dolly-15k-sample, dolly-15k-full/)
   })

@@ -37,8 +37,10 @@ async function main(): Promise<void> {
 
   const dataDir = path.join(ROOT, 'test', 'eval', 'data');
   const files = fs.readdirSync(dataDir).filter(f => f.endsWith('.json')).map(f => path.join(dataDir, f));
-  const local = path.join(dataDir, 'local', 'dolly-15k-full.json');
-  if (fs.existsSync(local)) files.push(local);
+  for (const name of ['dolly-15k-full.json', 'operator-feedback.json']) {
+    const local = path.join(dataDir, 'local', name);
+    if (fs.existsSync(local)) files.push(local);
+  }
 
   const dump: VerdictDump = {};
   let total = 0;
