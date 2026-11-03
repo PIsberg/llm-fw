@@ -67,6 +67,10 @@ Rules that must not regress:
   the upstream, because the provider bills for what it goes on generating. Pinned by
   `test/proxy/proxy-upstream-stall.e2e.test.ts` and
   `test/gateway/gateway-upstream-timeout.e2e.test.ts`.
+- A client that goes silent before its request is in is closed after
+  `proxy.upstreamTimeoutMs` (`closeSilentClients`): the inner server only receives
+  handed-over connections, so its own header and request timeouts never start. A
+  client waiting for its answer stays open. Same test file.
 - Detection runs once, on the complete buffered body. Do not bring back a
   per-chunk "partial" scan: it cannot tell a user prompt from the system
   prompt or a tool result, so it refused requests the full scan passes

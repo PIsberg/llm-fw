@@ -36,7 +36,18 @@ type WorkerResponse = EmbedResponse | ClassifyResponse | EnsureResponse | ErrorR
 interface PendingRequest {
   resolve: (r: WorkerResponse) => void
   reject: (err: Error) => void
+  /** A forward pass, which the stall watchdog covers. A model load is not: its caller bounds it. */
+  inference: boolean
 }
+
+/**
+ * How long a worker holding forward passes may go without answering any of them.
+ * One pass takes well under a second, so this is far past any queue on a slow
+ * machine. Without it a wedged worker held every request that reached it for
+ * ever, and the item cache's in-flight claims spread that to every request
+ * sharing a text.
+ */
+const INFERENCE_STALL_MS = 60_000
 
 /**
  * Thrown when the worker has permanently fallen back to in-process (second
@@ -84,8 +95,27 @@ export class InferenceWorkerClient {
   // Remembered and sent with every embedding request: a respawned worker has
   // not seen the ensure() that set it, and loads the model on its next embed.
   private embeddingSpinWait = false
+  private stallTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private readonly workerFactory: WorkerFactory = defaultWorkerFactory) {}
+  constructor(
+    private readonly workerFactory: WorkerFactory = defaultWorkerFactory,
+    private readonly stallMs: number = INFERENCE_STALL_MS,
+  ) {}
+
+  /** Restart the stall clock while forward passes are outstanding, else stop it. */
+  private watchForStall(worker: Worker): void {
+    if (this.stallTimer) clearTimeout(this.stallTimer)
+    this.stallTimer = null
+    if (![...this.pending.values()].some(p => p.inference)) return
+    this.stallTimer = setTimeout(() => {
+      this.stallTimer = null
+      // Through the crash path, so what it holds fails now and the next request
+      // respawns, then falls back to in-process, exactly as after a real crash.
+      this.handleCrash(worker, new Error(`inference worker gave no answer for ${this.stallMs} ms`))
+      void worker.terminate()
+    }, this.stallMs)
+    this.stallTimer.unref?.()
+  }
 
   /** False once the worker has crashed twice — callers should use the
    *  in-process fallback instead of calling embed()/classify()/ensure(). */
@@ -103,6 +133,7 @@ export class InferenceWorkerClient {
       this.pending.delete(msg.id)
       if (msg.ok) pending.resolve(msg)
       else pending.reject(new Error(msg.error))
+      this.watchForStall(worker)
     })
     worker.on('error', (err: Error) => this.handleCrash(worker, err))
     worker.on('exit', (code) => {
@@ -118,6 +149,8 @@ export class InferenceWorkerClient {
     if (this.terminating || this.handledCrash.has(worker)) return
     this.handledCrash.add(worker)
     if (this.worker === worker) this.worker = null
+    if (this.stallTimer) clearTimeout(this.stallTimer)
+    this.stallTimer = null
 
     // Every request in flight on the dead worker must settle NOW — never
     // leave a caller hanging. Each rejection propagates like any other
@@ -143,8 +176,10 @@ export class InferenceWorkerClient {
     const worker = this.getWorker()
     const id = this.nextId++
     return new Promise<WorkerResponse>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      this.pending.set(id, { resolve, reject, inference: req.kind !== 'ensure' })
       worker.postMessage({ ...req, id })
+      // A new pass does not restart the clock: only an answer is progress.
+      if (req.kind !== 'ensure' && !this.stallTimer) this.watchForStall(worker)
     })
   }
 
@@ -174,6 +209,8 @@ export class InferenceWorkerClient {
   /** Terminate the worker (shutdown hook). Safe to call when never spawned. */
   async close(): Promise<void> {
     this.terminating = true
+    if (this.stallTimer) clearTimeout(this.stallTimer)
+    this.stallTimer = null
     for (const [id, pending] of this.pending) {
       this.pending.delete(id)
       pending.reject(new Error('inference worker shutting down'))

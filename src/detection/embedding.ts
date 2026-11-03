@@ -100,6 +100,7 @@ export class EmbeddingChecker {
   // own instance (mock factory) for full control over crash/respawn timing.
   private ready = false
   private readonly workerClient: InferenceWorkerClient
+  private extractorLoad: Promise<FeatureExtractor> | null = null
 
   constructor(config: DetectionConfig, workerClient?: InferenceWorkerClient) {
     this.config = config
@@ -108,6 +109,10 @@ export class EmbeddingChecker {
 
   private spinWait(): boolean {
     return this.config.embedding?.spinWait === true
+  }
+
+  private loadBound(): { label: string; timeoutMs: number } {
+    return { label: 'embedding model', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 }
   }
 
   async init(): Promise<void> {
@@ -141,11 +146,11 @@ export class EmbeddingChecker {
       // to loading it in-process right here) — mirrors the in-process
       // catch-and-disable behaviour below for a genuine load failure.
       try {
-        await this.workerClient.ensure('embed', { spinWait: this.spinWait() })
+        await loadWithVisibility(() => this.workerClient.ensure('embed', { spinWait: this.spinWait() }), this.loadBound())
       } catch (err) {
         if (err instanceof WorkerUnavailableError) {
           try {
-            this.extractor = await loadEmbeddingExtractor(this.spinWait())
+            this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
           } catch (loadErr) {
             this.extractor = null
             log.warn(`embedding model unavailable — semantic similarity stage disabled (${(loadErr as Error).message})`)
@@ -158,10 +163,7 @@ export class EmbeddingChecker {
       }
     } else {
       try {
-        this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), {
-          label: 'embedding model',
-          timeoutMs: this.config.modelLoadTimeoutMs ?? 0,
-        })
+        this.extractor = await loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
       } catch (err) {
         // The semantic-similarity stage is best-effort. If the model can't be
         // fetched (offline, or HuggingFace rate-limits the download with a 429),
@@ -271,7 +273,14 @@ export class EmbeddingChecker {
         // extractor lazily below and continue, same as the flag-off path.
       }
     }
-    if (!this.extractor) this.extractor = await loadEmbeddingExtractor(this.spinWait())
+    // One load, however many scans arrive while it runs. Its failure reaches
+    // Pipeline.run() and detection.failMode like any other, and the next scan tries
+    // again.
+    if (!this.extractor) {
+      this.extractorLoad ??= loadWithVisibility(() => loadEmbeddingExtractor(this.spinWait()), this.loadBound())
+        .finally(() => { this.extractorLoad = null })
+      this.extractor = await this.extractorLoad
+    }
     return embedRaw(this.extractor, text)
   }
 

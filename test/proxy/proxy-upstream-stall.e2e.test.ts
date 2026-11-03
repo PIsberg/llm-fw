@@ -37,7 +37,7 @@ const UPSTREAM_TIMEOUT_MS = 300
 const HUNG_AFTER_MS = 5_000
 
 type Behaviour = 'stall-after-headers' | 'stall-before-headers' | 'reset-after-headers' | 'stall-json-after-headers' | 'stall-handshake'
-  | 'close-before-answering' | 'short-plain-body' | 'complete-plain-body' | 'long-generation'
+  | 'close-before-answering' | 'short-plain-body' | 'complete-plain-body' | 'long-generation' | 'slow-buffered-json'
 let behaviour: Behaviour = 'stall-after-headers'
 let upstreamClosed: Promise<boolean> = Promise.resolve(false)
 
@@ -110,6 +110,19 @@ describe('Proxy: an upstream that stalls or dies (#531, proxy half)', { timeout:
           res.writeHead(200, { 'Content-Type': 'text/plain', 'Content-Length': '1000' })
           res.write('only part of it')
           setTimeout(() => req.socket.destroy(), 30)
+          return
+        }
+        if (behaviour === 'slow-buffered-json') {
+          // Keeps the upstream's idle timer alive while the client hears nothing:
+          // an inspected JSON body is buffered until it is complete.
+          const body = '{"id":"whole","pad":"' + 'x'.repeat(16) + '"}'
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(body.length) })
+          let at = 0
+          const beat = setInterval(() => {
+            res.write(body.slice(at, at + 4))
+            at += 4
+            if (at >= body.length) { clearInterval(beat); res.end() }
+          }, UPSTREAM_TIMEOUT_MS / 3)
           return
         }
         if (behaviour === 'complete-plain-body') {
@@ -270,6 +283,51 @@ describe('Proxy: an upstream that stalls or dies (#531, proxy half)', { timeout:
       })
     })
     expect(answer).toMatch(/^HTTP\/1\.1 504/)
+  })
+
+  // Silence from the client: nothing is waiting on it, but the socket and any
+  // body buffered so far stayed held for ever.
+  const closesWithin = (socket: net.Socket | tls.TLSSocket): Promise<boolean> => new Promise(resolve => {
+    const hung = setTimeout(() => { socket.destroy(); resolve(false) }, HUNG_AFTER_MS)
+    socket.on('error', () => {})
+    socket.on('close', () => { clearTimeout(hung); resolve(true) })
+  })
+  const tunnel = (): Promise<net.Socket> => new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port: PROXY_PORT }, () => {
+      socket.write(`CONNECT ${HOST}:443 HTTP/1.1\r\nHost: ${HOST}:443\r\n\r\n`)
+    })
+    socket.on('error', reject)
+    socket.once('data', () => resolve(socket))
+  })
+
+  it('closes a client that goes silent before the TLS handshake', async () => {
+    expect(await closesWithin(await tunnel())).toBe(true)
+  })
+
+  it('closes a client that goes silent part way through its headers', async () => {
+    const socket = await tunnel()
+    const secure = tls.connect({ socket, servername: HOST, ca: [caPem] }, () => {
+      secure.write(`POST /v1/messages HTTP/1.1\r\nHost: ${HOST}\r\n`)
+    })
+    expect(await closesWithin(secure)).toBe(true)
+  })
+
+  it('closes a client that goes silent part way through its body', async () => {
+    const socket = await tunnel()
+    const secure = tls.connect({ socket, servername: HOST, ca: [caPem] }, () => {
+      secure.write(`POST /v1/messages HTTP/1.1\r\nHost: ${HOST}\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{"model":`)
+    })
+    expect(await closesWithin(secure)).toBe(true)
+  })
+
+  // The guard on those: a client waiting for a slow reply is silent as well, and
+  // a long non-streaming generation is the normal case.
+  it('does not close a client that is only waiting for its answer', async () => {
+    behaviour = 'slow-buffered-json'
+    const seen = await send(caPem, false)
+    expect(seen.status).toBe(200)
+    expect(seen.clean).toBe(true)
+    expect(seen.text).toContain('whole')
   })
 
   it('still answers when the upstream stalls before any headers', async () => {

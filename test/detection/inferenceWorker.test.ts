@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { Worker } from 'node:worker_threads'
 import { InferenceWorkerClient, WorkerUnavailableError, type WorkerFactory } from '../../src/detection/inferenceWorker.js'
@@ -187,6 +187,75 @@ describe('InferenceWorkerClient (Task C3)', () => {
 
     await expect(p1).rejects.toThrow(/shutting down/)
     expect(terminateSpy).toHaveBeenCalledTimes(1)
+  })
+
+  describe('a worker that stops answering', () => {
+    const STALL_MS = 1_000
+    function stallClient() {
+      const workers: FakeWorker[] = []
+      const factory: WorkerFactory = vi.fn(() => {
+        const w = new FakeWorker()
+        workers.push(w)
+        return w as unknown as Worker
+      })
+      return { client: new InferenceWorkerClient(factory, STALL_MS), workers }
+    }
+    const answer = (w: FakeWorker, i: number) => w.emit('message', { id: w.posted[i]!.id, ok: true, kind: 'embed', result: new Float32Array(1) })
+
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('fails what it holds, ends it, and respawns for the next request', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { client, workers } = stallClient()
+      const stuck = client.embed('one')
+      const outcome = expect(stuck).rejects.toThrow(/no answer/)
+      await vi.advanceTimersByTimeAsync(STALL_MS)
+      await outcome
+      expect(workers[0]!.terminated).toBe(true)
+      void client.embed('two').catch(() => {})
+      expect(workers).toHaveLength(2)
+    })
+
+    it('falls back to in-process after a second stall', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { client } = stallClient()
+      for (let i = 0; i < 2; i++) {
+        const outcome = expect(client.embed('text')).rejects.toThrow(/no answer/)
+        await vi.advanceTimersByTimeAsync(STALL_MS)
+        await outcome
+      }
+      expect(client.isAvailable()).toBe(false)
+      await expect(client.embed('text')).rejects.toBeInstanceOf(WorkerUnavailableError)
+    })
+
+    it('counts any answer as progress, so a long queue is not a stall', async () => {
+      const { client, workers } = stallClient()
+      const all = [client.embed('a'), client.embed('b'), client.embed('c')]
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(STALL_MS - 1)
+        answer(workers[0]!, i)
+      }
+      await expect(Promise.all(all)).resolves.toHaveLength(3)
+      expect(workers[0]!.terminated).toBe(false)
+    })
+
+    it('stops watching once nothing is outstanding', async () => {
+      const { client, workers } = stallClient()
+      const done = client.embed('a')
+      answer(workers[0]!, 0)
+      await done
+      await vi.advanceTimersByTimeAsync(STALL_MS * 5)
+      expect(workers[0]!.terminated).toBe(false)
+    })
+
+    // A first download takes minutes. Its caller bounds it with modelLoadTimeoutMs.
+    it('does not treat a model load as a stall', async () => {
+      const { client, workers } = stallClient()
+      void client.ensure('embed', { spinWait: false }).catch(() => {})
+      await vi.advanceTimersByTimeAsync(STALL_MS * 5)
+      expect(workers[0]!.terminated).toBe(false)
+    })
   })
 
   it('close() is a safe no-op when no worker was ever spawned', async () => {

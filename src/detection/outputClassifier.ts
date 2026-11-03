@@ -5,6 +5,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { createLogger } from '../logger.js';
 import { compactTokenizer } from './compactTokenizer.js';
+import { loadWithVisibility } from './modelLoad.js';
 
 const log = createLogger('output-classifier');
 
@@ -65,7 +66,7 @@ export class OutputModerationClassifier {
   private cache = new Map<string, OutputClassifierVerdict>()
   private initAttempted = false
 
-  constructor(config: ResponseScanConfig | undefined) {
+  constructor(config: ResponseScanConfig | undefined, private readonly modelLoadTimeoutMs = 0) {
     this.config = config
   }
 
@@ -77,10 +78,11 @@ export class OutputModerationClassifier {
     env.cacheDir = process.env.LLM_FW_MODEL_DIR || join(getLlmFwDir(), 'models')
     env.allowLocalModels = false
     try {
-      this.classifier = (await pipeline(
-        'text-classification',
-        this.config.classifier.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL,
-      )) as unknown as ClassifyFn
+      const model = this.config.classifier.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL
+      this.classifier = await loadWithVisibility(
+        async () => (await pipeline('text-classification', model)) as unknown as ClassifyFn,
+        { label: 'response moderation classifier', timeoutMs: this.modelLoadTimeoutMs },
+      )
       compactTokenizer((this.classifier as unknown as { tokenizer?: unknown }).tokenizer)
     } catch (err) {
       // Best-effort, exactly like the input classifier: if the model can't be
