@@ -22,6 +22,16 @@ describe('OutputModerationClassifier', () => {
     vi.mocked(pipeline).mockClear()
   })
 
+  // Measured for #650: spinning held 1,105% of one core at a light load against
+  // 95%, and was slower flat out (43 ms a pass against 29), with the same output.
+  it('loads the model with onnxruntime spinning off', async () => {
+    const c = new OutputModerationClassifier(cfg())
+    await c.init()
+    expect(vi.mocked(pipeline).mock.calls[0]![2]).toMatchObject({
+      session_options: { extra: { session: { intra_op: { allow_spinning: '0' } } } },
+    })
+  })
+
   it('does not load the model when the stage is disabled', async () => {
     const c = new OutputModerationClassifier({ enabled: true, mode: 'audit', classifier: { enabled: false } })
     await c.init()
@@ -48,14 +58,14 @@ describe('OutputModerationClassifier', () => {
     fakeClassify.mockResolvedValue([{ label: 'REJECTION', score: 0.97 }])
     const c = new OutputModerationClassifier(cfg())
     await c.init()
-    expect(pipeline).toHaveBeenCalledWith('text-classification', DEFAULT_OUTPUT_CLASSIFIER_MODEL)
+    expect(pipeline).toHaveBeenCalledWith('text-classification', DEFAULT_OUTPUT_CLASSIFIER_MODEL, expect.anything())
   })
 
   it('loads a configured custom model id', async () => {
     fakeClassify.mockResolvedValue([{ label: 'toxic', score: 0.97 }])
     const c = new OutputModerationClassifier(cfg({ model: 'Xenova/toxic-bert' }))
     await c.init()
-    expect(pipeline).toHaveBeenCalledWith('text-classification', 'Xenova/toxic-bert')
+    expect(pipeline).toHaveBeenCalledWith('text-classification', 'Xenova/toxic-bert', expect.anything())
   })
 
   it('lazy-loads the model on first classify when init() was not called', async () => {
