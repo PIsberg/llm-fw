@@ -119,7 +119,7 @@ import { referencesModelInstructions } from './selfReference.js'
 import { detectIndirectInstruction, namesDestination } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
-import { SuppressionStore, suppressionKey, type NearCopy } from './suppressions.js'
+import { SuppressionStore, suppressionKey, rawSuppressionKey, type NearCopy } from './suppressions.js'
 import { withholdText, withholdNotice } from './withhold.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
@@ -798,7 +798,7 @@ export class Pipeline {
             smuggleRanges: hidden.ranges,
           }
           const line = `[hidden: ${hidden.ranges.join(', ')}]${decodedNote}`
-          if (this.isSuppressed(prompt, source)) {
+          if (this.isSuppressed(prompt, source, rawSuppressionKey(prompt, source))) {
             if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source }
           } else {
             this.emit(result, meta, line, source, prompt)
@@ -1383,9 +1383,9 @@ export class Pipeline {
    * disables `detection.suppressions`; an empty list (the fresh-install
    * state) always returns false.
    */
-  private isSuppressed(text: string, source: ScanSource): boolean {
+  private isSuppressed(text: string, source: ScanSource, key = suppressionKey(text, source)): boolean {
     if (this.config.detection.suppressions === false) return false
-    const hit = this.suppressions.has(suppressionKey(text, source))
+    const hit = this.suppressions.has(key)
     // An item whose verdict leaned on a suppression is never put in the item
     // cache: removing the suppression has to make it block again.
     if (hit) this.suppressionHits++
@@ -1510,7 +1510,7 @@ export class Pipeline {
     // Keyed on the scanned text when there is one, not the display line: two
     // texts flagged on the same sentence read the same there, and the second
     // was withheld with no event for the operator to mark.
-    const key = scanned !== null ? suppressionKey(scanned, source) : null
+    const key = scanned === null ? null : result.stage === 'ascii-smuggling' ? rawSuppressionKey(scanned, source) : suppressionKey(scanned, source)
     if ((observing || withheld === true) && result.action === 'block'
       && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${source}\0${result.stage}\0${key ?? prompt}`).digest('hex'))) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition

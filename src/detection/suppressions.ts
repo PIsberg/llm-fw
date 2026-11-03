@@ -128,6 +128,16 @@ export function suppressionKey(text: string, source: ScanSource): string {
   return createHash('sha256').update(source).update('\0').update(normalizeSemantic(text)).digest('hex')
 }
 
+/**
+ * The key of a mark the ASCII-smuggling stage honours: the raw text, invisible
+ * characters included. suppressionKey hashes normalized text, which has lost
+ * them, so under it a mark on a text would also cover that text with a payload
+ * hidden in it, at the one stage that exists to read one.
+ */
+export function rawSuppressionKey(text: string, source: ScanSource): string {
+  return createHash('sha256').update('raw\0').update(source).update('\0').update(text).digest('hex')
+}
+
 export class SuppressionStore {
   private hashes = new Set<string>()
   // Entries that also match a near copy, by hash.
