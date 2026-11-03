@@ -3,6 +3,28 @@ import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
 import { overrideLexiconMatcher, jailbreakFrameMatcher } from './overrideLexicon.js'
 import { unwrapCodexEnvelope } from './clientEnvelopes.js'
 
+const PERSONA_INSTALL_RE = /\b(?:you are now|you will (?:now )?act as|act as|pretend to be|your new (?:identity|name|role) is)\b/
+// Every reply carrying the persona's badge, or a cue that brings the model back to it.
+const PERSONA_BADGE_RE = /\b(?:begin|start|prefix|open)s?\b[^.!?\n]{0,30}\b(?:answers?|repl(?:y|ies)|responses?|messages?)\b|\b(?:answers?|repl(?:y|ies)|responses?|messages?)\b[^.!?\n]{0,20}\b(?:begins?|starts?|opens?)\b/
+const PERSONA_CUE_RE = /\b(?:stay|remain|keep)\b[^.!?\n]{0,10}\b(?:in|to) (?:role|character)\b|\b(?:return|go back|back) to (?:the|this|that|your) role\b/
+// Told to declare it switched on. Not "say whether the flag is enabled", and not
+// "confirm that TLS is enabled": those ask about a switch rather than throw one, so
+// nothing between the verb and the word may turn the sentence into a question.
+const PERSONA_ENABLED_RE = /\b(?:say|saying|reply|replying|respond|responding|answer|answering)\b(?:(?!\b(?:if|whether|when|once|that)\b)[^.!?\n]){0,60}?\b(?:enabled|activated|unlocked)\b/
+
+/**
+ * A persona jailbreak that names no missing rules: install a named bot, have every
+ * reply carry its badge or give a cue back to the role, and have the model declare
+ * the bot switched on. Honest role-play has the first two as well, and asks for
+ * "ready" at most. A combination rather than one pattern, since each part alone is
+ * ordinary text, and each regex here reads forward from a word with a bounded gap.
+ */
+function personaConfirmation(text: string): boolean {
+  return PERSONA_ENABLED_RE.test(text)
+    && PERSONA_INSTALL_RE.test(text)
+    && (PERSONA_BADGE_RE.test(text) || PERSONA_CUE_RE.test(text))
+}
+
 interface WeightedRule { weight: number; label: string; patterns: Array<Pick<RegExp, 'test'>> }
 
 // Defensive instruction-hygiene clauses: an override verb whose
@@ -587,6 +609,10 @@ export class HeuristicScorer {
       {
         // A demand backed by a threat of harm. See COERCION_PATTERNS.
         weight: 50, label: 'coercion', patterns: COERCION_PATTERNS,
+      },
+      {
+        // A named persona declared switched on (#626). See personaConfirmation.
+        weight: 50, label: 'persona-confirmation', patterns: [{ test: personaConfirmation }],
       },
       {
         // Indirect "fictional unrestricted AI" framing (DAN, "Do Anything Now",

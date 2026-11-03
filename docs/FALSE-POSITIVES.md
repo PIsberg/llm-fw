@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.23
+
+**No benign verdict moved.** One attack row moved from pass to block, safeguard #499, by a rule reading a persona told to declare itself switched on. `npm run fpr` is unchanged, and 3 of 730,288 distinct strings in local transcripts fire it, all this repository quoting the shape.
+
 ## Result, ruleset 2026.11.22
 
 **No verdict moved.** The model runs on a worker thread by default, on the same single-text calls, and its vectors are identical.
