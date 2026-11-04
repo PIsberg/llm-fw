@@ -181,15 +181,16 @@ export class DlpScanner {
       }
     }
 
-    // Apply right-to-left so earlier indices stay valid as we splice.
-    let result = text
-    // Reverse order matters: each splice must not shift the offsets of the
-    // ones still to come. Iterating the reversed copy keeps that and carries
-    // the bound with the value.
-    for (const r of [...kept].reverse()) {
-      result = result.slice(0, r.start) + r.marker + result.slice(r.end)
+    // One pass, joined at the end. Splicing the whole text per finding made the
+    // cost findings times size: 57 s on 3.2 MB of repeated headers.
+    const parts: string[] = []
+    let at = 0
+    for (const r of kept) {
+      parts.push(text.slice(at, r.start), r.marker)
+      at = r.end
     }
-    return result
+    parts.push(text.slice(at))
+    return parts.join('')
   }
 }
 

@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.29
+
+**No verdict moved.** Three fixes, none of which an eval string reaches. DLP redaction builds the same text in one pass, after a verdict rather than before one. The response exfiltration scan reads markdown in one pass, on model output, which no eval corpus holds. The ASCII-smuggling stage honours a mark only on the raw text, and no eval run has marks.
+
 ## Result, ruleset 2026.11.28
 
 **No verdict moved.** A new opt-in, unset by default (#669). The vectors hash the same at thread counts unset, 2, 4 and 8, on short prompts and on 230-word chunks.

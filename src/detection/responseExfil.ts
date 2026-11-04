@@ -22,10 +22,18 @@ export interface ExfilFinding {
 
 // Every URL pattern also takes a scheme-relative `//host/...`, which a
 // browser resolves to https (parseUrl does the same).
-// `!\[alt\](url)` — markdown image. URL stops at whitespace, ')' or '>'.
-const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?((?:https?:)?\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
-// `\[text\](url)` — markdown link (not preceded by '!', which is the image form).
-const MD_LINK_RE = /(?<!!)\[[^[\]]*\]\(\s*<?((?:https?:)?\/\/[^\s)>]+)(?:>[^)]*|\s[^)]*)?\)/gi
+const IS_URL = /^(?:https?:)?\/\//i
+// `![alt](url)` and `[text](url)` are read from the `](` both share, in one
+// pass (inlineDestinations). Patterns anchored on the opening bracket restarted
+// at every `[` and ran to the end of the text when the markup never closed, on
+// the thread serving every client: 6 s on 200 KB (GHSA-ggrw-cm2f-mh3c).
+const BRACKET_RE = /!\[|\[|\]\(?/g
+// A destination, after whitespace and an optional `<`. It stops at whitespace,
+// ')' or '>'. Nothing follows the run, so it never backtracks.
+const DEST_RE = /\s*<?([^\s)>]*)/y
+// Deep enough for any real nesting, and it keeps `[[[[...` from filling memory.
+// Past it an inner bracket is not tracked, which can only mislabel a finding.
+const MAX_BRACKET_DEPTH = 1024
 // `[label]: url` — a link reference definition (#574). `![alt][label]` (and
 // `![label]`) fetch its URL like an inline image, so it is reported as one.
 // Any `]:` before a URL counts, whatever starts the line: a definition may sit
@@ -44,6 +52,36 @@ const MD_DEF_RE = /\]:[ \t]*(?:(?:\r?\n|\\r\\n|\\n)[ \t]*)?<?((?:https?:)?\/\/[^
 // the attribute's quote arrives escaped (`src=\"...\"`).
 const IMG_OPEN_RE = /<img\b/gi
 const SRC_ATTR_RE = /\bsrc\s*=\s*\\?["']?((?:https?:)?\/\/[^"'\s>\\]+)/gi
+
+/**
+ * Every destination after a `](`, each read once: linear in `text`. A `](`
+ * inside a destination that has not ended opens another one, so each of those
+ * pieces is returned as well: a client that gives up on the outer markup may
+ * still render the inner, and rereading from each `](` to the end of the run
+ * would be quadratic. An image is one whose own opening bracket is `![`.
+ */
+function inlineDestinations(text: string): { url: string; image: boolean }[] {
+  const found: { url: string; image: boolean }[] = []
+  const open: boolean[] = []
+  BRACKET_RE.lastIndex = 0
+  for (let m = BRACKET_RE.exec(text); m !== null; m = BRACKET_RE.exec(text)) {
+    const token = m[0]
+    if (token === '[' || token === '![') {
+      if (open.length < MAX_BRACKET_DEPTH) open.push(token === '![')
+      continue
+    }
+    const image = open.pop() === true
+    if (token === ']') continue
+    DEST_RE.lastIndex = BRACKET_RE.lastIndex
+    const url = DEST_RE.exec(text)?.[1] ?? ''
+    BRACKET_RE.lastIndex = DEST_RE.lastIndex
+    found.push({ url, image })
+    if (url.includes('](')) {
+      for (const inner of url.split('](')) found.push({ url: inner.replace(/^</, ''), image })
+    }
+  }
+  return found
+}
 
 /** The text of each `<img ...>` tag, each read once: linear in `text`. */
 function imgTags(text: string): string[] {
@@ -90,30 +128,29 @@ export function scanResponseExfil(
   const findings: ExfilFinding[] = []
   const seen = new Set<string>()
 
+  const judge = (url: string, kind: ExfilFinding['kind']) => {
+    const parsed = parseUrl(url)
+    if (parsed && isExfil(parsed.hostname, parsed.path)) {
+      const key = kind + '|' + url
+      if (!seen.has(key)) {
+        seen.add(key)
+        findings.push({ url, kind, reason: `${kind} points at an exfiltration destination (${parsed.hostname})` })
+      }
+    }
+  }
   const scan = (re: RegExp, kind: ExfilFinding['kind'], input = text) => {
     re.lastIndex = 0
     for (let m = re.exec(input); m !== null; m = re.exec(input)) {
-      const url = m[1]
-      if (!url) {
-        if (m.index === re.lastIndex) re.lastIndex++
-        continue
-      }
-      const parsed = parseUrl(url)
-      if (parsed && isExfil(parsed.hostname, parsed.path)) {
-        const key = kind + '|' + url
-        if (!seen.has(key)) {
-          seen.add(key)
-          findings.push({ url, kind, reason: `${kind} points at an exfiltration destination (${parsed.hostname})` })
-        }
-      }
+      if (m[1]) judge(m[1], kind)
       if (m.index === re.lastIndex) re.lastIndex++
     }
   }
 
-  scan(MD_IMAGE_RE, 'markdown-image')
+  const inline = inlineDestinations(text).filter(d => IS_URL.test(d.url))
+  for (const d of inline) if (d.image) judge(d.url, 'markdown-image')
   scan(MD_DEF_RE, 'markdown-image')
   for (const tag of imgTags(text)) scan(SRC_ATTR_RE, 'html-image', tag)
-  scan(MD_LINK_RE, 'markdown-link')
+  for (const d of inline) if (!d.image) judge(d.url, 'markdown-link')
   return findings
 }
 
