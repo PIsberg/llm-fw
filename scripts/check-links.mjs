@@ -25,17 +25,18 @@ const slugify = (heading) =>
     .replace(/[^\w\s-]/g, '')
     .replace(/\s/g, '-');
 
-// Fenced blocks hold example headings; inline code holds regexes that look
-// like links. Neither is a link.
-function strip(text) {
-  return text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
-}
+// Fenced blocks hold example headings, so neither they nor their contents count.
+const stripFences = (text) => text.replace(/```[\s\S]*?```/g, '');
+
+// Inline code holds regexes that look like links, but only when reading links:
+// GitHub keeps a heading's inline code in its anchor.
+const strip = (text) => stripFences(text).replace(/`[^`\n]*`/g, '');
 
 const files = walk(root, []);
 const anchors = new Map();
 for (const f of files) {
   const set = new Set();
-  for (const line of strip(fs.readFileSync(f, 'utf8')).split(/\r?\n/)) {
+  for (const line of stripFences(fs.readFileSync(f, 'utf8')).split(/\r?\n/)) {
     if (/^#{1,6}\s/.test(line)) set.add(slugify(line));
   }
   anchors.set(path.resolve(f), set);
