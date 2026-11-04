@@ -4,6 +4,7 @@ import { loadConfig } from '../config/config.js';
 import { stripSinkholeBlock } from './hosts.js';
 import { serializeLike } from './jsonFormat.js';
 import { getLlmFwDir } from '../config/paths.js';
+import { LLMFW_USER_ENV, parseRegQueryValue, recordPriorEnv, type EnvSnapshot } from './userEnv.js';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
@@ -255,6 +256,47 @@ export function resolveSetupMode(
   return { sinkhole: elevated, sinkholeWanted: true };
 }
 
+/** File under the llm-fw directory that holds the user's Windows env values from before setup. */
+export const PRIOR_ENV_FILE = 'env-before.json';
+
+/** Read `key` (e.g. `HKCU\Environment`) for each managed name. An absent variable reads as `null`. */
+export function readRegEnv(key: string): EnvSnapshot {
+  const snap: EnvSnapshot = {};
+  for (const name of LLMFW_USER_ENV) {
+    try {
+      const out = execFileSync('reg', ['query', key, '/v', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      snap[name] = parseRegQueryValue(out, name);
+    } catch {
+      // reg exits non-zero when the value does not exist.
+      snap[name] = null;
+    }
+  }
+  return snap;
+}
+
+export function readUserEnv(): EnvSnapshot {
+  return readRegEnv('HKCU\\Environment');
+}
+
+/** The values recorded by an earlier setup run. Missing or unreadable reads as nothing recorded. */
+export function readPriorEnv(dir: string): EnvSnapshot {
+  try {
+    const raw = JSON.parse(fs.readFileSync(join(dir, PRIOR_ENV_FILE), 'utf8')) as Record<string, unknown>;
+    const snap: EnvSnapshot = {};
+    for (const name of LLMFW_USER_ENV) {
+      const value = raw[name];
+      if (typeof value === 'string' || value === null) snap[name] = value;
+    }
+    return snap;
+  } catch {
+    return {};
+  }
+}
+
+export function writePriorEnv(dir: string, snap: EnvSnapshot): void {
+  fs.writeFileSync(join(dir, PRIOR_ENV_FILE), JSON.stringify(snap, null, 2) + '\n', 'utf8');
+}
+
 /**
  * Persist `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` so every new shell
  * points at the firewall without the user exporting anything by hand. Windows
@@ -271,6 +313,14 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
   const os = platform();
   try {
     if (os === 'win32') {
+      // Write down what each variable held before setx overwrites it, so uninstall
+      // can put a corporate proxy back instead of deleting it. Entries already on
+      // file are kept, so re-running setup cannot replace them with llm-fw's values.
+      const dir = getLlmFwDir();
+      const prior = recordPriorEnv(readUserEnv(), readPriorEnv(dir), LLMFW_USER_ENV);
+      fs.mkdirSync(dir, { recursive: true });
+      writePriorEnv(dir, prior);
+
       // setx writes HKCU\Environment and broadcasts WM_SETTINGCHANGE, so new
       // terminals inherit the values (the current one must be reopened). Store
       // the resolved CA path — setx creates REG_SZ, which does not expand %VARS%.
@@ -278,6 +328,8 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
       execFileSync('setx', ['NO_PROXY', DEFAULT_NO_PROXY], { stdio: 'ignore' });
       execFileSync('setx', ['NODE_EXTRA_CA_CERTS', caCertPath], { stdio: 'ignore' });
       console.log('  ✓ Set HTTPS_PROXY + NO_PROXY + NODE_EXTRA_CA_CERTS in your user environment (open a new terminal to load them).');
+      const kept = LLMFW_USER_ENV.filter(n => typeof prior[n] === 'string');
+      if (kept.length) console.log(`    Previous values of ${kept.join(', ')} are saved in ${join(dir, PRIOR_ENV_FILE)}; uninstall restores them.`);
     } else {
       const shell = process.env.SHELL || '';
       const profile = shell.includes('zsh') ? join(homedir(), '.zshrc')

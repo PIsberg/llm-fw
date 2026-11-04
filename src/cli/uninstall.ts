@@ -4,7 +4,8 @@ import { homedir, platform } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { isElevated, getIdeSettingsPaths } from './setup.js';
+import { isElevated, getIdeSettingsPaths, readPriorEnv, readRegEnv, readUserEnv } from './setup.js';
+import { LLMFW_USER_ENV, planEnvRestore } from './userEnv.js';
 import { serializeLike } from './jsonFormat.js';
 import { loadConfig } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
@@ -292,37 +293,44 @@ export function removeLlmfwFiles(llmfwDir: string, opts: { keepModel: boolean; p
   ok(`Left in ${llmfwDir}: ${left.map(n => (isDir(n) ? n + '/' : n)).join(', ')}`);
 }
 
-/** Remove environment variables HTTPS_PROXY and NODE_EXTRA_CA_CERTS if they point to llm-fw. */
+const SYSTEM_ENV_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
+
+/**
+ * Undo the environment variables `setup` wrote. Windows: put back each value setup
+ * recorded (env-before.json), or delete the variable when none was recorded, and
+ * only while it still holds an llm-fw value. Anything the user has changed since is
+ * left alone. macOS and Linux: strip the llm-fw lines from the shell profiles.
+ */
 function removeEnvVars(): void {
   const os = platform();
   try {
     if (os === 'win32') {
-      let clearedUser = false;
-      // Clear User environment variables. NO_PROXY is removed alongside the
-      // proxy variable it accompanies: setup writes the pair, so uninstall
-      // takes the pair, or the machine is left excluding hosts from a proxy
-      // that no longer exists.
-      const userVars = ['HTTPS_PROXY', 'NO_PROXY', 'NODE_EXTRA_CA_CERTS'];
-      for (const name of userVars) {
+      const plan = planEnvRestore(readUserEnv(), readPriorEnv(getLlmFwDir()));
+      const restored: string[] = [];
+      for (const name of LLMFW_USER_ENV) {
+        const value = plan.set[name];
+        if (value === undefined) continue;
+        execFileSync('setx', [name, value], { stdio: 'ignore' });
+        restored.push(name);
+      }
+      for (const name of plan.remove) {
         try {
-          execSync(`reg delete HKCU\\Environment /v ${name} /f`, { stdio: 'ignore' });
-          clearedUser = true;
-        } catch { /* may not exist */ }
+          execFileSync('reg', ['delete', 'HKCU\\Environment', '/v', name, '/f'], { stdio: 'ignore' });
+        } catch { /* already gone */ }
       }
 
-      let clearedSystem = false;
-      // Clear System environment variables (if elevated)
-      if (isElevated()) {
-        for (const name of userVars) {
-          try {
-            execSync(`reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v ${name} /f`, { stdio: 'ignore' });
-            clearedSystem = true;
-          } catch { /* may not exist */ }
-        }
+      // setup never writes the System environment, so only an llm-fw value there is removed.
+      const systemRemove = isElevated() ? planEnvRestore(readRegEnv(SYSTEM_ENV_KEY), {}).remove : [];
+      for (const name of systemRemove) {
+        try {
+          execFileSync('reg', ['delete', SYSTEM_ENV_KEY, '/v', name, '/f'], { stdio: 'ignore' });
+        } catch { /* already gone */ }
       }
 
-      if (clearedUser || clearedSystem) {
-        ok('Removed environment variables (HTTPS_PROXY, NO_PROXY, NODE_EXTRA_CA_CERTS) from registry');
+      const removed = [...plan.remove, ...systemRemove];
+      if (restored.length || removed.length) {
+        if (restored.length) ok(`Restored the values from before setup: ${restored.join(', ')}`);
+        if (removed.length) ok(`Removed llm-fw environment variables from registry: ${removed.join(', ')}`);
       } else {
         skip('No llm-fw environment variables found in registry');
       }
@@ -421,14 +429,15 @@ export async function run(args: string[]): Promise<void> {
   // 3. Local files.
   const projectNote = noteProjectConfig(process.cwd());
   if (projectNote) skip(projectNote);
-  removeLlmfwFiles(llmfwDir, { keepModel, purge });
+  // Before the files go: the values setup recorded (env-before.json) live in llmfwDir.
   removeEnvVars();
+  removeLlmfwFiles(llmfwDir, { keepModel, purge });
   removeIdeProxySettings();
 
   // 4. Remind about the env vars setup told the user to set (we don't own them).
   console.log('\n── Active shell sessions ───────────────────────────────────────────────────');
-  console.log('  Environment variables were removed from registry/profiles, but active shell');
-  console.log('  sessions still retain them. To clean your current session, run:');
+  console.log('  llm-fw environment variables were removed or restored in the registry/profiles, but');
+  console.log('  active shell sessions still retain their values. To clean your current session, run:');
   if (platform() === 'win32') {
     console.log("    Remove-Item Env:HTTPS_PROXY, Env:NO_PROXY, Env:NODE_EXTRA_CA_CERTS   # current session");
   } else {
