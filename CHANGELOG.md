@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows setup no longer destroys a proxy or CA variable you already had, and uninstall no longer deletes one it did not write.** Setup overwrote `HTTPS_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS` in your user environment with no record of the old values, and uninstall deleted all three whatever they held, though its comment said only llm-fw's values were removed. Setup now saves the previous value of each variable to `env-before.json` in the llm-fw directory. Uninstall restores that value, or deletes the variable when none was there, and only while it still holds an llm-fw value. A value you changed after setup is left alone. The POSIX profile path already behaved this way.
+
 ## [0.9.5] - 2026-11-04
 
 ### Upgrade notes

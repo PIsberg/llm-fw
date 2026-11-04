@@ -683,10 +683,13 @@ What it does, in order:
 7. **Removes the IDE proxy settings** (`http.proxy` / `http.proxyStrictSSL`)
    that setup wrote into VS Code / Antigravity `settings.json`.
 8. **Removes the `HTTPS_PROXY` / `NO_PROXY` / `NODE_EXTRA_CA_CERTS` environment variables** —
-   from the Windows registry (user, plus machine scope when elevated), or from
+   on Windows, from the registry (user scope, plus machine scope when elevated), or from
    your shell profiles (`~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.bash_profile`)
-   on macOS/Linux. Already-open shell sessions keep their copies until you unset
-   them (see below).
+   on macOS/Linux. Only llm-fw's own values are touched. On Windows, setup saves what each
+   variable held before it was overwritten (`env-before.json` in the llm-fw directory),
+   and uninstall restores that value, so a corporate `HTTPS_PROXY` you had before comes back.
+   A value you changed after setup is left alone. Already-open shell sessions keep their
+   copies until you unset them (see below).
 
 Flags:
 

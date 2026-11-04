@@ -556,11 +556,13 @@ already-open terminals (which can't inherit the change). `uninstall` reverses it
 
 | Platform | What `setup` writes | How | Reversal |
 | --- | --- | --- | --- |
-| Windows | `HKCU\Environment` (user scope) | `setx HTTPS_PROXY …` / `setx NODE_EXTRA_CA_CERTS …` (REG_SZ; broadcasts `WM_SETTINGCHANGE`) | `reg delete HKCU\Environment /v … /f` — plus `HKLM\…\Session Manager\Environment` when uninstall runs elevated |
+| Windows | `HKCU\Environment` (user scope) | `setx HTTPS_PROXY …` / `setx NODE_EXTRA_CA_CERTS …` (REG_SZ; broadcasts `WM_SETTINGCHANGE`) | Before `setx`, setup writes each variable's previous value (or `null` for absent) to `<LLM_FW_DIR>/env-before.json`. Uninstall touches a variable only while it still holds an llm-fw value: it restores the recorded value with `setx`, or runs `reg delete HKCU\Environment /v … /f` when nothing was recorded. A value the user changed since setup is left alone. The same check applies to `HKLM\…\Session Manager\Environment` when uninstall runs elevated, where setup never writes |
 | macOS / Linux | the user's shell profile (`~/.zshrc`, `~/.bashrc`, else `~/.profile`) | `addProfileEnvVars` appends a `# llm-fw env` block with both `export`s, stripping any prior block first (idempotent) | `stripProfileEnvVars` removes the marker + the loopback-proxy / `~/.llm-fw/ca.crt` exports |
 
 Both transforms are pure and unit-tested (`addProfileEnvVars` in
-`test/cli/setup.test.ts`, `stripProfileEnvVars` in `test/cli/uninstall.test.ts`);
+`test/cli/setup.test.ts`, `stripProfileEnvVars` in `test/cli/uninstall.test.ts`), and so is
+the Windows decision (`recordPriorEnv` and `planEnvRestore` in `src/cli/userEnv.ts`, tested in
+`test/cli/userEnv.test.ts`);
 a user's own corporate-proxy / unrelated-CA exports are left untouched. Already-open
 shell sessions keep their in-memory copies; `uninstall` prints the manual `unset`
 / `Remove-Item Env:` command for the current session. `doctor` reads the live
