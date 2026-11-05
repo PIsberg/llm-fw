@@ -279,7 +279,10 @@ export class GatewayServer {
       }
       // Before the tap, so the Usage Meter still sees the usage chunk (#421).
       if (decision.stripStreamUsage) stripUsageChunk(res);
-      const captured = moduleCtx && this.modules.wantsResponses()
+      // Detection reads the response's tool calls too, for the results a
+      // Responses API request with previous_response_id sends without them.
+      const learnCalls = this.pipeline.wantsCalls();
+      const captured = (moduleCtx && this.modules.wantsResponses()) || learnCalls
         ? tapResponse(res, bodyCap(this.config.proxy.maxBodyBytes))
         : null;
       // The system-prompt canary (#552, the proxy's since #539), added after
@@ -299,6 +302,7 @@ export class GatewayServer {
       }
       await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);
       const response = captured?.();
+      if (response && learnCalls) this.pipeline.learnCalls(response);
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
       log.error(`${req.method} ${urlForLog(req.url)} — ${(err as Error)?.message ?? String(err)}`);

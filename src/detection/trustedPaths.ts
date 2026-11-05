@@ -23,6 +23,17 @@ import path from 'node:path'
 //   proxy cannot know what the path means;
 // - never third-party code vendored inside a trusted root.
 
+/**
+ * Full tool names that search local files under a directory and return what
+ * they found: Claude Code's Grep (ripgrep, which skips what .gitignore lists,
+ * node_modules included) and Glob (file names only). Their `path` may be the
+ * root itself. Without a `path` they search the client's working directory,
+ * which the call does not name, so they stay untrusted. A search of a whole
+ * root can return a line from any file ripgrep reads under it, so this trusts
+ * the repository as a Read of each of its files would.
+ */
+const SEARCH_TOOLS: ReadonlySet<string> = new Set(['Grep', 'Glob'])
+
 /** Full tool names that read one local file. */
 const READ_TOOLS: ReadonlySet<string> = new Set([
   'Read', // Claude Code
@@ -97,11 +108,12 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
     const bash = toolName === 'Bash'
     return shellReadPath(args.command, !bash && typeof args.workdir === 'string' ? args.workdir : undefined, bash, roots)
   }
-  if (!READ_TOOLS.has(toolName)) return null
+  const search = SEARCH_TOOLS.has(toolName)
+  if (!search && !READ_TOOLS.has(toolName)) return null
   const paths = PATH_KEYS.filter(k => k in args).map(k => args[k])
   if (paths.length === 0) return null
   for (const p of paths) {
-    if (typeof p !== 'string' || !underTrustedRoot(p, roots)) return null
+    if (typeof p !== 'string' || !underTrustedRoot(p, roots, search)) return null
   }
   return paths[0] as string
 }
@@ -110,13 +122,17 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
 // Code translates it, but Node's own fs on Windows resolves it to C:\c\dev\x,
 // so what it names depends on the client. It stays the POSIX path it reads
 // as, which no drive root matches.
-function underTrustedRoot(raw: string, roots: readonly string[]): boolean {
+function underTrustedRoot(raw: string, roots: readonly string[], rootItself = false): boolean {
   const file = normalise(raw)
   if (!file) return false
   for (const r of roots) {
     const root = normalise(r)
-    if (!root || !file.startsWith(root + '/')) continue
+    if (!root) continue
+    if (rootItself && file === root) return true
+    if (!file.startsWith(root + '/')) continue
+    // A search's path is a directory, so its last segment is one too.
     const below = file.slice(root.length + 1).split('/')
+    if (rootItself && THIRD_PARTY_DIRS.has(dirName(below.at(-1) ?? ''))) continue
     if (below.slice(0, -1).some(seg => THIRD_PARTY_DIRS.has(dirName(seg)))) continue
     return true
   }
