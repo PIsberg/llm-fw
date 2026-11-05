@@ -3,7 +3,7 @@ import {
   evaluateProbe,
   summarize,
   setEnvCmd,
-  parseCaStorePresent,
+  classifyCaTrust,
   certFingerprintSha1,
   parseStoreCaFingerprints,
   parseIphlpsvcRunning,
@@ -13,6 +13,7 @@ import {
   parseProfileEnv,
   type DoctorProbe,
 } from '../../src/cli/doctor.js'
+import { issueInMemoryCA } from '../../src/proxy/certs.js'
 
 /** A fully-healthy sinkhole probe on Windows; tests override single fields. */
 function probe(overrides: Partial<DoctorProbe> = {}): DoctorProbe {
@@ -212,15 +213,39 @@ describe('evaluateProbe', () => {
       expect(find(probe({ os: 'win32', caTrusted: false }), 'CA not found')?.fix?.[0]).toContain('certutil -addstore')
     })
 
+    it('offers the no-admin user-store install on Windows', () => {
+      const fix = find(probe({ os: 'win32', caTrusted: false }), 'CA not found')?.fix ?? []
+      expect(fix.some(f => f.includes('certutil -user -addstore'))).toBe(true)
+    })
+
+    it('names the clients an untrusted CA breaks, with the error Go tools print (#689)', () => {
+      const c = find(probe({ caTrusted: false }), 'CA not found')
+      expect(c?.detail).toContain('agy')
+      expect(c?.detail).toContain('certificate signed by unknown authority')
+    })
+
     it('is informational when trust cannot be determined', () => {
       expect(find(probe({ caTrusted: null }), 'CA trust state could not be verified')?.level).toBe('info')
     })
 
     it('warns when the trust store holds a rotated-out CA (signature-failure footgun)', () => {
-      const c = find(probe({ caStoreStale: true }), 'rotated-out')
+      const c = find(probe({ caTrusted: false, caStoreStale: true }), 'rotated-out')
       expect(c?.level).toBe('warn')
       expect(c?.fix?.[0]).toContain('certutil -addstore')
       expect(c?.fix?.some(f => /NODE_EXTRA_CA_CERTS/.test(f))).toBe(true)
+      expect(c?.detail).toContain('certificate signed by unknown authority')
+    })
+
+    it('reports a store holding only a rotated-out CA once, and never as trusted (#689)', () => {
+      // The live failure: doctor ticked "CA trusted" and warned about the
+      // rotation in the same run, and agy failed TLS behind the tick.
+      const caChecks = titles({ caTrusted: false, caStoreStale: true }).filter(t => /\bCA\b/.test(t) && !t.includes('certificate present'))
+      expect(caChecks).toEqual(['OS trust store holds a different (rotated-out) llm-fw CA than the one on disk'])
+    })
+
+    it('does not warn about an old CA left beside the current one', () => {
+      expect(find(probe({ caTrusted: true, caStoreStale: true }), 'CA trusted')?.level).toBe('ok')
+      expect(titles({ caTrusted: true, caStoreStale: true }).some(t => t.includes('rotated-out'))).toBe(false)
     })
 
     it('stays quiet when the store CA matches or is undeterminable', () => {
@@ -278,12 +303,38 @@ SERVICE_NAME: iphlpsvc
   })
 })
 
-describe('parseCaStorePresent', () => {
-  it('finds the llm-fw CA subject in a cert-store dump', () => {
-    expect(parseCaStorePresent('================ Certificate 7 ================\nSubject: CN=llm-fw Local CA, O=llm-fw')).toBe(true)
+describe('classifyCaTrust', () => {
+  // Two generations of the CA: same subject, different keys, as setup makes
+  // when it replaces one. The dump is certutil -store Root's real layout.
+  const current = certFingerprintSha1(issueInMemoryCA().cert)
+  const rotatedOut = certFingerprintSha1(issueInMemoryCA().cert)
+  const block = (n: number, fp: string | null) => [
+    `================ Certificate ${n} ================`,
+    'Serial Number: 2a777960890ffe72cc50fd4d0e6269d8',
+    'Issuer: O=llm-fw, CN=llm-fw Local CA',
+    'Subject: O=llm-fw, CN=llm-fw Local CA',
+    'Root Certificate: Subject matches Issuer',
+    `Cert Hash(sha1): ${fp}`,
+  ].join('\n')
+  const store = (...fps: (string | null)[]) => parseStoreCaFingerprints('win32', fps.map((f, i) => block(i, f)).join('\n\n'))
+
+  it('is untrusted and stale when the store holds only a rotated-out CA (#689)', () => {
+    expect(current).not.toBe(rotatedOut)
+    expect(classifyCaTrust(current, store(rotatedOut))).toEqual({ trusted: false, stale: true })
   })
-  it('returns false when the CA is absent', () => {
-    expect(parseCaStorePresent('Subject: CN=DigiCert Global Root, O=DigiCert Inc')).toBe(false)
+
+  it('is trusted when the store holds the CA on disk, with or without an old one', () => {
+    expect(classifyCaTrust(current, store(current))).toEqual({ trusted: true, stale: false })
+    expect(classifyCaTrust(current, store(rotatedOut, current))).toEqual({ trusted: true, stale: true })
+  })
+
+  it('is untrusted and not stale when the store holds no llm-fw CA', () => {
+    expect(classifyCaTrust(current, [])).toEqual({ trusted: false, stale: false })
+  })
+
+  it('is undeterminable without a CA on disk or a readable store', () => {
+    expect(classifyCaTrust(null, store(current))).toEqual({ trusted: null, stale: null })
+    expect(classifyCaTrust(current, null)).toEqual({ trusted: null, stale: null })
   })
 })
 
@@ -321,6 +372,15 @@ describe('parseStoreCaFingerprints', () => {
       'Cert Hash(sha1): 1b 2c 3d 4e 5f',
     ].join('\n')
     expect(parseStoreCaFingerprints('win32', dump)).toEqual(['1b2c3d4e5f'])
+  })
+
+  it('is null when an llm-fw CA is listed without a readable hash (localised certutil)', () => {
+    const dump = [
+      '================ Zertifikat 1 ================',
+      'Antragsteller: CN=llm-fw Local CA, O=llm-fw',
+      'Zertifikathash(sha1): 1b 2c 3d 4e 5f',
+    ].join('\n')
+    expect(parseStoreCaFingerprints('win32', dump)).toBeNull()
   })
 
   it('parses macOS security find-certificate -Z hashes (already CA-filtered)', () => {

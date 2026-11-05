@@ -28,6 +28,21 @@ describe('caTrustHint', () => {
     expect(caTrustHint('win32', ca).join('\n')).toContain('NODE_EXTRA_CA_CERTS')
   })
 
+  it('on Windows also offers the user-store install, which needs no Administrator terminal', () => {
+    expect(caTrustHint('win32', ca).join('\n')).toContain(`certutil -user -addstore -f Root "${ca}"`)
+  })
+
+  it('names Go tools such as agy and the error they print (#689)', () => {
+    const text = caTrustHint('win32', ca).join('\n')
+    expect(text).toContain('agy')
+    expect(text).toContain('certificate signed by unknown authority')
+  })
+
+  it('says so when it just replaced a CA, since tools that trusted the old one now fail (#689)', () => {
+    expect(caTrustHint('win32', ca, true).join('\n')).toMatch(/replaced the CA/)
+    expect(caTrustHint('win32', ca, false).join('\n')).not.toMatch(/replaced the CA/)
+  })
+
   it('on macOS and Linux gives only that OS\'s sudo command', () => {
     const mac = caTrustHint('darwin', '/Users/u/.llm-fw/ca.crt').join('\n')
     expect(mac).toContain('sudo security add-trusted-cert')
@@ -102,6 +117,7 @@ describe('coverageLines', () => {
     const text = coverageLines({ ...proxyOnly, caTrusted: false }).join('\n')
     expect(text).toMatch(/CA not in the OS trust store/)
     expect(text).toMatch(/curl/)
+    expect(text).toMatch(/Go tools/)
     expect(text).toContain('NODE_EXTRA_CA_CERTS')
   })
 
