@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.31
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`). The change reads `poster`, `srcset` and `href` in responses (#674). The response scan sees no request, and no eval string reaches it, so no input verdict moves. The section below is the 2026.11.30 result.
+
 ## Result, ruleset 2026.11.30
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The change reads response destinations as a client does (#580). The response scan sees no request, and no eval string reaches it, so no input verdict moves. The section below is the 2026.11.29 result, kept as it was measured.
