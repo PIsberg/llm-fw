@@ -65,12 +65,24 @@ function orphanText(kept: Obj[]): void {
   }
 }
 
+// The first turn stays when it is a plain user message, and it stays byte for
+// byte. Claude Code puts CLAUDE.md, the memory index and the user's request
+// there, so cutting it left an agent past the window without the rules it
+// works under or the task it was given. It also precedes every cut, so it
+// stays in the cached prefix when the cut moves.
+const pinnedFirst = (first: unknown, cut: number): Obj | null =>
+  cut > 1 && isObj(first) && first.role === 'user' && first.type !== 'function_call_output'
+    && !(Array.isArray(first.content) && first.content.some(b => isObj(b) && b.type === 'tool_result'))
+    ? first
+    : null
+
 const textTokens = (payload: unknown, estimates: Map<string, number>): number =>
   collectTextSlots(payload).reduce((sum, slot) => sum + estimate(slot.text, estimates), 0)
 
 /**
  * Keeps the last `maxMessages` turns of a long conversation, plus its system
- * prompt. Lossy: the model no longer sees what was dropped.
+ * prompt and its first user turn. Lossy: the model no longer sees what was
+ * dropped.
  *
  * The cut moves in whole `step`s, so between two moves the kept history is a
  * stable prefix and the prompt cache keeps matching; each move costs one
@@ -117,11 +129,13 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     const cut = cutIndex(turns.length, this.cfg.maxMessages, this.cfg.step, isUserSide)
     if (cut === null) return false
 
+    const pinned = pinnedFirst(turns[0], cut)
+    const dropped = pinned ? cut - 1 : cut
     const kept = turns.slice(cut).map(m => structuredClone(m) as Obj)
     orphanText(kept)
     const first = kept[0]!
-    if (typeof first.content === 'string') first.content = `${marker(cut)}\n\n${first.content}`
-    else (first.content as unknown[]).unshift({ type: 'text', text: marker(cut) })
+    if (typeof first.content === 'string') first.content = `${marker(dropped)}\n\n${first.content}`
+    else (first.content as unknown[]).unshift({ type: 'text', text: marker(dropped) })
     for (const m of kept) {
       if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
       const visible = m.content.filter(b => !(isObj(b) && (b.type === 'thinking' || b.type === 'redacted_thinking')))
@@ -129,7 +143,7 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
         m.content = visible.length > 0 ? visible : [{ type: 'text', text: '[llm-fw: reasoning omitted]' }]
       }
     }
-    payload.messages = [...messages.slice(0, lead), ...kept]
+    payload.messages = [...messages.slice(0, lead), ...(pinned ? [pinned] : []), ...kept]
     return true
   }
 
@@ -162,10 +176,13 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     }
     const first = kept[0]
     if (!first) return false
-    if (typeof first.content === 'string') first.content = `${marker(cut)}\n\n${first.content}`
-    else if (Array.isArray(first.content)) first.content.unshift({ type: 'input_text', text: marker(cut) })
-    else kept.unshift({ role: 'user', content: marker(cut) })
-    payload.input = [...input.slice(0, lead), ...kept]
+    const head = items[0]
+    const pinned = isObj(head) && (head.type === undefined || head.type === 'message') ? pinnedFirst(head, cut) : null
+    const dropped = pinned ? cut - 1 : cut
+    if (typeof first.content === 'string') first.content = `${marker(dropped)}\n\n${first.content}`
+    else if (Array.isArray(first.content)) first.content.unshift({ type: 'input_text', text: marker(dropped) })
+    else kept.unshift({ role: 'user', content: marker(dropped) })
+    payload.input = [...input.slice(0, lead), ...(pinned ? [pinned] : []), ...kept]
     return true
   }
 
@@ -182,7 +199,13 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     const kept = contents.slice(cut).map(c => structuredClone(c) as Obj)
     const first = kept[0]!
     first.parts = (first.parts as unknown[]).map(p => isObj(p) && 'functionResponse' in p ? { text: `${ORPHAN}\n${JSON.stringify(p.functionResponse)}` } : p)
-    ;(first.parts as unknown[]).unshift({ text: marker(cut) })
+    // Gemini wants turns to alternate, so the first turn's parts go into the
+    // first kept turn, which is also the user's, instead of a turn of their own.
+    const head = contents[0]
+    const pinned = isObj(head) && Array.isArray(head.parts) && !head.parts.some(p => isObj(p) && 'functionResponse' in p)
+      ? pinnedFirst(head, cut)
+      : null
+    ;(first.parts as unknown[]).unshift(...(pinned ? pinned.parts as unknown[] : []), { text: marker(pinned ? cut - 1 : cut) })
     payload.contents = kept
     return true
   }

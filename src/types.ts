@@ -588,7 +588,7 @@ export interface LeanCtxConfig extends ModuleSwitchConfig {
 }
 
 export interface HistoryWindowConfig extends ModuleSwitchConfig {
-  /** Turns kept, system messages aside; at least 2. */
+  /** Turns kept, system messages and the first user turn aside; at least 2. */
   maxMessages: number;
   /** Turns dropped at a time, so the cached prefix only moves once per step. */
   step: number;

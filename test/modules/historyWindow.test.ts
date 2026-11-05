@@ -24,10 +24,12 @@ describe('HistoryWindowModule', () => {
 
   it('drops the oldest messages in whole steps and says how many', () => {
     const out = send(new HistoryWindowModule(cfg()), { messages: chat(100) }).messages
-    // 40 over the window, a multiple of the 20-message step.
-    expect(out).toHaveLength(60)
-    expect(out[0]).toEqual({ role: 'user', content: '[llm-fw: 40 earlier messages omitted]\n\nm40' })
-    expect(out[59].content).toBe('m99')
+    // 40 over the window, a multiple of the 20-message step; the first turn
+    // stays ahead of them, so 39 are omitted.
+    expect(out).toHaveLength(61)
+    expect(out[0]).toEqual({ role: 'user', content: 'm0' })
+    expect(out[1]).toEqual({ role: 'user', content: '[llm-fw: 39 earlier messages omitted]\n\nm40' })
+    expect(out[60].content).toBe('m99')
   })
 
   it('moves the cut only once per step, so the prefix stays byte-identical in between', () => {
@@ -53,11 +55,11 @@ describe('HistoryWindowModule', () => {
     // of the call at 41. The call is gone, so the result is sent as text: a
     // tool_result whose tool_use is not in the request is refused.
     const out = send(new HistoryWindowModule(cfg(22, 2)), { messages }).messages
-    expect(out).toHaveLength(22)
-    expect(out[0].role).toBe('user')
-    expect(JSON.stringify(out[0])).not.toContain('tool_result')
-    expect(out[0].content).toEqual([
-      { type: 'text', text: '[llm-fw: 42 earlier messages omitted]' },
+    expect(out).toHaveLength(23)
+    expect(out[1].role).toBe('user')
+    expect(JSON.stringify(out[1])).not.toContain('tool_result')
+    expect(out[1].content).toEqual([
+      { type: 'text', text: '[llm-fw: 41 earlier messages omitted]' },
       { type: 'text', text: '[llm-fw: result of an omitted tool call]\nok' },
       { type: 'text', text: 'and now?' },
     ])
@@ -75,13 +77,15 @@ describe('HistoryWindowModule', () => {
     const out = send(mod, { messages }).messages
     // 121 messages: three steps of 10 over the window lands on index 30, a
     // tool result.
-    expect(out).toHaveLength(91)
-    expect(out[0].content).toEqual([
-      { type: 'text', text: '[llm-fw: 30 earlier messages omitted]' },
+    expect(out).toHaveLength(92)
+    expect(out[0]).toEqual({ role: 'user', content: 'fix the bug' })
+    expect(out[1].content).toEqual([
+      { type: 'text', text: '[llm-fw: 29 earlier messages omitted]' },
       { type: 'text', text: '[llm-fw: result of an omitted tool call]\nr29' },
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA' } },
     ])
     for (const [i, m] of out.entries()) {
+      if (typeof m.content === 'string') continue
       for (const block of m.content) if (block.type === 'tool_result') expect(out[i - 1].content.some((b: { id?: string }) => b.id === block.tool_use_id)).toBe(true)
     }
   })
@@ -93,8 +97,9 @@ describe('HistoryWindowModule', () => {
     // 41 messages, window 20, step 3: the step lands on index 21, an
     // assistant turn, so the kept history starts with the result at 22.
     const out = send(new HistoryWindowModule(cfg(20, 3)), { messages: [{ role: 'user', content: 'go' }, ...loop] }).messages
-    expect(out).toHaveLength(19)
-    expect(out[0]).toEqual({ role: 'user', content: [{ type: 'text', text: '[llm-fw: 22 earlier messages omitted]' }, { type: 'text', text: '[llm-fw: result of an omitted tool call]\nr21' }] })
+    expect(out).toHaveLength(20)
+    expect(out[0]).toEqual({ role: 'user', content: 'go' })
+    expect(out[1]).toEqual({ role: 'user', content: [{ type: 'text', text: '[llm-fw: 21 earlier messages omitted]' }, { type: 'text', text: '[llm-fw: result of an omitted tool call]\nr21' }] })
   })
 
   it('turns OpenAI chat tool messages at the cut into user messages', () => {
@@ -110,9 +115,10 @@ describe('HistoryWindowModule', () => {
     // the first tool message; both answer the dropped call.
     const out = send(new HistoryWindowModule(cfg(11, 11)), { messages }).messages
     expect(out[0]).toEqual({ role: 'system', content: 'sys' })
-    expect(out[1]).toEqual({ role: 'user', content: '[llm-fw: 11 earlier messages omitted]\n\n[llm-fw: result of an omitted tool call]\none' })
-    expect(out[2]).toEqual({ role: 'user', content: '[llm-fw: result of an omitted tool call]\ntwo' })
-    expect(out).toHaveLength(12)
+    expect(out[1]).toEqual({ role: 'user', content: 'm0' })
+    expect(out[2]).toEqual({ role: 'user', content: '[llm-fw: 10 earlier messages omitted]\n\n[llm-fw: result of an omitted tool call]\none' })
+    expect(out[3]).toEqual({ role: 'user', content: '[llm-fw: result of an omitted tool call]\ntwo' })
+    expect(out).toHaveLength(13)
   })
 
   it('turns a Gemini function response at the cut into text', () => {
@@ -124,7 +130,7 @@ describe('HistoryWindowModule', () => {
     ]
     const out = send(new HistoryWindowModule(cfg(10, 10)), { contents }).contents
     expect(out).toHaveLength(10)
-    expect(out[0]).toEqual({ role: 'user', parts: [{ text: '[llm-fw: 10 earlier messages omitted]' }, { text: '[llm-fw: result of an omitted tool call]\n{"name":"f","response":{"ok":true}}' }] })
+    expect(out[0]).toEqual({ role: 'user', parts: [{ text: 'c0' }, { text: '[llm-fw: 9 earlier messages omitted]' }, { text: '[llm-fw: result of an omitted tool call]\n{"name":"f","response":{"ok":true}}' }] })
   })
 
   it('cuts the same way on every turn of an agent loop between two steps', () => {
@@ -146,15 +152,15 @@ describe('HistoryWindowModule', () => {
       messages: [{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }, ...chat(30)],
     })
     expect(out.system).toBe('be brief')
-    expect(out.messages.slice(0, 2)).toEqual([{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }])
-    expect(out.messages).toHaveLength(12)
+    expect(out.messages.slice(0, 3)).toEqual([{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }, { role: 'user', content: 'm0' }])
+    expect(out.messages).toHaveLength(13)
   })
 
   it('adds the marker as a text block when the first kept turn has blocks', () => {
     const messages = [...chat(20), { role: 'user', content: [{ type: 'text', text: 'hi' }] }, ...chat(9).slice(1)]
     const out = send(new HistoryWindowModule(cfg(10, 10)), { messages }).messages
-    expect(out[0].content[0]).toEqual({ type: 'text', text: '[llm-fw: 20 earlier messages omitted]' })
-    expect(out[0].content[1]).toEqual({ type: 'text', text: 'hi' })
+    expect(out[1].content[0]).toEqual({ type: 'text', text: '[llm-fw: 19 earlier messages omitted]' })
+    expect(out[1].content[1]).toEqual({ type: 'text', text: 'hi' })
   })
 
   it('strips thinking blocks from the turns it keeps, whose recorded prefix it changed', () => {
@@ -165,7 +171,7 @@ describe('HistoryWindowModule', () => {
       ...chat(8),
     ]
     const out = send(new HistoryWindowModule(cfg(10, 10)), { messages }).messages
-    expect(out[1].content).toEqual([{ type: 'text', text: 'a' }])
+    expect(out[2].content).toEqual([{ type: 'text', text: 'a' }])
   })
 
   it('leaves the conversation alone when no user turn follows the step', () => {
@@ -177,14 +183,48 @@ describe('HistoryWindowModule', () => {
     const contents = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'model', parts: [{ text: `c${i}` }] }))
     const out = send(new HistoryWindowModule(cfg(10, 10)), { contents }).contents
     expect(out).toHaveLength(10)
-    expect(out[0].parts[0].text).toBe('[llm-fw: 20 earlier messages omitted]')
-    expect(out[0].parts[1].text).toBe('c20')
+    expect(out[0].parts.map((p: { text: string }) => p.text)).toEqual(['c0', '[llm-fw: 19 earlier messages omitted]', 'c20'])
   })
 
   it('counts the dropped text as saved', () => {
     const mod = new HistoryWindowModule(cfg())
     send(mod, { messages: chat(100) })
     expect(mod.getStats().tokensSaved).toBeGreaterThan(0)
+  })
+
+  // Claude Code puts CLAUDE.md, the memory index and the task into the first
+  // user message. Cut with the rest, an agent past the window works on
+  // without the repository's rules or the request it is carrying out.
+  it('keeps the first user turn, where a client puts its instructions, ahead of the kept window', () => {
+    const messages = [{ role: 'user', content: 'RULES: never commit to main' }, ...chat(100).slice(1)]
+    const out = send(new HistoryWindowModule(cfg()), { messages }).messages
+    expect(out[0]).toEqual({ role: 'user', content: 'RULES: never commit to main' })
+    expect(out[1]).toEqual({ role: 'user', content: '[llm-fw: 39 earlier messages omitted]\n\nm40' })
+    expect(out).toHaveLength(61)
+    expect(out[60].content).toBe('m99')
+  })
+
+  it('keeps the first turn byte-identical when the cut moves, so it stays in the cached prefix', () => {
+    const mod = new HistoryWindowModule(cfg())
+    const first = send(mod, { messages: chat(101) }).messages[0]
+    const later = send(mod, { messages: chat(141) }).messages[0]
+    expect(first).toEqual({ role: 'user', content: 'm0' })
+    expect(later).toEqual(first)
+  })
+
+  it('keeps the first turn after leading system messages, not the system message twice', () => {
+    const out = send(new HistoryWindowModule(cfg(10, 10)), { messages: [{ role: 'system', content: 'sys' }, ...chat(30)] }).messages
+    expect(out.slice(0, 2)).toEqual([{ role: 'system', content: 'sys' }, { role: 'user', content: 'm0' }])
+    expect(out).toHaveLength(12)
+  })
+
+  it('merges the first Gemini turn into the first kept one, so turns still alternate', () => {
+    const contents = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'model', parts: [{ text: `c${i}` }] }))
+    const out = send(new HistoryWindowModule(cfg(10, 10)), { contents }).contents
+    expect(out).toHaveLength(10)
+    expect(out[0].role).toBe('user')
+    expect(out[0].parts.map((p: { text: string }) => p.text)).toEqual(['c0', '[llm-fw: 19 earlier messages omitted]', 'c20'])
+    expect(out[1].role).toBe('model')
   })
 })
 
@@ -203,9 +243,10 @@ describe('HistoryWindowModule on a Responses API input array', () => {
   it('drops the oldest items in whole steps and says how many', () => {
     const out = send(new HistoryWindowModule(cfg(10, 10)), { instructions: 'be brief', input: items(30) })
     expect(out.instructions).toBe('be brief')
-    expect(out.input).toHaveLength(10)
-    expect(out.input[0]).toEqual({ role: 'user', content: '[llm-fw: 20 earlier messages omitted]\n\nm20' })
-    expect(out.input[9].content).toBe('m29')
+    expect(out.input).toHaveLength(11)
+    expect(out.input[0]).toEqual({ role: 'user', content: 'm0' })
+    expect(out.input[1]).toEqual({ role: 'user', content: '[llm-fw: 19 earlier messages omitted]\n\nm20' })
+    expect(out.input[10].content).toBe('m29')
   })
 
   it('never cuts a request whose history the server holds', () => {
@@ -220,8 +261,9 @@ describe('HistoryWindowModule on a Responses API input array', () => {
     // (and reasoning) are gone.
     const input = [{ role: 'user', content: 'go' }, ...Array.from({ length: 10 }, (_, i) => step(i)).flat()]
     const out = send(new HistoryWindowModule(cfg(10, 3)), { input }).input
-    expect(out[0]).toEqual({ role: 'user', content: [
-      { type: 'input_text', text: '[llm-fw: 21 earlier messages omitted]' },
+    expect(out[0]).toEqual({ role: 'user', content: 'go' })
+    expect(out[1]).toEqual({ role: 'user', content: [
+      { type: 'input_text', text: '[llm-fw: 20 earlier messages omitted]' },
       { type: 'input_text', text: '[llm-fw: result of an omitted tool call]\nout6' },
     ] })
     const calls = new Set(out.filter((i: { type?: string }) => i.type === 'function_call').map((i: { call_id: string }) => i.call_id))
@@ -233,15 +275,22 @@ describe('HistoryWindowModule on a Responses API input array', () => {
     const input = [...items(20), { role: 'user', content: 'q' }, { type: 'reasoning', id: 'rs', summary: [{ type: 'summary_text', text: 'thought' }] }, { role: 'assistant', content: 'a' }, ...items(7)]
     const out = send(new HistoryWindowModule(cfg(10, 10)), { input }).input
     expect(out.map((i: { type?: string }) => i.type ?? 'message')).not.toContain('reasoning')
-    expect(out[1]).toEqual({ role: 'assistant', content: 'a' })
+    expect(out[2]).toEqual({ role: 'assistant', content: 'a' })
+  })
+
+  it('keeps the first user message, where a client puts its instructions', () => {
+    const input = [{ role: 'user', content: 'RULES' }, ...Array.from({ length: 10 }, (_, i) => step(i)).flat()]
+    const out = send(new HistoryWindowModule(cfg(10, 3)), { input }).input
+    expect(out[0]).toEqual({ role: 'user', content: 'RULES' })
+    expect(JSON.stringify(out[1])).toContain('[llm-fw: 20 earlier messages omitted]')
   })
 
   it('keeps leading system and developer messages', () => {
     const out = send(new HistoryWindowModule(cfg(10, 10)), {
       input: [{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }, ...items(30)],
     }).input
-    expect(out.slice(0, 2)).toEqual([{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }])
-    expect(out).toHaveLength(12)
+    expect(out.slice(0, 3)).toEqual([{ role: 'system', content: 'sys' }, { role: 'developer', content: 'dev' }, { role: 'user', content: 'm0' }])
+    expect(out).toHaveLength(13)
   })
 
   it('cuts the same way on every turn of an agent loop between two steps', () => {
