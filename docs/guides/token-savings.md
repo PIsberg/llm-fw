@@ -92,6 +92,16 @@ server keeps what was sent. The history window never cuts a thread
 continuation, since its messages are all new, and the deduplicator can only
 see repeats within one turn.
 
+A thread does not last the whole session. Claude Code 2.1.318 sends the full
+history again when a user prompt arrives, or a queued message is injected,
+and continues from there through that prompt's tool calls. Matched on
+2026-11-05 between the History window's events and the session transcripts:
+cuts at 18:21:49 and 18:38:29 UTC fell one second after a prompt and on a
+queued message, and the billed input of the calls that followed fell from
+132,782 to 56,318 and from 117,853 to 61,400 tokens. So the history window
+does act on Claude Code through the proxy, once per prompt, and the server
+runs that prompt's whole tool loop on the history it kept.
+
 ### Changing a module in the middle of a conversation
 
 For a client that resends history, turning a rewriting module on or off, or
@@ -225,6 +235,43 @@ it, cache reads at 0.1 and one-hour cache writes at 2 times input):
 The mean prompt was 271,537 tokens. Almost the whole bill is the history
 read back from the cache on every call, so what moves it is how much stays
 in the history, not how large any one result is when it arrives.
+
+### What the modules saved on real traffic
+
+The Modules tab's summary adds up, over every request, the estimated tokens
+each module kept out of that request. It does not price them, and a client
+that resends history is counted again for the same saving on every request.
+On 2026-11-05 it read 15.1% saved, 481,943 of the 530,503 tokens from the
+History window. Priced the way the provider bills, the modules measured below
+saved 0.47 to 0.65% of the bill. The lean-ctx compressor, which runs an
+external binary, was not replayed.
+
+Measured over 14 days of one developer's Claude Code transcripts (141
+sessions, 16,698 API calls, the live install's module settings). The bill
+is the usage the API reported for each call: cache reads at 0.1, one-hour
+writes at 2, output at 5 times input.
+
+| Module | Removed | Share of the 14-day bill |
+| --- | --- | --- |
+| History window | 14 cuts in 10 sessions: 2.20M input-equivalent tokens of cache reads avoided, 0.69M of cache writes added | 0.23% net; 7.5% of the 10 sessions it cut |
+| Tool result modules (pruners, collapsers, blob elider, deduplicator, truncator with file reads skipped) | 131,807 of 8.9M tool-result tokens (1.48%), nearly all from `Bash` | 0.24 to 0.42% |
+
+How each row was counted. A History window cut shows in the usage as billed
+input falling while the message count grows past 100; each dropped token is
+counted as a cache read avoided on every later call until the next drop or
+an hour's gap, and the extra cache write on the cut call is charged against
+it. The tool-result row runs every recorded tool result through the built
+modules; a removed token saves its one-hour write and a read on every later
+call in the session. The range is the billed-per-estimated-token ratio, 1.0
+to the 1.76 the Usage Meter measured. Neither row includes what a change
+does to the agent's behaviour, such as re-reading what was removed, which
+only a billed A/B shows (see the truncator above).
+
+What the modules do not touch is larger. Tool Usage counted 33 of the 53
+tools Claude Code offered as never called, 15,506 estimated tokens on every
+request. At the mean prompt of 287k tokens over these 14 days, that is 4 to
+7% of the bill, read from the cache on every call. See
+[Tool filter](#tool-filter) for what dropping them costs.
 
 ### Clearing old thinking: measured, not offered
 
@@ -838,7 +885,7 @@ the model no longer sees the turns it drops.
 
 | Option | Default | Does |
 | --- | --- | --- |
-| `maxMessages` | `100` | Turns kept, not counting leading system and developer messages or the top-level system prompt, which always stay. At least `2`. |
+| `maxMessages` | `100` | Turns kept, not counting leading system and developer messages, the top-level system prompt and the first user turn, which always stay. At least `2`. |
 | `step` | `25` | Turns dropped at a time. |
 
 When a conversation is longer than `maxMessages`, the oldest turns are dropped
@@ -856,6 +903,14 @@ items in the kept history are dropped, as thinking blocks are below.
 Requests whose history lives on the server are left alone: a Responses API
 request with `previous_response_id`, and an Anthropic thread continuation
 (`thread.type` is `continue`), whose messages are all new.
+
+The first turn stays when it is a plain user message, byte for byte, ahead of
+the marker. Claude Code puts CLAUDE.md, the rules files, the memory index and
+the user's request there. Cut with the rest, it left an agent past the window
+without the repository's rules or the task it was given. It precedes every
+cut, so it stays in the cached prefix when
+the cut moves. On Gemini, which wants user and model turns to alternate, its
+parts go at the start of the first kept turn instead of a turn of their own.
 
 What it costs:
 
