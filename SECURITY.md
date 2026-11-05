@@ -89,6 +89,23 @@ request when Semgrep releases. Until the repository allows Actions to open
 pull requests (#432), its runs fail at that step and the refresh has to be
 done by hand.
 
+### CI tooling: the Actions lockfile
+
+Every workflow pins its actions to a commit SHA, and
+`.github/workflows/actions.lock` records each commit together with the owner
+and repository ids it belongs to. A SHA alone does not say where the code
+comes from: GitHub resolved a pinned commit through the action's whole fork
+network, so a commit pushed to a fork ran under the original action's name,
+allowlists and required SHA pinning notwithstanding. With the lockfile the
+runner refuses a commit that is not in the recorded repository's history.
+
+After adding or bumping an action, run `gh actions-lock` (the
+`github/gh-actions-lock` extension) and commit the updated lockfile.
+`test/ci/actionsLock.test.ts` fails a pull request whose workflows use an
+action the lockfile does not list. The lockfile does not make a compromised
+upstream release safe, and it does not cover the actions inside an external
+reusable workflow.
+
 ## Security-relevant defaults
 
 Worth knowing before reporting, and worth checking in your own deployment:
