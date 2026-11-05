@@ -193,6 +193,14 @@ describe('ExfilStreamHold', () => {
     expect(run(['Chart ![c](https&#58;&#47;&#47;cdn.trusted.com/a.png)'])).not.toBeNull()
   })
 
+  // #674: a poster, a srcset candidate and an href are held like an image's src.
+  it('cuts a poster, srcset or href split across events (#674)', () => {
+    expect(run(['Clip <video poster="https://webhook.', 'site/x?d=1"></video>'])).toBeNull()
+    expect(run(['See <a href="https://webhook.', 'site/leak">here</a>'])).toBeNull()
+    expect(run(['Pic <img srcset="https://cdn.trusted.com/a.png 1x, https://webhook.', 'site/x 2x">'])).toBeNull()
+    expect(run(['Clip <video poster="https://cdn.trusted.com/p.png"></video>'])).not.toBeNull()
+  })
+
   it('does not hold tool-call argument JSON, which is not rendered', () => {
     const hold = new ExfilStreamHold(isExfil)
     expect(hold.push(toolArgs('{"paths": ["a.ts", '))).toBe(toolArgs('{"paths": ["a.ts", '))

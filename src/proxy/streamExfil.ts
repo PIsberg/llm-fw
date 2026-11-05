@@ -12,7 +12,8 @@
 // - every `](` and `]:` (a reference definition): from the `]` (one
 //   character, to see what follows)
 //   to the end of the URL after it, wherever it appears;
-// - every `<img` tag: to its `>` outside quotes.
+// - every `<img`, `<video`, `<audio`, `<source` and `<a` tag: to its `>` outside
+//   quotes (#674).
 // A blank line ends either, as no markup spans a paragraph. The held text is
 // judged by the scanner a buffered response goes through, and each held
 // destination (read with CommonMark's grammar) and `src=url` is also judged
@@ -29,7 +30,11 @@ import { sseEventText } from './canary.js'
 
 const RENDERED_KEYS: ReadonlySet<string> = new Set(['text', 'thinking', 'content', 'refusal', 'delta', 'output'])
 const EVENT_END = /\r?\n\r?\n/
-const IMG = '<img'
+// The tags held to their `>`: an image, a video or audio element (poster,
+// source), a source and a link (href). A link opener also matches `<abbr` and
+// `<address`, which only holds those a little longer (#674).
+const TAG_OPENERS: readonly string[] = ['<img', '<video', '<audio', '<source', '<a']
+const LONGEST_OPENER = Math.max(...TAG_OPENERS.map(o => o.length))
 // Each URL here may also be scheme-relative (`//host/...`), which a browser
 // resolves to https.
 // The URL in a `src=` attribute, wherever it sits.
@@ -140,7 +145,7 @@ export class ExfilStreamHold {
   private take(text: string): boolean {
     for (const c of text) {
       const was = this.holding()
-      this.recent = (this.recent + c).slice(-IMG.length)
+      this.recent = (this.recent + c).slice(-LONGEST_OPENER)
       this.newlines = c === '\n' ? this.newlines + 1 : c === '\r' ? this.newlines : 0
       if (c === '[') this.image = this.prev === '!'
       this.stepLink(c)
@@ -218,8 +223,8 @@ export class ExfilStreamHold {
       return
     }
     const next = (this.lt + c).toLowerCase()
-    if (IMG.startsWith(next)) this.lt = next
+    if (TAG_OPENERS.some(o => o.startsWith(next))) this.lt = next
     else this.lt = c === '<' ? '<' : ''
-    if (this.lt === IMG) { this.tag = true; this.quote = ''; this.lt = '' }
+    if (TAG_OPENERS.includes(this.lt)) { this.tag = true; this.quote = ''; this.lt = '' }
   }
 }

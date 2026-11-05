@@ -58,8 +58,11 @@ const MD_DEF_RE = /\]:[ \t]*(?:(?:\r?\n|\\r\\n|\\n)[ \t]*)?<?((?:[^\s>"\\]|\\[^\
 // a raw JSON body the quote arrives escaped (`src=\"...\"`), and a backslash
 // that is not before the quote is part of the value. Each alternative is
 // unambiguous, so the scan stays linear (GHSA-983r-9gmc-f3xr).
-const IMG_OPEN_RE = /<img\b/gi
-const SRC_ATTR_RE = /\bsrc\s*=\s*(?:\\?"([^"\\]*(?:\\(?!")[^"\\]*)*)|\\?'([^'\\]*(?:\\(?!')[^'\\]*)*)|([^\s"'>\\]+))/gi
+// The tags that fetch or follow a URL: an image, a video or audio element (its
+// poster and source), a source, and a link (its href, the one-click form, #674).
+const TAG_OPEN_RE = /<(?:img|video|audio|source|a)\b/gi
+// The attributes that name a URL. A srcset holds several, split by commas.
+const ATTR_RE = /\b(src|poster|srcset|href)\s*=\s*(?:\\?"([^"\\]*(?:\\(?!")[^"\\]*)*)|\\?'([^'\\]*(?:\\(?!')[^'\\]*)*)|([^\s"'>\\]+))/gi
 // One level of JSON string escapes, undone before the destination is read.
 // A serializer may write any character as `\uXXXX` (Go escapes `&`, `<` and `>`;
 // others escape `:` or `/`), so the escape is decoded as well as the short ones.
@@ -135,11 +138,11 @@ function inlineDestinations(text: string): { url: string; image: boolean }[] {
   return found
 }
 
-/** The text of each `<img ...>` tag, each read once: linear in `text`. */
-function imgTags(text: string): string[] {
+/** The text of each tag in TAG_OPEN_RE, each read once: linear in `text`. */
+function mediaTags(text: string): string[] {
   const tags: string[] = []
-  IMG_OPEN_RE.lastIndex = 0
-  for (let m = IMG_OPEN_RE.exec(text); m !== null; m = IMG_OPEN_RE.exec(text)) {
+  TAG_OPEN_RE.lastIndex = 0
+  for (let m = TAG_OPEN_RE.exec(text); m !== null; m = TAG_OPEN_RE.exec(text)) {
     let i = m.index + m[0].length
     let quote = ''
     for (; i < text.length; i++) {
@@ -149,7 +152,7 @@ function imgTags(text: string): string[] {
       else if (c === '>') break
     }
     tags.push(text.slice(m.index, i + 1))
-    IMG_OPEN_RE.lastIndex = i + 1
+    TAG_OPEN_RE.lastIndex = i + 1
   }
   return tags
 }
@@ -190,8 +193,8 @@ export function scanResponseExfil(
   const findings: ExfilFinding[] = []
   const seen = new Set<string>()
 
-  const judge = (url: string, kind: ExfilFinding['kind']) => {
-    const parsed = resolveDestination(url, kind === 'html-image')
+  const judge = (url: string, kind: ExfilFinding['kind'], attribute = kind === 'html-image') => {
+    const parsed = resolveDestination(url, attribute)
     if (parsed && isExfil(parsed.hostname, parsed.path)) {
       const key = kind + '|' + url
       if (!seen.has(key)) {
@@ -209,10 +212,29 @@ export function scanResponseExfil(
     }
   }
 
+  // Each attribute value is an attribute, so its tabs and line breaks are
+  // stripped as the parser strips them. A srcset is judged candidate by candidate.
+  const scanAttributes = (tag: string) => {
+    ATTR_RE.lastIndex = 0
+    for (let m = ATTR_RE.exec(tag); m !== null; m = ATTR_RE.exec(tag)) {
+      const value = m[2] ?? m[3] ?? m[4] ?? ''
+      const name = (m[1] ?? '').toLowerCase()
+      if (name === 'srcset') {
+        for (const candidate of value.split(',')) {
+          const url = candidate.trim().split(/\s/)[0] ?? ''
+          if (url) judge(url, 'html-image')
+        }
+      } else if (value) {
+        judge(value, name === 'href' ? 'markdown-link' : 'html-image', true)
+      }
+      if (m.index === ATTR_RE.lastIndex) ATTR_RE.lastIndex++
+    }
+  }
+
   const inline = inlineDestinations(text)
   for (const d of inline) if (d.image) judge(d.url, 'markdown-image')
   scan(MD_DEF_RE, 'markdown-image')
-  for (const tag of imgTags(text)) scan(SRC_ATTR_RE, 'html-image', tag)
+  for (const tag of mediaTags(text)) scanAttributes(tag)
   for (const d of inline) if (!d.image) judge(d.url, 'markdown-link')
   return findings
 }
