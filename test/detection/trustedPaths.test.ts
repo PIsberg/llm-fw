@@ -208,7 +208,9 @@ describe('trusted paths through the real pipeline', () => {
       messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fetch', content: guide }] }],
     })
     expect((await pipeline.run('/v1/messages', other, META)).action).toBe('block')
-    expect(new Pipeline(DEFAULT_CONFIG).wantsCalls()).toBe(false)
+    // With no trusted root too: WebFetch's redirect notice is a template for
+    // that tool's results only, so a continuation's result needs its call.
+    expect(new Pipeline(DEFAULT_CONFIG).wantsCalls()).toBe(true)
     expect(pipeline.wantsCalls()).toBe(true)
   }, 120_000)
 })

@@ -6,7 +6,7 @@ import { HeuristicScorer } from './heuristic.js'
 import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles } from './clientEnvelopes.js'
 import { detectSecretFileExfil } from './secretFileExfil.js'
 import { detectPlantedInstruction } from './plantedInstruction.js'
-import { stripHarnessTemplate } from './harnessTemplates.js'
+import { stripHarnessTemplate, HARNESS_TEMPLATES } from './harnessTemplates.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
@@ -208,6 +208,9 @@ const TRUSTED_READ_TIER = { heuristic: Infinity, similarity: Infinity, margin: I
 function resolveClassifierBlockThreshold(config: Config, source: ScanSource): number {
   return effectiveClassifierBlockThreshold(config, source)
 }
+
+// Whether any harness template is keyed on the tool whose result it opens.
+const TOOL_RESULT_TEMPLATES = HARNESS_TEMPLATES.some(t => t.tool !== undefined)
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -1396,9 +1399,22 @@ export class Pipeline {
     this.calls.learn(response)
   }
 
-  /** Whether learnCalls has anything to feed: a trusted root to apply. */
+  /**
+   * Whether learnCalls has anything to feed: a trusted root to apply, or a
+   * harness template that opens one tool's results (WebFetch's redirect
+   * notice), which needs the tool name a thread continuation leaves out.
+   */
   wantsCalls(): boolean {
-    return (this.config.detection.surfaces?.tool_result?.trustedPaths ?? []).length > 0
+    return TOOL_RESULT_TEMPLATES || (this.config.detection.surfaces?.tool_result?.trustedPaths ?? []).length > 0
+  }
+
+  /**
+   * The call a response made under this tool_use id, if one was learned. The
+   * proxy names a thread continuation's tool results with it for the MCP
+   * Traffic tab.
+   */
+  learnedCall(id: string): { name: string } | undefined {
+    return this.calls.get(id)
   }
 
   /**
