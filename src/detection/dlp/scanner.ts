@@ -25,6 +25,18 @@ const BEARER_TOKEN = /\bbearer\s+([a-z0-9._~+/=-]{20,})/gi
 
 const ENTROPY_THRESHOLD = 4.0
 
+// An unquoted value that starts as a call (`canaryToken(getLlmFwDir());`) is
+// source code, not a literal: judged whole, the punctuation and two names
+// pass the entropy gate. Each name-like piece is judged on its own instead,
+// so a long random piece still counts (`decode(<secret>)`). No credential
+// format contains `(`, and a quoted value is a string literal, judged whole.
+const CALL_START = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(/
+function looksSecret(value: string, matched: string): boolean {
+  const quoted = /["']$/.test(matched.slice(0, matched.length - value.length))
+  const pieces = !quoted && CALL_START.test(value) ? value.split(/[^\w$.+/=-]+/) : [value]
+  return pieces.some(p => p.length > 20 && calculateEntropy(p) > ENTROPY_THRESHOLD)
+}
+
 // Unicode decimal digits come in runs of ten, 0 to 9, so the value of a digit
 // is its distance from the start of its run. Built once from the BMP; a digit
 // outside it is two UTF-16 units and is left alone, which keeps the mapped
@@ -115,7 +127,7 @@ export class DlpScanner {
       let m = SECRET_KEYWORDS.exec(text)
       while (m !== null) {
         const value = m[2]
-        if (value && value.length > 20 && calculateEntropy(value) > ENTROPY_THRESHOLD) {
+        if (value && looksSecret(value, m[0])) {
           findings.push({
             type: 'GENERIC_SECRET',
             label: 'High-Entropy Generic Secret',
