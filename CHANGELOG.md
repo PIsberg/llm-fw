@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The proxy resumes the provider's TLS session instead of a full handshake on every request (#670).** Measured against api.anthropic.com and api.openai.com, every connection after the first resumed, saving 2 to 5 ms of TCP and TLS setup each (26 to 28 ms and 25 to 30 ms median). Under TLS 1.3 both take one round trip, so the saving is the certificate work, not latency. The connection is still opened per request and read until it closes, so response framing, streaming and the response scans are unchanged.
+
 ### Added
 
 - **A DLP event says where the secret was (#702).** It recorded only the type (`GENERIC_SECRET`), so there was no way to tell which tool result or message carried it, or whether it was a leak or a false positive. Each match now records its surface (tool result, system prompt, prompt, or elsewhere in the request), the tool that returned it, and the match masked to its first and last two characters with its length. The event's preview names the first, and the drawer lists them all. The secret itself is still never stored: a test checks the stored event does not contain it.
