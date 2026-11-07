@@ -32,7 +32,6 @@ import { isPrivilegedTunnelAddress, privilegedAddressGuard, TunnelRefused } from
 import { ModuleManager } from '../modules/registry.js'
 import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../modules/responseTap.js'
 import { stripUsageChunk } from '../modules/sseUsageStrip.js'
-import { RememberedCalls, continuesOnServer } from '../modules/toolCalls.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, wsRefusal } from './websocket.js'
@@ -326,11 +325,6 @@ export class ProxyServer {
   // can never turn the proxy into an anonymous open relay.
   private authPolicy: AuthPolicy
   private modules: ModuleManager
-  // Tool calls made by thread responses. A thread continuation (Claude Code
-  // against api.anthropic.com) carries tool results without the calls, so
-  // detection takes the tool name and arguments from here: without them a
-  // read from a trusted root was never trusted on a continuation.
-  private readonly threadCalls = new RememberedCalls()
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -1093,7 +1087,6 @@ export class ProxyServer {
             // Quote the exact event this scan stored, so a blocked client can be
             // traced to one dashboard record instead of "whatever was last".
             onEvent: (e) => { scanEventId = e.id },
-            toolCall: (id) => this.threadCalls.get(id),
           }
         )
         result = inspected.result
@@ -1192,7 +1185,10 @@ export class ProxyServer {
           }
         }
 
-        const toolResults = parser.extractToolResults(body)
+        // A thread continuation's result arrives without its call (Claude Code
+        // through the proxy); the call came in the response before it.
+        const toolResults = parser.extractToolResults(body).map(tr =>
+          tr.toolName !== undefined ? tr : { ...tr, toolName: this.pipeline.learnedCall(tr.toolUseId)?.name })
         for (const tr of toolResults) {
           const resResult = this.mcp.checkToolResult(tr.toolUseId, tr.result)
           if (resResult.action === 'block') {
@@ -1237,9 +1233,11 @@ export class ProxyServer {
       } else {
         // Before the tap, so the Usage Meter still sees the usage chunk (#421).
         if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
-        const forModules = moduleCtx !== null && this.modules.wantsResponses()
-        const forCalls = isLlmRequest && continuesOnServer(dlpPath, body)
-        const captured = forModules || forCalls
+        // Detection reads the response's tool calls too, for the results a
+        // thread continuation sends without them: trusted paths, a tool's own
+        // harness template, and the tool name on an MCP tool-result event.
+        const learnCalls = isLlmRequest && (this.pipeline.wantsCalls() || mcpInspectResponse)
+        const captured = (moduleCtx && this.modules.wantsResponses()) || learnCalls
           ? tapResponse(innerRes, bodyCap(this.config.proxy.maxBodyBytes))
           : null
         try {
@@ -1249,8 +1247,8 @@ export class ProxyServer {
           throw err
         }
         const response = captured?.()
-        if (forModules && response) this.modules.observeResponse(body, moduleCtx, response)
-        if (forCalls && response) this.threadCalls.learn(response)
+        if (response && learnCalls) this.pipeline.learnCalls(response)
+        if (moduleCtx && response && this.modules.wantsResponses()) this.modules.observeResponse(body, moduleCtx, response)
       }
       if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when

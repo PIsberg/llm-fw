@@ -215,7 +215,7 @@ export function addProfileEnvVars(
     return true;
   }).join('\n').replace(/(?<!\n)\n+$/, '');
 
-  const block = `# llm-fw env\nexport HTTPS_PROXY=${proxyUrl}\nexport NO_PROXY=${noProxy}\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n`;
+  const block = `# llm-fw env\nexport HTTPS_PROXY=${proxyUrl}\nexport NO_PROXY="${noProxy}\${NO_PROXY:+,$NO_PROXY}"\nexport NODE_EXTRA_CA_CERTS="$HOME/.llm-fw/ca.crt"\n`;
   return (kept ? kept + '\n\n' : '') + block;
 }
 

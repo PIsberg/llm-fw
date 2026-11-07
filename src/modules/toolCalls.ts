@@ -127,18 +127,6 @@ export class RememberedCalls {
   }
 }
 
-/**
- * Whether the next request may carry this one's tool results without the
- * calls, so the calls in its response are worth remembering: an Anthropic
- * request on a server-side thread (`thread`, create or continue), or a
- * Responses API request, which the provider stores by default and a later
- * one continues by previous_response_id. Lexical, so a request a full parse
- * would rule out costs one tap, never a missed call.
- */
-export function continuesOnServer(path: string, body: string): boolean {
-  return /"thread"\s*:\s*\{/.test(body) || /\/responses(?:[?#]|$)/.test(path)
-}
-
 /** Every tool call a captured response made. */
 export function responseCalls(response: CapturedResponse): ToolCall[] {
   return responseToolCalls(responseEvents(response.body, response.headers) ?? [])

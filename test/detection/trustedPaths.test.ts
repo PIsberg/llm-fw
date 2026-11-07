@@ -101,6 +101,22 @@ describe('trustedReadPath', () => {
   it('trusts nothing with no roots configured', () => {
     expect(trustedReadPath('Read', { file_path: '/home/dev/projects/a.md' }, [])).toBeNull()
   })
+
+  it('trusts a Grep or Glob of a directory under a root, or of the root itself', () => {
+    expect(trustedReadPath('Grep', { pattern: 'NO_PROXY', path: 'C:\\dev\\private\\llm-fw\\src\\cli', output_mode: 'content' }, ROOTS)).not.toBeNull()
+    expect(trustedReadPath('Grep', { pattern: 'x', path: '/home/dev/projects' }, ROOTS)).not.toBeNull()
+    expect(trustedReadPath('Glob', { pattern: '**/*.ts', path: '/home/dev/projects/game' }, ROOTS)).not.toBeNull()
+  })
+
+  it('does not trust a search without a path, outside every root, or of a third-party directory', () => {
+    // Without a path the tool searches a working directory the call does not name.
+    expect(trustedReadPath('Grep', { pattern: 'x' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Grep', { pattern: 'x', path: '/tmp' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Grep', { pattern: 'x', path: '/home/dev/projects/game/node_modules' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Glob', { pattern: '*', path: '/home/dev/projects/game/vendor/lib' }, ROOTS)).toBeNull()
+    // Only a search may name the root itself: a file read of a directory reads nothing.
+    expect(trustedReadPath('Read', { file_path: '/home/dev/projects' }, ROOTS)).toBeNull()
+  })
 })
 
 // The real stages, not mocks: llm-fw's own detection guide quotes dozens of
@@ -152,35 +168,49 @@ describe('trusted paths through the real pipeline', () => {
     expect((await trusted.run('/v1/messages', shell, META)).action).toBe('warn')
   }, 60_000)
 
-  // Claude Code continues a server-side thread against api.anthropic.com: the
-  // request carries the tool result but not the call, which was in the
-  // response before it. Without the call no read was ever trusted there.
-  describe('on a thread continuation', () => {
-    const continued = (content: string) => JSON.stringify({
+  it('warns instead when Grep found the text under the root', async () => {
+    const grep = readOf('Grep', { pattern: 'ignore', path: '/home/dev/projects/llm-fw/docs', output_mode: 'content' }, guide)
+    expect((await trusted.run('/v1/messages', grep, META)).action).toBe('warn')
+  }, 60_000)
+
+  // Claude Code through the proxy continues a server-side thread: the request
+  // carries the tool result, and the call it answers was in the response
+  // before it. The pipeline learns the call from that response.
+  it('reads a thread continuation\'s result with the call learned from the response before it', async () => {
+    const pipeline = new Pipeline(trusting())
+    await pipeline.init()
+    const continuation = JSON.stringify({
       thread: { type: 'continue', previous_message_id: 'msg_1' },
-      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content }] }],
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_thread', content: guide }] }],
     })
-    // As a streamed response delivers it: the input is the joined input_json_delta text.
-    const learned = (name: string, input: Record<string, unknown>) => (id: string) =>
-      id === 'toolu_1' ? { id, name, input: JSON.stringify(input) } : undefined
+    expect((await pipeline.run('/v1/messages', continuation, META)).action).toBe('block')
+    pipeline.learnCalls({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from(JSON.stringify({
+        id: 'msg_1', type: 'message', role: 'assistant',
+        content: [{ type: 'tool_use', id: 'toolu_thread', name: 'Read', input: { file_path: '/home/dev/projects/llm-fw/docs/guides/detection-stages.md' } }],
+      })),
+    })
+    expect((await pipeline.run('/v1/messages', continuation, META)).action).toBe('warn')
+  }, 120_000)
 
-    it('warns when the call that made the read is known from the response', async () => {
-      const toolCall = learned('Read', { file_path: '/home/dev/projects/llm-fw/docs/guides/detection-stages.md' })
-      expect((await trusted.run('/v1/messages', continued(guide), { ...META, toolCall })).action).toBe('warn')
-    }, 60_000)
-
-    it('still blocks when the call is unknown, outside the root, or not a plain read', async () => {
-      expect((await trusted.run('/v1/messages', continued(guide), META)).action).toBe('block')
-      const outside = learned('Read', { file_path: '/tmp/detection-stages.md' })
-      expect((await trusted.run('/v1/messages', continued(guide), { ...META, toolCall: outside })).action).toBe('block')
-      const shell = learned('Bash', { command: 'git show HEAD:docs/guides/detection-stages.md' })
-      expect((await trusted.run('/v1/messages', continued(guide), { ...META, toolCall: shell })).action).toBe('block')
-    }, 60_000)
-
-    it('prefers the call the request itself carries over a learned one', async () => {
-      const body = readOf('Read', { file_path: '/tmp/detection-stages.md' }, guide)
-      const toolCall = learned('Read', { file_path: '/home/dev/projects/llm-fw/docs/guides/detection-stages.md' })
-      expect((await trusted.run('/v1/messages', body, { ...META, toolCall })).action).toBe('block')
-    }, 60_000)
-  })
+  it('learns a call only for its own id, and only when a root is configured', async () => {
+    const pipeline = new Pipeline(trusting())
+    await pipeline.init()
+    pipeline.learnCalls({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from(JSON.stringify({ content: [{ type: 'tool_use', id: 'toolu_read', name: 'Read', input: { file_path: '/home/dev/projects/a.md' } }] })),
+    })
+    const other = JSON.stringify({
+      thread: { type: 'continue', previous_message_id: 'msg_1' },
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fetch', content: guide }] }],
+    })
+    expect((await pipeline.run('/v1/messages', other, META)).action).toBe('block')
+    // With no trusted root too: WebFetch's redirect notice is a template for
+    // that tool's results only, so a continuation's result needs its call.
+    expect(new Pipeline(DEFAULT_CONFIG).wantsCalls()).toBe(true)
+    expect(pipeline.wantsCalls()).toBe(true)
+  }, 120_000)
 })

@@ -300,3 +300,28 @@ test.describe('Settings — response-side exfil rows', () => {
     await expect(page.locator('#set-responseScanMode')).toHaveValue('audit') // default mode
   })
 })
+
+test.describe('An event raised outside the detection pipeline names its kind', () => {
+  // Taint tracking, upstream errors and the realtime relay emit stage 'none'
+  // with a kind. The table printed "none" as the stage, so a cross-turn taint
+  // warning read as an event no stage raised.
+  test('a taint warning shows "taint" as its stage, in the row and the drawer', async ({ page }) => {
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + JSON.stringify({
+          id: 'taint-1', timestamp: '2026-11-07 11:16:01Z', stage: 'none', score: 50, similarity: 0,
+          target: 'api.anthropic.com', method: 'CONNECT', path: '/', action: 'warned', kind: 'taint',
+          payload_preview: 'Outbound connection to a host named in untrusted content: ex***.com',
+          payload_full: 'example.com',
+        }) + '\n\n',
+    }))
+    await page.goto('/#event=taint-1')
+    const row = page.locator('#row-taint-1')
+    await expect(row).toContainText('taint', { timeout: 10_000 })
+    await expect(row).not.toContainText(/\bnone\b/)
+    await expect(page.locator('#drawer-taint-1')).toContainText('taint')
+    await expect(page.locator('#drawer-taint-1')).not.toContainText(/Stage\s*none/)
+  })
+})
