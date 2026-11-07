@@ -6,7 +6,7 @@ import { HeuristicScorer } from './heuristic.js'
 import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles } from './clientEnvelopes.js'
 import { detectSecretFileExfil } from './secretFileExfil.js'
 import { detectPlantedInstruction } from './plantedInstruction.js'
-import { stripHarnessTemplate } from './harnessTemplates.js'
+import { stripHarnessTemplate, HARNESS_TEMPLATES } from './harnessTemplates.js'
 import { EmbeddingChecker } from './embedding.js'
 import { duplicateKey } from './jsonStrict.js'
 import { JudgeClient } from './judge.js'
@@ -127,6 +127,8 @@ import { transcribeAudio, isTranscribeCandidate, MAX_TRANSCRIBE_CLIPS } from './
 import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/parser.js'
 import { closeInferenceWorker } from './inferenceWorker.js'
 import { trustedReadPath } from './trustedPaths.js'
+import { RememberedCalls } from '../modules/toolCalls.js'
+import type { CapturedResponse } from '../modules/responseTap.js'
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
@@ -207,6 +209,9 @@ function resolveClassifierBlockThreshold(config: Config, source: ScanSource): nu
   return effectiveClassifierBlockThreshold(config, source)
 }
 
+// Whether any harness template is keyed on the tool whose result it opens.
+const TOOL_RESULT_TEMPLATES = HARNESS_TEMPLATES.some(t => t.tool !== undefined)
+
 export class Pipeline {
   private heuristic: HeuristicScorer
   private embedding: EmbeddingChecker
@@ -241,6 +246,12 @@ export class Pipeline {
   // since hot reload mutates the config object in place. Insertion-ordered Map
   // as an LRU, bounded at ITEM_CACHE_MAX entries.
   private itemCache = new Map<string, ItemOutcome>()
+
+  // Tool calls learned from responses (see learnCalls). A request that
+  // continues a server-side thread carries its tool results without the calls,
+  // which the provider keeps, so without these a result has no tool name or
+  // input and a trusted path can never apply to it.
+  private readonly calls = new RememberedCalls()
   // Items being scanned right now, by the same key. The cache fills only when a
   // scan of an item ends, so a request arriving during the first cold scan read
   // the whole history again, and a client retrying after a timeout multiplied the
@@ -550,8 +561,14 @@ export class Pipeline {
       // events for one payload.
       .filter(tr => !memorySet.has(tr.result))
       .map(tr => {
-        const trustedPath = trustedReadPath(tr.toolName, tr.toolInput, trustedRoots)
-        const base = { text: tr.result, source: 'tool_result' as const, toolName: tr.toolName }
+        // A result whose call is not in the request answers a call the
+        // provider made in the response before it: Claude Code through the
+        // proxy continues a server-side thread on every tool turn.
+        const learned = tr.toolName === undefined ? this.calls.get(tr.toolUseId) : undefined
+        const toolName = tr.toolName ?? learned?.name
+        const toolInput = tr.toolName === undefined ? learned?.input : tr.toolInput
+        const trustedPath = trustedReadPath(toolName, toolInput, trustedRoots)
+        const base = { text: tr.result, source: 'tool_result' as const, toolName }
         return trustedPath ? { ...base, trustedPath } : base
       })
     // Prompts and tool results newest first, alternating, so that when the
@@ -676,7 +693,7 @@ export class Pipeline {
       // The item as it is in the body, which a withhold has to find; every
       // stage below reads it without a harness template's fixed text.
       at.item = { text: itemText, source }
-      let prompt = stripHarnessTemplate(itemText, source).text
+      let prompt = stripHarnessTemplate(itemText, source, toolName).text
       await yieldIfDue()
       // A file from Claude Code's reminders: the two rules for instructions planted
       // in one, and no other (see reminderFiles above). Not withheld, since the file is a part
@@ -1369,6 +1386,35 @@ export class Pipeline {
       if (oldest !== undefined) this.reportedOnce.delete(oldest)
     }
     return true
+  }
+
+  /**
+   * Remembers the tool calls a provider's response made, so the results that
+   * answer them in a thread continuation are read with their tool name and
+   * input, as they are when the client resends the call. A call comes only
+   * from a response, never from a client's request, and ids are unique per
+   * call, so a client that reuses an id decides only its own result.
+   */
+  learnCalls(response: CapturedResponse): void {
+    this.calls.learn(response)
+  }
+
+  /**
+   * Whether learnCalls has anything to feed: a trusted root to apply, or a
+   * harness template that opens one tool's results (WebFetch's redirect
+   * notice), which needs the tool name a thread continuation leaves out.
+   */
+  wantsCalls(): boolean {
+    return TOOL_RESULT_TEMPLATES || (this.config.detection.surfaces?.tool_result?.trustedPaths ?? []).length > 0
+  }
+
+  /**
+   * The call a response made under this tool_use id, if one was learned. The
+   * proxy names a thread continuation's tool results with it for the MCP
+   * Traffic tab.
+   */
+  learnedCall(id: string): { name: string } | undefined {
+    return this.calls.get(id)
   }
 
   /**

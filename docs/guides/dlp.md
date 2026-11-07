@@ -40,14 +40,14 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 | `mongodb` | MongoDB SRV connection URIs with embedded credentials |
 | `connection_uri` | Any `scheme://user:password@host` connection string (Postgres/MySQL/Redis/AMQP/HTTP basic-auth) |
 | `jwt` | JSON Web Tokens (`eyJ….eyJ….…`) |
-| `entropy` | High-entropy generic secrets adjacent to credential keywords (`password=`/`pwd=`/`secret:`/`token=`/`api_key=`/`access_key=`/`auth:`/`credential=`/`key=`, Shannon entropy > 4.0, length > 20) **and** `Authorization: Bearer <token>` headers (the `Bearer` keyword alone is sufficient, no entropy gate) |
+| `entropy` | High-entropy generic secrets adjacent to credential keywords (`password=`/`pwd=`/`secret:`/`token=`/`api_key=`/`access_key=`/`auth:`/`credential=`/`key=`, Shannon entropy > 4.0, length > 20; an unquoted value written as a call, such as `token = canaryToken(dir)`, is judged one name at a time, so source code is not redacted while a random piece inside a call still is) **and** `Authorization: Bearer <token>` headers (the `Bearer` keyword alone is sufficient, no entropy gate) |
 | `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm, and starting with a card-network digit 2 to 6, so epoch timestamps and snowflake ids, which start with 1, are left alone) |
 
 Each detected secret maps to a provider-specific redaction marker such as `[REDACTED_OPENAI_KEY]`, `[REDACTED_ANTHROPIC_KEY]`, `[REDACTED_GOOGLE_API_KEY]`, `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_BEARER_TOKEN]`, or `[REDACTED_SECRET]`. Redaction patches each secret **at its exact matched offset** (not a global string replace), so a token that also appears elsewhere as benign data is never redacted by coincidence.
 
 > Providers whose keys carry no distinctive prefix (e.g. Mistral, Cohere, Together, DeepSeek, Azure OpenAI) are still caught by the `entropy` detector when they appear next to a credential keyword (`api_key=`, `token:`, `Authorization: Bearer …`).
 
-> The firewall never logs the raw secret value — dashboard events record only the **type** of secret found (e.g. `GITHUB_TOKEN`).
+> The firewall never logs the raw secret value. A dashboard event records the **type** of secret found (e.g. `GITHUB_TOKEN`) and, for each match (up to ten), **where it was** and a masked excerpt: the surface (`tool_result`, `system`, `prompt`, or `request` for anything else such as tool definitions or metadata), the tool that returned it when the request carries the call, and the first and last two characters with the length (`gh…9f (40 chars)`; a match of 8 characters or fewer shows only its length). That is enough to tell a leaked key in a file read from a false positive without storing the key.
 
 ### Modes
 
@@ -85,4 +85,4 @@ Environment overrides:
 | `LLM_FW_DLP_ENABLED` | `true`/`false` — enable or disable the DLP stage |
 | `LLM_FW_DLP_MODE` | `block` \| `redact` \| `audit` |
 
-Detected events appear in the dashboard under the **Data Loss** badge with a `dlp` stage chip.
+Detected events appear in the dashboard under the **Data Loss** badge with a `dlp` stage chip. The event's one-line preview names where the first match was (`GITHUB_TOKEN in tool_result (Bash)`), and its drawer lists every match under **Sensitive data found**.

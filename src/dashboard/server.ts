@@ -9,6 +9,7 @@ import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { SuppressionStore, suppressionLines } from '../detection/suppressions.js'
 import { getParser } from '../detection/parsers.js'
+import { trustedRootProblem } from '../detection/trustedPaths.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
 import { ocrImage, isOcrCandidate } from '../detection/ocr.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
@@ -160,6 +161,9 @@ const HTML = `<!DOCTYPE html>
 
   /* ── Base ───────────────────────────────────────────────────────────────── */
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* A class rule that sets display beats the hidden attribute's UA style, so
+     the Prompts filters and Load more showed while hidden. */
+  [hidden] { display: none !important; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     font-family: var(--font-sans);
@@ -608,6 +612,10 @@ const HTML = `<!DOCTYPE html>
   .setting-control { flex-shrink: 0; }
   .settings-select { padding: 6px 30px 6px 10px; font-size: 0.82rem; }
   .settings-input { padding: 6px 10px; font-size: 0.82rem; width: 120px; text-align: right; font-family: var(--font-mono); }
+  .settings-paths { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 0; max-width: 420px; }
+  .settings-path { display: flex; gap: 6px; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 0.8rem; overflow-wrap: anywhere; }
+  .settings-paths .settings-input { width: 100%; text-align: left; }
+  .settings-path-add { display: flex; gap: 6px; }
   .settings-input[type=text] { width: 190px; text-align: left; }
   .settings-saved { font-size: 0.82rem; color: var(--ok); height: 18px; margin-bottom: 8px; transition: opacity 0.3s; }
   .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
@@ -979,6 +987,13 @@ function scoreBar(score) {
     '<span>' + (score != null ? Number(score).toFixed(0) : '—') + '</span></div>';
 }
 
+// Events raised outside the detection pipeline (taint tracking, upstream
+// errors, the realtime relay) carry stage 'none' and say what they are in
+// kind. Show the kind, or the row reads as an event no stage raised.
+function stageName(ev) {
+  return ev.stage === 'none' && ev.kind ? ev.kind : ev.stage;
+}
+
 // ── Detection detail cell ─────────────────────────────────────────────────────
 function detailCell(ev) {
   if (ev.stage === 'heuristic' && ev.heuristicMatches && ev.heuristicMatches.length) {
@@ -1070,12 +1085,19 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section">' +
         '<h4>Detection</h4>' +
         '<dl class="meta-grid">' +
-          '<dt>Stage</dt><dd>' + esc(ev.stage) + '</dd>' +
+          '<dt>Stage</dt><dd>' + esc(stageName(ev)) + '</dd>' +
           '<dt>Score</dt><dd>' + (ev.score != null ? Number(ev.score).toFixed(1) : '—') + '</dd>' +
           '<dt>Similarity</dt><dd>' + simHtml + '</dd>' +
           (ev.verdict ? '<dt>Judge</dt><dd>' + esc(ev.verdict) + '</dd>' : '') +
         '</dl>' +
       '</div>' +
+      // Where each DLP match was, masked (#702). The secret is never recorded.
+      (ev.dlpLocations && ev.dlpLocations.length
+        ? '<div class="drawer-section drawer-full"><h4>Sensitive data found</h4><ul class="match-list dlp-locations">' +
+          ev.dlpLocations.map(l => '<li class="match-pill">' + esc(l.type) + ' in ' + esc(l.surface) +
+            (l.toolName ? ' (' + esc(l.toolName) + ')' : '') + ': <code>' + esc(l.masked) + '</code></li>').join('') +
+          '</ul></div>'
+        : '') +
       '<div class="drawer-section">' +
         '<h4>Heuristic Matches</h4>' + matchesHtml +
       '</div>' +
@@ -1291,7 +1313,7 @@ function appendRow(ev) {
     : ev.action === 'blocked' && ev.withheld === true
     ? '<span class="badge badge-observed" title="The tool output was withheld from the model; the rest of the request was forwarded">WITHHELD</span>'
     : '<span class="badge badge-' + esc(ev.action) + '">' + esc((ev.action || '').toUpperCase()) + '</span>';
-  const stageChip  = '<span class="chip chip-' + esc(ev.stage) + '">' + esc(ev.stage) + '</span>';
+  const stageChip  = '<span class="chip chip-' + esc(stageName(ev)) + '">' + esc(stageName(ev)) + '</span>';
   const endpoint   = esc((ev.method || '') + ' ' + (ev.path || ''));
 
   const tr = document.createElement('tr');
@@ -2130,6 +2152,10 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
     { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },
+    { key: 'indirectInstruction', label: 'Planted instructions in tool results', sub: 'Flag a tool result or document that tells the agent to send, delete or run something (indirect prompt injection)' },
+    { key: 'indirectInstructionMode', label: 'Planted instruction mode', type: 'select', options: ['block', 'audit'], sub: 'block: withhold or refuse it, per the Surfaces settings · audit: warn only' },
+    { key: 'memoryPoisoning', label: 'Memory poisoning', sub: 'Flag recalled agent memory that asserts standing permission, disables redaction or arms a trigger for later' },
+    { key: 'memoryPoisoningMode', label: 'Memory poisoning mode', type: 'select', options: ['block', 'audit'], sub: 'block: withhold or refuse it · audit: warn only' },
     { key: 'dlp', label: 'Data Loss Prevention (DLP)', sub: 'Detect secrets leaving in requests: cloud keys, tokens, private keys, payment cards, PII' },
     { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'], sub: 'block: refuse · redact: mask the secret and forward · audit: warn only' },
     { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs the model emits (e.g. a zero-click markdown image to an attacker host)' },
@@ -2162,6 +2188,7 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'Surfaces', desc: 'How each place text arrives from is treated. A tool result or a retrieved document is untrusted third-party content; the prompt is what the user typed. A surface threshold set here overrides the global one in Advanced only for that surface.', rows: [
     { key: 'toolResultOnBlock', label: 'Blocked tool result', type: 'select', options: ['withhold', 'refuse'], sub: 'withhold: replace that tool result with a notice and forward the rest · refuse: refuse the whole request (an agent resends it every turn)' },
+    { key: 'trustedPaths', label: 'Trusted project roots', type: 'paths', sub: 'Absolute folders you write yourself. A file the agent reads from under one (not node_modules, vendor or .git) warns instead of blocking when only a wording stage objects. A planted instruction in a file there only warns too' },
     { key: 'promptOlderTurns', label: 'Blocked older user turn', type: 'select', options: ['withhold', 'refuse'], sub: 'A blocked user message that is not the newest. The newest message always refuses' },
     { key: 'promptWordingAction', label: 'Wording matches on the prompt', type: 'select', options: ['block', 'warn'], sub: 'warn: a wording-only match on what the user typed warns unless it is high-confidence · block: block it' },
     { key: 'toolResultHeuristicThreshold', label: 'Tool result: heuristic threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a tool result is blocked. Shows the global value until set' },
@@ -2190,6 +2217,15 @@ function settingsRowHtml(row, s) {
     control = '<input type="number" class="settings-input" id="set-' + esc(row.key) + '" data-type="number"' + attrs + ' value="' + esc(String(s[row.key])) + '">';
   } else if (row.type === 'text') {
     control = '<input type="text" class="settings-input" id="set-' + esc(row.key) + '" data-type="text" value="' + esc(String(s[row.key] != null ? s[row.key] : '')) + '">';
+  } else if (row.type === 'paths') {
+    // A list edited as a whole: each change saves the new list (#703).
+    const items = (s[row.key] || []).map((p, i) =>
+      '<div class="settings-path"><span>' + esc(p) + '</span>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-path-remove="' + i + '" aria-label="Remove ' + esc(p) + '">Remove</button></div>').join('');
+    control = '<div class="settings-paths" id="set-' + esc(row.key) + '" data-type="paths">' +
+      (items || '<div class="setting-sub">None</div>') +
+      '<div class="settings-path-add"><input type="text" class="settings-input" data-path-new placeholder="C:\\\\dev\\\\my-project or /home/me/src" aria-label="' + esc(row.label) + ' to add">' +
+      '<button type="button" class="btn btn-sm" data-path-add>Add</button></div></div>';
   } else {
     control = '<label class="switch"><input type="checkbox" id="set-' + esc(row.key) + '" data-type="toggle"' + (s[row.key] ? ' checked' : '') + '><span class="slider"></span></label>';
   }
@@ -2210,6 +2246,20 @@ function renderSettings(s) {
     for (const r of g.rows) {
       const el = document.getElementById('set-' + r.key);
       if (!el) continue;
+      if (r.type === 'paths') {
+        const current = (s[r.key] || []).slice();
+        const input = el.querySelector('[data-path-new]');
+        const add = () => {
+          const v = input.value.trim();
+          if (v) saveSetting(r.key, current.concat([v]), true);
+        };
+        el.querySelector('[data-path-add]').addEventListener('click', add);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+        el.querySelectorAll('[data-path-remove]').forEach(b => b.addEventListener('click', () => {
+          saveSetting(r.key, current.filter((_, i) => i !== Number(b.dataset.pathRemove)), true);
+        }));
+        continue;
+      }
       el.addEventListener('change', () => {
         let value;
         if (r.type === 'select' || r.type === 'text') value = el.value;
@@ -2243,7 +2293,7 @@ async function loadSettings() {
   }
 }
 
-async function saveSetting(key, value) {
+async function saveSetting(key, value, rerender) {
   try {
     const res = await fetch('/api/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2252,6 +2302,8 @@ async function saveSetting(key, value) {
     const d = await res.json();
     if (!res.ok) throw new Error((d.errors && d.errors.join('; ')) || d.error || ('HTTP ' + res.status));
     flashSaved('Saved ✓', false);
+    // A list control shows what the server kept (trimmed, without duplicates).
+    if (rerender) renderSettings(d.settings);
   } catch (err) {
     flashSaved('Save failed: ' + err.message, true);
     loadSettings(); // re-sync controls with actual server state
@@ -2500,6 +2552,10 @@ interface SettingsView {
   mcpCatD: boolean
   taint: boolean
   taintMode: 'audit' | 'block'
+  indirectInstruction: boolean
+  indirectInstructionMode: 'audit' | 'block'
+  memoryPoisoning: boolean
+  memoryPoisoningMode: 'audit' | 'block'
   urlFilter: boolean
   responseScan: boolean
   responseScanMode: 'block' | 'audit'
@@ -2519,6 +2575,8 @@ interface SettingsView {
   // Per-surface detection (#543), each the EFFECTIVE value: a threshold the
   // surface does not override shows the global one it falls back to.
   toolResultOnBlock: 'withhold' | 'refuse'
+  // Project roots whose file reads warn instead of block (#703).
+  trustedPaths: string[]
   promptOlderTurns: 'withhold' | 'refuse'
   promptWordingAction: 'block' | 'warn'
   toolResultHeuristicThreshold: number
@@ -2557,6 +2615,10 @@ function readSettings(config: Config): SettingsView {
     mcpCatD: config.mcp?.guardrailsCategories?.d ?? true,
     taint: config.taint?.enabled ?? false,
     taintMode: config.taint?.mode ?? 'audit',
+    indirectInstruction: config.indirectInstruction?.enabled ?? true,
+    indirectInstructionMode: config.indirectInstruction?.mode ?? 'block',
+    memoryPoisoning: config.memoryPoisoning?.enabled ?? true,
+    memoryPoisoningMode: config.memoryPoisoning?.mode ?? 'block',
     urlFilter: config.proxy?.urlFilter?.enabled ?? true,
     responseScan: config.responseScan?.enabled ?? true,
     responseScanMode: config.responseScan?.mode ?? 'audit',
@@ -2572,6 +2634,7 @@ function readSettings(config: Config): SettingsView {
     dosMaxTokens: config.dos?.maxTokensPerSession ?? 50_000_000,
     judgeModel: config.detection?.judgeModel ?? 'qwen2.5:3b',
     toolResultOnBlock: config.detection?.surfaces?.tool_result?.onBlock ?? 'withhold',
+    trustedPaths: [...(config.detection?.surfaces?.tool_result?.trustedPaths ?? [])],
     promptOlderTurns: config.detection?.surfaces?.prompt?.olderTurns ?? 'withhold',
     promptWordingAction: config.detection?.surfaces?.prompt?.wordingAction ?? 'block',
     toolResultHeuristicThreshold: config.detection?.surfaces?.tool_result?.heuristicBlockThreshold ?? config.detection?.heuristicBlockThreshold ?? 50,
@@ -2614,6 +2677,8 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   mcpCatC: (c, v) => { c.mcp.guardrailsCategories.c = v },
   mcpCatD: (c, v) => { c.mcp.guardrailsCategories.d = v },
   taint: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.enabled = v },
+  indirectInstruction: (c, v) => { c.indirectInstruction ??= { enabled: true, mode: 'block' }; c.indirectInstruction.enabled = v },
+  memoryPoisoning: (c, v) => { c.memoryPoisoning ??= { enabled: true, mode: 'block' }; c.memoryPoisoning.enabled = v },
   urlFilter: (c, v) => { c.proxy.urlFilter.enabled = v },
   responseScan: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.enabled = v },
   nonText: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.enabled = v },
@@ -2644,6 +2709,15 @@ const STRING_SETTERS: Record<string, { apply: (c: Config, v: string) => void }> 
   judgeModel: { apply: (c, v) => { c.detection.judgeModel = v } },
 }
 
+// List setters (the POST allowlist for string lists). The whole list is
+// replaced: each entry trimmed, duplicates dropped, every entry checked by
+// `check`, and nothing applied when one fails.
+const LIST_SETTERS: Record<string, { maxItems: number; maxLength: number; check: (v: string) => string | null; apply: (c: Config, v: string[]) => void }> = {
+  // #703: the same rules the matcher applies, so a root that shows here is one
+  // it can match.
+  trustedPaths: { maxItems: 64, maxLength: 1024, check: trustedRootProblem, apply: (c, v) => { toolResultSurface(c).trustedPaths = v } },
+}
+
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
   dlpMode: { values: ['block', 'redact', 'audit'], apply: (c, v) => { c.dlp.mode = v as Config['dlp']['mode'] } },
   toolResultOnBlock: { values: ['withhold', 'refuse'], apply: (c, v) => { toolResultSurface(c).onBlock = v as 'withhold' | 'refuse' } },
@@ -2652,6 +2726,8 @@ const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Confi
   manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }; c.manyShot.mode = v as 'audit' | 'block' } },
   crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }; c.crescendo.mode = v as 'audit' | 'block' } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.mode = v as 'audit' | 'block' } },
+  indirectInstructionMode: { values: ['audit', 'block'], apply: (c, v) => { c.indirectInstruction ??= { enabled: true, mode: 'block' }; c.indirectInstruction.mode = v as 'audit' | 'block' } },
+  memoryPoisoningMode: { values: ['audit', 'block'], apply: (c, v) => { c.memoryPoisoning ??= { enabled: true, mode: 'block' }; c.memoryPoisoning.mode = v as 'audit' | 'block' } },
   responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.mode = v as 'block' | 'audit' } },
   nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.mode = v as 'audit' | 'block' } },
 }
@@ -2693,6 +2769,14 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       guardrailsCategories: { ...config.mcp.guardrailsCategories },
     },
     taint: { enabled: config.taint?.enabled ?? false, mode: config.taint?.mode ?? 'audit' },
+    indirectInstruction: { enabled: config.indirectInstruction?.enabled ?? true, mode: config.indirectInstruction?.mode ?? 'block' },
+    memoryPoisoning: { enabled: config.memoryPoisoning?.enabled ?? true, mode: config.memoryPoisoning?.mode ?? 'block' },
+    nonText: {
+      enabled: config.nonText?.enabled ?? true,
+      mode: config.nonText?.mode ?? 'audit',
+      ocr: config.nonText?.ocr ?? false,
+      transcribe: config.nonText?.transcribe ?? false,
+    },
     proxy: { urlFilter: { enabled: config.proxy.urlFilter.enabled } },
     asciiSmuggling: { enabled: config.asciiSmuggling?.enabled ?? true },
     manyShot: { enabled: config.manyShot?.enabled ?? true, mode: config.manyShot?.mode ?? 'block' },
@@ -2726,7 +2810,21 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
     const enumSpec = ENUM_SETTERS[key]
     const numberSpec = NUMBER_SETTERS[key]
     const stringSpec = STRING_SETTERS[key]
-    if (boolSetter) {
+    const listSpec = LIST_SETTERS[key]
+    if (listSpec) {
+      if (!Array.isArray(value) || value.length > listSpec.maxItems || !value.every((v): v is string => typeof v === 'string')) {
+        errors.push(`${key}: expected a list of at most ${listSpec.maxItems} strings`); continue
+      }
+      const items = [...new Set(value.map(v => v.trim()))]
+      const problems = items.flatMap(v => {
+        if (v.length === 0 || v.length > listSpec.maxLength) return [`${key}: an entry must be 1 to ${listSpec.maxLength} characters`]
+        const problem = listSpec.check(v)
+        return problem ? [`${key}: ${JSON.stringify(v)} ${problem}`] : []
+      })
+      if (problems.length) { errors.push(...problems); continue }
+      listSpec.apply(config, items)
+      applied.push(key)
+    } else if (boolSetter) {
       if (typeof value !== 'boolean') { errors.push(`${key}: expected boolean`); continue }
       boolSetter(config, value)
       applied.push(key)

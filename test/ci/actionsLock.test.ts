@@ -12,7 +12,10 @@ import { fileURLToPath } from 'node:url'
 // a new or bumped action cannot land without one. Asserted against the
 // file text, as the other workflow tests are.
 const DIR = fileURLToPath(new URL('../../.github/workflows/', import.meta.url))
-const LOCK = readFileSync(`${DIR}actions.lock`, 'utf8')
+// Line endings normalised: a Windows checkout with core.autocrlf has CRLF
+// here, and the entry pattern below, written for `':\n`, then found no
+// entries at all, so the test failed on every Windows clone.
+const LOCK = readFileSync(`${DIR}actions.lock`, 'utf8').replace(/\r\n/g, '\n')
 const WORKFLOWS = readdirSync(DIR).filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
 
 // `owner/repo/sub/path@ref` is locked as `owner/repo@ref`.
