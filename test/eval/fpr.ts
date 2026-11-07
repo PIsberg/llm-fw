@@ -166,6 +166,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.38 (the response exfil scan reads decoded JSON text fields, #580; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.37 (two Claude Code 2.1.319 tags added to the client tag list, matcher and an extractor misread dropped; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.36 (a dashboard check on trusted roots, which no detection path calls; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.35 (memory poisoning needs a secret as the object of "don't redact"; 0 of 13,875 verdicts moved; held at 2026.11.34: DLP no longer redacts a call after a credential keyword; held at 2026.11.33: calls are learned from responses with no trusted root too, for WebFetch's template; held at 2026.11.32: trusted paths read a thread continuation's results with calls learned from responses, Grep and Glob of a trusted root are trusted, WebFetch's redirect notice is a tool-result template; no eval row is any of these; 7 of 336 benign rows, as before).

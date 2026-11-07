@@ -239,15 +239,110 @@ export function scanResponseExfil(
   return findings
 }
 
+const EXFIL_PLACEHOLDER = 'llm-fw-blocked-exfil-url'
+
 /**
  * Neutralize exfil URLs in a (buffered) response body by replacing each offending
  * URL with an inert placeholder, keeping the surrounding text/JSON intact so the
  * agent still receives a valid turn — just without the auto-fetch.
  */
-export function neutralizeExfil(body: string, findings: ExfilFinding[]): string {
+export function neutralizeExfil(body: string, findings: readonly ExfilFinding[]): string {
   let out = body
   for (const f of findings) {
-    out = out.split(f.url).join('llm-fw-blocked-exfil-url')
+    out = out.split(f.url).join(EXFIL_PLACEHOLDER)
   }
   return out
+}
+
+/** The keys whose string values a client renders as the model's text. */
+export const RENDERED_KEYS: ReadonlySet<string> = new Set(['text', 'thinking', 'content', 'refusal', 'delta', 'output'])
+
+interface TextField { holder: Record<string, unknown>; key: string; text: string }
+
+/**
+ * Every string a client renders in a parsed JSON body: the value of a
+ * RENDERED_KEYS key, at any depth. Walked with an explicit stack, so a deeply
+ * nested body cannot overflow the call stack.
+ */
+function renderedFields(root: unknown): TextField[] {
+  const fields: TextField[] = []
+  const stack: unknown[] = [root]
+  while (stack.length) {
+    const node = stack.pop()
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        stack.push(item)
+      }
+      continue
+    }
+    if (node === null || typeof node !== 'object') continue
+    const holder = node as Record<string, unknown>
+    for (const [key, value] of Object.entries(holder)) {
+      if (typeof value === 'string') { if (RENDERED_KEYS.has(key)) fields.push({ holder, key, text: value }) }
+      else if (value !== null && typeof value === 'object') stack.push(value)
+    }
+  }
+  return fields
+}
+
+function parseJson(body: string): unknown {
+  try { return JSON.parse(body) } catch { return undefined }
+}
+
+/** A destination as the raw body holds it, with its JSON escapes undone. */
+function unescaped(raw: string): string {
+  try { return JSON.parse(`"${raw}"`) as string } catch { return raw }
+}
+
+/**
+ * Scan the decoded text fields of a buffered JSON body (#580 step 4).
+ *
+ * scanResponseExfil reads the raw body, where a serializer may have escaped
+ * the markup (Go writes `<` and `&` as `\u003c` and `\u0026`). The client
+ * renders the decoded string, so that is what is read here. Returns only
+ * what `known` (the raw-body findings) does not already hold; an empty list
+ * when the body is not JSON.
+ */
+export function scanJsonTextFields(
+  body: string,
+  isExfil: (hostname: string, path: string) => boolean,
+  known: readonly ExfilFinding[],
+): ExfilFinding[] {
+  const parsed = parseJson(body)
+  if (parsed === undefined) return []
+  const seen = new Set(known.map(f => unescaped(f.url)))
+  const findings: ExfilFinding[] = []
+  for (const field of renderedFields(parsed)) {
+    for (const f of scanResponseExfil(field.text, isExfil)) {
+      if (seen.has(f.url)) continue
+      seen.add(f.url)
+      findings.push(f)
+    }
+  }
+  return findings
+}
+
+/**
+ * Block mode on a buffered JSON body: replace the raw-body findings, then
+ * read the decoded text fields again and rewrite whatever a client would
+ * still render there. The second pass is what covers markup a serializer
+ * escaped (Go's `\u003cimg`), which the raw scan does not see as a tag.
+ * A body with nothing left, or that is not JSON, keeps its exact bytes.
+ */
+export function neutralizeJsonExfil(
+  body: string,
+  isExfil: (hostname: string, path: string) => boolean,
+  raw: readonly ExfilFinding[],
+): string {
+  const out = neutralizeExfil(body, raw)
+  const parsed = parseJson(out)
+  if (parsed === undefined) return out
+  const fields = renderedFields(parsed)
+  let changed = false
+  for (const field of fields) {
+    let text = field.text
+    for (const f of scanResponseExfil(field.text, isExfil)) text = text.split(f.url).join(EXFIL_PLACEHOLDER)
+    if (text !== field.text) { field.holder[field.key] = text; changed = true }
+  }
+  return changed ? JSON.stringify(parsed) : out
 }

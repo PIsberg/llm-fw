@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.38
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.37 moved 0 of 13,875 rows, max similarity drift 0. The change is to the response exfil scan, which reads the decoded text fields of a buffered JSON body (#580); no request verdict depends on it.
+
 ## Result, ruleset 2026.11.37
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.36 moved 0 of 13,875 rows, max similarity drift 0. The client tag list follows Claude Code 2.1.319 (`untrusted-widget-state` and `voice-call-talk` added), drops `matcher`, which that release no longer declares, and drops `nodejs`, which the extractor had read from an unrelated one-letter constant. No eval row is a Claude Code user turn made of its own markup, so none can reach the change.
