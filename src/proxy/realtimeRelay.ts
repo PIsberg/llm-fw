@@ -8,6 +8,7 @@ import { explainBlock } from '../detection/explain.js'
 import { MAX_TRANSCRIBE_SECONDS } from '../detection/transcribe.js'
 import { FrameReader, OPCODE, RealtimeAudioBuffer, audioScanBody, refuseRealtime, encodeFrame, type Frame, type RealtimeProtocol } from './websocket.js'
 import { createLogger } from '../logger.js'
+import { locateDlpFindings } from './dlpLocation.js'
 
 const log = createLogger('realtime')
 
@@ -232,8 +233,10 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
         if (findings.length) {
           const types = Array.from(new Set(findings.map(f => f.type))).join(', ')
           const mode = observing ? 'audit' : config.dlp.mode
+          // A realtime client event has no parser surface; the masked match still says what it was (#702).
+          const dlpLocations = locateDlpFindings(null, text, findings)
           const id = emit({
-            stage: 'dlp', score: 100, similarity: 0, target, method: 'WS', path,
+            stage: 'dlp', score: 100, similarity: 0, target, method: 'WS', path, dlpLocations,
             payload_preview: types, payload_full: types,
             action: config.dlp.mode === 'block' ? 'blocked' : 'warned', kind: 'dlp', dlpType: findings[0]!.type,
           })

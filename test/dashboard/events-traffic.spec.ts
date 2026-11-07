@@ -195,6 +195,11 @@ test.describe('A block remediation link opens the event (#319)', () => {
         id: 'dlp-1', timestamp: '2026-10-15 20:01:00Z', stage: 'dlp', score: 100, similarity: 0,
         target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked', kind: 'dlp',
         payload_preview: 'aws-access-key', payload_full: 'aws-access-key',
+        dlpType: 'AWS_ACCESS_KEY',
+        dlpLocations: [
+          { type: 'AWS_ACCESS_KEY', surface: 'tool_result', toolName: 'Bash', masked: 'AK…T3 (20 chars)' },
+          { type: 'GENERIC_SECRET', surface: 'prompt', masked: '… (8 chars)' },
+        ],
       }) + '\n\n' +
       'data: ' + JSON.stringify({
         id: 'held-1', timestamp: '2026-10-15 20:02:00Z', stage: 'indirect-instruction', score: 100, similarity: 0,
@@ -221,6 +226,16 @@ test.describe('A block remediation link opens the event (#319)', () => {
     const drawer = page.locator('#drawer-dlp-1')
     await expect(drawer).toBeVisible({ timeout: 10_000 })
     await expect(drawer.locator('button:has-text("Mark false positive (suppress future matches)")')).toHaveCount(0)
+  })
+
+  // #702: which tool result or message carried the secret, masked.
+  test('a DLP event\'s drawer says where each match was, masked', async ({ page }) => {
+    await stub(page)
+    await page.goto('/#event=dlp-1')
+    const found = page.locator('#drawer-dlp-1 .dlp-locations li')
+    await expect(found).toHaveCount(2, { timeout: 10_000 })
+    await expect(found.nth(0)).toHaveText('AWS_ACCESS_KEY in tool_result (Bash): AK…T3 (20 chars)')
+    await expect(found.nth(1)).toHaveText('GENERIC_SECRET in prompt: … (8 chars)')
   })
 
   test('/#event=<id> opens that event\'s drawer with the unblock button', async ({ page }) => {
@@ -298,5 +313,30 @@ test.describe('Settings — response-side exfil rows', () => {
     await expect(page.locator('#settings-body')).toBeVisible()
     await expect(page.locator('#set-responseScan')).toBeChecked()         // default enabled
     await expect(page.locator('#set-responseScanMode')).toHaveValue('audit') // default mode
+  })
+})
+
+test.describe('An event raised outside the detection pipeline names its kind', () => {
+  // Taint tracking, upstream errors and the realtime relay emit stage 'none'
+  // with a kind. The table printed "none" as the stage, so a cross-turn taint
+  // warning read as an event no stage raised.
+  test('a taint warning shows "taint" as its stage, in the row and the drawer', async ({ page }) => {
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'retry: 60000\n' +
+        'data: ' + JSON.stringify({
+          id: 'taint-1', timestamp: '2026-11-07 11:16:01Z', stage: 'none', score: 50, similarity: 0,
+          target: 'api.anthropic.com', method: 'CONNECT', path: '/', action: 'warned', kind: 'taint',
+          payload_preview: 'Outbound connection to a host named in untrusted content: ex***.com',
+          payload_full: 'example.com',
+        }) + '\n\n',
+    }))
+    await page.goto('/#event=taint-1')
+    const row = page.locator('#row-taint-1')
+    await expect(row).toContainText('taint', { timeout: 10_000 })
+    await expect(row).not.toContainText(/\bnone\b/)
+    await expect(page.locator('#drawer-taint-1')).toContainText('taint')
+    await expect(page.locator('#drawer-taint-1')).not.toContainText(/Stage\s*none/)
   })
 })

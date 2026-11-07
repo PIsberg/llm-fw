@@ -718,6 +718,19 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     // Trained classifier stage (opt-in, off by default).
     expect(s.classifier).toBe(false)
     expect(s.classifierThreshold).toBeCloseTo(0.9)
+    // The two stages that withhold most tool results an agent reads: on and
+    // blocking by default, and switchable to audit without editing a file.
+    expect(s.indirectInstruction).toBe(true)
+    expect(s.indirectInstructionMode).toBe('block')
+    expect(s.memoryPoisoning).toBe(true)
+    expect(s.memoryPoisoningMode).toBe('block')
+  })
+
+  it('POST /api/settings rejects an invalid indirectInstructionMode or memoryPoisoningMode with 400', async () => {
+    for (const body of ['{"indirectInstructionMode":"off"}', '{"memoryPoisoningMode":"warn"}']) {
+      const res = await req(server, 'POST', '/api/settings', body)
+      expect(res.status).toBe(400)
+    }
   })
 
   it('POST /api/settings rejects an out-of-range numeric value with 400', async () => {

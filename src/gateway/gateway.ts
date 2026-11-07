@@ -30,6 +30,7 @@ import type { Duplex } from 'node:stream';
 import { realtimeProtocolFor, wsRefusal } from '../proxy/websocket.js';
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from '../proxy/realtimeRelay.js';
 import { canaryToken, injectCanary, guardCanary } from '../proxy/canary.js';
+import { locateDlpFindings, locationSummary } from '../proxy/dlpLocation.js';
 import { getLlmFwDir } from '../config/paths.js';
 
 const log = createLogger('gateway');
@@ -279,7 +280,10 @@ export class GatewayServer {
       }
       // Before the tap, so the Usage Meter still sees the usage chunk (#421).
       if (decision.stripStreamUsage) stripUsageChunk(res);
-      const captured = moduleCtx && this.modules.wantsResponses()
+      // Detection reads the response's tool calls too, for the results a
+      // Responses API request with previous_response_id sends without them.
+      const learnCalls = this.pipeline.wantsCalls();
+      const captured = (moduleCtx && this.modules.wantsResponses()) || learnCalls
         ? tapResponse(res, bodyCap(this.config.proxy.maxBodyBytes))
         : null;
       // The system-prompt canary (#552, the proxy's since #539), added after
@@ -299,6 +303,7 @@ export class GatewayServer {
       }
       await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);
       const response = captured?.();
+      if (response && learnCalls) this.pipeline.learnCalls(response);
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
     } catch (err) {
       log.error(`${req.method} ${urlForLog(req.url)} — ${(err as Error)?.message ?? String(err)}`);
@@ -571,6 +576,9 @@ export class GatewayServer {
       const firstFinding = findings[0];
       if (firstFinding) {
         const types = Array.from(new Set(findings.map(f => f.type)));
+        // Where each match was, masked; never the secret (#702).
+        const dlpLocations = locateDlpFindings(getParser(path), text, findings);
+        const summary = types.join(', ') + locationSummary(dlpLocations);
         // Observation must not refuse the request and must not rewrite it
         // either: 'redact' alters the body the client sent, which is exactly
         // what an observing tenant is promised will not happen.
@@ -578,9 +586,9 @@ export class GatewayServer {
         const event = this.eventBus.emit({
           stage: 'dlp', score: 100, similarity: 0,
           target, method, path,
-          payload_preview: types.join(', '), payload_full: types.join(', '),
+          payload_preview: summary, payload_full: summary,
           action: this.config.dlp.mode === 'block' ? 'blocked' : 'warned',
-          kind: 'dlp', dlpType: firstFinding.type,
+          kind: 'dlp', dlpType: firstFinding.type, dlpLocations,
           ...observedTag, ...tenantTag,
         });
         if (mode === 'block') {
