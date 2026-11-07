@@ -97,5 +97,17 @@ test.describe('Prompts tab', () => {
     await open(page)
     await expect(page.locator('#prompts-off')).toBeVisible()
     await expect(page.locator('#prompts-toggle')).not.toBeChecked()
+    // Nothing is held, so there is nothing to filter or page through. Both
+    // carried the hidden attribute and still showed: their class rules set
+    // display: flex, which beat the attribute.
+    await expect(page.locator('#prompts-filters')).toBeHidden()
+    await expect(page.locator('#prompts-more')).toBeHidden()
+  })
+
+  test('offers Load more only while more prompts are held than shown', async ({ page }) => {
+    await fakeServer(page, [row(1), row(2)])
+    await open(page)
+    await expect(page.locator('#prompts-body tr')).toHaveCount(2)
+    await expect(page.locator('#prompts-more')).toBeHidden()
   })
 })

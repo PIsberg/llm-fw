@@ -160,6 +160,9 @@ const HTML = `<!DOCTYPE html>
 
   /* ── Base ───────────────────────────────────────────────────────────────── */
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* A class rule that sets display beats the hidden attribute's UA style, so
+     the Prompts filters and Load more showed while hidden. */
+  [hidden] { display: none !important; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     font-family: var(--font-sans);
@@ -979,6 +982,13 @@ function scoreBar(score) {
     '<span>' + (score != null ? Number(score).toFixed(0) : '—') + '</span></div>';
 }
 
+// Events raised outside the detection pipeline (taint tracking, upstream
+// errors, the realtime relay) carry stage 'none' and say what they are in
+// kind. Show the kind, or the row reads as an event no stage raised.
+function stageName(ev) {
+  return ev.stage === 'none' && ev.kind ? ev.kind : ev.stage;
+}
+
 // ── Detection detail cell ─────────────────────────────────────────────────────
 function detailCell(ev) {
   if (ev.stage === 'heuristic' && ev.heuristicMatches && ev.heuristicMatches.length) {
@@ -1070,7 +1080,7 @@ function toggleDrawer(id, ev) {
       '<div class="drawer-section">' +
         '<h4>Detection</h4>' +
         '<dl class="meta-grid">' +
-          '<dt>Stage</dt><dd>' + esc(ev.stage) + '</dd>' +
+          '<dt>Stage</dt><dd>' + esc(stageName(ev)) + '</dd>' +
           '<dt>Score</dt><dd>' + (ev.score != null ? Number(ev.score).toFixed(1) : '—') + '</dd>' +
           '<dt>Similarity</dt><dd>' + simHtml + '</dd>' +
           (ev.verdict ? '<dt>Judge</dt><dd>' + esc(ev.verdict) + '</dd>' : '') +
@@ -1291,7 +1301,7 @@ function appendRow(ev) {
     : ev.action === 'blocked' && ev.withheld === true
     ? '<span class="badge badge-observed" title="The tool output was withheld from the model; the rest of the request was forwarded">WITHHELD</span>'
     : '<span class="badge badge-' + esc(ev.action) + '">' + esc((ev.action || '').toUpperCase()) + '</span>';
-  const stageChip  = '<span class="chip chip-' + esc(ev.stage) + '">' + esc(ev.stage) + '</span>';
+  const stageChip  = '<span class="chip chip-' + esc(stageName(ev)) + '">' + esc(stageName(ev)) + '</span>';
   const endpoint   = esc((ev.method || '') + ' ' + (ev.path || ''));
 
   const tr = document.createElement('tr');
