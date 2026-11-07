@@ -85,6 +85,22 @@ function normalise(p: string): string | null {
   return drive ? norm.toLowerCase() : norm
 }
 
+/**
+ * Why `root` cannot be a trusted root, or null when it can. Rejects what the
+ * matcher would never match (a relative path, a home directory, a UNC or
+ * device prefix, an 8.3 short name, a data stream), a whole drive or file
+ * system, and a root inside a third-party folder, under which nothing is
+ * trusted anyway. The dashboard checks a root with this before it applies it.
+ */
+export function trustedRootProblem(root: string): string | null {
+  const norm = normalise(root)
+  if (norm === null) return 'must be an absolute path, without ~, a UNC or \\\\?\\ prefix, a short name such as PROGRA~1, or a data stream'
+  // normalise drops a trailing slash, so `/` comes back empty and `C:\` as `c:`.
+  if (norm === '' || /^[a-z]:$/.test(norm)) return 'is a whole drive or file system; list your project folders instead'
+  if (norm.split('/').some(seg => THIRD_PARTY_DIRS.has(dirName(seg)))) return 'is inside a folder of third-party code, where nothing is trusted'
+  return null
+}
+
 function readArgs(input: unknown): Record<string, unknown> | null {
   if (typeof input === 'string') {
     try { input = JSON.parse(input) } catch { return null }

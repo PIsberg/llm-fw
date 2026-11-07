@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Settings tab shows and edits the trusted project roots (`detection.surfaces.tool_result.trustedPaths`, #703).** The main lever against false positives on an agent reading its own project could only be set in `config.json`. The Surfaces group lists the roots with Add and Remove, applies a change live and persists it. A root the matcher could never use is refused with the reason, and nothing changes: a relative path, `~`, a UNC or device prefix, a short name, or a data stream. So are a whole drive or file system and a folder inside third-party code.
+
 - **The Settings tab switches the planted-instruction and memory-poisoning stages, and their block or audit mode.** These two stages withhold most of the tool results an agent reads by mistake, and until now the only way to set them to audit was `config.json` or `LLM_FW_INDIRECT_INSTRUCTION_MODE` and `LLM_FW_MEMORY_POISONING_MODE`. They apply live and persist like every other setting.
 
 ### Fixed
