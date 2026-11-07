@@ -222,7 +222,15 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 ```powershell
 # Windows, elevated PowerShell
 certutil -addstore -f Root llm-fw-ca.crt
+
+# Windows, without admin: your user's own Root store (Windows asks you to confirm)
+certutil -user -addstore -f Root llm-fw-ca.crt
 ```
+
+`llm-fw doctor` checks that the store holds the CA that is on disk now, by
+fingerprint. A store that holds only an older llm-fw CA, left there when
+`setup` generated a new one without admin rights, is reported as a warning
+with these commands.
 
 To remove it later, see [Uninstall](#uninstall).
 
@@ -400,8 +408,14 @@ targets, so no configuration is needed beyond pointing the tool at the proxy
 and trusting the CA:
 
 - `agy` is a Go binary. It honours `HTTPS_PROXY` and reads the OS trust
-  store, so `llm-fw setup` covers it; in sinkhole mode the hosts file covers
-  it too.
+  store, not `NODE_EXTRA_CA_CERTS`, so it works once `llm-fw setup` has
+  installed the CA there, which needs admin rights; in sinkhole mode the hosts
+  file covers it too. If the store does not hold the CA on disk, `agy` stops
+  at startup with `Eligibility check failed: Post
+  "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist": tls:
+  failed to verify certificate: x509: certificate signed by unknown
+  authority`, while Claude Code keeps working. Run `llm-fw doctor` and the
+  command it prints, or see [Install the CA](#install-the-ca) above.
 - Gemini CLI is Node: `HTTPS_PROXY` plus `NODE_EXTRA_CA_CERTS`, as for
   Claude Code.
 

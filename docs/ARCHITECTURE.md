@@ -181,7 +181,7 @@ classDiagram
     class CertFactory {
         -ca: CA
         -certCache: Map~string, TLSCredentials~
-        +ensureCA() reused|generated
+        +ensureCA() reused|generated (reason, keptAs)
         +generateCA() CA
         +getHostCert(hostname: string) TLSCredentials
     }

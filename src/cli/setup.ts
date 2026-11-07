@@ -1,4 +1,4 @@
-import { CertFactory, crlUrlFor } from '../proxy/certs.js';
+import { CertFactory, crlUrlFor, type CaReplaceReason, type EnsureCaResult } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
 import { stripSinkholeBlock } from './hosts.js';
@@ -53,18 +53,55 @@ export function getIdeSettingsPaths(): string[] {
   return paths.filter(p => fs.existsSync(p));
 }
 
-/** What to tell the user when the CA could not be installed: this OS's command only. */
-export function caTrustHint(os: NodeJS.Platform, caCertPath: string): string[] {
-  const command = os === 'win32'
-    ? `  In an Administrator terminal:  certutil -addstore -f Root "${caCertPath}"`
+const CA_REPLACED_BECAUSE: Record<CaReplaceReason, string> = {
+  'missing': 'was missing its certificate or key',
+  'unreadable': 'could not be read',
+  'key-mismatch': 'whose key does not belong to its certificate',
+  'expired': 'had expired',
+  'crl-url': 'served another CRL address',
+};
+
+/**
+ * What setup says about the CA: kept, generated for the first time, or
+ * replaced, naming the one check that failed and where the old files were
+ * moved (#692). A key that stops matching its certificate means something
+ * else wrote into the data directory, which only the kept files can show.
+ */
+export function caSetupMessage(result: EnsureCaResult): string[] {
+  if (result.outcome === 'reused') return ['Existing CA certificate kept (clients that trust it keep working).'];
+  if (!result.keptAs?.length) return ['CA certificate generated.'];
+  const because = CA_REPLACED_BECAUSE[result.reason];
+  const replacing = because.startsWith('whose') ? `one ${because}` : `one that ${because}`;
+  return [
+    `CA certificate generated, replacing ${replacing}.`,
+    `The replaced files were kept as ${result.keptAs.join(' and ')}.`,
+  ];
+}
+
+/**
+ * What to tell the user when the CA could not be installed: this OS's command
+ * only. `replaced` is a run that generated a new CA over an existing one: the
+ * OS store then still trusts the old CA, so every tool that reads it, Go tools
+ * such as Antigravity's `agy` among them, fails TLS from now on (#689).
+ */
+export function caTrustHint(os: NodeJS.Platform, caCertPath: string, replaced = false): string[] {
+  const commands = os === 'win32'
+    ? [
+        `  In an Administrator terminal:  certutil -addstore -f Root "${caCertPath}"`,
+        `  Or without admin, for your user only (Windows asks you to confirm):  certutil -user -addstore -f Root "${caCertPath}"`,
+      ]
     : os === 'darwin'
-      ? `  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${caCertPath}"`
-      : `  sudo cp "${caCertPath}" /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates`;
+      ? [`  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${caCertPath}"`]
+      : [`  sudo cp "${caCertPath}" /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates`];
   return [
     'Could not install the CA into the OS trust store (this needs admin/root).',
+    ...(replaced
+      ? ['  This run replaced the CA llm-fw made earlier, so tools that trusted the old one through the OS trust store now fail TLS until you install this one.']
+      : []),
     '  Node.js tools (Claude Code, SDKs) still trust it through NODE_EXTRA_CA_CERTS, set below.',
-    '  For curl, Python, browsers and other tools, trust it manually:',
-    command,
+    '  Go tools such as Antigravity (agy) report "x509: certificate signed by unknown authority" without it,',
+    '  and curl, Python and browsers reject the certificate. Trust it manually:',
+    ...commands,
   ];
 }
 
@@ -106,7 +143,7 @@ export function coverageLines(opts: {
   }
   if (!opts.caTrusted) {
     lines.push('  ⚠ CA not in the OS trust store: Node.js tools trust it via NODE_EXTRA_CA_CERTS,');
-    lines.push('    but curl, Python and browsers reject llm-fw\'s certificate until you trust it');
+    lines.push('    but Go tools (Antigravity\'s agy), curl, Python and browsers reject llm-fw\'s certificate until you trust it');
     lines.push('    (command printed above).');
   }
   return lines;
@@ -393,9 +430,10 @@ export async function run(args: string[]): Promise<void> {
   // dashboard this install will actually serve the CRL from.
   const setupConfig = await loadConfig();
   const certFactory = new CertFactory(crlUrlFor(setupConfig.dashboard?.bindHost, setupConfig.dashboard?.port));
-  console.log(certFactory.ensureCA() === 'reused'
-    ? 'Existing CA certificate kept (clients that trust it keep working).'
-    : 'CA certificate generated.');
+  const hadCa = fs.existsSync(caCertPath);
+  const caResult = certFactory.ensureCA();
+  const caReplaced = hadCa && caResult.outcome === 'generated';
+  for (const line of caSetupMessage(caResult)) console.log(line);
   certFactory.generateAndSaveCRL();
   console.log('CRL generated.');
 
@@ -414,7 +452,7 @@ export async function run(args: string[]): Promise<void> {
     console.log('CA certificate installed to OS trust store.');
     caTrusted = true;
   } catch {
-    for (const line of caTrustHint(platform(), caCertPath)) console.warn(line);
+    for (const line of caTrustHint(platform(), caCertPath, caReplaced)) console.warn(line);
   }
 
   // Step 3 - Download/init embedding model

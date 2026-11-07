@@ -45,12 +45,18 @@ export interface DoctorProbe {
   running: boolean
   pid: number | null
   caCertExists: boolean
-  /** true = found in OS trust store, false = absent, null = couldn't determine. */
+  /**
+   * true = the CA on disk, matched by SHA-1 fingerprint, is in the OS trust
+   * store; false = it is not; null = couldn't determine. A different llm-fw CA
+   * with the same subject does not count: it was once read as trusted, and
+   * every client that reads the OS store failed TLS behind a green tick (#689).
+   */
   caTrusted: boolean | null
   /**
    * true  = the trust store holds an llm-fw CA whose fingerprint differs from
-   *         ~/.llm-fw/ca.crt (the CA was rotated; stale anchor → signature
-   *         failures). false = it matches. null = not present / undeterminable.
+   *         ~/.llm-fw/ca.crt (the CA was rotated and the store kept the old
+   *         one). false = it holds only the current one or none. null =
+   *         undeterminable.
    */
   caStoreStale: boolean | null
   proxyListening: boolean
@@ -98,11 +104,21 @@ export function setEnvCmd(os: OS, name: string, value: string): string {
     : `export ${name}="${value}"`
 }
 
-function caTrustFix(os: OS, caCertPath: string): string {
-  if (os === 'win32') return `certutil -addstore -f Root "${caCertPath}"   # run elevated`
-  if (os === 'darwin') return `security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${caCertPath}"`
-  return `sudo cp "${caCertPath}" /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates`
+function caTrustFix(os: OS, caCertPath: string): string[] {
+  if (os === 'win32') {
+    return [
+      `certutil -addstore -f Root "${caCertPath}"   # run elevated`,
+      `certutil -user -addstore -f Root "${caCertPath}"   # without admin, this user only; Windows asks you to confirm`,
+    ]
+  }
+  if (os === 'darwin') return [`security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${caCertPath}"`]
+  return [`sudo cp "${caCertPath}" /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates`]
 }
+
+/** Which clients an untrusted CA breaks, and how the failure reads in each. */
+const OS_STORE_CLIENTS =
+  'Node.js tools trust the CA through NODE_EXTRA_CA_CERTS. Tools that read the OS trust store fail TLS until it is there:\n' +
+  'Go tools such as Antigravity (agy) report "x509: certificate signed by unknown authority"; curl, Python and browsers reject the certificate too.'
 
 function elevatedSetup(os: OS): string {
   return os === 'win32'
@@ -161,24 +177,23 @@ export function evaluateProbe(p: DoctorProbe): CheckResult[] {
     ? { level: 'ok', title: 'CA certificate present', detail: p.caCertPath }
     : { level: 'fail', title: 'CA certificate missing', detail: p.caCertPath, fix: ['llm-fw setup'] })
 
-  // CA in OS trust store
+  // CA in OS trust store. One check, not two: a store holding only a
+  // rotated-out CA used to tick "trusted" (same subject) and then warn about
+  // the rotation, and the tick is what got read (#689).
   if (p.caTrusted === true) checks.push({ level: 'ok', title: 'CA trusted in OS trust store' })
-  else if (p.caTrusted === false) checks.push({ level: 'warn', title: 'CA not found in OS trust store', fix: [caTrustFix(p.os, p.caCertPath)] })
-  else checks.push({ level: 'info', title: 'CA trust state could not be verified' })
-
-  // CA rotation drift: a stale CA in the store has the same subject DN as the
-  // current one, so it fails as CERT_SIGNATURE_FAILURE instead of "untrusted".
-  if (p.caStoreStale === true) {
+  else if (p.caTrusted === false && p.caStoreStale === true) {
     checks.push({
       level: 'warn',
       title: 'OS trust store holds a different (rotated-out) llm-fw CA than the one on disk',
-      detail: `The CA at ${p.caCertPath} was regenerated, but the trust store still has an older one.\nValidating against the stale CA fails with CERT_SIGNATURE_FAILURE.`,
+      detail: `The CA at ${p.caCertPath} was regenerated, but the trust store still has only an older one.\n${OS_STORE_CLIENTS}\nWindows Schannel can report it as CERT_SIGNATURE_FAILURE.`,
       fix: [
-        caTrustFix(p.os, p.caCertPath),
+        ...caTrustFix(p.os, p.caCertPath),
         'Then restart any long-running tool using NODE_EXTRA_CA_CERTS (e.g. Claude Code) so it reloads the new CA.',
       ],
     })
-  }
+  } else if (p.caTrusted === false) {
+    checks.push({ level: 'warn', title: 'CA not found in OS trust store', detail: OS_STORE_CLIENTS, fix: caTrustFix(p.os, p.caCertPath) })
+  } else checks.push({ level: 'info', title: 'CA trust state could not be verified' })
 
   // Proxy / dashboard listeners (only meaningful when the process is up)
   if (p.running) {
@@ -379,24 +394,19 @@ function safeExec(cmd: string, args: string[]): string | null {
   }
 }
 
-/** True if our CA's subject appears in a cert-store/find-certificate dump. */
-export function parseCaStorePresent(output: string): boolean {
-  return /llm-fw Local CA/i.test(output)
-}
-
 /**
  * SHA-1 fingerprint (lowercase hex, no separators) of a PEM certificate, or
  * null if the PEM can't be parsed. Used to tell two generations of the CA apart
  * by comparing the on-disk cert to what's installed in the trust store.
  */
 export function certFingerprintSha1(pem: string): string | null {
-  const m = /-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/.exec(pem)
-  if (!m?.[1]) return null
+  const m = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/.exec(pem)
+  if (!m) return null
   try {
-    const der = Buffer.from(m[1].replace(/\s+/g, ''), 'base64')
-    if (der.length === 0) return null
-    // eslint-disable-next-line sonarjs/hashing -- X.509 SHA-1 thumbprint matching OS trust-store output
-    return crypto.createHash('sha1').update(der).digest('hex')
+    // The thumbprint the OS trust stores print. X509Certificate computes it,
+    // and only for a block that parses as a certificate; hashing the bytes
+    // here would fingerprint any base64 between the markers.
+    return new crypto.X509Certificate(m[0]).fingerprint.replace(/:/g, '').toLowerCase()
   } catch { return null }
 }
 
@@ -406,15 +416,19 @@ export function certFingerprintSha1(pem: string): string | null {
  * per-certificate blocks with a `Cert Hash(sha1):` line — we keep only blocks
  * whose subject is our CA. macOS `security find-certificate -a -Z` (already
  * filtered by `-c`) emits a `SHA-1 hash:` line per matching cert.
+ *
+ * null when an llm-fw CA is listed but its hash line cannot be read (certutil
+ * localises its labels): presence alone cannot say WHICH CA is trusted.
  */
-export function parseStoreCaFingerprints(os: OS, output: string): string[] {
+export function parseStoreCaFingerprints(os: OS, output: string): string[] | null {
   const norm = (h: string) => h.replace(/[^0-9a-fA-F]/g, '').toLowerCase()
   const out: string[] = []
   if (os === 'win32') {
     for (const block of output.split(/(?<!=)={4,}\s*Certificate/i)) {
       if (!/llm-fw Local CA/i.test(block)) continue
       const h = /Cert Hash\(sha1\)\s*:\s*([0-9a-f ]+)/i.exec(block)
-      if (h?.[1]) out.push(norm(h[1]))
+      if (!h?.[1]) return null
+      out.push(norm(h[1]))
     }
     return out
   }
@@ -496,49 +510,49 @@ export function parseLoopbackHosts(hostsText: string): Set<string> {
   return hosts
 }
 
-function detectCaTrusted(os: OS): boolean | null {
-  if (os === 'win32') {
-    const out = safeExec('certutil', ['-store', 'Root'])
-    return out === null ? null : parseCaStorePresent(out)
-  }
-  if (os === 'darwin') {
-    const out = safeExec('security', ['find-certificate', '-c', 'llm-fw Local CA', '/Library/Keychains/System.keychain'])
-    return out === null ? false : parseCaStorePresent(out)
-  }
-  // Linux: setup copies the CA here and runs update-ca-certificates.
-  try { return fs.existsSync('/usr/local/share/ca-certificates/llm-fw-ca.crt') } catch { return null }
+/**
+ * Whether the CA on disk is in the OS trust store, and whether the store
+ * holds a rotated-out llm-fw CA, from the store's llm-fw fingerprints. Matching
+ * is by fingerprint, never by subject: every generation of the CA has the same
+ * subject, so a name match passes a store whose only CA is one the proxy no
+ * longer signs with (#689).
+ */
+export function classifyCaTrust(diskFp: string | null, storeFps: string[] | null): { trusted: boolean | null; stale: boolean | null } {
+  if (diskFp === null || storeFps === null) return { trusted: null, stale: null }
+  return { trusted: storeFps.includes(diskFp), stale: storeFps.some(fp => fp !== diskFp) }
 }
 
-/**
- * Detect whether the trust store's llm-fw CA is a *different* cert than the one
- * at `caCertPath` — the rotation footgun: re-running setup regenerates the CA,
- * but a stale copy lingering in the store (or loaded by a long-lived process)
- * keeps the same subject DN, so validation fails with CERT_SIGNATURE_FAILURE
- * rather than a clean "unknown issuer". Returns null when the CA isn't in the
- * store (the caTrusted check covers absence) or the state can't be read.
- */
-function detectCaStoreStale(os: OS, caCertPath: string): boolean | null {
-  let diskFp: string | null
-  try { diskFp = certFingerprintSha1(fs.readFileSync(caCertPath, 'utf8')) } catch { return null }
-  if (!diskFp) return null
-
+/** The llm-fw CA fingerprints in the OS trust store; null = couldn't read it. */
+function storeCaFingerprints(os: OS): string[] | null {
   if (os === 'win32') {
-    const out = safeExec('certutil', ['-store', 'Root'])
-    if (out === null) return null
-    const fps = parseStoreCaFingerprints(os, out)
-    return fps.length === 0 ? null : !fps.includes(diskFp)
+    // Both root stores: Windows chain building (Schannel, Go's crypto/x509)
+    // trusts the user's own Root store as well as the machine's, and
+    // `certutil -user -addstore` is the way to trust the CA without admin.
+    const dumps = [safeExec('certutil', ['-store', 'Root']), safeExec('certutil', ['-user', '-store', 'Root'])]
+      .filter((d): d is string => d !== null)
+    if (dumps.length === 0) return null
+    const fps = dumps.map(d => parseStoreCaFingerprints(os, d))
+    return fps.includes(null) ? null : fps.flatMap(f => f ?? [])
   }
   if (os === 'darwin') {
+    // `security` exits non-zero when nothing matches: an empty store, not an
+    // unreadable one.
     const out = safeExec('security', ['find-certificate', '-a', '-c', 'llm-fw Local CA', '-Z', '/Library/Keychains/System.keychain'])
-    if (out === null) return null
-    const fps = parseStoreCaFingerprints(os, out)
-    return fps.length === 0 ? null : !fps.includes(diskFp)
+    return out === null ? [] : parseStoreCaFingerprints(os, out)
   }
-  // Linux: setup installs a file copy — compare its fingerprint directly.
+  // Linux: setup installs a file copy, so its fingerprint is the store's.
+  const installed = '/usr/local/share/ca-certificates/llm-fw-ca.crt'
   try {
-    const installed = certFingerprintSha1(fs.readFileSync('/usr/local/share/ca-certificates/llm-fw-ca.crt', 'utf8'))
-    return installed === null ? null : installed !== diskFp
+    if (!fs.existsSync(installed)) return []
+    const fp = certFingerprintSha1(fs.readFileSync(installed, 'utf8'))
+    return fp === null ? null : [fp]
   } catch { return null }
+}
+
+function detectCaTrust(os: OS, caCertPath: string): { trusted: boolean | null; stale: boolean | null } {
+  let diskFp: string | null = null
+  try { diskFp = certFingerprintSha1(fs.readFileSync(caCertPath, 'utf8')) } catch { /* no CA on disk */ }
+  return classifyCaTrust(diskFp, storeCaFingerprints(os))
 }
 
 function detectIphlpsvc(): boolean | null {
@@ -628,6 +642,7 @@ async function probe(): Promise<DoctorProbe> {
 
   const env = process.env
   const persisted = detectPersistedEnv(os)
+  const caTrust = detectCaTrust(os, caCertPath)
   return {
     os,
     proxyPort: config.proxy.port,
@@ -639,8 +654,8 @@ async function probe(): Promise<DoctorProbe> {
     running,
     pid,
     caCertExists: fs.existsSync(caCertPath),
-    caTrusted: detectCaTrusted(os),
-    caStoreStale: detectCaStoreStale(os, caCertPath),
+    caTrusted: caTrust.trusted,
+    caStoreStale: caTrust.stale,
     proxyListening,
     dashboardListening,
     sinkholeListening,
