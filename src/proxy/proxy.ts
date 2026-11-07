@@ -32,6 +32,7 @@ import { isPrivilegedTunnelAddress, privilegedAddressGuard, TunnelRefused } from
 import { ModuleManager } from '../modules/registry.js'
 import { tapResponse, writeCapturedResponse, type CapturedResponse } from '../modules/responseTap.js'
 import { stripUsageChunk } from '../modules/sseUsageStrip.js'
+import { RememberedCalls, continuesOnServer } from '../modules/toolCalls.js'
 import type { GatewayModuleContext } from '../modules/types.js'
 import { explainBlock } from '../detection/explain.js'
 import { realtimeProtocolFor, wsRefusal } from './websocket.js'
@@ -325,6 +326,11 @@ export class ProxyServer {
   // can never turn the proxy into an anonymous open relay.
   private authPolicy: AuthPolicy
   private modules: ModuleManager
+  // Tool calls made by thread responses. A thread continuation (Claude Code
+  // against api.anthropic.com) carries tool results without the calls, so
+  // detection takes the tool name and arguments from here: without them a
+  // read from a trusted root was never trusted on a continuation.
+  private readonly threadCalls = new RememberedCalls()
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -1087,6 +1093,7 @@ export class ProxyServer {
             // Quote the exact event this scan stored, so a blocked client can be
             // traced to one dashboard record instead of "whatever was last".
             onEvent: (e) => { scanEventId = e.id },
+            toolCall: (id) => this.threadCalls.get(id),
           }
         )
         result = inspected.result
@@ -1230,7 +1237,9 @@ export class ProxyServer {
       } else {
         // Before the tap, so the Usage Meter still sees the usage chunk (#421).
         if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
-        const captured = moduleCtx && this.modules.wantsResponses()
+        const forModules = moduleCtx !== null && this.modules.wantsResponses()
+        const forCalls = isLlmRequest && continuesOnServer(dlpPath, body)
+        const captured = forModules || forCalls
           ? tapResponse(innerRes, bodyCap(this.config.proxy.maxBodyBytes))
           : null
         try {
@@ -1240,7 +1249,8 @@ export class ProxyServer {
           throw err
         }
         const response = captured?.()
-        if (moduleCtx && response) this.modules.observeResponse(body, moduleCtx, response)
+        if (forModules && response) this.modules.observeResponse(body, moduleCtx, response)
+        if (forCalls && response) this.threadCalls.learn(response)
       }
       if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when

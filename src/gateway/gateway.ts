@@ -22,6 +22,7 @@ import { createLogger, withRequestId, urlForLog } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
 import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
 import { stripUsageChunk } from '../modules/sseUsageStrip.js';
+import { RememberedCalls, continuesOnServer } from '../modules/toolCalls.js';
 import type { GatewayModuleContext } from '../modules/types.js';
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
@@ -66,6 +67,9 @@ export class GatewayServer {
   private apiKeys: Record<string, string>;
   private tenants: TenantRegistry;
   private modules: ModuleManager;
+  // Tool calls made by thread responses, for the continuations that carry
+  // their results without them (as the proxy keeps; see ProxyServer.threadCalls).
+  private readonly threadCalls = new RememberedCalls();
   /**
    * Upgraded WebSocket sockets. The http server stops tracking a socket once
    * it is upgraded, but `close()` still waits for it, so without ending them
@@ -279,7 +283,10 @@ export class GatewayServer {
       }
       // Before the tap, so the Usage Meter still sees the usage chunk (#421).
       if (decision.stripStreamUsage) stripUsageChunk(res);
-      const captured = moduleCtx && this.modules.wantsResponses()
+      const forModules = moduleCtx !== null && this.modules.wantsResponses();
+      // The calls a thread response makes, for the continuation that answers them (see threadCalls).
+      const forCalls = getParser(route.upstreamPath) !== null && continuesOnServer(route.upstreamPath, sent);
+      const captured = forModules || forCalls
         ? tapResponse(res, bodyCap(this.config.proxy.maxBodyBytes))
         : null;
       // The system-prompt canary (#552, the proxy's since #539), added after
@@ -299,7 +306,8 @@ export class GatewayServer {
       }
       await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);
       const response = captured?.();
-      if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
+      if (forModules && moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
+      if (forCalls && response) this.threadCalls.learn(response);
     } catch (err) {
       log.error(`${req.method} ${urlForLog(req.url)} — ${(err as Error)?.message ?? String(err)}`);
       this.json(res, 502, { error: 'gateway error' });
@@ -618,6 +626,7 @@ export class GatewayServer {
         target, method, path, sessionKey,
         sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
         onEvent: e => { eventId = e.id; },
+        toolCall: id => this.threadCalls.get(id),
         // Per-tenant enforcement: one team can run in observation while the rest
         // of the deployment enforces — how a team gets onboarded without either
         // eating day-one false positives or the firewall being turned down for

@@ -151,4 +151,36 @@ describe('trusted paths through the real pipeline', () => {
     const shell = readOf('Bash', { command: 'cat /home/dev/projects/llm-fw/docs/guides/detection-stages.md' }, guide)
     expect((await trusted.run('/v1/messages', shell, META)).action).toBe('warn')
   }, 60_000)
+
+  // Claude Code continues a server-side thread against api.anthropic.com: the
+  // request carries the tool result but not the call, which was in the
+  // response before it. Without the call no read was ever trusted there.
+  describe('on a thread continuation', () => {
+    const continued = (content: string) => JSON.stringify({
+      thread: { type: 'continue', previous_message_id: 'msg_1' },
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content }] }],
+    })
+    // As a streamed response delivers it: the input is the joined input_json_delta text.
+    const learned = (name: string, input: Record<string, unknown>) => (id: string) =>
+      id === 'toolu_1' ? { id, name, input: JSON.stringify(input) } : undefined
+
+    it('warns when the call that made the read is known from the response', async () => {
+      const toolCall = learned('Read', { file_path: '/home/dev/projects/llm-fw/docs/guides/detection-stages.md' })
+      expect((await trusted.run('/v1/messages', continued(guide), { ...META, toolCall })).action).toBe('warn')
+    }, 60_000)
+
+    it('still blocks when the call is unknown, outside the root, or not a plain read', async () => {
+      expect((await trusted.run('/v1/messages', continued(guide), META)).action).toBe('block')
+      const outside = learned('Read', { file_path: '/tmp/detection-stages.md' })
+      expect((await trusted.run('/v1/messages', continued(guide), { ...META, toolCall: outside })).action).toBe('block')
+      const shell = learned('Bash', { command: 'git show HEAD:docs/guides/detection-stages.md' })
+      expect((await trusted.run('/v1/messages', continued(guide), { ...META, toolCall: shell })).action).toBe('block')
+    }, 60_000)
+
+    it('prefers the call the request itself carries over a learned one', async () => {
+      const body = readOf('Read', { file_path: '/tmp/detection-stages.md' }, guide)
+      const toolCall = learned('Read', { file_path: '/home/dev/projects/llm-fw/docs/guides/detection-stages.md' })
+      expect((await trusted.run('/v1/messages', body, { ...META, toolCall })).action).toBe('block')
+    }, 60_000)
+  })
 })

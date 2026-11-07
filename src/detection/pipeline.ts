@@ -128,6 +128,9 @@ import { extractRagContext, ragInjectionScore, RagContextBlock } from './rag/par
 import { closeInferenceWorker } from './inferenceWorker.js'
 import { trustedReadPath } from './trustedPaths.js'
 
+/** A tool call by its id, with its arguments as an object or a JSON string. */
+export type ToolCallLookup = (id: string) => { name: string; input: unknown } | undefined
+
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
 // prompt injection from an indirect one (tool result) or a poisoned tool def.
@@ -334,6 +337,10 @@ export class Pipeline {
       withholding?: boolean;
       // Set by inspect(): so will a block on a prompt that is not the newest.
       withholdingPrompts?: boolean;
+      // The call a tool result answers when the request does not carry it: a
+      // thread continuation's calls were in the previous response, which the
+      // proxy saw. Decides the tool name and whether a read is trusted.
+      toolCall?: ToolCallLookup;
     }
   ): Promise<PipelineResult> {
     const at: ScanCursor = { item: null, claim: null }
@@ -421,6 +428,7 @@ export class Pipeline {
       withholding?: boolean;
       withholdingPrompts?: boolean;
       newestPrompt?: string;
+      toolCall?: ToolCallLookup;
     },
     at: ScanCursor,
   ): Promise<PipelineResult> {
@@ -550,8 +558,14 @@ export class Pipeline {
       // events for one payload.
       .filter(tr => !memorySet.has(tr.result))
       .map(tr => {
-        const trustedPath = trustedReadPath(tr.toolName, tr.toolInput, trustedRoots)
-        const base = { text: tr.result, source: 'tool_result' as const, toolName: tr.toolName }
+        // A thread continuation (Claude Code against api.anthropic.com) carries
+        // the result without the call, which was in the response before it.
+        // The caller learned that call from the response; one the request
+        // carries itself always wins.
+        const learned = tr.toolName === undefined ? meta.toolCall?.(tr.toolUseId) : undefined
+        const toolName = learned ? learned.name : tr.toolName
+        const trustedPath = trustedReadPath(toolName, learned ? learned.input : tr.toolInput, trustedRoots)
+        const base = { text: tr.result, source: 'tool_result' as const, toolName }
         return trustedPath ? { ...base, trustedPath } : base
       })
     // Prompts and tool results newest first, alternating, so that when the

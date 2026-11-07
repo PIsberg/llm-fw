@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.32
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The change gives a thread continuation's tool result the call the previous response made (#707), so a read from a `trustedPaths` root is trusted on Claude Code's thread traffic too. No eval row is a thread continuation, so no verdict can move. Held-out recall unchanged: heldout 23 of 31, InjecAgent 1,054 of 1,054, safeguard 497 of 650 with 1 false positive. The section below is the 2026.11.31 result.
+
 ## Result, ruleset 2026.11.31
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`). The change reads `poster`, `srcset` and `href` in responses (#674). The response scan sees no request, and no eval string reaches it, so no input verdict moves. The section below is the 2026.11.30 result.

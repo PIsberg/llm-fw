@@ -255,6 +255,16 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
         // across several writes (no Content-Length). This exercises the proxy's
         // passthrough de-chunking — a chunked upstream must reach the client
         // framed exactly once, not double-framed with hex sizes in the body.
+        if (body.includes('TRUSTED_READ_CASE')) {
+          // A Read whose path arrives in input_json_delta fragments, as the API streams it.
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write('event: message_start\ndata: {"type":"message_start","message":{"id":"mock-read-msg","type":"message","role":"assistant","content":[]}}\n\n')
+          res.write('event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_e2e_trusted_read","name":"Read","input":{}}}\n\n')
+          res.write('event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"file_path\\":\\"/home/dev/projects/llm-fw/docs/"}}\n\n')
+          res.write('event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"guides/detection-stages.md\\"}"}}\n\n')
+          res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n')
+          return
+        }
         if (body.includes('TOOL_USE_CASE')) {
           // An assistant turn that calls two tools, streamed as Claude Code receives it.
           res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -954,6 +964,50 @@ describe('Proxy End-to-End (E2E) Suite', { timeout: 20000 }, () => {
       Object.assign(truncate, saved)
     }
   })
+
+  // A thread continuation carries a tool result without its call, so the
+  // detection stages never saw which tool produced it and a read from a
+  // trusted root was withheld like any other. The proxy learns the call
+  // from the response that made it, whether or not a module reads responses.
+  it('E2E Case 12b: a thread continuation\'s read from a trusted root warns, by the call in the previous response', async () => {
+    const detection = testConfig.detection as unknown as { surfaces?: Record<string, unknown> }
+    const saved = detection.surfaces
+    const modules = (proxy as unknown as { modules: ModuleManager }).modules
+    const wanted = modules.wantsResponses.bind(modules)
+    // Detection has to learn the call on its own, not through a module's tap.
+    modules.wantsResponses = () => false
+    detection.surfaces = {
+      ...saved,
+      tool_result: { ...(saved?.tool_result as object | undefined), trustedPaths: ['/home/dev/projects'], onBlock: 'withhold' },
+    }
+    const guide = fs.readFileSync(new URL('../../docs/guides/detection-stages.md', import.meta.url), 'utf8')
+    try {
+      receivedRequests = []
+      const send = (payload: unknown) => sendProxyRequest(
+        testConfig.proxy.port, 'api.anthropic.com', mockUpstreamPort, 'POST', '/v1/messages',
+        { 'Content-Type': 'application/json' }, JSON.stringify(payload),
+      )
+      const first = await send({ model: 'claude-3-opus-20240229', stream: true, thread: { type: 'create' },
+        messages: [{ role: 'user', content: 'TRUSTED_READ_CASE read the detection guide' }] })
+      expect(first.statusCode).toBe(200)
+
+      const continued = (id: string) => send({ model: 'claude-3-opus-20240229', stream: true,
+        thread: { type: 'continue', previous_message_id: 'mock-read-msg' },
+        messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: guide }] }] })
+
+      // The same text answering a call no response made is withheld.
+      const unknown = await continued('toolu_e2e_never_called')
+      expect(unknown.statusCode).toBe(200)
+      expect(JSON.parse(receivedRequests.at(-1)!.body).messages[0].content[0].content).not.toBe(guide)
+
+      const trusted = await continued('toolu_e2e_trusted_read')
+      expect(trusted.statusCode).toBe(200)
+      expect(JSON.parse(receivedRequests.at(-1)!.body).messages[0].content[0].content).toBe(guide)
+    } finally {
+      detection.surfaces = saved
+      modules.wantsResponses = wanted
+    }
+  }, 120_000)
 
   // #411: a module may ask for a request header on the upstream call, and
   // the proxy sends it, replacing a value the client sent for that name.
