@@ -325,7 +325,10 @@ describe('encoded destinations (#580)', () => {
       scanResponseExfil(inline, isExfil)
       scanResponseExfil(tag, isExfil)
       scanResponseExfil(JSON.stringify({ text: inline + tag }), isExfil)
-      expect(Date.now() - started, filler).toBeLessThan(500)
+      // Three scans, 800 KB in all: 72 ms for the slowest filler on a
+      // developer machine, 674 ms on CI under coverage, which failed a 500 ms
+      // budget. A quadratic scan of this much takes tens of seconds.
+      expect(Date.now() - started, filler).toBeLessThan(2000)
     }
   })
 })
