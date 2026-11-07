@@ -28,6 +28,21 @@ describe('extracting the tags Claude Code wraps its own text in', () => {
     ])
   })
 
+  // Claude Code 2.1.319 put 'linux' in the list, and earlier releases
+  // 'nodejs': a one-letter name was declared in the region with an ordinary
+  // word, and another scope's loop variable of the same name sat in a
+  // `<${n}>` template. The minifier reuses one-letter names everywhere.
+  it('ignores a far template whose constant has a one-letter name', () => {
+    const reused = bundle
+      .replace('var junk=', 'var n="linux",e="nodejs";var junk=')
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal minified-bundle fixture
+      .replace('function zUs(e){', 'function zUs(e){for(let n of e)if(e.includes(`<${n}>`))return`<${e}>`;')
+    const { tags } = extractClaudeCodeTags(reused)
+    expect(tags).not.toContain('linux')
+    expect(tags).not.toContain('nodejs')
+    expect(tags).toEqual(extractClaudeCodeTags(bundle).tags)
+  })
+
   it('fails instead of guessing when the anchor list is gone', () => {
     expect(() => extractClaudeCodeTags(bundle.replace('"system-reminder","system_reminder"', '"system-reminder"'))).toThrow(/anchor/)
   })
