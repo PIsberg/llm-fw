@@ -269,7 +269,11 @@ export function stripSetupMode(configPath: string): boolean {
  */
 export function removeLlmfwFiles(llmfwDir: string, opts: { keepModel: boolean; purge: boolean }): void {
   const removed: string[] = [];
-  for (const [f, meaning] of opts.purge ? [...REMOVED_FILES, ...PURGED_FILES] : REMOVED_FILES) {
+  // CA pairs a replacement kept for diagnosis (#692): a CA key like any other.
+  let kept: string[] = [];
+  try { kept = fs.readdirSync(llmfwDir).filter(f => /^ca\.(crt|key)\.replaced-/.test(f)); } catch { /* no dir */ }
+  const keptFiles = kept.map(f => [f, 'a CA that setup replaced'] as const);
+  for (const [f, meaning] of opts.purge ? [...REMOVED_FILES, ...keptFiles, ...PURGED_FILES] : [...REMOVED_FILES, ...keptFiles]) {
     const p = join(llmfwDir, f);
     if (!fs.existsSync(p)) continue;
     try { fs.rmSync(p, { recursive: true, force: true }); removed.push(meaning ? `${f} (${meaning})` : f); } catch { /* ignore */ }
