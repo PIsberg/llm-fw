@@ -478,7 +478,15 @@ function keyAssignedAddress(text: string, start: number, end: number): number {
 // "the email field". After a determiner or possessive, or before the noun it
 // qualifies, it names something; "Email the records to ...", "please email
 // ...", "then email it to ..." stay verbs.
-const EMAIL_NOUN_BEFORE_RE = /(?:['’]s|s['’]|\b(?:a|an|the|your|my|our|their|his|her|its|this|that|valid|primary|work|contact|billing|support|customer|user|buyer))\s+$/i
+// In a mailer log line "email" is the thing sent, not an order: "INFO
+// sending email to user@...", "Error while sending email to ops@...",
+// "[mailer] sending ...", "Job 42 sent email to ...". Past tense ("sent",
+// "resent") and "resending" count anywhere; "sending" only after a log
+// level, "while", or a bracket, colon or pipe, because injected text says
+// "I'm sending email to x@...", "by sending email to x@..." and means the
+// order. Up to two plain words may sit between; punctuation ends it, so
+// "sent the summary, then email the passwords to x@..." keeps the verb.
+const EMAIL_NOUN_BEFORE_RE = /(?:['’]s|s['’]|\b(?:a|an|the|your|my|our|their|his|her|its|this|that|valid|primary|work|contact|billing|support|customer|user|buyer)|(?:\b(?:sent|resent|resending)|(?:[\]:>|][ \t]*|\b(?:info|debug|warn(?:ing)?|error|trace|fatal|while)\s+)sending)(?:\s+(?!(?:then|and|or)\b)[a-z]+){0,2})\s+$/i
 const EMAIL_NOUN_AFTER_RE = /^\s+(?:address(?:es)?|domains?|fields?|headers?|lists?|accounts?|templates?|settings?|verification|notifications?|format|validation|scope|provider|client|server|signature|is|was|equals|matches)\b/i
 const EMAIL_PROP_AFTER_RE = /^(?:[})\],;:'"`]|\s*(?:[=!<>]=|[=:?]|(?:is|was|equals|matches)\b))/i
 function isEmailNoun(text: string, start: number, end: number): boolean {
