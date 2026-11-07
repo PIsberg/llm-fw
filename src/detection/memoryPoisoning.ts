@@ -90,7 +90,13 @@ const SECRET_NOUN = String.raw`\.env\b|\b(?:secrets?|api[\s_-]?keys?|keys?|token
 /** Redaction or DLP asserted to be off — how a stored memory disarms the firewall. */
 const REDACTION_DISABLED = [
   /\bwithout\s+redact(?:ing|ion)\b/i,
-  /\b(?:do\s+not|don't|never)\s+redact\b/i,
+  // "Don't redact" counts only with a secret as its object, named after it or
+  // earlier in the sentence, or with no object at all. Bare, it matched any
+  // sentence about not redacting something: a commit subject about not
+  // redacting a function call, in `git log` output, was withheld as poisoning.
+  new RegExp(String.raw`\b(?:do\s+not|don't|never)\s+redact\s+(?:(?:the|any|all|these|those|their|your|my|our|its)\s+)?(?:\w+\s+)?(?:${SECRET_NOUN})`, 'i'),
+  new RegExp(String.raw`(?:${SECRET_NOUN})[^.!?\n]{0,120}\b(?:do\s+not|don't|never)\s+redact\s+(?:it|them)\b`, 'i'),
+  /\b(?:do\s+not|don't|never)\s+redact(?:\s+(?:it|them|anything))?[ \t]*(?:[.!;\n]|$)/i,
   // "Print them in full" is ordinary on its own: a test runner's hint
   // ("rerun with -Dreport.full=true to print them in full", #406). It disarms
   // redaction when the sentence names a secret.
