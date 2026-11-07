@@ -155,4 +155,14 @@ describe('Gateway DLP under per-tenant observe', { timeout: 60000 }, () => {
     expect(dlp[0]!.tenant).toBe('observing')
     expect(dlp[0]!.enforced).toBe(false)
   })
+
+  // #702: the event says where the secret was, masked, and never holds it.
+  it('records where the secret was, masked, without the secret itself', async () => {
+    calls = []; events = []
+    await post('/v1/chat/completions', body, { 'x-llm-fw-key': SHARED_TOKEN })
+    const ev = events.find(e => e.kind === 'dlp')!
+    expect(ev.dlpLocations).toEqual([{ type: ev.dlpType, surface: 'prompt', masked: `${SECRET.slice(0, 2)}…${SECRET.slice(-2)} (${SECRET.length} chars)` }])
+    expect(ev.payload_preview).toContain('in prompt')
+    expect(JSON.stringify(ev)).not.toContain(SECRET)
+  })
 })

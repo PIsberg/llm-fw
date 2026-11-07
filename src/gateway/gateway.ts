@@ -30,6 +30,7 @@ import type { Duplex } from 'node:stream';
 import { realtimeProtocolFor, wsRefusal } from '../proxy/websocket.js';
 import { relayRealtimeSession, WS_SKIPPED_HEADERS } from '../proxy/realtimeRelay.js';
 import { canaryToken, injectCanary, guardCanary } from '../proxy/canary.js';
+import { locateDlpFindings, locationSummary } from '../proxy/dlpLocation.js';
 import { getLlmFwDir } from '../config/paths.js';
 
 const log = createLogger('gateway');
@@ -571,6 +572,9 @@ export class GatewayServer {
       const firstFinding = findings[0];
       if (firstFinding) {
         const types = Array.from(new Set(findings.map(f => f.type)));
+        // Where each match was, masked; never the secret (#702).
+        const dlpLocations = locateDlpFindings(getParser(path), text, findings);
+        const summary = types.join(', ') + locationSummary(dlpLocations);
         // Observation must not refuse the request and must not rewrite it
         // either: 'redact' alters the body the client sent, which is exactly
         // what an observing tenant is promised will not happen.
@@ -578,9 +582,9 @@ export class GatewayServer {
         const event = this.eventBus.emit({
           stage: 'dlp', score: 100, similarity: 0,
           target, method, path,
-          payload_preview: types.join(', '), payload_full: types.join(', '),
+          payload_preview: summary, payload_full: summary,
           action: this.config.dlp.mode === 'block' ? 'blocked' : 'warned',
-          kind: 'dlp', dlpType: firstFinding.type,
+          kind: 'dlp', dlpType: firstFinding.type, dlpLocations,
           ...observedTag, ...tenantTag,
         });
         if (mode === 'block') {

@@ -1076,6 +1076,13 @@ function toggleDrawer(id, ev) {
           (ev.verdict ? '<dt>Judge</dt><dd>' + esc(ev.verdict) + '</dd>' : '') +
         '</dl>' +
       '</div>' +
+      // Where each DLP match was, masked (#702). The secret is never recorded.
+      (ev.dlpLocations && ev.dlpLocations.length
+        ? '<div class="drawer-section drawer-full"><h4>Sensitive data found</h4><ul class="match-list dlp-locations">' +
+          ev.dlpLocations.map(l => '<li class="match-pill">' + esc(l.type) + ' in ' + esc(l.surface) +
+            (l.toolName ? ' (' + esc(l.toolName) + ')' : '') + ': <code>' + esc(l.masked) + '</code></li>').join('') +
+          '</ul></div>'
+        : '') +
       '<div class="drawer-section">' +
         '<h4>Heuristic Matches</h4>' + matchesHtml +
       '</div>' +

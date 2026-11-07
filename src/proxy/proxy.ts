@@ -10,6 +10,7 @@ import { SuppressionStore } from '../detection/suppressions.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
+import { locateDlpFindings, locationSummary } from './dlpLocation.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
@@ -956,9 +957,11 @@ export class ProxyServer {
       if (this.config.dlp.enabled && (getParser(dlpPath) !== null || tokenCount)) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
-          // NEVER log the raw secret value — only its type(s).
+          // NEVER log the raw secret value — only its type(s), and where it
+          // was with the match masked (#702).
           const types = Array.from(new Set(findings.map(f => f.type)))
-          const typeSummary = types.join(', ')
+          const dlpLocations = locateDlpFindings(getParser(dlpPath), body, findings)
+          const typeSummary = types.join(', ') + locationSummary(dlpLocations)
           const mode = this.config.dlp.mode
 
           if (mode === 'block') {
@@ -976,6 +979,7 @@ export class ProxyServer {
               action: 'blocked',
               kind: 'dlp',
               dlpType: findings[0]!.type,
+              dlpLocations,
             })
             return
           }
@@ -999,6 +1003,7 @@ export class ProxyServer {
             action: 'warned',
             kind: 'dlp',
             dlpType: findings[0]!.type,
+            dlpLocations,
           })
         }
       }

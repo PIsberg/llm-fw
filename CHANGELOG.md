@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A DLP event says where the secret was (#702).** It recorded only the type (`GENERIC_SECRET`), so there was no way to tell which tool result or message carried it, or whether it was a leak or a false positive. Each match now records its surface (tool result, system prompt, prompt, or elsewhere in the request), the tool that returned it, and the match masked to its first and last two characters with its length. The event's preview names the first, and the drawer lists them all. The secret itself is still never stored: a test checks the stored event does not contain it.
+
 ### Fixed
 
 - **The History window keeps the first user turn, where Claude Code puts CLAUDE.md, the memory index and your request.** It cut that turn with the oldest ones, so past `maxMessages` an agent carried on without the repository's rules or the task it was given. Claude Code through the proxy sends its full history once per prompt, and that request was cut: 14 times in 10 sessions over 14 days of one developer's traffic. The first turn now stays ahead of the `[llm-fw: N earlier messages omitted]` marker, byte for byte, so it also stays in the cached prefix when the cut moves. The [token savings guide](docs/guides/token-savings.md#what-the-modules-saved-on-real-traffic) now prices what each module saved on that traffic: 0.47 to 0.65% of the bill, where the Modules tab read 15.1%.

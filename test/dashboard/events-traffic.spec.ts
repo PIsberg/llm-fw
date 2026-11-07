@@ -195,6 +195,11 @@ test.describe('A block remediation link opens the event (#319)', () => {
         id: 'dlp-1', timestamp: '2026-10-15 20:01:00Z', stage: 'dlp', score: 100, similarity: 0,
         target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', action: 'blocked', kind: 'dlp',
         payload_preview: 'aws-access-key', payload_full: 'aws-access-key',
+        dlpType: 'AWS_ACCESS_KEY',
+        dlpLocations: [
+          { type: 'AWS_ACCESS_KEY', surface: 'tool_result', toolName: 'Bash', masked: 'AK…T3 (20 chars)' },
+          { type: 'GENERIC_SECRET', surface: 'prompt', masked: '… (8 chars)' },
+        ],
       }) + '\n\n' +
       'data: ' + JSON.stringify({
         id: 'held-1', timestamp: '2026-10-15 20:02:00Z', stage: 'indirect-instruction', score: 100, similarity: 0,
@@ -221,6 +226,16 @@ test.describe('A block remediation link opens the event (#319)', () => {
     const drawer = page.locator('#drawer-dlp-1')
     await expect(drawer).toBeVisible({ timeout: 10_000 })
     await expect(drawer.locator('button:has-text("Mark false positive (suppress future matches)")')).toHaveCount(0)
+  })
+
+  // #702: which tool result or message carried the secret, masked.
+  test('a DLP event\'s drawer says where each match was, masked', async ({ page }) => {
+    await stub(page)
+    await page.goto('/#event=dlp-1')
+    const found = page.locator('#drawer-dlp-1 .dlp-locations li')
+    await expect(found).toHaveCount(2, { timeout: 10_000 })
+    await expect(found.nth(0)).toHaveText('AWS_ACCESS_KEY in tool_result (Bash): AK…T3 (20 chars)')
+    await expect(found.nth(1)).toHaveText('GENERIC_SECRET in prompt: … (8 chars)')
   })
 
   test('/#event=<id> opens that event\'s drawer with the unblock button', async ({ page }) => {
