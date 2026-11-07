@@ -314,6 +314,16 @@ export interface DlpFinding {
   index: number;
 }
 
+/** Where a DLP finding was in the request (#702). Never the secret itself. */
+export interface DlpLocation {
+  type: string;
+  surface: 'tool_result' | 'system' | 'prompt' | 'request';
+  /** The tool that returned it, when the request carries the call. */
+  toolName?: string;
+  /** First and last two characters and the length, e.g. `AK…T3 (20 chars)`. */
+  masked: string;
+}
+
 export interface DosConfig {
   enabled: boolean;
   maxRequestsPerMinute: number;
@@ -904,6 +914,8 @@ export interface BlockEvent {
   // (e.g. ['unicode-tags']), shown in the event detail.
   smuggleRanges?: string[] | undefined;
   dlpType?: string | undefined;
+  /** Where each DLP finding was, masked (#702). */
+  dlpLocations?: DlpLocation[] | undefined;
   dosReason?: string | undefined;
   ragTag?: string | undefined;
   mcpTool?: string | undefined;

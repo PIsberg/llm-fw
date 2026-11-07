@@ -47,7 +47,7 @@ Each detected secret maps to a provider-specific redaction marker such as `[REDA
 
 > Providers whose keys carry no distinctive prefix (e.g. Mistral, Cohere, Together, DeepSeek, Azure OpenAI) are still caught by the `entropy` detector when they appear next to a credential keyword (`api_key=`, `token:`, `Authorization: Bearer …`).
 
-> The firewall never logs the raw secret value — dashboard events record only the **type** of secret found (e.g. `GITHUB_TOKEN`).
+> The firewall never logs the raw secret value. A dashboard event records the **type** of secret found (e.g. `GITHUB_TOKEN`) and, for each match (up to ten), **where it was** and a masked excerpt: the surface (`tool_result`, `system`, `prompt`, or `request` for anything else such as tool definitions or metadata), the tool that returned it when the request carries the call, and the first and last two characters with the length (`gh…9f (40 chars)`; a match of 8 characters or fewer shows only its length). That is enough to tell a leaked key in a file read from a false positive without storing the key.
 
 ### Modes
 
@@ -85,4 +85,4 @@ Environment overrides:
 | `LLM_FW_DLP_ENABLED` | `true`/`false` — enable or disable the DLP stage |
 | `LLM_FW_DLP_MODE` | `block` \| `redact` \| `audit` |
 
-Detected events appear in the dashboard under the **Data Loss** badge with a `dlp` stage chip.
+Detected events appear in the dashboard under the **Data Loss** badge with a `dlp` stage chip. The event's one-line preview names where the first match was (`GITHUB_TOKEN in tool_result (Bash)`), and its drawer lists every match under **Sensitive data found**.
