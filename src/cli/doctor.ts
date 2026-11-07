@@ -400,13 +400,13 @@ function safeExec(cmd: string, args: string[]): string | null {
  * by comparing the on-disk cert to what's installed in the trust store.
  */
 export function certFingerprintSha1(pem: string): string | null {
-  const m = /-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/.exec(pem)
-  if (!m?.[1]) return null
+  const m = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/.exec(pem)
+  if (!m) return null
   try {
-    const der = Buffer.from(m[1].replace(/\s+/g, ''), 'base64')
-    if (der.length === 0) return null
-    // eslint-disable-next-line sonarjs/hashing -- X.509 SHA-1 thumbprint matching OS trust-store output
-    return crypto.createHash('sha1').update(der).digest('hex')
+    // The thumbprint the OS trust stores print. X509Certificate computes it,
+    // and only for a block that parses as a certificate; hashing the bytes
+    // here would fingerprint any base64 between the markers.
+    return new crypto.X509Certificate(m[0]).fingerprint.replace(/:/g, '').toLowerCase()
   } catch { return null }
 }
 

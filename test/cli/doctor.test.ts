@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import {
   evaluateProbe,
@@ -339,25 +340,32 @@ describe('classifyCaTrust', () => {
 })
 
 describe('certFingerprintSha1', () => {
-  // A throwaway self-signed cert generated for this test; the exact value
-  // doesn't matter, only that the same PEM maps to a stable, lowercase hash and
-  // that round-tripping whitespace doesn't change it.
-  const pem = [
-    '-----BEGIN CERTIFICATE-----',
-    'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest', // not valid DER — see below
-    '-----END CERTIFICATE-----',
-  ].join('\n')
+  const pem = issueInMemoryCA().cert
+  // The thumbprint certutil and `security -Z` print: SHA-1 over the DER bytes,
+  // which Node's X509Certificate reports as colon-separated upper-case hex.
+  const thumbprint = new X509Certificate(pem).fingerprint.replace(/:/g, '').toLowerCase()
 
   it('returns null for non-certificate input', () => {
     expect(certFingerprintSha1('not a pem')).toBeNull()
   })
 
-  it('is deterministic and lowercase-hex for the same base64 body', () => {
-    const a = certFingerprintSha1(pem)
-    const b = certFingerprintSha1(pem.replace(/\n/g, '\r\n'))
-    expect(a).not.toBeNull()
-    expect(a).toMatch(/^[0-9a-f]{40}$/)
-    expect(a).toBe(b) // whitespace differences must not change the fingerprint
+  it('returns null for a PEM block whose body is not a certificate', () => {
+    const fake = [
+      '-----BEGIN CERTIFICATE-----',
+      'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest',
+      '-----END CERTIFICATE-----',
+    ].join('\n')
+    expect(certFingerprintSha1(fake)).toBeNull()
+  })
+
+  it('is the trust-store thumbprint of the certificate, lowercase hex', () => {
+    expect(certFingerprintSha1(pem)).toBe(thumbprint)
+    expect(thumbprint).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('does not change with CRLF line endings or text around the block', () => {
+    expect(certFingerprintSha1(pem.replace(/\n/g, '\r\n'))).toBe(thumbprint)
+    expect(certFingerprintSha1(`# llm-fw CA\n${pem}\ntrailing`)).toBe(thumbprint)
   })
 })
 
