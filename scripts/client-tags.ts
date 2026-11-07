@@ -92,9 +92,12 @@ export function extractClaudeCodeTags(source: string): Extracted {
   }
   // A constant declared beside the lists and used as a tag anywhere in the
   // bundle (the skill envelope's template is far from the declarations).
-  const declared = new Set(consts.keys());
-  for (const m of source.matchAll(/<\/?\$\{([A-Za-z_$][\w$]*)\}>/g)) {
-    if (declared.has(m[1]!)) tags.add(consts.get(m[1]!)!);
+  // Not a one-character name: the minifier reuses those in nearly every
+  // scope, so another function's `<${n}>` (a loop variable, a parameter)
+  // says nothing about this region's `n`. 'linux' and 'nodejs' got in that
+  // way. A one-letter tag constant inside the block is still taken above.
+  for (const m of source.matchAll(/<\/?\$\{([A-Za-z_$][\w$]+)\}>/g)) {
+    if (consts.has(m[1]!)) tags.add(consts.get(m[1]!)!);
   }
   const version = /README_URL:"[^"]*",VERSION:"(\d+\.\d+\.\d+)"/.exec(source)?.[1] ?? null;
   return { version, tags: [...tags].sort() };

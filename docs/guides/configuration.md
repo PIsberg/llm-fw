@@ -212,7 +212,7 @@ at every stage too, on its own or inside a `<system-reminder>`: around
 "continue" the embedding stage blocked at 0.8608. These envelopes are unwrapped only when a user-turn text is
 exactly one; anything after or around it keeps the whole text scored. Every
 other markup tag Claude Code wraps its own text in (69 in Claude Code
-2.1.316: task notifications, `<bash-stdout>`, `<tick>`, `<total_tokens>`,
+2.1.319: task notifications, `<bash-stdout>`, `<tick>`, `<total_tokens>`,
 pasted content and more) is listed in `src/detection/clientTags.ts`,
 generated from its binary by `npm run client-tags`. A user-turn text from
 Claude Code, or a reminder block, that is nothing but those elements is
