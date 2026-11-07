@@ -1,4 +1,4 @@
-import { CertFactory, crlUrlFor } from '../proxy/certs.js';
+import { CertFactory, crlUrlFor, type CaReplaceReason, type EnsureCaResult } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
 import { stripSinkholeBlock } from './hosts.js';
@@ -51,6 +51,31 @@ export function getIdeSettingsPaths(): string[] {
   }
 
   return paths.filter(p => fs.existsSync(p));
+}
+
+const CA_REPLACED_BECAUSE: Record<CaReplaceReason, string> = {
+  'missing': 'was missing its certificate or key',
+  'unreadable': 'could not be read',
+  'key-mismatch': 'whose key does not belong to its certificate',
+  'expired': 'had expired',
+  'crl-url': 'served another CRL address',
+};
+
+/**
+ * What setup says about the CA: kept, generated for the first time, or
+ * replaced, naming the one check that failed and where the old files were
+ * moved (#692). A key that stops matching its certificate means something
+ * else wrote into the data directory, which only the kept files can show.
+ */
+export function caSetupMessage(result: EnsureCaResult): string[] {
+  if (result.outcome === 'reused') return ['Existing CA certificate kept (clients that trust it keep working).'];
+  if (!result.keptAs?.length) return ['CA certificate generated.'];
+  const because = CA_REPLACED_BECAUSE[result.reason];
+  const replacing = because.startsWith('whose') ? `one ${because}` : `one that ${because}`;
+  return [
+    `CA certificate generated, replacing ${replacing}.`,
+    `The replaced files were kept as ${result.keptAs.join(' and ')}.`,
+  ];
 }
 
 /**
@@ -406,13 +431,9 @@ export async function run(args: string[]): Promise<void> {
   const setupConfig = await loadConfig();
   const certFactory = new CertFactory(crlUrlFor(setupConfig.dashboard?.bindHost, setupConfig.dashboard?.port));
   const hadCa = fs.existsSync(caCertPath);
-  const caOutcome = certFactory.ensureCA();
-  const caReplaced = hadCa && caOutcome === 'generated';
-  console.log(caOutcome === 'reused'
-    ? 'Existing CA certificate kept (clients that trust it keep working).'
-    : caReplaced
-      ? 'CA certificate generated, replacing one that was expired, did not match its key, or served another CRL address.'
-      : 'CA certificate generated.');
+  const caResult = certFactory.ensureCA();
+  const caReplaced = hadCa && caResult.outcome === 'generated';
+  for (const line of caSetupMessage(caResult)) console.log(line);
   certFactory.generateAndSaveCRL();
   console.log('CRL generated.');
 

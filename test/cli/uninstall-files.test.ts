@@ -50,6 +50,16 @@ describe('removeLlmfwFiles', () => {
     expect(JSON.parse(fs.readFileSync(join(dir, 'config.json'), 'utf8'))).toEqual({ detection: { heuristicBlockThreshold: 60 } })
   })
 
+  // #692: a replaced CA pair is kept beside the new one; its key is a CA key
+  // like any other and goes with it.
+  it('removes the CA pairs a replacement kept', () => {
+    touch('ca.crt.replaced-20261107T120000Z', 'ca.key.replaced-20261107T120000Z', 'ca.key.replaced-20261107T120000Z-2', 'ca.crt.notes')
+    removeLlmfwFiles(dir, { keepModel: false, purge: false })
+    for (const f of ['ca.crt.replaced-20261107T120000Z', 'ca.key.replaced-20261107T120000Z', 'ca.key.replaced-20261107T120000Z-2']) expect(exists(f), f).toBe(false)
+    expect(exists('ca.crt.notes')).toBe(true)
+    expect(logged.join('\n')).toContain('ca.key.replaced-20261107T120000Z')
+  })
+
   it('deletes config.json when the setup mode was all it held', () => {
     fs.writeFileSync(join(dir, 'config.json'), JSON.stringify({ proxy: { mode: 'proxy' } }))
     removeLlmfwFiles(dir, { keepModel: false, purge: false })

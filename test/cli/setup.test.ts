@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { platform, tmpdir } from 'node:os'
-import { addProfileEnvVars, caTrustHint, coverageLines, DEFAULT_NO_PROXY, loadEnvCommands } from '../../src/cli/setup.js'
+import { addProfileEnvVars, caSetupMessage, caTrustHint, coverageLines, DEFAULT_NO_PROXY, loadEnvCommands } from '../../src/cli/setup.js'
 import { stripProfileEnvVars } from '../../src/cli/uninstall.js'
 
 const PROXY = 'http://127.0.0.1:8080'
@@ -249,5 +249,34 @@ describe('addProfileEnvVars NO_PROXY companion', () => {
     const stripped = stripProfileEnvVars(profile)
     expect(stripped).toContain('export NO_PROXY=.mycompany.com')
     expect(stripped).not.toContain('llm-fw')
+  })
+})
+
+// #692: setup said a replaced CA was "expired, did not match its key, or
+// served another CRL address" and could not say which.
+describe('caSetupMessage', () => {
+  it('says the CA was kept', () => {
+    expect(caSetupMessage({ outcome: 'reused' })).toEqual(['Existing CA certificate kept (clients that trust it keep working).'])
+  })
+
+  it('says a first CA was generated, with no replacement to report', () => {
+    expect(caSetupMessage({ outcome: 'generated', reason: 'missing' })).toEqual(['CA certificate generated.'])
+  })
+
+  it('names the one check that failed and where the old files went', () => {
+    const lines = caSetupMessage({ outcome: 'generated', reason: 'key-mismatch', keptAs: ['/d/ca.crt.replaced-X', '/d/ca.key.replaced-X'] })
+    expect(lines[0]).toBe('CA certificate generated, replacing one whose key does not belong to its certificate.')
+    expect(lines.join('\n')).toContain('/d/ca.crt.replaced-X')
+    expect(lines.join('\n')).toContain('/d/ca.key.replaced-X')
+  })
+
+  it('has its own wording for every reason', () => {
+    const reasons = ['missing', 'unreadable', 'key-mismatch', 'expired', 'crl-url'] as const
+    const first = reasons.map(reason => caSetupMessage({ outcome: 'generated', reason, keptAs: ['/d/ca.crt.replaced-X'] })[0])
+    expect(new Set(first).size).toBe(reasons.length)
+    expect(first[0]).toContain('missing its certificate or key')
+    expect(first[1]).toContain('could not be read')
+    expect(first[3]).toContain('expired')
+    expect(first[4]).toContain('another CRL address')
   })
 })
