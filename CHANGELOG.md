@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The proxy resumes the provider's TLS session instead of a full handshake on every request (#670).** Measured against api.anthropic.com and api.openai.com, every connection after the first resumed, saving 2 to 5 ms of TCP and TLS setup each (26 to 28 ms and 25 to 30 ms median). Under TLS 1.3 both take one round trip, so the saving is the certificate work, not latency. The connection is still opened per request and read until it closes, so response framing, streaming and the response scans are unchanged.
+
 ### Fixed
 
 - **The History window keeps the first user turn, where Claude Code puts CLAUDE.md, the memory index and your request.** It cut that turn with the oldest ones, so past `maxMessages` an agent carried on without the repository's rules or the task it was given. Claude Code through the proxy sends its full history once per prompt, and that request was cut: 14 times in 10 sessions over 14 days of one developer's traffic. The first turn now stays ahead of the `[llm-fw: N earlier messages omitted]` marker, byte for byte, so it also stays in the cached prefix when the cut moves. The [token savings guide](docs/guides/token-savings.md#what-the-modules-saved-on-real-traffic) now prices what each module saved on that traffic: 0.47 to 0.65% of the bill, where the Modules tab read 15.1%.
