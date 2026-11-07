@@ -145,6 +145,11 @@ Full details are in [`docs/TESTING.md`](docs/TESTING.md). In short:
 - `npm run test:e2e` (Playwright, dashboard UI) and the load tests
   (`npm run test:load`) run in CI; they're not required to pass locally before
   opening a PR, but say so explicitly in the PR rather than omitting them.
+  The Playwright suite starts the working tree on its own ports (dashboard
+  27731, proxy 28080, gateway 28081, HTTPS 28443) with a fresh data directory
+  under the system temp folder, so an installed llm-fw on 7731 keeps running
+  and is never what gets tested. If one of those ports is taken, the run fails
+  rather than reusing whatever answers there.
 
 ## Benchmark and regression expectations
 
