@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { platform } from 'node:os'
-import { addProfileEnvVars, caTrustHint, coverageLines, loadEnvCommands } from '../../src/cli/setup.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { platform, tmpdir } from 'node:os'
+import { addProfileEnvVars, caTrustHint, coverageLines, DEFAULT_NO_PROXY, loadEnvCommands } from '../../src/cli/setup.js'
 import { stripProfileEnvVars } from '../../src/cli/uninstall.js'
 
 const PROXY = 'http://127.0.0.1:8080'
@@ -188,6 +190,35 @@ describe('addProfileEnvVars NO_PROXY companion', () => {
   it('leaves a user\'s own NO_PROXY untouched', () => {
     const out = addProfileEnvVars('export NO_PROXY=.mycompany.com\n', PROXY)
     expect(out).toContain('export NO_PROXY=.mycompany.com')
+  })
+
+  // #683: the shell takes the last export, and llm-fw's line came after the
+  // user's, so the user's exclusions had no effect while llm-fw was installed.
+  // Checked against the value a shell sources, not the file text.
+  it.runIf(platform() !== 'win32')('the shell sees the user\'s NO_PROXY and llm-fw\'s list together (#683)', () => {
+    const effective = (profile: string, inherited?: string): string => {
+      const dir = mkdtempSync(join(tmpdir(), 'llmfw-noproxy-'))
+      try {
+        const file = join(dir, 'profile')
+        writeFileSync(file, profile)
+        const env: NodeJS.ProcessEnv = { ...process.env }
+        delete env.NO_PROXY
+        delete env.no_proxy
+        if (inherited !== undefined) env.NO_PROXY = inherited
+        const r = spawnSync('sh', ['-c', '. "$1"; printf %s "$NO_PROXY"', 'sh', file], { env, encoding: 'utf8' })
+        expect(r.status, r.stderr).toBe(0)
+        return r.stdout
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+    const mine = effective(addProfileEnvVars('export NO_PROXY=.mycompany.com\n', PROXY))
+    expect(mine).toContain('.mycompany.com')
+    expect(mine).toContain('127.0.0.1')
+    expect(effective(addProfileEnvVars('', PROXY))).toBe(DEFAULT_NO_PROXY)
+    expect(effective(addProfileEnvVars('', PROXY), '.inherited.example')).toContain('.inherited.example')
+    const once = addProfileEnvVars('export NO_PROXY=.mycompany.com\n', PROXY)
+    expect(effective(addProfileEnvVars(once, PROXY))).toBe(effective(once))
   })
 
   it('round-trips: uninstall strips the NO_PROXY it wrote', () => {
