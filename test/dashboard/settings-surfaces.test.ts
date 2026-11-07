@@ -105,6 +105,59 @@ describe('dashboard settings: per-surface detection', () => {
     expect(saved().detection.surfaces.prompt).toEqual({ olderTurns: 'refuse', wordingAction: 'warn' })
   })
 
+  // #703: the main lever against false positives on an agent reading its own
+  // project was only editable in config.json.
+  describe('trusted project roots', () => {
+    it('shows the roots from the config, and an empty list when there are none', async () => {
+      fs.writeFileSync(join(tempDir, 'config.json'), JSON.stringify({ detection: { surfaces: { tool_result: { trustedPaths: ['C:/work', '/home/me/src'] } } } }))
+      await serve(await loadConfig())
+      expect((await request('GET', '/api/settings')).json.trustedPaths).toEqual(['C:/work', '/home/me/src'])
+    })
+
+    it('replaces the list live, trimmed and without duplicates, and persists it whole', async () => {
+      fs.writeFileSync(join(tempDir, 'config.json'), JSON.stringify({ detection: { surfaces: { tool_result: { trustedPaths: ['C:/old'], onBlock: 'withhold' } } } }))
+      const config = await loadConfig()
+      await serve(config)
+      const res = await request('POST', '/api/settings', { trustedPaths: [' C:\\dev\\private ', '/home/me/src', 'C:\\dev\\private'] })
+      expect(res.status).toBe(200)
+      expect(res.json.applied).toEqual(['trustedPaths'])
+      expect(res.json.settings.trustedPaths).toEqual(['C:\\dev\\private', '/home/me/src'])
+      expect(config.detection.surfaces?.tool_result?.trustedPaths).toEqual(['C:\\dev\\private', '/home/me/src'])
+      expect(saved().detection.surfaces.tool_result).toEqual({ trustedPaths: ['C:\\dev\\private', '/home/me/src'], onBlock: 'withhold' })
+
+      expect((await request('POST', '/api/settings', { trustedPaths: [] })).status).toBe(200)
+      expect(config.detection.surfaces?.tool_result?.trustedPaths).toEqual([])
+      expect(saved().detection.surfaces.tool_result.trustedPaths).toEqual([])
+    })
+
+    it('refuses a root the detection stage could never match, or one that trusts too much, and changes nothing', async () => {
+      fs.writeFileSync(join(tempDir, 'config.json'), JSON.stringify({ detection: { surfaces: { tool_result: { trustedPaths: ['C:/work'] } } } }))
+      const config = await loadConfig()
+      await serve(config)
+      const bad = [
+        'src/project', // relative
+        '~/src', // a home directory the proxy cannot resolve
+        '\\\\server\\share\\src', // UNC
+        '\\\\?\\C:\\dev', // device prefix
+        'C:\\PROGRA~1\\proj', // 8.3 short name
+        'C:\\dev\\x::$INDEX_ALLOCATION', // alternate data stream
+        'C:\\', '/', // a whole drive or file system
+        'C:\\dev\\app\\node_modules', // nothing under a third-party folder is trusted
+        '',
+      ]
+      for (const root of bad) {
+        const res = await request('POST', '/api/settings', { trustedPaths: ['C:/fine', root] })
+        expect(res.status, JSON.stringify(root)).toBe(400)
+        expect(res.json.errors.join(' '), JSON.stringify(root)).toMatch(/trustedPaths/)
+      }
+      for (const value of ['C:/work', [1], Array.from({ length: 65 }, (_, i) => `/p/${i}`), ['/' + 'a'.repeat(1100)]]) {
+        expect((await request('POST', '/api/settings', { trustedPaths: value })).status).toBe(400)
+      }
+      expect(config.detection.surfaces?.tool_result?.trustedPaths).toEqual(['C:/work'])
+      expect(saved().detection.surfaces.tool_result.trustedPaths).toEqual(['C:/work'])
+    })
+  })
+
   it('rejects values outside each setting\'s range', async () => {
     const config = await loadConfig()
     await serve(config)

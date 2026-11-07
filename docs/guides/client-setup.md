@@ -305,6 +305,8 @@ by the firewall. `llm-fw setup` writes a default for a local install:
 export NO_PROXY=localhost,127.0.0.1,::1
 ```
 
+On macOS and Linux the line setup writes extends a `NO_PROXY` you already export, rather than replacing it: `export NO_PROXY="localhost,127.0.0.1,::1${NO_PROXY:+,$NO_PROXY}"`. Your own list still applies while llm-fw is installed (#683).
+
 That covers loopback and nothing else, so **add your own hosts**. A leading dot
 matches subdomains; entries are comma-separated:
 

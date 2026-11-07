@@ -73,6 +73,27 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.36
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). `trustedPaths.ts` gains `trustedRootProblem`, which the dashboard uses to refuse a trusted root the matcher could never use (#703); no detection path calls it, so no verdict can move. Held-out recall unchanged: heldout 23 of 31, InjecAgent 1,054 of 1,054, safeguard 497 of 650 with 1 false positive. The section below is the 2026.11.35 result.
+
+## Result, ruleset 2026.11.35
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.34 moved 0 of 13,875 rows. The memory-poisoning rule for a stored instruction to switch redaction off now needs a secret as the object of "don't redact" (named after it, or earlier in the sentence), or no object at all. Bare, it matched any sentence about not redacting something: on 2026-11-07 the live proxy withheld `git log` and `gh pr list` output from Claude Code because one commit subject said not to redact a function call after a credential keyword, and the agent could not read its own branch list. The three shapes the rule exists for still match (`test/detection/memoryPoisoning.test.ts`).
+
+## Result, ruleset 2026.11.34
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` moved 0 of 13,875 rows, scores included. Three changes, none of which an eval row can reach, since no row is a WebFetch result, a Grep or Glob call, or a thread continuation. They come from the 18 Claude Code tool results the live proxy withheld on one developer's machine on 2026-11-05, all legitimate. Replayed through the detectors one by one, and paired with the tool calls in the session transcripts:
+
+- 3 were `Read`s of llm-fw's own source under a trusted root, refused because a thread continuation carries a result without its call. The pipeline now learns calls from the responses it forwards.
+- 1 was a `Grep` of `src/cli` under the root; `Grep` and `Glob` with a `path` there are now trusted.
+- 1 was WebFetch's own redirect notice, now a WebFetch-only harness template. Ruleset 2026.11.33 also learns the calls with no trusted root configured, so the template applies on a default install too (`npm run fpr` unchanged). Ruleset 2026.11.34 stops DLP redacting a function call after a credential keyword in source code (`npm run fpr` unchanged; DLP redacts and never blocks, so it does not move this rate).
+- 6 were GitHub issue bodies (`gh issue view`, or saved issue files in a scratchpad). Anyone can file an issue, so these stay untrusted and keep blocking.
+- 2 were outside every trusted root (a sibling worktree, and a dump of the dashboard's own events), and 2 could not be paired with a call in any transcript.
+- 3 were Bash commands that read files under the root but chained them (`cd … && sed -n …`, `| cut`) or used a Git Bash `/c/…` path. Both stay untrusted by the shell-read rules (#437, #439).
+
+Tried and dropped: treating addresses on the reserved example domains (RFC 2606, RFC 6761) as no destination. It removed the first match in 4 of these texts, but each then matched a quoted attack further on, and it broke 53 tests that rightly use `example.com` and `.test` addresses to stand for an attacker's.
+
 ## Result, ruleset 2026.11.31
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`). The change reads `poster`, `srcset` and `href` in responses (#674). The response scan sees no request, and no eval string reaches it, so no input verdict moves. The section below is the 2026.11.30 result.
