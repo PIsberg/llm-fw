@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.40
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.39 moved 0 of 13,875 rows, max similarity drift 0. The indirect-instruction detector now spells a hidden address the plain way before any rule reads it: `x[at]y[dot]com`, `(at)`/`(dot)`, all-caps `AT`/`DOT`, a comma before the TLD (`x@y,com`), and a lowercase `at` only inside a recipient field (`"receiver": x at y.com`). Normalizing every lowercase `at` was measured and rejected: it turned "I work at acme.com and you can email me" into an address, 4 new false positives in 14 hand-written contact lines. LLMail-Inject's benign emails stay at 1 of 103 (tune) and 1 of 100 (held-out), the same rows as before. On the held-out attacks the cheap preset blocks 83.9% of `api_triggered` (from 82.8%) and 83.1% of `judge-attack` (from 82.5%).
+
 ## Result, ruleset 2026.11.39
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.38 moved 0 of 13,875 rows, max similarity drift 0. A contact clause ("send an email to X", "email X") is no longer blanked as a footer when the text after the address dictates the message ("with the body ...", "saying ...", "message: ..."). LLMail-Inject's attackers wrote their order that way, and the blanking let it through. A subject line, a "message ID", "the body of the error" and a list command ("unsubscribe in the body") still count as a footer. No eval row's contact clause dictates a message, so none moved.

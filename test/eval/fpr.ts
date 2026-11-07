@@ -166,6 +166,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.40 (a hidden email address is spelled the plain way before the rules read it; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.39 (a contact clause that dictates the message is no longer blanked as a footer; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.38 (the response exfil scan reads decoded JSON text fields, #580; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.37 (two Claude Code 2.1.319 tags added to the client tag list, matcher and an extractor misread dropped; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
