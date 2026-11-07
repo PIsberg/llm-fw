@@ -9,6 +9,7 @@ import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { SuppressionStore, suppressionLines } from '../detection/suppressions.js'
 import { getParser } from '../detection/parsers.js'
+import { trustedRootProblem } from '../detection/trustedPaths.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
 import { ocrImage, isOcrCandidate } from '../detection/ocr.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
@@ -611,6 +612,10 @@ const HTML = `<!DOCTYPE html>
   .setting-control { flex-shrink: 0; }
   .settings-select { padding: 6px 30px 6px 10px; font-size: 0.82rem; }
   .settings-input { padding: 6px 10px; font-size: 0.82rem; width: 120px; text-align: right; font-family: var(--font-mono); }
+  .settings-paths { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 0; max-width: 420px; }
+  .settings-path { display: flex; gap: 6px; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 0.8rem; overflow-wrap: anywhere; }
+  .settings-paths .settings-input { width: 100%; text-align: left; }
+  .settings-path-add { display: flex; gap: 6px; }
   .settings-input[type=text] { width: 190px; text-align: left; }
   .settings-saved { font-size: 0.82rem; color: var(--ok); height: 18px; margin-bottom: 8px; transition: opacity 0.3s; }
   .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
@@ -2176,6 +2181,7 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'Surfaces', desc: 'How each place text arrives from is treated. A tool result or a retrieved document is untrusted third-party content; the prompt is what the user typed. A surface threshold set here overrides the global one in Advanced only for that surface.', rows: [
     { key: 'toolResultOnBlock', label: 'Blocked tool result', type: 'select', options: ['withhold', 'refuse'], sub: 'withhold: replace that tool result with a notice and forward the rest · refuse: refuse the whole request (an agent resends it every turn)' },
+    { key: 'trustedPaths', label: 'Trusted project roots', type: 'paths', sub: 'Absolute folders you write yourself. A file the agent reads from under one (not node_modules, vendor or .git) warns instead of blocking when only a wording stage objects. A planted instruction in a file there only warns too' },
     { key: 'promptOlderTurns', label: 'Blocked older user turn', type: 'select', options: ['withhold', 'refuse'], sub: 'A blocked user message that is not the newest. The newest message always refuses' },
     { key: 'promptWordingAction', label: 'Wording matches on the prompt', type: 'select', options: ['block', 'warn'], sub: 'warn: a wording-only match on what the user typed warns unless it is high-confidence · block: block it' },
     { key: 'toolResultHeuristicThreshold', label: 'Tool result: heuristic threshold', type: 'number', min: 1, max: 200, step: 1, sub: 'Stage 1 score at/above which a tool result is blocked. Shows the global value until set' },
@@ -2204,6 +2210,15 @@ function settingsRowHtml(row, s) {
     control = '<input type="number" class="settings-input" id="set-' + esc(row.key) + '" data-type="number"' + attrs + ' value="' + esc(String(s[row.key])) + '">';
   } else if (row.type === 'text') {
     control = '<input type="text" class="settings-input" id="set-' + esc(row.key) + '" data-type="text" value="' + esc(String(s[row.key] != null ? s[row.key] : '')) + '">';
+  } else if (row.type === 'paths') {
+    // A list edited as a whole: each change saves the new list (#703).
+    const items = (s[row.key] || []).map((p, i) =>
+      '<div class="settings-path"><span>' + esc(p) + '</span>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-path-remove="' + i + '" aria-label="Remove ' + esc(p) + '">Remove</button></div>').join('');
+    control = '<div class="settings-paths" id="set-' + esc(row.key) + '" data-type="paths">' +
+      (items || '<div class="setting-sub">None</div>') +
+      '<div class="settings-path-add"><input type="text" class="settings-input" data-path-new placeholder="C:\\\\dev\\\\my-project or /home/me/src" aria-label="' + esc(row.label) + ' to add">' +
+      '<button type="button" class="btn btn-sm" data-path-add>Add</button></div></div>';
   } else {
     control = '<label class="switch"><input type="checkbox" id="set-' + esc(row.key) + '" data-type="toggle"' + (s[row.key] ? ' checked' : '') + '><span class="slider"></span></label>';
   }
@@ -2224,6 +2239,20 @@ function renderSettings(s) {
     for (const r of g.rows) {
       const el = document.getElementById('set-' + r.key);
       if (!el) continue;
+      if (r.type === 'paths') {
+        const current = (s[r.key] || []).slice();
+        const input = el.querySelector('[data-path-new]');
+        const add = () => {
+          const v = input.value.trim();
+          if (v) saveSetting(r.key, current.concat([v]), true);
+        };
+        el.querySelector('[data-path-add]').addEventListener('click', add);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+        el.querySelectorAll('[data-path-remove]').forEach(b => b.addEventListener('click', () => {
+          saveSetting(r.key, current.filter((_, i) => i !== Number(b.dataset.pathRemove)), true);
+        }));
+        continue;
+      }
       el.addEventListener('change', () => {
         let value;
         if (r.type === 'select' || r.type === 'text') value = el.value;
@@ -2257,7 +2286,7 @@ async function loadSettings() {
   }
 }
 
-async function saveSetting(key, value) {
+async function saveSetting(key, value, rerender) {
   try {
     const res = await fetch('/api/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2266,6 +2295,8 @@ async function saveSetting(key, value) {
     const d = await res.json();
     if (!res.ok) throw new Error((d.errors && d.errors.join('; ')) || d.error || ('HTTP ' + res.status));
     flashSaved('Saved ✓', false);
+    // A list control shows what the server kept (trimmed, without duplicates).
+    if (rerender) renderSettings(d.settings);
   } catch (err) {
     flashSaved('Save failed: ' + err.message, true);
     loadSettings(); // re-sync controls with actual server state
@@ -2537,6 +2568,8 @@ interface SettingsView {
   // Per-surface detection (#543), each the EFFECTIVE value: a threshold the
   // surface does not override shows the global one it falls back to.
   toolResultOnBlock: 'withhold' | 'refuse'
+  // Project roots whose file reads warn instead of block (#703).
+  trustedPaths: string[]
   promptOlderTurns: 'withhold' | 'refuse'
   promptWordingAction: 'block' | 'warn'
   toolResultHeuristicThreshold: number
@@ -2594,6 +2627,7 @@ function readSettings(config: Config): SettingsView {
     dosMaxTokens: config.dos?.maxTokensPerSession ?? 50_000_000,
     judgeModel: config.detection?.judgeModel ?? 'qwen2.5:3b',
     toolResultOnBlock: config.detection?.surfaces?.tool_result?.onBlock ?? 'withhold',
+    trustedPaths: [...(config.detection?.surfaces?.tool_result?.trustedPaths ?? [])],
     promptOlderTurns: config.detection?.surfaces?.prompt?.olderTurns ?? 'withhold',
     promptWordingAction: config.detection?.surfaces?.prompt?.wordingAction ?? 'block',
     toolResultHeuristicThreshold: config.detection?.surfaces?.tool_result?.heuristicBlockThreshold ?? config.detection?.heuristicBlockThreshold ?? 50,
@@ -2666,6 +2700,15 @@ const NUMBER_SETTERS: Record<string, { min: number; max: number; apply: (c: Conf
 // Free-text setters (the POST allowlist for strings). Trimmed, non-empty, capped.
 const STRING_SETTERS: Record<string, { apply: (c: Config, v: string) => void }> = {
   judgeModel: { apply: (c, v) => { c.detection.judgeModel = v } },
+}
+
+// List setters (the POST allowlist for string lists). The whole list is
+// replaced: each entry trimmed, duplicates dropped, every entry checked by
+// `check`, and nothing applied when one fails.
+const LIST_SETTERS: Record<string, { maxItems: number; maxLength: number; check: (v: string) => string | null; apply: (c: Config, v: string[]) => void }> = {
+  // #703: the same rules the matcher applies, so a root that shows here is one
+  // it can match.
+  trustedPaths: { maxItems: 64, maxLength: 1024, check: trustedRootProblem, apply: (c, v) => { toolResultSurface(c).trustedPaths = v } },
 }
 
 const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Config, v: string) => void }> = {
@@ -2760,7 +2803,21 @@ function applySettings(config: Config, patch: Record<string, unknown>): { applie
     const enumSpec = ENUM_SETTERS[key]
     const numberSpec = NUMBER_SETTERS[key]
     const stringSpec = STRING_SETTERS[key]
-    if (boolSetter) {
+    const listSpec = LIST_SETTERS[key]
+    if (listSpec) {
+      if (!Array.isArray(value) || value.length > listSpec.maxItems || !value.every((v): v is string => typeof v === 'string')) {
+        errors.push(`${key}: expected a list of at most ${listSpec.maxItems} strings`); continue
+      }
+      const items = [...new Set(value.map(v => v.trim()))]
+      const problems = items.flatMap(v => {
+        if (v.length === 0 || v.length > listSpec.maxLength) return [`${key}: an entry must be 1 to ${listSpec.maxLength} characters`]
+        const problem = listSpec.check(v)
+        return problem ? [`${key}: ${JSON.stringify(v)} ${problem}`] : []
+      })
+      if (problems.length) { errors.push(...problems); continue }
+      listSpec.apply(config, items)
+      applied.push(key)
+    } else if (boolSetter) {
       if (typeof value !== 'boolean') { errors.push(`${key}: expected boolean`); continue }
       boolSetter(config, value)
       applied.push(key)

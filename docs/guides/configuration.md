@@ -280,12 +280,19 @@ is refused: if withholding would change it, it refuses. `refuse` keeps
 refusing every request that still carries the message. Applied live.
 
 **The Surfaces group in the dashboard.** The Settings view shows and edits
-the per-surface settings above: `tool_result.onBlock`, `prompt.olderTurns`,
-`prompt.wordingAction`, and the heuristic and classifier block thresholds of
-the `tool_result` and `document` surfaces. A threshold the surface does not
-override shows the global value it falls back to; setting it there writes only
-that surface's key to `<LLM_FW_DIR>/config.json` and leaves the global one and
-`trustedPaths` as they were. Applied live, like every other setting in the view.
+the per-surface settings above: `tool_result.onBlock`, `tool_result.trustedPaths`,
+`prompt.olderTurns`, `prompt.wordingAction`, and the heuristic and classifier
+block thresholds of the `tool_result` and `document` surfaces. A threshold the
+surface does not override shows the global value it falls back to; setting it
+there writes only that surface's key to `<LLM_FW_DIR>/config.json` and leaves
+the global one as it was. Trusted project roots are a list with Add and Remove,
+saved whole: each root is trimmed and kept once, and one the matcher could never
+use is refused with the reason, with nothing changed. That covers a relative
+path, `~`, a UNC or `\\?\` prefix, an 8.3 short name or a data stream. A whole
+drive or file system (`C:\`, `/`) and a folder inside `node_modules`, `vendor`,
+`.git` or another third-party directory are refused too. At most 64 roots. A
+root set with `LLM_FW_TRUSTED_PATHS` shows there too, and an edit writes the
+list to the file. Applied live, like every other setting in the view.
 
 **Model cache and first start.** The first run downloads the ONNX weights from
 HuggingFace, which is why `start` can sit on `Loading embedding model...` for a

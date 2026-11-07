@@ -75,6 +75,7 @@ describe('dashboard settings: every control round-trips', () => {
       case 'toggle': return !current
       case 'select': return row.options!.find(o => o !== current)
       case 'text': return 'roundtrip-model:1b'
+      case 'paths': return [...(current as string[]), process.platform === 'win32' ? 'C:\\roundtrip\\project' : '/roundtrip/project']
       case 'number': {
         const step = row.step ?? 1
         const up = Number(current) + step
