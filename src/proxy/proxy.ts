@@ -23,7 +23,7 @@ import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
 import zlib from 'node:zlib'
 import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
-import { scanResponseExfil, neutralizeExfil } from '../detection/responseExfil.js'
+import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil, type ExfilFinding } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, scanToolCallsForMemoryPoisoning, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
@@ -1343,9 +1343,33 @@ export class ProxyServer {
 
   private runResponseExfilScan(text: string, req: http.IncomingMessage, hostname: string, canNeutralize: boolean): string | null {
     if (!this.config.responseScan?.enabled) return null
-    const findings = scanResponseExfil(text, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
+    const findings = scanResponseExfil(text, this.isExfilDestination)
     if (!findings.length) return null
     const block = this.config.responseScan.mode === 'block' && canNeutralize
+    this.emitExfil(findings, block, req, hostname)
+    return block ? neutralizeExfil(text, findings) : null
+  }
+
+  private readonly isExfilDestination = (hostname: string, path: string): boolean =>
+    this.urlClassifier.classifyDetailed(hostname, path).action === 'block'
+
+  /**
+   * The exfil scan of a buffered JSON body: the raw body, then its decoded
+   * text fields, which is where markup a serializer escaped (Go's `\u003cimg`)
+   * becomes a tag again (#580). Returns the body to forward.
+   */
+  private runJsonExfilScan(text: string, req: http.IncomingMessage, hostname: string): string {
+    if (!this.config.responseScan?.enabled) return text
+    const raw = scanResponseExfil(text, this.isExfilDestination)
+    const fields = scanJsonTextFields(text, this.isExfilDestination, raw)
+    if (!raw.length && !fields.length) return text
+    const block = this.config.responseScan.mode === 'block'
+    this.emitExfil([...raw, ...fields], block, req, hostname)
+    if (!block) return text
+    return neutralizeJsonExfil(text, this.isExfilDestination, raw)
+  }
+
+  private emitExfil(findings: readonly ExfilFinding[], block: boolean, req: http.IncomingMessage, hostname: string): void {
     for (const f of findings) {
       this.eventBus.emit({
         stage: 'response-exfil',
@@ -1361,7 +1385,6 @@ export class ProxyServer {
         exfilUrl: f.url,
       })
     }
-    return block ? neutralizeExfil(text, findings) : null
   }
 
   /**
@@ -1911,8 +1934,7 @@ export class ProxyServer {
     }
 
     // Response-exfil scan on the buffered body → can neutralize when mode=block.
-    const neutralized = this.runResponseExfilScan(finalBody, req, hostname, true)
-    if (neutralized !== null) finalBody = neutralized
+    finalBody = this.runJsonExfilScan(finalBody, req, hostname)
     // Tool-call argument exfil scan (Task C1): DLP + URL-classifier over
     // the serialized arguments of every tool call the model emitted.
     // Buffered body → bytes not yet sent, so block mode can withhold it.

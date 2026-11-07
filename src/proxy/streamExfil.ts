@@ -27,8 +27,7 @@
 // `arguments`) is not rendered, and the end-of-stream audit scan covers it.
 
 import { sseEventText } from './canary.js'
-
-const RENDERED_KEYS: ReadonlySet<string> = new Set(['text', 'thinking', 'content', 'refusal', 'delta', 'output'])
+import { RENDERED_KEYS } from '../detection/responseExfil.js'
 const EVENT_END = /\r?\n\r?\n/
 // The tags held to their `>`: an image, a video or audio element (poster,
 // source), a source and a link (href). A link opener also matches `<abbr` and
