@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The Settings tab switches the planted-instruction and memory-poisoning stages, and their block or audit mode.** These two stages withhold most of the tool results an agent reads by mistake, and until now the only way to set them to audit was `config.json` or `LLM_FW_INDIRECT_INSTRUCTION_MODE` and `LLM_FW_MEMORY_POISONING_MODE`. They apply live and persist like every other setting.
+
 ### Fixed
 
 - **`git log` and `gh pr list` output no longer reads as a planted memory when a commit subject says not to redact something.** The memory-poisoning rule for a stored instruction to switch redaction off matched any "don't redact", so a commit subject about not redacting a function call got the agent's own branch list withheld. It now needs a secret as the object (named after it or earlier in the sentence) or no object at all; "never redact API keys" and a bare "don't redact." still match. 0 of 13,875 eval verdicts changed; `npm run fpr` unchanged.

@@ -2140,6 +2140,10 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'Data & Context', desc: 'Retrieved-content poisoning, outbound secret leakage, and harmful content in the model response.', rows: [
     { key: 'rag', label: 'RAG context-poisoning', sub: 'Block instructions smuggled inside retrieved <document> / <search_results> / code-fence blocks' },
+    { key: 'indirectInstruction', label: 'Planted instructions in tool results', sub: 'Flag a tool result or document that tells the agent to send, delete or run something (indirect prompt injection)' },
+    { key: 'indirectInstructionMode', label: 'Planted instruction mode', type: 'select', options: ['block', 'audit'], sub: 'block: withhold or refuse it, per the Surfaces settings · audit: warn only' },
+    { key: 'memoryPoisoning', label: 'Memory poisoning', sub: 'Flag recalled agent memory that asserts standing permission, disables redaction or arms a trigger for later' },
+    { key: 'memoryPoisoningMode', label: 'Memory poisoning mode', type: 'select', options: ['block', 'audit'], sub: 'block: withhold or refuse it · audit: warn only' },
     { key: 'dlp', label: 'Data Loss Prevention (DLP)', sub: 'Detect secrets leaving in requests: cloud keys, tokens, private keys, payment cards, PII' },
     { key: 'dlpMode', label: 'DLP mode', type: 'select', options: ['block', 'redact', 'audit'], sub: 'block: refuse · redact: mask the secret and forward · audit: warn only' },
     { key: 'responseScan', label: 'Response-side exfil scan', sub: 'Detect data-exfil image/link URLs the model emits (e.g. a zero-click markdown image to an attacker host)' },
@@ -2510,6 +2514,10 @@ interface SettingsView {
   mcpCatD: boolean
   taint: boolean
   taintMode: 'audit' | 'block'
+  indirectInstruction: boolean
+  indirectInstructionMode: 'audit' | 'block'
+  memoryPoisoning: boolean
+  memoryPoisoningMode: 'audit' | 'block'
   urlFilter: boolean
   responseScan: boolean
   responseScanMode: 'block' | 'audit'
@@ -2567,6 +2575,10 @@ function readSettings(config: Config): SettingsView {
     mcpCatD: config.mcp?.guardrailsCategories?.d ?? true,
     taint: config.taint?.enabled ?? false,
     taintMode: config.taint?.mode ?? 'audit',
+    indirectInstruction: config.indirectInstruction?.enabled ?? true,
+    indirectInstructionMode: config.indirectInstruction?.mode ?? 'block',
+    memoryPoisoning: config.memoryPoisoning?.enabled ?? true,
+    memoryPoisoningMode: config.memoryPoisoning?.mode ?? 'block',
     urlFilter: config.proxy?.urlFilter?.enabled ?? true,
     responseScan: config.responseScan?.enabled ?? true,
     responseScanMode: config.responseScan?.mode ?? 'audit',
@@ -2624,6 +2636,8 @@ const BOOL_SETTERS: Record<string, (c: Config, v: boolean) => void> = {
   mcpCatC: (c, v) => { c.mcp.guardrailsCategories.c = v },
   mcpCatD: (c, v) => { c.mcp.guardrailsCategories.d = v },
   taint: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.enabled = v },
+  indirectInstruction: (c, v) => { c.indirectInstruction ??= { enabled: true, mode: 'block' }; c.indirectInstruction.enabled = v },
+  memoryPoisoning: (c, v) => { c.memoryPoisoning ??= { enabled: true, mode: 'block' }; c.memoryPoisoning.enabled = v },
   urlFilter: (c, v) => { c.proxy.urlFilter.enabled = v },
   responseScan: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.enabled = v },
   nonText: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.enabled = v },
@@ -2662,6 +2676,8 @@ const ENUM_SETTERS: Record<string, { values: readonly string[]; apply: (c: Confi
   manyShotMode: { values: ['audit', 'block'], apply: (c, v) => { c.manyShot ??= { enabled: true, minTurns: 8, harmfulComplianceThreshold: 2, mode: 'block' }; c.manyShot.mode = v as 'audit' | 'block' } },
   crescendoMode: { values: ['audit', 'block'], apply: (c, v) => { c.crescendo ??= { enabled: true, minUserTurns: 3, mode: 'block' }; c.crescendo.mode = v as 'audit' | 'block' } },
   taintMode: { values: ['audit', 'block'], apply: (c, v) => { c.taint ??= { enabled: true, mode: 'audit' }; c.taint.mode = v as 'audit' | 'block' } },
+  indirectInstructionMode: { values: ['audit', 'block'], apply: (c, v) => { c.indirectInstruction ??= { enabled: true, mode: 'block' }; c.indirectInstruction.mode = v as 'audit' | 'block' } },
+  memoryPoisoningMode: { values: ['audit', 'block'], apply: (c, v) => { c.memoryPoisoning ??= { enabled: true, mode: 'block' }; c.memoryPoisoning.mode = v as 'audit' | 'block' } },
   responseScanMode: { values: ['block', 'audit'], apply: (c, v) => { c.responseScan ??= { enabled: true, mode: 'audit' }; c.responseScan.mode = v as 'block' | 'audit' } },
   nonTextMode: { values: ['audit', 'block'], apply: (c, v) => { c.nonText ??= { enabled: true, mode: 'audit' }; c.nonText.mode = v as 'audit' | 'block' } },
 }
@@ -2703,6 +2719,8 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       guardrailsCategories: { ...config.mcp.guardrailsCategories },
     },
     taint: { enabled: config.taint?.enabled ?? false, mode: config.taint?.mode ?? 'audit' },
+    indirectInstruction: { enabled: config.indirectInstruction?.enabled ?? true, mode: config.indirectInstruction?.mode ?? 'block' },
+    memoryPoisoning: { enabled: config.memoryPoisoning?.enabled ?? true, mode: config.memoryPoisoning?.mode ?? 'block' },
     nonText: {
       enabled: config.nonText?.enabled ?? true,
       mode: config.nonText?.mode ?? 'audit',
