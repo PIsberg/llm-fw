@@ -235,6 +235,28 @@ describe('DlpScanner.scan — entropy generic secret (Strategy 2)', () => {
     expect(scanner.scan('password=short').some(x => x.type === 'GENERIC_SECRET')).toBe(false)
   })
 
+  // Source code read by an agent: a call after a keyword is an expression, not
+  // a value. Redacting it handed Claude Code a corrupted line of llm-fw's own
+  // gateway (2026-11-06), which an agent could write back into the file.
+  it('does not flag a function call assigned to a keyword', () => {
+    const scanner = makeScanner()
+    for (const line of [
+      'const token = canaryToken(getLlmFwDir());',
+      'apiKey: resolveProviderKey(config.gateway, slug),',
+      'password = hashPassword(request.body.newPassword)',
+    ]) expect(scanner.scan(line).some(x => x.type === 'GENERIC_SECRET'), line).toBe(false)
+  })
+
+  it('still flags a high-entropy value wrapped in a call, or quoted with a parenthesis in it', () => {
+    const scanner = makeScanner()
+    const secret = 'kq7Rz2LmX9vB4tW8nYp3HsJd6'
+    for (const text of [
+      `token=decode(${secret})`,
+      `token=${secret}()`,
+    ]) expect(scanner.scan(text).find(x => x.type === 'GENERIC_SECRET')?.match, text).toBeDefined()
+    expect(scanner.scan('password = "Xq9(vT2#mLp8!zR4wK7@bN3sY"').some(x => x.type === 'GENERIC_SECRET')).toBe(true)
+  })
+
   it('does not run entropy detector when not in detectors', () => {
     const scanner = makeScanner(['aws'])
     expect(scanner.scan('password=aZ9x7Qw2Lk8Pm3Vn6Rt1Yb4Hs0').some(x => x.type === 'GENERIC_SECRET')).toBe(false)

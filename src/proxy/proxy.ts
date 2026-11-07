@@ -1188,7 +1188,10 @@ export class ProxyServer {
           }
         }
 
-        const toolResults = parser.extractToolResults(body)
+        // A thread continuation's result arrives without its call (Claude Code
+        // through the proxy); the call came in the response before it.
+        const toolResults = parser.extractToolResults(body).map(tr =>
+          tr.toolName !== undefined ? tr : { ...tr, toolName: this.pipeline.learnedCall(tr.toolUseId)?.name })
         for (const tr of toolResults) {
           const resResult = this.mcp.checkToolResult(tr.toolUseId, tr.result)
           if (resResult.action === 'block') {
@@ -1233,7 +1236,11 @@ export class ProxyServer {
       } else {
         // Before the tap, so the Usage Meter still sees the usage chunk (#421).
         if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
-        const captured = moduleCtx && this.modules.wantsResponses()
+        // Detection reads the response's tool calls too, for the results a
+        // thread continuation sends without them: trusted paths, a tool's own
+        // harness template, and the tool name on an MCP tool-result event.
+        const learnCalls = isLlmRequest && (this.pipeline.wantsCalls() || mcpInspectResponse)
+        const captured = (moduleCtx && this.modules.wantsResponses()) || learnCalls
           ? tapResponse(innerRes, bodyCap(this.config.proxy.maxBodyBytes))
           : null
         try {
@@ -1243,7 +1250,8 @@ export class ProxyServer {
           throw err
         }
         const response = captured?.()
-        if (moduleCtx && response) this.modules.observeResponse(body, moduleCtx, response)
+        if (response && learnCalls) this.pipeline.learnCalls(response)
+        if (moduleCtx && response && this.modules.wantsResponses()) this.modules.observeResponse(body, moduleCtx, response)
       }
       if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when

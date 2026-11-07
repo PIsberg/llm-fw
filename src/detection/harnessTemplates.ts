@@ -32,6 +32,10 @@ const SLOT_SHAPES = {
   // A list of repository paths, one per line as `  - path`, with no spaces.
   // A path is still scored where the diff names it (`=== DIFF: path ===`).
   paths: '(?:  - [^\\s]{1,400}\\n){1,500}',
+  // A URL: no space and no quote, so it cannot close the quoted field it sits in.
+  url: '[^\\s"]{1,2048}',
+  // An HTTP status line: the code and up to four words of its reason phrase.
+  status: '\\d{3}(?: [A-Za-z-]{1,24}){0,4}',
 } as const
 
 export interface HarnessTemplate {
@@ -44,6 +48,12 @@ export interface HarnessTemplate {
   /** Fixed text the turn ends with, if the template has any; no slots. */
   tail?: string
   slots?: Record<string, keyof typeof SLOT_SHAPES>
+  /**
+   * The one tool whose results open with this text, when the harness writes
+   * it as a tool result rather than a user turn. Such a template applies only
+   * to that tool's results, and a user-turn template never to a tool result.
+   */
+  tool?: string
 }
 
 export const HARNESS_TEMPLATES: readonly HarnessTemplate[] = [
@@ -94,6 +104,28 @@ export const HARNESS_TEMPLATES: readonly HarnessTemplate[] = [
     tail: 'Investigate per the method in your instructions, then return the findings list.',
     slots: { files: 'paths' },
   },
+  {
+    // Claude Code writes this itself when a fetched URL redirects to another
+    // host, in place of the page, and its "Please use WebFetch again" read as
+    // a planted imperative (live, 2026-11-05). The page's server supplies the
+    // redirect URL, which sits in a bounded slot and stays scored, and the
+    // agent's own prompt after the head is scored in full.
+    id: 'claude-code-webfetch-redirect',
+    sender: 'Claude Code WebFetch tool result, cross-host redirect (live, 2026-11-05)',
+    tool: 'WebFetch',
+    head: [
+      'REDIRECT DETECTED: The URL redirects to a location that was not fetched automatically.',
+      '',
+      '    Original URL: {{original}}',
+      '    Redirect URL (from the server\'s Location header — server-supplied, not verified): {{redirect}}',
+      '    Status: {{status}}',
+      '',
+      '    To complete your request, I need to fetch content from the redirected URL. Please use WebFetch again with these parameters:',
+      '    - url: "{{url}}"',
+      '    - prompt: "',
+    ].join('\n'),
+    slots: { original: 'url', redirect: 'url', status: 'status', url: 'url' },
+  },
 ]
 
 interface Compiled {
@@ -103,6 +135,7 @@ interface Compiled {
   /** The whole head, sticky at 0: literals and bounded slots, so linear. */
   head: RegExp
   tail: string | undefined
+  tool: string | undefined
 }
 
 const SLOT = /\{\{(\w+)\}\}/g
@@ -124,7 +157,7 @@ export function compileTemplate(t: HarnessTemplate): Compiled {
   if (lead.length < 20) throw new Error(`harness template ${t.id}: needs 20 fixed characters before its first slot`)
   // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from HARNESS_TEMPLATES, a constant in this file: every literal part is escaped and every slot is one of the bounded SLOT_SHAPES, so no input reaches the pattern. Linear time on 200 KB inputs is pinned by test/detection/harnessTemplates.test.ts.
   const head = new RegExp(source, 'y')
-  return { id: t.id, lead, head, tail: t.tail }
+  return { id: t.id, lead, head, tail: t.tail, tool: t.tool }
 }
 
 const COMPILED: readonly Compiled[] = HARNESS_TEMPLATES.map(compileTemplate)
@@ -143,7 +176,10 @@ const COMPILED: readonly Compiled[] = HARNESS_TEMPLATES.map(compileTemplate)
  * line's language form is not fixed (it names the language in a free slot),
  * so it is kept and scored after the remainder.
  */
-export function stripHarnessTemplate(text: string, source: ScanSource): { text: string; template?: string } {
+export function stripHarnessTemplate(text: string, source: ScanSource, toolName?: string): { text: string; template?: string } {
+  // A tool's own template, on that tool's results only: whatever else a tool
+  // returns is data, and a template's wording there is someone's text.
+  if (source === 'tool_result' && toolName !== undefined) return stripHead(text, toolName) ?? { text }
   if (source !== 'prompt') return { text }
   const direct = stripHead(text)
   if (direct) return direct
@@ -160,8 +196,9 @@ export function stripHarnessTemplate(text: string, source: ScanSource): { text: 
   return { text: `${stripped.text}\n\n${titleLine}`, template: stripped.template }
 }
 
-function stripHead(text: string): { text: string; template: string } | null {
+function stripHead(text: string, toolName?: string): { text: string; template: string } | null {
   for (const t of COMPILED) {
+    if (t.tool !== toolName) continue
     if (!text.startsWith(t.lead)) continue
     t.head.lastIndex = 0
     const m = t.head.exec(text)

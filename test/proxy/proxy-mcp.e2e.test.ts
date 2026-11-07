@@ -13,6 +13,7 @@ import { UpstreamResolver } from '../../src/proxy/upstream.js'
 import { CertFactory } from '../../src/proxy/certs.js'
 import { issueUpstreamCert, trustCA } from './lib/tls-trust.js'
 import type { BlockEvent } from '../../src/types.js'
+import { HARNESS_TEMPLATES } from '../../src/detection/harnessTemplates.js'
 
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
 
@@ -96,6 +97,7 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
   let mockUpstreamPort: number
   let restoreTrust: () => void
   let upstreamHits = 0
+  let lastUpstreamBody = ''
   let proxy: ProxyServer
   let eventBus: EventBus
 
@@ -168,6 +170,7 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
       req.on('data', (c) => { body += c })
       req.on('end', () => {
         upstreamHits++
+        lastUpstreamBody = body
         let scenario = 'plain'
         try { scenario = (JSON.parse(body) as { scenario?: string }).scenario ?? 'plain' } catch { /* ignore */ }
 
@@ -214,6 +217,22 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
           res.write(sse('content_block_start', { index: 1, content_block: { type: 'tool_use', id: 'toolu_d', name: 'execute_command', input: {} } }))
           res.write(sse('content_block_delta', { index: 1, delta: { type: 'input_json_delta', partial_json: '{"cmd":"ls"}' } }))
           res.write(sse('content_block_stop', { index: 1 }))
+          res.write(sse('message_delta', { delta: { stop_reason: 'tool_use' } }))
+          res.end(sse('message_stop', {}))
+        } else if (scenario === 'sse-allowed') {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(sse('message_start', { message: { id: 'msg_5', role: 'assistant' } }))
+          res.write(sse('content_block_start', { index: 0, content_block: { type: 'tool_use', id: 'toolu_s1', name: 'get_weather', input: {} } }))
+          res.write(sse('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: '{"city":"Lund"}' } }))
+          res.write(sse('content_block_stop', { index: 0 }))
+          res.write(sse('message_delta', { delta: { stop_reason: 'tool_use' } }))
+          res.end(sse('message_stop', {}))
+        } else if (scenario === 'sse-webfetch') {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(sse('message_start', { message: { id: 'msg_6', role: 'assistant' } }))
+          res.write(sse('content_block_start', { index: 0, content_block: { type: 'tool_use', id: 'toolu_wf1', name: 'WebFetch', input: {} } }))
+          res.write(sse('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: '{"url":"https://gh.io/actions-lockfile","prompt":"How is it enforced?"}' } }))
+          res.write(sse('content_block_stop', { index: 0 }))
           res.write(sse('message_delta', { delta: { stop_reason: 'tool_use' } }))
           res.end(sse('message_stop', {}))
         } else if (scenario === 'sse-destructive') {
@@ -308,6 +327,55 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     const ev = mcpEvents().find(e => e.action === 'passed' && e.payload_preview.includes('toolu_w1'))
     expect(ev?.mcpTool).toBe('get_weather')
     expect(ev?.payload_preview).toBe('Tool result returned from get_weather (id toolu_w1)')
+  })
+
+  // Claude Code continues a server-side thread on its tool turns: the result
+  // arrives without the tool_use that asked for it, which only the response
+  // before it carried. Without the call learned from that response every such
+  // result was listed under "(other)" in the MCP Traffic tab.
+  it("names a thread continuation's tool result from the call in the response before it", async () => {
+    const first = await send('/v1/messages', toolRequest('sse-allowed'))
+    expect(first.statusCode).toBe(200)
+    expect(first.body).toContain('toolu_s1')
+    const res = await send('/v1/messages', JSON.stringify({
+      model: 'claude-3-haiku-20240307', max_tokens: 16,
+      thread: { id: 'thread_names' },
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_s1', content: 'sunny, 12 C' }] }],
+    }))
+    expect(res.statusCode).toBe(200)
+    const ev = mcpEvents().find(e => e.action === 'passed' && e.payload_preview.includes('toolu_s1'))
+    expect(ev?.mcpTool).toBe('get_weather')
+    expect(ev?.payload_preview).toBe('Tool result returned from get_weather (id toolu_s1)')
+  })
+
+  it('leaves a result unnamed when no response made its call', async () => {
+    const res = await send('/v1/messages', JSON.stringify({
+      model: 'claude-3-haiku-20240307', max_tokens: 16,
+      thread: { id: 'thread_names' },
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_never_called', content: 'ok' }] }],
+    }))
+    expect(res.statusCode).toBe(200)
+    const ev = mcpEvents().find(e => e.action === 'passed' && e.payload_preview.includes('toolu_never_called'))
+    expect(ev?.mcpTool).toBeUndefined()
+    expect(ev?.payload_preview).toBe('Tool result returned (id toolu_never_called)')
+  })
+
+  // The same gap on a default config, for detection: WebFetch's own redirect
+  // notice is a template for that tool's results only (harnessTemplates.ts),
+  // and a thread continuation's result had no tool name unless a trusted root
+  // happened to be configured, so the notice was withheld.
+  it("reads a thread continuation's WebFetch redirect notice as WebFetch's, with no trusted root", async () => {
+    const t = HARNESS_TEMPLATES.find(x => x.tool === 'WebFetch')!
+    const fill: Record<string, string> = { url: 'https://docs.github.com/en/actions/reference/lockfiles', status: '301 Moved Permanently' }
+    const notice = `${t.head.replace(/\{\{(\w+)\}\}/g, (_m, name: string) => fill[t.slots![name]!]!)}How is the lockfile enforced at run time?"`
+    expect((await send('/v1/messages', toolRequest('sse-webfetch'))).statusCode).toBe(200)
+    const res = await send('/v1/messages', JSON.stringify({
+      model: 'claude-3-haiku-20240307', max_tokens: 16,
+      thread: { id: 'thread_webfetch' },
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_wf1', content: notice }] }],
+    }))
+    expect(res.statusCode).toBe(200)
+    expect(lastUpstreamBody).toContain(JSON.stringify(notice).slice(1, -1))
   })
 
   it('passes an allowed tool_use through a JSON response untouched', async () => {
