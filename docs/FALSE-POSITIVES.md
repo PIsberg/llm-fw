@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.35
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.34 moved 0 of 13,875 rows. The memory-poisoning rule for a stored instruction to switch redaction off now needs a secret as the object of "don't redact" (named after it, or earlier in the sentence), or no object at all. Bare, it matched any sentence about not redacting something: on 2026-11-07 the live proxy withheld `git log` and `gh pr list` output from Claude Code because one commit subject said not to redact a function call after a credential keyword, and the agent could not read its own branch list. The three shapes the rule exists for still match (`test/detection/memoryPoisoning.test.ts`).
+
 ## Result, ruleset 2026.11.34
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` moved 0 of 13,875 rows, scores included. Three changes, none of which an eval row can reach, since no row is a WebFetch result, a Grep or Glob call, or a thread continuation. They come from the 18 Claude Code tool results the live proxy withheld on one developer's machine on 2026-11-05, all legitimate. Replayed through the detectors one by one, and paired with the tool calls in the session transcripts:
