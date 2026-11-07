@@ -2693,6 +2693,12 @@ function toPersistedPartial(config: Config): Record<string, unknown> {
       guardrailsCategories: { ...config.mcp.guardrailsCategories },
     },
     taint: { enabled: config.taint?.enabled ?? false, mode: config.taint?.mode ?? 'audit' },
+    nonText: {
+      enabled: config.nonText?.enabled ?? true,
+      mode: config.nonText?.mode ?? 'audit',
+      ocr: config.nonText?.ocr ?? false,
+      transcribe: config.nonText?.transcribe ?? false,
+    },
     proxy: { urlFilter: { enabled: config.proxy.urlFilter.enabled } },
     asciiSmuggling: { enabled: config.asciiSmuggling?.enabled ?? true },
     manyShot: { enabled: config.manyShot?.enabled ?? true, mode: config.manyShot?.mode ?? 'block' },
