@@ -166,6 +166,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.32 (trusted paths read a thread continuation's results with calls learned from responses, Grep and Glob of a trusted root are trusted, WebFetch's redirect notice is a tool-result template; no eval row is any of these; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.31 (the response scan also reads poster, srcset and href, and the stream holds their tags; no eval string reaches it; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.30 (the response exfil scan reads each destination as a client does; no eval string reaches it; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.29 (DLP redaction and the response exfil scan each read in one pass, and the ASCII-smuggling stage honours a mark on the raw text only; no eval string reaches any of them).

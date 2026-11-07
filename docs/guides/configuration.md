@@ -242,7 +242,8 @@ beside a reminder 100%.
 
 **Trusted project roots.** `detection.surfaces.tool_result.trustedPaths` (also
 `LLM_FW_TRUSTED_PATHS`, comma-separated) lists absolute directories whose files
-you vouch for. A file-read tool result from under one of them, or a shell tool
+you vouch for. A file-read tool result from under one of them, a Claude Code
+`Grep` or `Glob` of a directory there, or a shell tool
 result whose command was one plain `cat`, `head`, `tail`, `sed -n` or
 `Get-Content` of one file there, warns instead of blocking when only a wording
 stage objects; other shell output, fetches and anything under `node_modules` or

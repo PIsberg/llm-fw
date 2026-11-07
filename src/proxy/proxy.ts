@@ -1230,7 +1230,10 @@ export class ProxyServer {
       } else {
         // Before the tap, so the Usage Meter still sees the usage chunk (#421).
         if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
-        const captured = moduleCtx && this.modules.wantsResponses()
+        // Detection reads the response's tool calls too, for the results a
+        // thread continuation sends without them (trusted paths).
+        const learnCalls = isLlmRequest && this.pipeline.wantsCalls()
+        const captured = (moduleCtx && this.modules.wantsResponses()) || learnCalls
           ? tapResponse(innerRes, bodyCap(this.config.proxy.maxBodyBytes))
           : null
         try {
@@ -1240,7 +1243,8 @@ export class ProxyServer {
           throw err
         }
         const response = captured?.()
-        if (moduleCtx && response) this.modules.observeResponse(body, moduleCtx, response)
+        if (response && learnCalls) this.pipeline.learnCalls(response)
+        if (moduleCtx && response && this.modules.wantsResponses()) this.modules.observeResponse(body, moduleCtx, response)
       }
       if (loopTracked && innerRes.statusCode >= 400) this.loop.forget(body)
       // `body` is the decoded request payload, already DLP-redacted in place when
