@@ -10,6 +10,7 @@ import { SuppressionStore } from '../detection/suppressions.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
+import { locateDlpFindings, locationSummary } from './dlpLocation.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
 import { getParser } from '../detection/parsers.js'
@@ -41,6 +42,7 @@ import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js
 import { isTokenCountRequest } from './tokenCount.js'
 import { bodyCap } from './bodyCap.js'
 import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT } from './canary.js'
+import { TlsSessionCache } from './tlsSessions.js'
 import { ExfilStreamHold } from './streamExfil.js'
 import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
@@ -298,6 +300,8 @@ export class ProxyServer {
   private server: http.Server
   private certFactory: CertFactory
   private upstreamContext: tls.SecureContext | null = null
+  // The last TLS session per provider host, so a request resumes it (#670).
+  private readonly tlsSessions = new TlsSessionCache()
   private resolver: UpstreamResolver
   private pipeline: Pipeline
   // Every defense scanner is constructed unconditionally; whether it RUNS is
@@ -956,9 +960,11 @@ export class ProxyServer {
       if (this.config.dlp.enabled && (getParser(dlpPath) !== null || tokenCount)) {
         const findings = this.dlp.scan(body)
         if (findings.length) {
-          // NEVER log the raw secret value — only its type(s).
+          // NEVER log the raw secret value — only its type(s), and where it
+          // was with the match masked (#702).
           const types = Array.from(new Set(findings.map(f => f.type)))
-          const typeSummary = types.join(', ')
+          const dlpLocations = locateDlpFindings(getParser(dlpPath), body, findings)
+          const typeSummary = types.join(', ') + locationSummary(dlpLocations)
           const mode = this.config.dlp.mode
 
           if (mode === 'block') {
@@ -976,6 +982,7 @@ export class ProxyServer {
               action: 'blocked',
               kind: 'dlp',
               dlpType: findings[0]!.type,
+              dlpLocations,
             })
             return
           }
@@ -999,6 +1006,7 @@ export class ProxyServer {
             action: 'warned',
             kind: 'dlp',
             dlpType: findings[0]!.type,
+            dlpLocations,
           })
         }
       }
@@ -1565,7 +1573,8 @@ export class ProxyServer {
       // One context for every upstream connection, verifying against the same
       // default CA store a context per connection would load.
       this.upstreamContext ??= tls.createSecureContext()
-      const upstream = tls.connect({ host: ip, port, servername: hostname, secureContext: this.upstreamContext }, () => {
+      // Resumes the host's last TLS session when it has one (#670).
+      const upstream = this.tlsSessions.connect({ host: ip, port, servername: hostname, secureContext: this.upstreamContext }, () => {
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
         const headers = { ...req.headers, ...extraHeaders, host: hostname }
         for (const [k, v] of Object.entries(headers)) {

@@ -504,6 +504,36 @@ function issueHostCertFromLoadedCa(
 
 const MAX_CACHED_CONTEXTS = 256;
 
+/** Why ensureCA replaced the CA: the first check the one on disk failed. */
+export type CaReplaceReason = 'missing' | 'unreadable' | 'key-mismatch' | 'expired' | 'crl-url';
+
+export type EnsureCaResult =
+  | { outcome: 'reused' }
+  /** `keptAs`: where the replaced files were moved, when there were any. */
+  | { outcome: 'generated'; reason: CaReplaceReason; keptAs?: string[] };
+
+/**
+ * Move each existing file to `<name>.replaced-<UTC timestamp>` beside it, and
+ * return the new paths. A second replacement in the same second gets a
+ * counter rather than overwriting the first one's files.
+ */
+function keepReplaced(files: readonly string[]): string[] {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const present = files.filter(f => fs.existsSync(f));
+  if (present.length === 0) return [];
+  const taken = (suffix: string) => present.some(f => fs.existsSync(f + suffix));
+  let suffix = `.replaced-${stamp}`;
+  let n = 2;
+  while (taken(suffix)) {
+    suffix = `.replaced-${stamp}-${n}`;
+    n++;
+  }
+  return present.map(f => {
+    fs.renameSync(f, f + suffix);
+    return f + suffix;
+  });
+}
+
 export class CertFactory {
   private caState: LoadedCaState | null = null;
   private certCache = new Map<string, TLSCredentials>();
@@ -536,20 +566,32 @@ export class CertFactory {
    * distribution point is the one this install serves, since that URL is baked
    * into the CA and Windows Schannel rejects leaves whose CRL it cannot fetch.
    */
-  ensureCA(): 'reused' | 'generated' {
+  ensureCA(): EnsureCaResult {
+    const reason = this.caProblem();
+    if (reason === null) return { outcome: 'reused' };
+    this.caState = null;
+    // Keep what is being replaced (#692): the pair a replacement overwrote was
+    // the only evidence of why it happened.
+    const keptAs = keepReplaced([caCertPath(), caKeyPath()]);
+    this.generateCA();
+    return keptAs.length ? { outcome: 'generated', reason, keptAs } : { outcome: 'generated', reason };
+  }
+
+  /** The first check the CA on disk fails, or null when it is usable. */
+  private caProblem(): CaReplaceReason | null {
+    if (!fs.existsSync(caCertPath()) || !fs.existsSync(caKeyPath())) return 'missing';
+    let ca: LoadedCaState;
     try {
       this.loadCA();
-      const ca = this.caState!;
-      const cdp = ca.extensions.get('2.5.29.31');
-      const usable = ca.x509.checkPrivateKey(ca.key)
-        && ca.x509.validToDate.getTime() > Date.now()
-        && cdp !== undefined
-        && cdp.equals(cdpSequence(this.crlUrl));
-      if (usable) return 'reused';
-    } catch { /* missing or unreadable: make a new one */ }
-    this.caState = null;
-    this.generateCA();
-    return 'generated';
+      ca = this.caState!;
+    } catch {
+      return 'unreadable';
+    }
+    if (!ca.x509.checkPrivateKey(ca.key)) return 'key-mismatch';
+    if (ca.x509.validToDate.getTime() <= Date.now()) return 'expired';
+    const cdp = ca.extensions.get('2.5.29.31');
+    if (cdp === undefined || !cdp.equals(cdpSequence(this.crlUrl))) return 'crl-url';
+    return null;
   }
 
   generateCA(): TLSCredentials {

@@ -73,6 +73,17 @@ describe('Gateway & Dashboard Modules Live Session', { timeout: 30000 }, () => {
         // An OpenAI-style stream, with the usage chunk only when asked for (#421).
         let streamed: { stream?: boolean; stream_options?: { include_usage?: boolean } } = {}
         try { streamed = JSON.parse(body) } catch { /* not JSON */ }
+        if (body.includes('TRUSTED_READ_CASE')) {
+          // An Anthropic stream whose Read call carries its path in input_json_delta fragments.
+          const event = (data: unknown) => `event: ${(data as { type: string }).type}\ndata: ${JSON.stringify(data)}\n\n`
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(event({ type: 'message_start', message: { id: 'gw-read-msg', type: 'message', role: 'assistant', content: [] } }))
+          res.write(event({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_gw_trusted_read', name: 'Read', input: {} } }))
+          res.write(event({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"file_path":"/home/dev/projects/llm-fw/docs/' } }))
+          res.write(event({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: 'guides/detection-stages.md"}' } }))
+          res.end(event({ type: 'message_stop' }))
+          return
+        }
         if ((req.url ?? '').endsWith('/chat/completions') && streamed.stream === true) {
           const chunk = (choices: unknown[], usage: unknown) => `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'test', choices, usage })}\n\n`
           res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -141,6 +152,34 @@ describe('Gateway & Dashboard Modules Live Session', { timeout: 30000 }, () => {
     delete process.env.LLM_FW_DIR
     fs.rmSync(tempDir, { recursive: true, force: true })
   })
+
+  // A thread continuation carries a tool result without its call; the
+  // gateway learns the call from the response that made it, as the proxy does.
+  it('trusts a thread continuation\'s read from a trusted root by the call in the previous response', async () => {
+    const saved = config.detection.surfaces
+    config.detection.surfaces = { ...saved, tool_result: { ...saved?.tool_result, trustedPaths: ['/home/dev/projects'], onBlock: 'withhold' } }
+    const guide = fs.readFileSync(new URL('../../docs/guides/detection-stages.md', import.meta.url), 'utf8')
+    try {
+      // Named by slug: a bare /v1/messages routes to the built-in Anthropic provider.
+      const send = (payload: unknown) => reqHttp(GATEWAY_PORT, 'POST', '/testprovider/v1/messages', JSON.stringify(payload), { 'x-llm-fw-key': TOKEN })
+      const first = await send({ model: 'claude-test', stream: true, thread: { type: 'create' },
+        messages: [{ role: 'user', content: 'TRUSTED_READ_CASE read the detection guide' }] })
+      expect(first.status).toBe(200)
+
+      const continued = (id: string) => send({ model: 'claude-test', stream: true,
+        thread: { type: 'continue', previous_message_id: 'gw-read-msg' },
+        messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: guide }] }] })
+      const forwarded = () => JSON.parse(calls.at(-1)!.body).messages[0].content[0].content
+
+      // The same text answering a call no response made is withheld.
+      expect((await continued('toolu_gw_never_called')).status).toBe(200)
+      expect(forwarded()).not.toBe(guide)
+      expect((await continued('toolu_gw_trusted_read')).status).toBe(200)
+      expect(forwarded()).toBe(guide)
+    } finally {
+      config.detection.surfaces = saved
+    }
+  }, 120_000)
 
   it('prunes multiline JSON and unnecessary whitespace while strictly preserving code indentation', async () => {
     calls = []
