@@ -659,6 +659,25 @@ const REMOTE_URL_RE = /https?:\/\/(?!(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?
 const JS_EXPORT_AFTER_RE = /^[ \t]+(?:default[ \t]+)?(?:async[ \t]+)?(?:function|const|let|var|class|interface|type|enum|abstract|declare|namespace)\b|^[ \t]*[{*]/
 const isExportKeyword = (after: string): boolean => SHELL_EXPORT_AFTER_RE.test(after) || JS_EXPORT_AFTER_RE.test(after)
 
+// A contact clause that goes on to dictate the message is an order to send one,
+// not a way to reach someone: "send an email to X with the body confirmation",
+// "email X, body: confirmation". LLMail-Inject's attackers wrote it this way
+// because a support address in a footer is waved through, and it names no data
+// for CONTACT_DATA_RE to find. Only the body or message counts: a subject is
+// how mailing lists and support desks route mail ("with the subject Refund"),
+// "message ID" and "body of the error" ask for something the reader already
+// has, and a list command ("with subscribe in the body") is a footer.
+const DICTATED_MESSAGE_RE = new RegExp(
+  '^[^.!?\\n]{0,40}?\\b(?:with|containing|including|and)\\s+(?:(?:the|a|an|this|following|exact|text|as)\\s+){0,3}(?:body|message)\\b(?!\\s+(?:of|ids?|numbers?|headers?)\\b)' +
+  '|^[^.!?\\n]{0,40}?\\b(?:saying|that\\s+(?:says|reads))\\b' +
+  '|^[\\s\\S]{0,60}?\\b(?:body|message)\\s*(?:[:=]|\\bshould\\s+be\\b|\\bis\\b\\s*["\'`])',
+  'i',
+)
+const LIST_COMMAND_RE = /^[\s\S]{0,60}?\b(?:un)?subscribe\b|^[\s\S]{0,60}?["'`](?:help|join|leave|remove|signoff)["'`]/i
+function dictatesMessage(after: string): boolean {
+  return DICTATED_MESSAGE_RE.test(after) && !LIST_COMMAND_RE.test(after)
+}
+
 function blankContactClauses(text: string): string {
   return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
     const start = offset + lead.length
@@ -668,6 +687,7 @@ function blankContactClauses(text: string): string {
     const sentenceEnd = tailMatch ? end + tailMatch.index : text.length
     const around = text.slice(sentenceStart, start) + ' ' + text.slice(end, sentenceEnd)
     if (CONTACT_DATA_RE.test(around)) return match
+    if (dictatesMessage(text.slice(end, end + 120))) return match
     return lead + ' '.repeat(match.length - lead.length)
   })
 }
