@@ -412,7 +412,10 @@ def calculate(x):
           let buffer = ''
           res.on('data', (c) => {
             buffer += String(c)
-            if (buffer.includes('event: module')) {
+            // Wait for the pruner's own event: the replay arrives in chunks,
+            // and another module's event (the deduplicator's, #708) can come
+            // first in a chunk of its own on a slower runner.
+            if (buffer.includes('event: module') && buffer.includes('token-pruner')) {
               request.destroy()
               resolve(buffer)
             }
