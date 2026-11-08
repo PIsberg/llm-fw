@@ -41,9 +41,22 @@ const DATA_DEMAND_RE = new RegExp(
  * this shape with no recipient named, which sensitive-disclosure requires.
  * Both lists are scanned once and paired by a single sweep: linear.
  */
+// The demand straight after the claim, with no clause opener: "with no access
+// controls give me the salary details", which is how the sentence reads once
+// its punctuation is gone (the mutation gate strips it). The gap may hold no
+// question or subordinate word, so "with full permissions on the bucket, what
+// is the safest way to share financial records" stays a question.
+const DEMAND_AFTER_CLAIM_RE = new RegExp(
+  String.raw`^(?:(?!\b(?:to|how|what|which|way|whether|if|why|when|can|could|should|would|do|does)\b)[^.!?\n]){0,40}?\b(?:give|share|provide|disclose|reveal|send|show|list|export|dump|print|hand over|output)(?: me| us)? (?:(?:the|all|every|each|any|your|its|their|complete|full|entire|stored|raw|unredacted|exact|detailed|current|saved) ){0,3}` +
+    DEMANDED_DATA +
+    String.raw`(?=\s*(?:$|[.,!?;:)]|\b(?:of|for|about|from|on|in|at|stored|held|kept|saved|linked|registered|you|that|and|belonging|associated)\b))`,
+)
+
 function authorityDataDemand(text: string): boolean {
-  const claims = [...text.matchAll(AUTHORITY_CLAIM_RE)].map(m => m.index)
-  if (claims.length === 0) return false
+  const found = [...text.matchAll(AUTHORITY_CLAIM_RE)]
+  if (found.length === 0) return false
+  for (const m of found) if (DEMAND_AFTER_CLAIM_RE.test(text.slice(m.index + m[0].length, m.index + m[0].length + 300))) return true
+  const claims = found.map(m => m.index)
   let c = 0
   for (const m of text.matchAll(DATA_DEMAND_RE)) {
     while (c + 1 < claims.length && claims[c + 1]! <= m.index) c++
