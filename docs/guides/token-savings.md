@@ -418,6 +418,15 @@ by its tool call id (or `#n`, its position, when the format carries no id).
 The first copy always stays, and which copy is kept depends only on what came
 before it, so a growing conversation is rewritten the same way on every turn.
 
+Detection runs after the modules, so it can withhold the first copy a pointer
+names, and the model then reads only the withhold notice there. When that
+happens, every pointer to the withheld copy gets its text back and the request
+is scanned again, so each copy is judged on its own surface and path: a `Read`
+from a `trustedPaths` root passes where the same text through a shell command
+was withheld, and a second untrusted copy is withheld too. A withheld copy is
+also dropped from what a thread continuation remembers. A copy named by
+position (`#n`) cannot be found again and stays a pointer.
+
 A client that keeps the conversation on the server and sends only the new
 messages (`thread` with `type: "continue"` and `previous_message_id`, or the
 Responses API's `previous_response_id`) gets the same pointers across turns:

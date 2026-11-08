@@ -1081,22 +1081,26 @@ export class ProxyServer {
       try {
         // inspect(): a blocked tool result is withheld from the body rather
         // than refusing the request (detection.surfaces.tool_result.onBlock).
-        const inspected = await this.pipeline.inspect(
-          innerReq.url ?? '/',
-          body,
-          {
-            target: hostname,
-            method: innerReq.method ?? 'GET',
-            path: innerReq.url ?? '/',
-            sandboxClient: sb.client,
-            isSandboxed: sb.sandboxed,
-            sandboxConfidence: sb.confidence,
-            sessionKey,
-            // Quote the exact event this scan stored, so a blocked client can be
-            // traced to one dashboard record instead of "whatever was last".
-            onEvent: (e) => { scanEventId = e.id },
-          }
-        )
+        const inspectMeta = {
+          target: hostname,
+          method: innerReq.method ?? 'GET',
+          path: innerReq.url ?? '/',
+          sandboxClient: sb.client,
+          isSandboxed: sb.sandboxed,
+          sandboxConfidence: sb.confidence,
+          sessionKey,
+          // Quote the exact event this scan stored, so a blocked client can be
+          // traced to one dashboard record instead of "whatever was last".
+          onEvent: (e: { id: string }) => { scanEventId = e.id },
+        }
+        let inspected = await this.pipeline.inspect(innerReq.url ?? '/', body, inspectMeta)
+        // A module's reference to a tool result detection just withheld leads
+        // the model to a notice: restore it and scan again, so the copy is
+        // judged on its own surface and path (#708).
+        if (inspected.withheld > 0 && moduleCtx && !moduleCtx.dryRun) {
+          const restored = this.modules.restoreWithheld(inspected.body, moduleCtx)
+          if (restored !== undefined) inspected = { ...(await this.pipeline.inspect(innerReq.url ?? '/', restored, inspectMeta)), withheld: inspected.withheld }
+        }
         result = inspected.result
         if (inspected.withheld > 0) {
           body = inspected.body

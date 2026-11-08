@@ -102,6 +102,15 @@ export interface GatewayModule {
    */
   respond?(requestBody: string, ctx: GatewayModuleContext): ModuleResponse | undefined;
 
+  /**
+   * Called after detection withheld a tool result from the request, with the
+   * body detection returned. A module that rewrote a part of the request into
+   * a reference to that withheld text undoes it here, so the reference does
+   * not lead the model to a notice. Returns the body to scan again, or
+   * undefined when there is nothing to restore (#708).
+   */
+  restoreWithheld?(body: string, ctx: GatewayModuleContext): string | undefined;
+
   /** Return live statistics for dashboard telemetry. */
   getStats(): ModuleStats;
 

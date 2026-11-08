@@ -94,6 +94,11 @@ Rules that must not regress:
   `detection.surfaces.prompt.olderTurns: 'withhold'` (the default, #476); the
   newest message still refuses. Withholding must never change the newest
   message: if it would, refuse. Pinned by the same unit file and Case 4a3.
+- Modules run before detection, so a module's reference to a tool result
+  (the deduplicator's pointer) can name one detection then withholds. After a
+  withhold, both surfaces call `ModuleManager.restoreWithheld` and scan the
+  body again when it returns one (#708). Pinned by Case 12c in
+  `test/proxy/proxy.e2e.test.ts` and `test/gateway/gateway-modules.e2e.test.ts`.
 
 - The hosts-file sinkhole marker is machine-wide. An instance with its own
   `LLM_FW_DIR` (a dev run, a test server, a scratch Playwright run) owns the
