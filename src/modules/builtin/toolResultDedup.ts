@@ -5,6 +5,7 @@ import type { CapturedResponse } from '../responseTap.js'
 import { SlotModule, type PayloadOutcome } from '../base.js'
 import type { SlotKind, TextSlot } from '../payload.js'
 import { responseEvents } from '../usage.js'
+import { isWithholdNotice } from '../../detection/withhold.js'
 
 const REMINDER_OPEN = '<system-reminder>'
 const REMINDER_CLOSE = '</system-reminder>'
@@ -106,6 +107,10 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
   // rarely matches what this module produced. A request whose response is
   // never observed leaves nothing behind.
   private readonly pending = new WeakMap<GatewayModuleContext, ThreadState>()
+  // The pointers written in a request, each with the copy it names and the
+  // text it replaced, until detection has run (#708).
+  private written: Map<string, { id: string; text: string }> = new Map()
+  private readonly pointers = new WeakMap<GatewayModuleContext, Map<string, { id: string; text: string }>>()
 
   constructor(config?: ToolResultDedupConfig) {
     super(config ?? { enabled: false, minLength: 200 })
@@ -117,8 +122,10 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     this.seen = new Map(parent?.seen)
     this.reminders = new Set(parent?.reminders)
     this.ordinal = parent ? parent.ordinal : 0
+    this.written = new Map()
 
     const outcome = super.apply(payload, ctx, estimates)
+    if (this.written.size > 0) this.pointers.set(ctx, this.written)
 
     const isThread = parentId !== undefined || (isObj(payload.thread) && payload.thread.type === 'create')
     if (isThread || payload.store === true || Array.isArray(payload.input)) {
@@ -141,6 +148,52 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     if (this.threads.size > MAX_THREADS) this.threads.delete(this.threads.keys().next().value!)
   }
 
+  /**
+   * Detection runs after this module and may withhold the copy a pointer
+   * names; the model then sees a notice there and the pointer leads nowhere.
+   * Every pointer to a withheld copy gets its text back, for the caller to
+   * scan on its own surface: a Read from a trusted root passes where the
+   * same text through a shell was withheld (#708). The withheld copies also
+   * leave the state a thread continuation inherits, so a later turn does not
+   * point at them. Copies named by position (`#3`, no tool call id) cannot be
+   * found in the body and stay pointers.
+   */
+  restoreWithheld(body: string, ctx: GatewayModuleContext): string | undefined {
+    if (!ctx.parser) return undefined
+    const withheld = new Set<string>()
+    for (const tr of ctx.parser.extractToolResults(body)) {
+      if (tr.result.split('\n').every(line => isWithholdNotice(line))) withheld.add(tr.toolUseId)
+    }
+    if (withheld.size === 0) return undefined
+    const snap = this.pending.get(ctx)
+    if (snap) for (const [key, id] of snap.seen) if (withheld.has(id)) snap.seen.delete(key)
+    const written = this.pointers.get(ctx)
+    if (!written) return undefined
+    const restore = new Map<string, string>()
+    for (const [pointer, { id, text }] of written) if (withheld.has(id)) restore.set(pointer, text)
+    if (restore.size === 0) return undefined
+    let data: unknown
+    try { data = JSON.parse(body) } catch { return undefined }
+    let changed = false
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) {
+        for (let i = 0; i < v.length; i++) {
+          const text = typeof v[i] === 'string' ? restore.get(v[i] as string) : undefined
+          if (text !== undefined) { v[i] = text; changed = true } else walk(v[i])
+        }
+      } else if (isObj(v)) {
+        for (const [k, child] of Object.entries(v)) {
+          const text = typeof child === 'string' ? restore.get(child) : undefined
+          if (text !== undefined) { v[k] = text; changed = true } else walk(child)
+        }
+      }
+    }
+    walk(data)
+    if (!changed) return undefined
+    this.pointers.delete(ctx)
+    return JSON.stringify(data)
+  }
+
   protected rewrite(text: string, slot: TextSlot): string {
     const cleaned = dedupReminders(text, this.reminders, slot.kind === 'prompt' && slot.role === 'user')
     if (slot.kind !== 'tool_result') return cleaned
@@ -148,7 +201,11 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     if (cleaned.length < this.cfg.minLength) return cleaned
     const key = digest(cleaned)
     const first = this.seen.get(key)
-    if (first !== undefined) return `[llm-fw: identical to the earlier tool result ${first}]`
+    if (first !== undefined) {
+      const pointer = `[llm-fw: identical to the earlier tool result ${first}]`
+      this.written.set(pointer, { id: first, text: cleaned })
+      return pointer
+    }
     this.seen.set(key, slot.toolCallId ?? `#${this.ordinal}`)
     if (this.seen.size > MAX_HASHES_PER_THREAD) this.seen.delete(this.seen.keys().next().value!)
     return cleaned

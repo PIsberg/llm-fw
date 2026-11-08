@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { ToolResultDedupModule } from '../../src/modules/builtin/toolResultDedup.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
+import { getParser } from '../../src/detection/parsers.js'
+import { withholdNotice } from '../../src/detection/withhold.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
 const file = 'export const x = 1\n'.repeat(40)
@@ -206,5 +208,65 @@ describe('ToolResultDedupModule', () => {
       messages: [userResult('t2', file)],
     }), { ...ctx }) as { body: string; modified: boolean }
     expect(res.modified).toBe(false)
+  })
+})
+
+// #708: dedup runs before detection, so it can point a later copy at one that
+// detection then withholds. The model saw only the notice there, and the
+// later copy, which may pass on its own surface (a Read from a trusted root
+// after the same text came back through a shell), was lost a second time.
+describe('ToolResultDedupModule after detection withheld a tool result (#708)', () => {
+  const anthropic: GatewayModuleContext = { ...ctx, parser: getParser('/v1/messages') }
+  const notice = withholdNotice('tool_result', 'indirect-instruction')
+  // What detection does to the body it is given: the flagged copy becomes the notice.
+  const withhold = (body: string, id: string): string => {
+    const data = JSON.parse(body)
+    for (const m of data.messages) for (const b of Array.isArray(m.content) ? m.content : []) if (b.tool_use_id === id) b.content = notice
+    return JSON.stringify(data)
+  }
+
+  it('restores a pointer whose earlier copy was withheld', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c: GatewayModuleContext = { ...anthropic }
+    const out = (mod.transformRequest(JSON.stringify({ messages: [assistantCall('t1'), userResult('t1', file), assistantCall('t2'), userResult('t2', file)] }), c) as { body: string }).body
+    expect(JSON.parse(out).messages[3].content[0].content).toBe('[llm-fw: identical to the earlier tool result t1]')
+    const restored = mod.restoreWithheld(withhold(out, 't1'), c)
+    expect(restored).toBeDefined()
+    const msgs = JSON.parse(restored!).messages
+    expect(msgs[1].content[0].content).toBe(notice)
+    expect(msgs[3].content[0].content).toBe(file)
+  })
+
+  it('leaves a pointer alone when its earlier copy was not withheld', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c: GatewayModuleContext = { ...anthropic }
+    const other = 'other line\n'.repeat(40)
+    const out = (mod.transformRequest(JSON.stringify({ messages: [
+      assistantCall('t1'), userResult('t1', file), assistantCall('t2'), userResult('t2', file),
+      assistantCall('t3'), userResult('t3', other),
+    ] }), c) as { body: string }).body
+    expect(mod.restoreWithheld(withhold(out, 't3'), c)).toBeUndefined()
+    expect(mod.restoreWithheld(out, c)).toBeUndefined()
+  })
+
+  it('answers only for the request it rewrote', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c: GatewayModuleContext = { ...anthropic }
+    const out = (mod.transformRequest(JSON.stringify({ messages: [assistantCall('t1'), userResult('t1', file), assistantCall('t2'), userResult('t2', file)] }), c) as { body: string }).body
+    expect(mod.restoreWithheld(withhold(out, 't1'), { ...anthropic })).toBeUndefined()
+  })
+
+  it('does not point a thread continuation at a copy that was withheld', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c1: GatewayModuleContext = { ...anthropic }
+    const out = (mod.transformRequest(JSON.stringify({ thread: { type: 'create' }, messages: [assistantCall('t1'), userResult('t1', file)] }), c1) as { body: string }).body
+    mod.restoreWithheld(withhold(out, 't1'), c1)
+    mod.observeResponse('{}', c1, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from(JSON.stringify({ id: 'msg_w', type: 'message', content: [] })),
+    })
+    const res2 = mod.transformRequest(JSON.stringify({ thread: { type: 'continue', previous_message_id: 'msg_w' }, messages: [userResult('t2', file)] }), { ...anthropic }) as { body: string; modified: boolean }
+    expect(res2.modified).toBe(false)
   })
 })

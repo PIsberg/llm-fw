@@ -622,16 +622,23 @@ export class GatewayServer {
       // Code's own reminders, markup tags and notices were scored as typed text,
       // and its attribution reminder blocked at 99.7% (found live).
       const sb = this.sandbox.detect(req.headers['user-agent'], req.socket.remoteAddress);
-      const inspected = await this.pipeline.inspect(path, text, {
+      const inspectMeta = {
         target, method, path, sessionKey,
         sandboxClient: sb.client, isSandboxed: sb.sandboxed, sandboxConfidence: sb.confidence,
-        onEvent: e => { eventId = e.id; },
+        onEvent: (e: { id: string }) => { eventId = e.id; },
         // Per-tenant enforcement: one team can run in observation while the rest
         // of the deployment enforces — how a team gets onboarded without either
         // eating day-one false positives or the firewall being turned down for
         // everyone. Also stamps tenant attribution onto every event this emits.
         ...(tenant ? { enforcement: tenant.enforcement, tenant: tenant.id } : {}),
-      });
+      };
+      let inspected = await this.pipeline.inspect(path, text, inspectMeta);
+      // A module's reference to a tool result detection just withheld leads
+      // the model to a notice: restore it and scan again (#708), as the proxy does.
+      if (inspected.withheld > 0 && moduleCtx && !moduleCtx.dryRun) {
+        const restored = this.modules.restoreWithheld(inspected.body, moduleCtx);
+        if (restored !== undefined) inspected = { ...(await this.pipeline.inspect(path, restored, inspectMeta)), withheld: inspected.withheld };
+      }
       result = inspected.result;
       if (inspected.withheld > 0) {
         text = inspected.body;

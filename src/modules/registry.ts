@@ -241,6 +241,27 @@ export class ModuleManager {
     }
   }
 
+  /**
+   * The body with what enabled modules restored after detection withheld a
+   * tool result, or undefined when none restored anything; the caller scans
+   * a returned body again. A module that throws is logged and skipped, which
+   * leaves its rewrite as it was.
+   */
+  restoreWithheld(body: string, ctx: GatewayModuleContext): string | undefined {
+    let current = body
+    let changed = false
+    for (const mod of this.modules.values()) {
+      if (!mod.enabled || !mod.restoreWithheld) continue
+      try {
+        const next = mod.restoreWithheld(current, ctx)
+        if (next !== undefined) { current = next; changed = true }
+      } catch (err) {
+        log.error('module failed to restore a withheld reference; left as it was', { module: mod.id, err })
+      }
+    }
+    return changed ? current : undefined
+  }
+
   register(module: GatewayModule): void {
     this.modules.set(module.id, module)
   }
