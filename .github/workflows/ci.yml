@@ -84,9 +84,14 @@ jobs:
       # the real lean-ctx and skips where none is installed. Pinned by version
       # and by the SHA-256 in that release's SHA256SUMS (checked 2026-10-17):
       # 3.11.0 is the version docs/guides/token-savings.md was measured with.
+      # Fetched through the REST asset endpoint (gh release download), not
+      # github.com/.../releases/download: that route answered 504 for every
+      # release on 2026-11-08 while the API served the same file.
       - name: Install lean-ctx 3.11.0
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/lean-ctx.tar.gz" https://github.com/yvgude/lean-ctx/releases/download/v3.11.0/lean-ctx-x86_64-unknown-linux-gnu.tar.gz
+          gh release download v3.11.0 --repo yvgude/lean-ctx --pattern lean-ctx-x86_64-unknown-linux-gnu.tar.gz --output "$RUNNER_TEMP/lean-ctx.tar.gz"
           echo "32004ef3e8bea38e8f9b6effcb34ace3243c35a520d39cfc7ebbfce322790c0d  $RUNNER_TEMP/lean-ctx.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/lean-ctx"
           tar -xzf "$RUNNER_TEMP/lean-ctx.tar.gz" -C "$RUNNER_TEMP/lean-ctx"
