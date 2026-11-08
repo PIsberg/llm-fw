@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.41
+
+**Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.40 moved 0 of 13,875 rows. A mailer log line no longer reads as an order to send: in `INFO sending email to user@...`, `Error while sending email to ops@...`, `[mailer] sending email to ...` and `Job 42 sent email to ...`, "email" is the thing sent. The veto is scoped: past tense and "resending" count anywhere, "sending" only after a log level, "while", or a bracket, colon or pipe. Vetoing every "sending" was measured and rejected, because injected text says "I'm sending email to x@..." and "by sending email to x@..." and means the order: it lost 6 `api_triggered` and 2 `judge-attack` tune rows that nothing else catches. The scoped veto loses none on tune and 1 of 1,500 `api_triggered` held-out rows at the detector (held-out block rate 83.9%, as before). Log shapes still firing ("Failed to send email to", "Queued email for delivery to", "Forwarding email to") are tracked in #722.
+
 ## Result, ruleset 2026.11.40
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.39 moved 0 of 13,875 rows, max similarity drift 0. The indirect-instruction detector now spells a hidden address the plain way before any rule reads it: `x[at]y[dot]com`, `(at)`/`(dot)`, all-caps `AT`/`DOT`, a comma before the TLD (`x@y,com`), and a lowercase `at` only inside a recipient field (`"receiver": x at y.com`). Normalizing every lowercase `at` was measured and rejected: it turned "I work at acme.com and you can email me" into an address, 4 new false positives in 14 hand-written contact lines. LLMail-Inject's benign emails stay at 1 of 103 (tune) and 1 of 100 (held-out), the same rows as before. On the held-out attacks the cheap preset blocks 83.9% of `api_triggered` (from 82.8%) and 83.1% of `judge-attack` (from 82.5%).
