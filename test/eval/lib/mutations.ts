@@ -92,6 +92,13 @@ export interface ResilienceCount { kept: number; total: number }
  * themselves), policy JSON with its colons stripped, a persona line at the
  * encoder's line.
  *
+ * Re-measured on ruleset 2026.11.43, 92 seeds (80 without the encoded ones) after
+ * six corpus attacks for authority claims, policy overrides and a freed persona:
+ * every rewording blocked all of them, but synonyms at 90 (the same two as
+ * before). The first draft of the authority rule needed a comma or full stop
+ * before the demand and kept 3 of the 6 under no-punctuation; the demand
+ * straight after the claim now counts too.
+ *
  * Re-measured on ruleset 2026.11.24, 86 seeds (74 without the encoded ones) after
  * #652 added two encoded corpus attacks: every rewording blocked all of them, but
  * synonyms at 84.
@@ -117,15 +124,15 @@ export interface ResilienceCount { kept: number; total: number }
  * and value are only separated by a space), every mutation 100%.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 73, total: 74 },
-  leetspeak: { kept: 73, total: 74 },
-  'zero-width': { kept: 73, total: 74 },
-  casing: { kept: 73, total: 74 },
-  'markdown-fence': { kept: 85, total: 86 },
-  blockquote: { kept: 85, total: 86 },
-  'polite-prefix': { kept: 85, total: 86 },
-  synonyms: { kept: 83, total: 86 },
-  'no-punctuation': { kept: 73, total: 74 },
+  homoglyph: { kept: 79, total: 80 },
+  leetspeak: { kept: 79, total: 80 },
+  'zero-width': { kept: 79, total: 80 },
+  casing: { kept: 79, total: 80 },
+  'markdown-fence': { kept: 91, total: 92 },
+  blockquote: { kept: 91, total: 92 },
+  'polite-prefix': { kept: 91, total: 92 },
+  synonyms: { kept: 89, total: 92 },
+  'no-punctuation': { kept: 79, total: 80 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {

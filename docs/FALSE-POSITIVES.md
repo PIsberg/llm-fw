@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.43
+
+**2.53% overall (9 of 356): the same 7 of the 336 earlier rows, plus 2 of the 20 new ones. On the ruleset before, the same 356 rows block 10. Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.42: 0 of 28,886 block verdicts moved on the rows both runs share (the 20 new rows excluded); two `multilingual-injections` attacks now block on the heuristic before the encoder runs, rather than on the encoder. The realistic corpus gains two 10-row classes, written before the rules they measure: `authority-data-request` (an admin or account owner describing their own access, then asking for something ordinary) and `guardrail-talk` (safety filters, guardrails and rules named in everyday text). On the ruleset before this one `guardrail-talk` blocked 3 of 10, all on the heuristic: a how-to question about a product's safety filter, a negated "never bypass your safety guidelines", and "forget the rules your manager set". The heuristic now passes all three; the embedding stage still blocks the last two by itself, so the class is gated at 2 until stage 2 is looked at (#728). Held-out direct-injection recall is unchanged: safeguard 497 of 650 (477 of 628 unseen), and every other split the same.
+
 ## Result, ruleset 2026.11.42
 
 **Unchanged: 2.08% overall (7 of 336), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.41 moved 0 of 28,886 rows (the full Dolly-15k included). A "by sending" line whose purpose is a list or contact action ("You can unsubscribe at any time by sending an email to ...", "Apply by sending your CV to ...", "Report bugs by sending mail to ...") and "send your CV or resume to ..." now read as contact instructions, not as orders to send data (#724). None of these shapes occur in the eval corpora, so the rate does not move; the cases live in the detector tests.
