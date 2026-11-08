@@ -453,7 +453,9 @@ const DIRECTIVE_RE = new RegExp(
 // address characters and rescanned to its end each time: 200 KB of base64url
 // took 4.6 s and grew quadratically, on the event loop (GHSA-gm3q-2gwx-gppq).
 const EMAIL_RE = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
-const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!['"`]?\s*:)/gi
+// Not a label: "Email: x@...", "'email': ...", and in markdown "**Email**: x@..."
+// (a SECURITY.md reporting step, #620).
+const EXFIL_VERB_RE = /\b(send|forward|e-?mail|share|disclose|reveal|leak|transfer|wire|upload|export|deliver|deposit)\b(?!(?:['"`]|\*{1,2})?\s*:)/gi
 
 // A verb word that is the last segment of a dotted config key, with an email
 // address as the value assigned to that key, names a setting, not an action:
@@ -489,13 +491,31 @@ function keyAssignedAddress(text: string, start: number, end: number): number {
 const EMAIL_NOUN_BEFORE_RE = /(?:['’]s|s['’]|\b(?:a|an|the|your|my|our|their|his|her|its|this|that|valid|primary|work|contact|billing|support|customer|user|buyer)|(?:\b(?:sent|resent|resending)|(?:[\]:>|][ \t]*|\b(?:info|debug|warn(?:ing)?|error|trace|fatal|while)\s+)sending)(?:\s+(?!(?:then|and|or)\b)[a-z]+){0,2})\s+$/i
 const EMAIL_NOUN_AFTER_RE = /^\s+(?:address(?:es)?|domains?|fields?|headers?|lists?|accounts?|templates?|settings?|verification|notifications?|format|validation|scope|provider|client|server|signature|is|was|equals|matches)\b/i
 const EMAIL_PROP_AFTER_RE = /^(?:[})\],;:'"`]|\s*(?:[=!<>]=|[=:?]|(?:is|was|equals|matches)\b))/i
+// "email" in a position no order puts it (#620, replaying 59,867 real tool
+// results): a code identifier (`String email,`, `notify(email)`,
+// `if (email != null)`, `{ name, email }`, the key literal `"email="`), a
+// table cell that is only the word (`| Email |`),
+// or a noun after "by", "via" or "per" ("quoted by email"). Each still fires
+// when what follows names something to send ("(email) the saved passwords to
+// x@..."): the object window, addresses removed, must hold no data. The
+// windows are bounded, so this stays linear.
+const EMAIL_IDENT_BEFORE_RE = /(?:[([{,][ \t]*|\b(?:String|string|str|CharSequence|final|var|let|const|val)[ \t]+)$/
+const EMAIL_IDENT_AFTER_RE = /^[ \t]*(?:[)\]},;=]|!=|\.[A-Za-z_$])/
+const WINDOW_ADDRESS_RE = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}/g
+function isEmailPlacement(text: string, end: number, before: string, after: string): boolean {
+  const placed = (EMAIL_IDENT_BEFORE_RE.test(before) && EMAIL_IDENT_AFTER_RE.test(after)) ||
+    (/['"`]$/.test(before) && /^=['"`]/.test(after)) ||
+    (/\|[ \t]*$/.test(before) && /^[ \t]*\|/.test(after)) ||
+    /\b(?:by|via|per)[ \t]+$/i.test(before)
+  return placed && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end).replace(WINDOW_ADDRESS_RE, ' '))
+}
 function isEmailNoun(text: string, start: number, end: number): boolean {
   if (!/^e-?mail$/i.test(text.slice(start, end))) return false
   const before = text.slice(Math.max(0, start - 24), start)
   const after = text.slice(end, end + 24)
   if (/['"`]$/.test(before) && /^['"`]/.test(after)) return true
   if (isMethodCall(text, start) && EMAIL_PROP_AFTER_RE.test(after)) return true
-  return EMAIL_NOUN_BEFORE_RE.test(before) || EMAIL_NOUN_AFTER_RE.test(after)
+  return EMAIL_NOUN_BEFORE_RE.test(before) || EMAIL_NOUN_AFTER_RE.test(after) || isEmailPlacement(text, end, before, after)
 }
 
 /** True when the key at [start, end) of `text` is set to `address` (case-insensitive). */
@@ -587,7 +607,10 @@ const CONTACT_CLAUSE_RE = new RegExp(
   '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
   '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +
   `|(?:send|submit|e-?mail)\\s+(?:us\\s+)?${JOB_DOCUMENT}\\s+to` +
-  ')\\s+[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b',
+  // The address as itself or as a markdown mail link that shows it,
+  // `[x@acme.io](mailto:x@acme.io)`: a SECURITY.md reporting step (#620).
+  ')\\s+(?:\\[[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\]\\(mailto:[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}(?:\\?[^\\s()]{0,200})?\\)' +
+  '|[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b)',
   'gi',
 )
 
@@ -1271,7 +1294,10 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // Nor a CLI placeholder: a usage line's "--out <dir>" paired the Somali send
   // verb "dir" with an address in the same file (#620).
   const inPath = (i: number, len: number): boolean => /[\\/_]/.test(hay[i - 1] ?? '') || /[\\/_]/.test(hay[i + len] ?? '') ||
-    (hay[i - 1] === '.' && hay[i + len] === '.') || (hay[i - 1] === '<' && hay[i + len] === '>')
+    (hay[i - 1] === '.' && hay[i + len] === '.') || (hay[i - 1] === '<' && hay[i + len] === '>') ||
+    // Nor the last word of a CLI long option: `'--claude-dir'` paired "dir"
+    // with an address further on (#620). Two dashes open it; "-dir" counts.
+    (hay[i - 1] === '-' && /(?:^|[^\w-])--[a-z0-9]+(?:-[a-z0-9]+)*-$/.test(hay.slice(Math.max(0, i - 41), i)))
   for (const v of ML_VERBS) {
     for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
   }
