@@ -172,6 +172,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.44 (#620: "email" as a code identifier, table label, bold label or noun after "by",
+  // a markdown mail link in a contact clause, and "dir" ending a CLI option no longer pair with an address;
+  // 0 of 28,906 verdicts moved; 9 of 356 benign rows, as before).
   // Measured at ruleset 2026.11.43 (authority claims beside a data demand, overrides aimed at the model's own
   // safety policy; two new 10-row classes, authority-data-request 0 and guardrail-talk 2; 0 of 28,886 shared verdicts moved; 9 of 356 benign rows, 7 of them the 336 rows' 7).
   // Held at ruleset 2026.11.42 (#724: a "by sending" list footer, job posting or bug-report line is a contact

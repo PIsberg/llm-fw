@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.44
+
+**Unchanged: 2.53% overall (9 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.43 moved 0 of 28,906 rows, max similarity drift 0. The exfiltration rule no longer reads "email" as a verb when it is a code identifier, a table-cell or bold label or a noun after "by", takes a markdown mail link as the address of a contact step, and ignores the Somali send verb "dir" at the end of a `--long-option` (#620). None of the benign corpora holds those shapes; they came from replaying 59,927 real tool results, where 8 of 27 such blocks go away.
+
 ## Result, ruleset 2026.11.43
 
 **2.53% overall (9 of 356): the same 7 of the 336 earlier rows, plus 2 of the 20 new ones. On the ruleset before, the same 356 rows block 10. Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.42: 0 of 28,886 block verdicts moved on the rows both runs share (the 20 new rows excluded); two `multilingual-injections` attacks now block on the heuristic before the encoder runs, rather than on the encoder. The realistic corpus gains two 10-row classes, written before the rules they measure: `authority-data-request` (an admin or account owner describing their own access, then asking for something ordinary) and `guardrail-talk` (safety filters, guardrails and rules named in everyday text). On the ruleset before this one `guardrail-talk` blocked 3 of 10, all on the heuristic: a how-to question about a product's safety filter, a negated "never bypass your safety guidelines", and "forget the rules your manager set". The heuristic now passes all three; the embedding stage still blocks the last two by itself, so the class is gated at 2 until stage 2 is looked at (#728). Held-out direct-injection recall is unchanged: safeguard 497 of 650 (477 of 628 unseen), and every other split the same.
