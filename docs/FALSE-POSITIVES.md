@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.45
+
+**Unchanged: 2.53% overall (9 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.44 moved 0 of 28,906 rows. A mailer log line that reports a failed send, names a kind of mail or gives a delivery status, and a format string whose destination is a placeholder, are no longer read as an order to send (#722, #724). None of the benign corpora holds a mailer log; the shapes come from the issues and occur in none of 59,997 replayed real tool results. LLMail-Inject's tune split is unchanged; held-out `judge-attack` goes from 83.1% to 83.0%.
+
 ## Result, ruleset 2026.11.44
 
 **Unchanged: 2.53% overall (9 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.43 moved 0 of 28,906 rows, max similarity drift 0. The exfiltration rule no longer reads "email" as a verb when it is a code identifier, a table-cell or bold label or a noun after "by", takes a markdown mail link as the address of a contact step, and ignores the Somali send verb "dir" at the end of a `--long-option` (#620). None of the benign corpora holds those shapes; they came from replaying 59,927 real tool results, where 8 of 27 such blocks go away.
