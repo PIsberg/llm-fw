@@ -10,6 +10,7 @@ test
 docs
 reports
 scripts
+!scripts/fetch-release-asset.mjs
 examples
 integrations
 coverage

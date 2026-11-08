@@ -72,11 +72,11 @@ FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054f
 ARG LEAN_CTX_VERSION=
 ARG LEAN_CTX_SHA256=
 ARG LEAN_CTX_TARGET=x86_64-unknown-linux-gnu
+COPY scripts/fetch-release-asset.mjs /tmp/fetch-release-asset.mjs
 RUN mkdir -p /opt/lean-ctx/bin /opt/lean-ctx/certs \
  && if [ -n "$LEAN_CTX_VERSION" ]; then \
       test -n "$LEAN_CTX_SHA256" || { echo "LEAN_CTX_SHA256 is required with LEAN_CTX_VERSION" >&2; exit 1; }; \
-      url="https://github.com/yvgude/lean-ctx/releases/download/v${LEAN_CTX_VERSION}/lean-ctx-${LEAN_CTX_TARGET}.tar.gz"; \
-      node -e "fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(r.status+' '+process.argv[1]);return r.arrayBuffer()}).then(b=>require('fs').writeFileSync('/tmp/lean-ctx.tar.gz',Buffer.from(b)))" "$url" \
+      node /tmp/fetch-release-asset.mjs yvgude/lean-ctx "v${LEAN_CTX_VERSION}" "lean-ctx-${LEAN_CTX_TARGET}.tar.gz" /tmp/lean-ctx.tar.gz \
       && echo "${LEAN_CTX_SHA256}  /tmp/lean-ctx.tar.gz" | sha256sum -c - \
       && tar -xzf /tmp/lean-ctx.tar.gz -C /opt/lean-ctx/bin \
       && rm /tmp/lean-ctx.tar.gz \
