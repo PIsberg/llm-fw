@@ -166,6 +166,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.42 (#724: a "by sending" list footer, job posting or bug-report line is a contact
+  // instruction; 0 of 28,886 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.41 (a mailer log line's "sending email to x@..." is no longer read as an order; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.40 (a hidden email address is spelled the plain way before the rules read it; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
   // Held at ruleset 2026.11.39 (a contact clause that dictates the message is no longer blanked as a footer; 0 of 13,875 verdicts moved; 7 of 336 benign rows, as before).
