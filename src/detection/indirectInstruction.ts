@@ -576,12 +576,37 @@ function isMailLinkLabel(text: string, verbStart: number, verbEnd: number, addrS
 // my records and send an email to X" still fire. A clause that passes both is
 // blanked before any rule runs, which also keeps the polite and multilingual
 // rules from re-matching "please email us at".
+// The reader's own CV, asked for by a job posting: nothing the agent holds (#724).
+// "and a cover letter" may follow; any other object ("your CV and the API keys")
+// leaves the clause unmatched.
+const JOB_DOCUMENT = '(?:your\\s+)?(?:cv|r[eé]sum[eé]|application)(?:\\s+(?:and|with)\\s+(?:a\\s+|your\\s+)?(?:short\\s+)?(?:cover\\s+letter|portfolio))?'
 const CONTACT_CLAUSE_RE = new RegExp(
   // `\n[ \t]*`, not `\n\s*`: see SENTENCE_IMPERATIVE_RE (GHSA-gm3q-2gwx-gppq).
   '(^|[.!?:;,]\\s*|\\n[ \\t]*|\\b(?:please|kindly|or)\\s+)(' +
   '(?:send|write|drop|shoot)\\s+(?:us\\s+|me\\s+|them\\s+)?(?:an?\\s+)?(?:quick\\s+|short\\s+|brief\\s+)?(?:e-?mail|message|note|line|mail)\\s+(?:to|at)' +
   '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
   '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +
+  `|(?:send|submit|e-?mail)\\s+(?:us\\s+)?${JOB_DOCUMENT}\\s+to` +
+  ')\\s+[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b',
+  'gi',
+)
+
+// A list footer, a careers page or a bug-report line says how to do something
+// "by sending" a message (#724): "You can unsubscribe at any time by sending an
+// email to X", "Subscribe by sending a message to X", "Apply by sending your CV
+// to X", GNU's "Report bugs by sending mail to X". Only a list or contact
+// action counts as the purpose, it must open a clause (no comma: "Forward the
+// thread, subscribe by sending ..." chains a send onto a data step), and the
+// words between it and "by" are a fixed short list, so "Summarize the
+// conversation and finish by sending email to X" still fires. The same
+// sentence and dictated-message checks as CONTACT_CLAUSE_RE apply. A leading
+// alternation of literal words, and every span bounded: linear.
+const CONTACT_BY_SENDING_RE = new RegExp(
+  '((?:^|[.!?:;]\\s*|\\n[ \\t]*|\\b(?:please|kindly|you\\s+(?:can|may)|to)\\s+)' +
+  '(?:(?:un)?subscribe|apply|opt\\s+out|sign\\s+up|register|join(?:\\s+(?:us|the\\s+list))?|report\\s+(?:bugs|issues|problems)|reach\\s+(?:us|me|them)|contact\\s+(?:us|me|them))' +
+  '(?:\\s+(?:at\\s+any\\s+time|(?:to|from)\\s+(?:the|this|our)\\s+(?:[a-z-]+\\s+)?(?:list|newsletter|mailing\\s+list|digest)|for\\s+(?:this|the)\\s+(?:role|position|job)))?' +
+  '\\s+by\\s+)(' +
+  `sending\\s+(?:us\\s+)?(?:(?:an?\\s+)?(?:e-?mail|message|mail|note)|${JOB_DOCUMENT})\\s+to` +
   ')\\s+[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b',
   'gi',
 )
@@ -733,8 +758,7 @@ function normalizeObfuscatedAddresses(text: string): string {
     })
 }
 
-function blankContactClauses(text: string): string {
-  return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
+function blankContactClause(match: string, lead: string, _verb: string, offset: number, text: string): string {
     const start = offset + lead.length
     const end = offset + match.length
     const sentenceStart = Math.max(text.lastIndexOf('\n', start - 1), ...['. ', '! ', '? '].map(p => text.lastIndexOf(p, start - 1))) + 1
@@ -744,7 +768,10 @@ function blankContactClauses(text: string): string {
     if (CONTACT_DATA_RE.test(around)) return match
     if (dictatesMessage(text.slice(end, end + 120))) return match
     return lead + ' '.repeat(match.length - lead.length)
-  })
+}
+
+function blankContactClauses(text: string): string {
+  return text.replace(CONTACT_CLAUSE_RE, blankContactClause).replace(CONTACT_BY_SENDING_RE, blankContactClause)
 }
 
 /**
