@@ -678,6 +678,53 @@ function dictatesMessage(after: string): boolean {
   return DICTATED_MESSAGE_RE.test(after) && !LIST_COMMAND_RE.test(after)
 }
 
+/**
+ * Spell a hidden email address the plain way, so every rule below reads it as
+ * one: "contact[at]contact[dot]com", "contact (at) contact (dot) com",
+ * "contact AT contact DOT com", "contact@contact,com", and a recipient field
+ * filled with "contact at contact.com". LLMail-Inject's attackers wrote the
+ * address like this because the rules only knew the @ form.
+ *
+ * A bare lowercase "at" or "dot" is left alone outside a recipient field: "I
+ * work at acme.com and you can email me" is a sentence, not an address, and
+ * normalizing it added 4 false positives in 14 hand-written contact lines.
+ * The comma takes no space after it, so "bob@localhost, co-workers" stays.
+ * Each match starts where a local part starts (the lookbehind), which keeps
+ * the scan linear. A footer spelled this way is blanked by
+ * blankContactClauses like any other, and a trusted domain stays trusted.
+ */
+const OBF_TLD = '(?:com|org|net|io|co|edu|gov|info|biz|ai|dev|app|me|us|uk|de)'
+const OBF_AT = '(?:@|\\s*[[({<]\\s*at\\s*[\\])}>]\\s*|\\s+at\\s+)'
+const OBF_INNER_DOT = '(?:\\.|\\s*[[({<]\\s*dot\\s*[\\])}>]\\s*|\\s+dot\\s+)'
+// The comma only before the TLD: between labels it would turn
+// "x@evil,trusted.com" into a subdomain of a trusted domain.
+const OBF_LAST_DOT = `(?:${OBF_INNER_DOT}|,)`
+const OBFUSCATED_ADDRESS_RE = new RegExp(
+  `(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+${OBF_AT}[A-Za-z0-9-]+(?:${OBF_INNER_DOT}[A-Za-z0-9-]+)*?${OBF_LAST_DOT}${OBF_TLD}(?![A-Za-z0-9-])`,
+  'gi',
+)
+const RECIPIENT_FIELD_AT_RE = new RegExp(
+  `(?<![A-Za-z0-9_-])((?:receiver|recipient|to|email|e-mail|address|send_to|sendTo)["']?\\s*[:=]\\s*["']?[A-Za-z0-9._%+-]+)\\s+at\\s+([A-Za-z0-9-]+\\.${OBF_TLD})(?![A-Za-z0-9-])`,
+  'gi',
+)
+// Case-sensitive on purpose: only the all-caps bare word reads as a separator.
+const BARE_LOWER_WORD_RE = /\s(?!AT\s|DOT\s)(?:[Aa][Tt]|[Dd][Oo][Tt])\s/
+const PLAIN_ADDRESS_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$/
+function normalizeObfuscatedAddresses(text: string): string {
+  // Either side may be the hidden one: "x@y[dot]com" has no "at" to find.
+  if (!/[[({<]\s*(?:at|dot)\s*[\])}>]|\s(?:at|dot)\s|@[a-z0-9.-]+,/i.test(text)) return text
+  return text
+    .replace(RECIPIENT_FIELD_AT_RE, '$1@$2')
+    .replace(OBFUSCATED_ADDRESS_RE, (m) => {
+      if (PLAIN_ADDRESS_RE.test(m) || BARE_LOWER_WORD_RE.test(m)) return m
+      // Swap each separator, then drop the whitespace that was around it: an
+      // address has none of its own.
+      return m
+        .replace(/[[({<]\s*(at|dot)\s*[\])}>]|\s(AT|DOT)\s|,/gi, (_s, b?: string, w?: string) => ((b ?? w ?? '').toLowerCase() === 'at' ? '@' : '.'))
+        .replace(/\s/g, '')
+    })
+}
+
 function blankContactClauses(text: string): string {
   return text.replace(CONTACT_CLAUSE_RE, (match: string, lead: string, _verb: string, offset: number) => {
     const start = offset + lead.length
@@ -1257,7 +1304,7 @@ function decodeJsonEscapes(text: string): string {
  */
 export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(decodeJsonEscapes(input))))
+  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(normalizeObfuscatedAddresses(decodeJsonEscapes(input)))))
   const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
   const text = blankTrustedAddresses(original, trusted)
   // The ungated rules (polite, directive) fire on the verb alone. When the
