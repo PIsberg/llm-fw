@@ -172,6 +172,9 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.45 (#722, #724: a mailer log line that reports a failed send, names a kind of mail,
+  // gives a delivery status, or a format string whose destination is a placeholder, is no longer an order to send;
+  // 0 of 28,906 verdicts moved; 9 of 356 benign rows, as before).
   // Held at ruleset 2026.11.44 (#620: "email" as a code identifier, table label, bold label or noun after "by",
   // a markdown mail link in a contact clause, and "dir" ending a CLI option no longer pair with an address;
   // 0 of 28,906 verdicts moved; 9 of 356 benign rows, as before).

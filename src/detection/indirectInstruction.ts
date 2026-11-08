@@ -509,6 +509,44 @@ function isEmailPlacement(text: string, end: number, before: string, after: stri
     /\b(?:by|via|per)[ \t]+$/i.test(before)
   return placed && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end).replace(WINDOW_ADDRESS_RE, ' '))
 }
+
+// A mailer's log line reports a send; it does not order one (#722, #724):
+// "Failed to send email to ops@...: 550", "Queued email for delivery to ...",
+// "Sending password reset email to ...", "Email to user@... bounced",
+// "Sending email to x@... done", and a format string whose destination is a
+// placeholder, the address an argument after it: log.info("... sending email
+// to %s", "ops@..."). A log level in front is not enough, since anyone can
+// write "INFO" before an order: the verb must report a failure, name a kind of
+// mail, or point at a placeholder, or the message itself must go straight to an
+// address that a delivery status follows. In every case the object window,
+// addresses removed, must name no data. Spans are bounded, so this stays linear.
+// The failure may sit before "send email": "Failed to send email to ...".
+const FAILED_SEND_BEFORE_RE = /(?:\b(?:failed|unable)\s+to|\b(?:could\s*n[o']?t|cannot|can't))\s+(?:(?:send|forward|deliver)\s+)?$/i
+// Not "confirmation": "send a confirmation email to x@..." is how LLMail-Inject
+// attacks ask for the send, and allowing it lost 7 of 3,000 tune attacks.
+const MAIL_KIND_BEFORE_RE = /\b(?:queued|outgoing|incoming|forwarding|password\s+reset)\s+$/i
+const DELIVERED_TO_RE = /^\s+to\s+[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,}(?:\.{2,}|[:,])?\s*(?:done|ok|sent|bounced|failed|delivered|rejected|deferred|queued)\b/i
+const PLACEHOLDER_TARGET_RE = /^[^\n"'`]{0,80}?\bto\s+(?:%s|%\(\w+\)s|\{\w*\}|\$\{[\w.]+\})/
+// Each address revisits every verb within EXFIL_PROXIMITY, so a caller passes
+// one cache per scanned string and each verb is judged once: without it, 200 KB
+// of failed-send lines ran the object test 340,000 times (1.6 s).
+function isLogRecordVerb(text: string, verbStart: number, verbEnd: number, cache: Map<number, boolean>): boolean {
+  const known = cache.get(verbStart)
+  if (known !== undefined) return known
+  const result = judgeLogRecordVerb(text, verbStart, verbEnd)
+  cache.set(verbStart, result)
+  return result
+}
+function judgeLogRecordVerb(text: string, verbStart: number, verbEnd: number): boolean {
+  const before = text.slice(Math.max(0, verbStart - 40), verbStart)
+  const after = text.slice(verbEnd, verbEnd + 360)
+  const isEmail = /^e-?mail$/i.test(text.slice(verbStart, verbEnd))
+  const reported = FAILED_SEND_BEFORE_RE.test(before) ||
+    (isEmail && MAIL_KIND_BEFORE_RE.test(before)) ||
+    PLACEHOLDER_TARGET_RE.test(after) ||
+    (isEmail && DELIVERED_TO_RE.test(after))
+  return reported && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, verbEnd).replace(WINDOW_ADDRESS_RE, ' '))
+}
 function isEmailNoun(text: string, start: number, end: number): boolean {
   if (!/^e-?mail$/i.test(text.slice(start, end))) return false
   const before = text.slice(Math.max(0, start - 24), start)
@@ -1287,6 +1325,7 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   // "...\share/eng.traineddata" before "Please make sure ..." paired "share"
   // with "please" (#391, replaying Codex CLI tool output).
   const verbHits: { i: number; v: string }[] = []
+  const logVerdicts = new Map<number, boolean>()
   // Nor a segment of a dotted name: Gradle's "Please set
   // gradle.publish.key" paired "publish" with "please" (#477). Nor a word
   // inside an identifier: an env file's "SEND_TO=ops@..." paired "send" with
@@ -1304,12 +1343,23 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   if (!verbHits.length) return null
 
   // Signal 1 (strongest): a send-class verb near an email exfil target.
+  // Only the send verbs within EXFIL_PROXIMITY of each address are visited, in
+  // their original order: walking every verb for every address was quadratic
+  // once each pair is excused (200 KB of "Failed to send email to a@b.co" took
+  // 2.9 s, #722).
+  const sendHits = verbHits.map((h, k) => ({ ...h, k })).filter((h) => ML_SEND_SET.has(h.v)).sort((a, b) => a.i - b.i)
   EMAIL_RE.lastIndex = 0
   for (let em = EMAIL_RE.exec(text); em !== null; em = EMAIL_RE.exec(text)) {
-    for (const { i, v } of verbHits) {
+    let lo = 0
+    let hi = sendHits.length
+    while (lo < hi) { const mid = (lo + hi) >> 1; if ((sendHits[mid]?.i ?? 0) < em.index - EXFIL_PROXIMITY) lo = mid + 1; else hi = mid }
+    const near: typeof sendHits = []
+    for (let j = lo; j < sendHits.length && (sendHits[j]?.i ?? Infinity) <= em.index + EXFIL_PROXIMITY; j++) near.push(sendHits[j] as (typeof sendHits)[number])
+    near.sort((a, b) => a.k - b.k)
+    for (const { i, v } of near) {
       // The verb index is into `hay`, so the key check reads `hay` too.
-      if (ML_SEND_SET.has(v) && Math.abs(i - em.index) <= EXFIL_PROXIMITY && !keyHolds(hay, i, i + v.length, em[0]) && !bareKeyAddress(hay, i + v.length) &&
-        !(v === 'export' && isExportKeyword(hay.slice(i + v.length)))) {
+      if (!keyHolds(hay, i, i + v.length, em[0]) && !bareKeyAddress(hay, i + v.length) &&
+        !(v === 'export' && isExportKeyword(hay.slice(i + v.length))) && !isLogRecordVerb(hay, i, i + v.length, logVerdicts)) {
         return { verb: v, reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
       }
     }
@@ -1368,6 +1418,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(normalizeObfuscatedAddresses(decodeJsonEscapes(input)))))
   const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
   const text = blankTrustedAddresses(original, trusted)
+  const logVerdicts = new Map<number, boolean>()
   // The ungated rules (polite, directive) fire on the verb alone. When the
   // verb's object window held a trusted address and nothing else an attacker
   // would name, the instruction is to the operator's own recipient.
@@ -1395,6 +1446,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       if (isEmailNoun(window, vm.index, vm.index + vm[0].length)) continue
       if (isEmailElementVerb(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
       if (isMailLinkLabel(text, lo + vm.index, lo + vm.index + vm[0].length, em.index, em.index + em[0].length)) continue
+      if (isLogRecordVerb(text, lo + vm.index, lo + vm.index + vm[0].length, logVerdicts)) continue
       if (/^export$/i.test(vm[0]) && isExportKeyword(window.slice(vm.index + vm[0].length))) continue
       /* v8 ignore next */ // vm[1] is always captured by the EXFIL_VERB_RE group
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
@@ -1441,6 +1493,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     const end = m.index + m[0].lastIndexOf(verb) + verb.length
     if (isMethodCall(text, end - verb.length)) continue
     if (isEmailNoun(text, end - verb.length, end)) continue
+    if (isLogRecordVerb(text, end - verb.length, end, logVerdicts)) continue
     if (keyAssignedAddress(text, end - verb.length, end) >= 0) continue
     if (SHELL_ASSIGN_VERB_RE.test(verb) && isExportKeyword(text.slice(end)) &&
       !REMOTE_URL_RE.test(text.slice(end, end + 200).split(/[\r\n&;|]/)[0] ?? '')) continue
