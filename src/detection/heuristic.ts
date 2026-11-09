@@ -190,8 +190,10 @@ export class HeuristicScorer {
           /\b(?:ignore|disregard|forget|discard)\b (?:all |the )?(?:previous|prior|earlier|above) (?:messages?|conversation|context|chat|prompts?)\b[^.!?;]{0,20}[.!;:,] ?as an? (?!(?:reminder|result|side note|heads[- ]up|follow[- ]up|matter of fact|aside|fyi|courtesy|precaution|first step|rule|team|group|company|whole|family)\b)(?:[\w-]+ ){0,5}?[\w-]+, ?(?:you\b|(?:write|rewrite|improve|generate|create|answer|respond|reply|tell|give|list|explain|act|pretend|roleplay|make|produce|draft|compose|insult|mock|roast)\b)/,
           /ig[a-z]{1,3}(?:re|er|r)\b (instructions?|rules?|prompts?|commands?)/,
           // Rules somebody other than the model's makers set ("forget the rules
-          // your manager set for the old project") are a person's to drop.
-          /forget (your |all |the )?(previous|prior|above|original|system)? ?(instructions?|rules?|context|prompts?)\b(?! (?:that |which )?(?:your|my|our|his|her|their|the) (?!(?:creators?|developers?|operators?|makers?|owners?|programmers?|trainers?|system|admins?|administrators?|company|provider)\b)[a-z]+ (?:set|gave|made|wrote|laid|put|created|established|imposed|assigned|defined|agreed|mentioned|described|sent|shared)\b)/,
+          // your manager set for the old project") are a person's to drop. The
+          // setter may take two words ("your old coach", #728); each one is
+          // checked, so "your original developers" still fires.
+          /forget (your |all |the )?(previous|prior|above|original|system)? ?(instructions?|rules?|context|prompts?)\b(?! (?:that |which )?(?:your|my|our|his|her|their|the) (?:(?!(?:creators?|developers?|operators?|makers?|owners?|programmers?|trainers?|system|admins?|administrators?|company|provider)\b)[a-z]+ ){1,2}(?:set|gave|made|wrote|laid|put|created|established|imposed|assigned|defined|agreed|mentioned|described|sent|shared)\b)/,
           // The model's own safety or ethics policy as the override object, and
           // guardrails named by who set them: "suspend your ethical guidelines",
           // "forget the guardrails your creators put on you". A product's switch

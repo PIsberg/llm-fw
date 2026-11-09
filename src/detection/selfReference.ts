@@ -92,11 +92,28 @@ const OPERATOR_WORD_RE = /\b(?:system|prompts?|developers?|devs?|operators?|crea
 // "previous instructions" with no document, or in "this conversation", still
 // counts, and so does any other tie to the model in the text.
 const DOCUMENT_LOCATED_RE = /\b(?:previous|prior|earlier|above|preceding|initial|original|existing)\s+(?:\w+\s+){0,2}?(?:instructions?|steps?|directions?)\s+(?:in|from|on|of)\s+(?:the\s+|this\s+|that\s+|our\s+|my\s+)?(?:[a-z0-9-]+\s+){0,2}?(?:readme|guide|docs?|documentation|manual|tutorial|wiki|page|section|chapter|article|document|file|notes|runbook|playbook|handbook|changelog|ticket|issue)\b/gi
+
+// "The rules your old coach set", "the guidelines your previous team used":
+// rules a named person set are that person's, the same as a briefing from the
+// GPS above (#728). The setter is one or two words, and none of them may come
+// from the operator family, so "the rules your developers set" and "the rules
+// the system set" still count.
+const THIRD_PARTY_SETTER_RE = /\b(?:instructions?|rules?|guidelines?|polic(?:y|ies)|directions?|procedures?)\s+(?:that\s+|which\s+)?(?:your|my|our|his|her|their|the)\s+((?:[\w'-]+\s+){1,2}?)(?:set|gave|made|imposed|used|had|wrote|laid|put|created|established|assigned|agreed|defined)\b/gi
+
+// "Never bypass your safety procedures in the kitchen": a negation directly
+// before a protective verb keeps the rule, so the phrase is a workplace safety
+// rule, not an override (#728). Only these verbs count: "never follow your
+// safety guidelines again" and "never mind, bypass your safety rules" do not.
+const NEGATED_SAFETY_RE = /\b(?:never|don['’]?t|do\s+not|must\s+not|mustn['’]?t|should\s+not|shouldn['’]?t)\s+(?:ever\s+)?(?:bypass|ignore|disable|skip|override|circumvent|disregard|switch\s+off|turn\s+off|set\s+aside)\s+your\s+(?:own\s+)?(?:safety|security)\s+(?:guidelines?|rules?|procedures?|protocols?|checks?|training|polic(?:y|ies)|precautions?|measures?)\b/gi
+
 function withoutThirdPartyProvenance(text: string): string {
   return text
     .replace(PROVENANCE_RE, (match: string, provenance: string) =>
       OPERATOR_WORD_RE.test(provenance) ? match : ' ')
+    .replace(THIRD_PARTY_SETTER_RE, (match: string, setter: string) =>
+      OPERATOR_WORD_RE.test(setter) ? match : ' ')
     .replace(DOCUMENT_LOCATED_RE, ' ')
+    .replace(NEGATED_SAFETY_RE, ' ')
 }
 
 /**

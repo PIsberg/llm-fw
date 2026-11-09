@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.46
+
+**1.97% overall (7 of 356), down from 9; Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). `verdicts:diff` against 2026.11.45 moved 2 of 28,906 rows, both `guardrail-talk` rows from block to pass, and no attack. Both had read as the model's own rules ("never bypass your safety guidelines", "the rules your manager set"), which switches the embedding stage's benign anchors off. Rules a named person set and a negated safety rule no longer count as the model's, and two anchors written apart from those rows clear them (#728). Held-out recall is unchanged on every split (`npm run recall:floor`).
+
 ## Result, ruleset 2026.11.45
 
 **Unchanged: 2.53% overall (9 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.44 moved 0 of 28,906 rows. A mailer log line that reports a failed send, names a kind of mail or gives a delivery status, and a format string whose destination is a placeholder, are no longer read as an order to send (#722, #724). None of the benign corpora holds a mailer log; the shapes come from the issues and occur in none of 59,997 replayed real tool results. LLMail-Inject's tune split is unchanged; held-out `judge-attack` goes from 83.1% to 83.0%.
