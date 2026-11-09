@@ -635,6 +635,19 @@ export interface CacheControlConfig extends ModuleSwitchConfig {
   ttl: '5m' | '1h';
   /** Also mark the system prompt, so conversations sharing it share the entry. */
   cacheSystem: boolean;
+  /**
+   * Clients whose own one-hour breakpoints are changed to five-minute ones:
+   * each entry is matched against the User-Agent, anywhere in it, in any
+   * case (`sdk-cli` is Claude Code's print mode). For runs that never idle
+   * five minutes, where the one-hour write price buys nothing. Empty by
+   * default.
+   */
+  shortTtlClients: string[];
+  /**
+   * Which of such a client's breakpoints change: `messages`, the
+   * conversation's own, or `all`, those on tools and system prompt too.
+   */
+  shortTtlScope: 'messages' | 'all';
 }
 
 export interface ToolResultPrunerConfig extends ModuleSwitchConfig {

@@ -200,6 +200,8 @@ const HOT_PATHS: Path[] = [
   ['modules', 'cacheControl', 'enabled'],
   ['modules', 'cacheControl', 'ttl'],
   ['modules', 'cacheControl', 'cacheSystem'],
+  ['modules', 'cacheControl', 'shortTtlClients'],
+  ['modules', 'cacheControl', 'shortTtlScope'],
   ['modules', 'responseCache', 'enabled'],
   ['modules', 'responseCache', 'ttlSeconds'],
   ['modules', 'responseCache', 'maxEntries'],

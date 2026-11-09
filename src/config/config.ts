@@ -469,6 +469,9 @@ export const DEFAULT_CONFIG: Config = {
       enabled: false,
       ttl: '5m',
       cacheSystem: true,
+      // Clients that never idle five minutes; see docs/guides/token-savings.md.
+      shortTtlClients: [],
+      shortTtlScope: 'messages',
     },
     responseCache: {
       enabled: false,

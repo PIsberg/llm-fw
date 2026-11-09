@@ -84,6 +84,7 @@ const OPTION_RULES: Record<string, Pick<ModuleOption, 'min' | 'max' | 'values'>>
   'responseCache.maxEntries': { min: 1, max: 1_000_000 },
   'responseCache.maxEntryBytes': { min: 1, max: 1_073_741_824 },
   'cacheControl.ttl': { values: ['5m', '1h'] },
+  'cacheControl.shortTtlScope': { values: ['messages', 'all'] },
   'promptMonitor.maxEntries': { min: 1, max: 100_000 },
   'promptMonitor.maxChars': { min: 20, max: 1_000_000 },
 }
