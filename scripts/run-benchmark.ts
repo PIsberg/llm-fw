@@ -104,7 +104,7 @@ export function applySweepValue(c: Config, sweep: Sweep, value: number): void {
   surfaces[sweep.surface] = { ...surfaces[sweep.surface], [sweep.knob]: value }
 }
 
-function buildConfig(preset: string, model: string): Config {
+export function buildConfig(preset: string, model: string): Config {
   const c: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config
   c.detection.judgeModel = model
   if (preset === 'cheap' || preset === 'classifier' || preset === 'classifier-indirect' || preset === 'classifier-corroborated') {
