@@ -267,13 +267,22 @@ describe('ToolFilterModule shortenTools', () => {
     expect(decls[1].description).toBe(long('Runs it.'))
   })
 
+  // 200 KB of blank lines in one description, and a schema 200 levels deep
+  // with 4,000 parameter descriptions: about 1 MB of definitions. A cut that
+  // rescanned the text per position, or a walk that revisited nodes, takes
+  // far longer than the second this allows.
   it('stays linear on a huge description and a deep, wide schema', () => {
-    let schema: Record<string, unknown> = { type: 'string', description: long('Leaf.') }
-    for (let i = 0; i < 400; i++) schema = { type: 'object', properties: { p: schema, ...Object.fromEntries(Array.from({ length: 20 }, (_, n) => [`q${n}`, { type: 'string', description: long('Wide.') }])) } }
+    const wordy = (lead: string) => `${lead}\n\n${'x'.repeat(200)}`
+    let schema: Record<string, unknown> = { type: 'string', description: wordy('Leaf.') }
+    for (let i = 0; i < 200; i++) schema = { type: 'object', properties: { p: schema, ...Object.fromEntries(Array.from({ length: 20 }, (_, n) => [`q${n}`, { type: 'string', description: wordy('Wide.') }])) } }
     const body = JSON.stringify({ tools: [small('Bash'), { name: 'Deep', description: `${' \n'.repeat(100_000)}x`, input_schema: schema }], messages: [{ role: 'user', content: 'hi' }] })
+    const mod = shortener(['Deep'])
     const started = performance.now()
-    const res = shortener(['Deep']).transformRequest(body, ctx)
+    const res = mod.transformRequest(body, ctx)
     expect(performance.now() - started).toBeLessThan(1000)
     expect(res.modified).toBe(true)
+    const deep = JSON.parse(res.body).tools[1]
+    expect(deep.description).toBe('x [llm-fw: description shortened]')
+    expect(JSON.stringify(deep)).not.toContain('xxxx')
   })
 })
