@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.47
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.46 moved 0 of 28,906 rows. A data step done "by sending an email to" an address now fires (#726); it needs a data verb opening the clause and an object the agent holds, so a page that says how to request something by mail stays quiet. None of the 179 distinct "by sending" strings in this machine's transcripts changed verdict.
+
 ## Result, ruleset 2026.11.46
 
 **1.97% overall (7 of 356), down from 9; Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). `verdicts:diff` against 2026.11.45 moved 2 of 28,906 rows, both `guardrail-talk` rows from block to pass, and no attack. Both had read as the model's own rules ("never bypass your safety guidelines", "the rules your manager set"), which switches the embedding stage's benign anchors off. Rules a named person set and a negated safety rule no longer count as the model's, and two anchors written apart from those rows clear them (#728). Held-out recall is unchanged on every split (`npm run recall:floor`).
