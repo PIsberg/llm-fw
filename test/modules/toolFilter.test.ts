@@ -11,7 +11,7 @@ const tool = (name: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 })
 
-const filter = (dropTools: string[]) => new ToolFilterModule({ enabled: true, dropTools, shortenTools: [], shortenTo: 200 })
+const filter = (dropTools: string[]) => new ToolFilterModule({ enabled: true, dropTools, shortenTools: [], shortenTo: 200, dropSkills: [] })
 const names = (body: string): string[] => (JSON.parse(body).tools as Array<{ name: string }>).map(t => t.name)
 
 describe('ToolFilterModule', () => {
@@ -139,7 +139,7 @@ describe('ToolFilterModule', () => {
   })
 
   it('does nothing while off, with no names, or without a tool list', () => {
-    expect(new ToolFilterModule({ enabled: false, dropTools: ['Bash'], shortenTools: ['Bash'], shortenTo: 200 }).transformRequest(anthropic(), ctx).modified).toBe(false)
+    expect(new ToolFilterModule({ enabled: false, dropTools: ['Bash'], shortenTools: ['Bash'], shortenTo: 200, dropSkills: ['x'] }).transformRequest(anthropic(), ctx).modified).toBe(false)
     expect(filter([]).transformRequest(anthropic(), ctx).modified).toBe(false)
     const thread = JSON.stringify({ thread: { type: 'continue', previous_message_id: 'm1' }, messages: [{ role: 'user', content: 'hi' }] })
     expect(filter(['Bash']).transformRequest(thread, ctx).modified).toBe(false)
@@ -166,7 +166,7 @@ describe('ToolFilterModule shortenTools', () => {
     ...extra,
   })
   const small = (name: string) => ({ name, description: 'Runs a command.', input_schema: { type: 'object', properties: { x: { type: 'string', description: 'The command.' } } } })
-  const shortener = (shortenTools: string[], more: Record<string, unknown> = {}) => new ToolFilterModule({ enabled: true, dropTools: [], shortenTools, shortenTo: 200, ...more })
+  const shortener = (shortenTools: string[], more: Record<string, unknown> = {}) => new ToolFilterModule({ enabled: true, dropTools: [], shortenTools, shortenTo: 200, dropSkills: [], ...more })
   const request = (extra: Record<string, unknown> = {}) => JSON.stringify({
     tools: [small('Bash'), big('Artifact'), big('Workflow')],
     messages: [{ role: 'user', content: 'hi' }],
@@ -284,5 +284,120 @@ describe('ToolFilterModule shortenTools', () => {
     const deep = JSON.parse(res.body).tools[1]
     expect(deep.description).toBe('x [llm-fw: description shortened]')
     expect(JSON.stringify(deep)).not.toContain('xxxx')
+  })
+})
+
+// dropSkills: Claude Code lists every installed skill, one line each, in a
+// system message it sends with every conversation. On one developer's
+// requests that listing was 24,663 characters, and 63 of the 93 skills in it
+// were never invoked in 30 days.
+describe('ToolFilterModule dropSkills', () => {
+  const header = 'The following skills are available for use with the Skill tool:'
+  const entries = [
+    '- deslop: Remove AI writing patterns from prose.',
+    '- claude-api: Reference for the Claude API.\nTRIGGER - read FIRST, before you answer: the prompt names Claude.\nSKIP only when another provider is being worked on.',
+    '- speckit-plan: Execute the implementation planning workflow.',
+    '- speckit-tasks: Generate a dependency-ordered tasks.md.',
+    '- anthropic-skills:pdf',
+    '- anthropic-skills:docx: Word documents.',
+  ]
+  const listing = (kept: string[] = entries) => `# Environment\n - Platform: win32\n\n${header}\n\n${kept.join('\n')}\n\nToday's date is 2026-11-09.`
+  const systemMessage = (text: string) => ({ role: 'system', content: [{ type: 'text', text }, { type: 'tool_addition', tools: [] }] })
+  const request = (messages: unknown[]) => JSON.stringify({ tools: [tool('Bash'), tool('Skill')], messages })
+  const skills = (dropSkills: string[], more: Record<string, unknown> = {}) => new ToolFilterModule({ enabled: true, dropTools: [], shortenTools: [], shortenTo: 200, dropSkills, ...more })
+  const textOf = (body: string, message = 1, block = 0): string => JSON.parse(body).messages[message].content[block].text
+  const typed = { role: 'user', content: [{ type: 'text', text: 'hi' }] }
+
+  it('removes the named skills from the listing, with the lines that continue them, and nothing else', () => {
+    const res = skills(['claude-api', 'speckit-tasks']).transformRequest(request([typed, systemMessage(listing())]), ctx)
+    expect(res.modified).toBe(true)
+    expect(textOf(res.body)).toBe(listing([entries[0]!, entries[2]!, entries[4]!, entries[5]!]))
+    const out = JSON.parse(res.body)
+    expect(out.messages[0]).toEqual(typed)
+    expect(out.messages[1].content[1]).toEqual({ type: 'tool_addition', tools: [] })
+    expect(out.tools).toHaveLength(2)
+  })
+
+  it('matches a pattern over the whole name, a name with a colon, and an entry with no description', () => {
+    const res = skills(['speckit-*', 'anthropic-skills:*']).transformRequest(request([typed, systemMessage(listing())]), ctx)
+    expect(textOf(res.body)).toBe(listing([entries[0]!, entries[1]!]))
+    expect(skills(['speckit']).transformRequest(request([typed, systemMessage(listing())]), ctx).modified).toBe(false)
+  })
+
+  it('removes the last entry without leaving a gap before what follows', () => {
+    const res = skills(['anthropic-skills:docx']).transformRequest(request([typed, systemMessage(listing())]), ctx)
+    expect(textOf(res.body)).toBe(listing(entries.slice(0, 5)))
+  })
+
+  it('reads the listing from a reminder in a user message, as a block or as a string', () => {
+    const reminder = `<system-reminder>\n${listing()}\n</system-reminder>`
+    const asBlock = skills(['deslop']).transformRequest(request([{ role: 'user', content: [{ type: 'text', text: reminder }, { type: 'text', text: 'hi' }] }]), ctx)
+    expect(textOf(asBlock.body, 0)).toBe(`<system-reminder>\n${listing(entries.slice(1))}\n</system-reminder>`)
+    const asString = skills(['deslop']).transformRequest(request([{ role: 'user', content: reminder }]), ctx)
+    expect(JSON.parse(asString.body).messages[0].content).toBe(`<system-reminder>\n${listing(entries.slice(1))}\n</system-reminder>`)
+  })
+
+  // The header is ordinary text: a person can paste it, and a tool can print it.
+  it('leaves a listing somebody typed, a tool printed or the model wrote alone', () => {
+    const res = skills(['deslop']).transformRequest(request([
+      { role: 'user', content: [{ type: 'text', text: listing() }] },
+      { role: 'user', content: listing() },
+      { role: 'assistant', content: [{ type: 'text', text: listing() }, { type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: `<system-reminder>\n${listing()}` }] }] },
+    ]), ctx)
+    expect(res.modified).toBe(false)
+  })
+
+  it('leaves the listing alone when every skill would go, and text that is not a listing', () => {
+    expect(skills(['*']).transformRequest(request([typed, systemMessage(listing())]), ctx).modified).toBe(false)
+    const prose = `${header} none of them matter.\n\n- deslop: x`
+    expect(skills(['deslop']).transformRequest(request([typed, systemMessage(prose)]), ctx).modified).toBe(false)
+    const preface = `${header}\n\nUse them sparingly.\n- deslop: x\n- other: y`
+    expect(skills(['deslop']).transformRequest(request([typed, systemMessage(preface)]), ctx).modified).toBe(false)
+  })
+
+  it('sends a growing conversation the same listing, also after a dropped skill was invoked', () => {
+    const one = skills(['deslop']).transformRequest(request([typed, systemMessage(listing())]), ctx).body
+    const two = skills(['deslop']).transformRequest(request([
+      typed, systemMessage(listing()),
+      { role: 'assistant', content: [{ type: 'tool_use', id: 's1', name: 'Skill', input: { skill: 'deslop' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's1', content: 'loaded' }] },
+    ]), ctx).body
+    expect(textOf(two)).toBe(textOf(one))
+  })
+
+  it('works on a request with no tool list, and beside dropTools', () => {
+    const noTools = JSON.stringify({ thread: { type: 'continue', previous_message_id: 'm1' }, messages: [systemMessage(listing())] })
+    expect(JSON.parse(skills(['deslop']).transformRequest(noTools, ctx).body).messages[0].content[0].text).toBe(listing(entries.slice(1)))
+    const both = skills(['deslop'], { dropTools: ['Bash'] }).transformRequest(request([typed, systemMessage(listing())]), ctx)
+    expect(JSON.parse(both.body).tools.map((t: { name: string }) => t.name)).toEqual(['Skill'])
+    expect(textOf(both.body)).toBe(listing(entries.slice(1)))
+  })
+
+  it('counts the removed lines as the saving, and the skills it dropped', () => {
+    const mod = skills(['claude-api', 'speckit-*'])
+    mod.transformRequest(request([typed, systemMessage(listing())]), ctx)
+    const stats = mod.getStats()
+    expect(stats.tokensSaved).toBeGreaterThan(20)
+    expect(stats.kpis).toContainEqual(expect.objectContaining({ key: 'skillsDropped', value: 3 }))
+  })
+
+  it('does nothing with no names', () => {
+    expect(skills([]).transformRequest(request([typed, systemMessage(listing())]), ctx).modified).toBe(false)
+  })
+
+  // 200 KB of entries, of continuation lines, and of header copies: one pass each.
+  it('stays linear on a huge listing and on repeated headers', () => {
+    const many = Array.from({ length: 4000 }, (_, i) => `- skill-${i}: ${'does a thing. '.repeat(3)}`)
+    const longEntry = `- wordy: start\n${'more\n'.repeat(40_000)}- last: end`
+    const headers = `${header}\n`.repeat(3000)
+    const body = request([typed, systemMessage(listing(many)), systemMessage(`${header}\n\n${longEntry}\n\nend`), systemMessage(headers)])
+    const mod = skills(['skill-1*', 'wordy'])
+    const started = performance.now()
+    const res = mod.transformRequest(body, ctx)
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(textOf(res.body, 2)).toBe(`${header}\n\n- last: end\n\nend`)
+    expect(textOf(res.body)).not.toContain('- skill-1:')
+    expect(textOf(res.body)).toContain('- skill-2:')
   })
 })

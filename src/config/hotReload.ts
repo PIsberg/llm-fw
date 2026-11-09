@@ -194,6 +194,7 @@ const HOT_PATHS: Path[] = [
   ['modules', 'toolFilter', 'dropTools'],
   ['modules', 'toolFilter', 'shortenTools'],
   ['modules', 'toolFilter', 'shortenTo'],
+  ['modules', 'toolFilter', 'dropSkills'],
   ['modules', 'toolDefinitionPruner', 'enabled'],
   ['modules', 'toolUsage', 'enabled'],
   ['modules', 'streamUsage', 'enabled'],

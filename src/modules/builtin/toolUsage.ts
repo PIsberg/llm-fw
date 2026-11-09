@@ -5,7 +5,7 @@ import type { GatewayModuleContext, ModuleAction, ModuleStats } from '../types.j
 import type { CapturedResponse } from '../responseTap.js'
 import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
 import { responseCalls } from '../toolCalls.js'
-import { matchesAny, toolName } from './toolFilter.js'
+import { matchesAny, parseSkillListing, skillListingSlots, toolName } from './toolFilter.js'
 import { createLogger } from '../../logger.js'
 
 const log = createLogger('tool-usage')
@@ -23,6 +23,10 @@ interface SavedUsage {
   counts?: Record<string, number>
   /** Requests whose tool list held the tool. Absent from such a file too. */
   offeredOn?: Record<string, number>
+  /** Skills of the client's skill listing, with the token estimate of each entry. */
+  skills?: Record<string, number>
+  /** Invocations per skill, through the Skill tool. */
+  skillCalls?: Record<string, number>
 }
 // Coalesce writes: one per this many ms while traffic flows.
 const SAVE_DELAY_MS = 5000
@@ -52,6 +56,21 @@ const MIN_EVIDENCE_CALLS = 1000
 // two tools this picks saved a net 1.1% of the bill, while every tool called
 // under once in 200 calls, picked without it, lost 4.0% (238 rewrites).
 const REWRITE_TOKENS = 19_000_000
+// The tool Claude Code invokes a skill through, with the skill's name in its
+// `skill` argument.
+const SKILL_TOOL = 'Skill'
+
+// The skill a Skill call names: its input is an object in a request's
+// history and in a whole response, a JSON string in a streamed one.
+function skillOf(input: unknown): string | undefined {
+  let args = input
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { return undefined }
+  }
+  if (!isObj(args) || typeof args.skill !== 'string') return undefined
+  const name = args.skill.startsWith('/') ? args.skill.slice(1) : args.skill
+  return name === '' ? undefined : name
+}
 
 // Each tool definition in the Anthropic, OpenAI chat, Responses API and
 // Gemini shapes, with the JSON it is billed as.
@@ -70,10 +89,11 @@ function offeredTools(payload: Obj): Array<{ name: string; json: string }> {
 
 const idOr = (id: unknown, fallback: string): string => typeof id === 'string' && id !== '' ? id : fallback
 
-// Calls a request's history carries, as [id, name]; Gemini calls carry no id,
-// so their name stands in for one.
-function historyCalls(payload: Obj): Array<[string, string]> {
-  const out: Array<[string, string]> = []
+// Calls a request's history carries, as [id, name, input]; Gemini calls carry
+// no id, so their name stands in for one. The input is given for Anthropic
+// tool_use blocks only, which is where a skill invocation is.
+function historyCalls(payload: Obj): Array<[string, string, unknown?]> {
+  const out: Array<[string, string, unknown?]> = []
   const turns = [payload.messages, payload.input, payload.contents].filter(Array.isArray).flat() as unknown[]
   for (const turn of turns) {
     if (!isObj(turn)) continue
@@ -87,17 +107,36 @@ function historyCalls(payload: Obj): Array<[string, string]> {
     const parts = Array.isArray(turn.content) ? turn.content : Array.isArray(turn.parts) ? turn.parts : []
     for (const p of parts) {
       if (!isObj(p)) continue
-      if (p.type === 'tool_use' && typeof p.name === 'string') out.push([idOr(p.id, p.name), p.name])
+      if (p.type === 'tool_use' && typeof p.name === 'string') out.push([idOr(p.id, p.name), p.name, p.input])
       if (isObj(p.functionCall) && typeof p.functionCall.name === 'string') out.push([`gemini:${p.functionCall.name}`, p.functionCall.name])
     }
   }
   return out
 }
 
+// What the one-click says it will do, from how many tools it drops, tools it
+// shortens and skills it drops.
+function actionLabel(drop: number, shorten: number, skills: number): string {
+  if (skills === 0) {
+    if (shorten === 0) return `Drop these ${drop} tools in the Tool Filter`
+    if (drop === 0) return `Shorten these ${shorten} rarely called tools in the Tool Filter`
+    return `Drop ${drop} never-called and shorten ${shorten} rarely called tools in the Tool Filter`
+  }
+  if (drop === 0 && shorten === 0) return `Drop these ${skills} never-invoked skills in the Tool Filter`
+  const parts = [
+    ...(drop > 0 ? [`drop ${drop} never-called tools`] : []),
+    ...(shorten > 0 ? [`shorten ${shorten} rarely called tools`] : []),
+    `drop ${skills} never-invoked skills`,
+  ]
+  const text = `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]!}`
+  return `${text[0]!.toUpperCase()}${text.slice(1)} in the Tool Filter`
+}
+
 /**
  * Records which offered tools a client actually calls, and how often, so you
  * know which to name in the Tool Filter's dropTools (never called) and
- * shortenTools (called now and then). Every tool definition is billed on every
+ * shortenTools (called now and then). Does the same for the skills of Claude
+ * Code's skill listing, which the Skill tool invokes, for dropSkills. Every tool definition is billed on every
  * request, as a cache read once cached; one the model never calls is cost with
  * no use. Calls are learned from the request history and from responses,
  * because a request that continues a server-side thread (Claude Code through
@@ -118,6 +157,10 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
   // Requests whose tool list held the tool: a deferred tool is offered on
   // few of them, and a stub saves only where the definition was sent.
   private readonly offeredOn = new Map<string, number>()
+  // The client's skill listing: name to the token estimate of its entry, and
+  // how often each skill was invoked through the Skill tool.
+  private readonly skills = new Map<string, number>()
+  private readonly skillCalls = new Map<string, number>()
   private readonly countedCalls = new Set<string>()
   private calls = 0
 
@@ -158,6 +201,8 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
       for (const [name, n] of Object.entries(saved.offeredOn ?? {}).slice(0, MAX_TOOLS)) {
         if (typeof n === 'number' && this.offered.has(name)) this.offeredOn.set(name, n)
       }
+      for (const [name, n] of Object.entries(saved.skills ?? {}).slice(0, MAX_TOOLS)) if (typeof n === 'number') this.skills.set(name, n)
+      for (const [name, n] of Object.entries(saved.skillCalls ?? {}).slice(0, MAX_TOOLS)) if (typeof n === 'number') this.skillCalls.set(name, n)
     } catch { /* nothing saved yet, or unreadable: start empty */ }
   }
 
@@ -167,7 +212,7 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     this.saveTimer = undefined
     if (!this.file) return
     const counts = Object.fromEntries([...this.called].filter(([, n]) => Number.isFinite(n)))
-    const saved: SavedUsage = { requests: this.requests, calls: this.calls, offered: Object.fromEntries(this.offered), called: [...this.called.keys()], counts, offeredOn: Object.fromEntries(this.offeredOn) }
+    const saved: SavedUsage = { requests: this.requests, calls: this.calls, offered: Object.fromEntries(this.offered), called: [...this.called.keys()], counts, offeredOn: Object.fromEntries(this.offeredOn), skills: Object.fromEntries(this.skills), skillCalls: Object.fromEntries(this.skillCalls) }
     try {
       fs.mkdirSync(dirname(this.file), { recursive: true })
       const tmp = `${this.file}.tmp`
@@ -184,12 +229,16 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     this.saveTimer.unref()
   }
 
-  private count(id: string, name: string): void {
+  private count(id: string, name: string, input?: unknown): void {
     if (this.countedCalls.has(id)) return
     this.countedCalls.add(id)
     if (this.countedCalls.size > MAX_CALL_IDS) this.countedCalls.delete(this.countedCalls.values().next().value!)
     this.calls++
     this.called.set(name, (this.called.get(name) ?? 0) + 1)
+    const skill = name === SKILL_TOOL ? skillOf(input) : undefined
+    if (skill !== undefined && (this.skillCalls.has(skill) || this.skillCalls.size < MAX_TOOLS)) {
+      this.skillCalls.set(skill, (this.skillCalls.get(skill) ?? 0) + 1)
+    }
     this.changed()
   }
 
@@ -206,17 +255,30 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
       for (const name of names) this.offeredOn.set(name, (this.offeredOn.get(name) ?? 0) + 1)
       this.changed()
     }
-    for (const [id, name] of historyCalls(payload)) this.count(id, name)
+    for (const slot of skillListingSlots(payload)) {
+      const entries = parseSkillListing(slot.text)
+      if (!entries) continue
+      for (const entry of entries) {
+        if (!this.skills.has(entry.name) && this.skills.size >= MAX_TOOLS) continue
+        this.skills.set(entry.name, estimate(slot.text.slice(entry.start, entry.end), estimates))
+      }
+      this.changed()
+    }
+    for (const [id, name, input] of historyCalls(payload)) this.count(id, name, input)
     return null
   }
 
   observeResponse(_requestBody: string, _ctx: GatewayModuleContext, response: CapturedResponse): void {
     if (!this.enabled) return
-    for (const call of responseCalls(response)) this.count(call.id, call.name)
+    for (const call of responseCalls(response)) this.count(call.id, call.name, call.input)
   }
 
   private neverCalled(): Array<[string, number]> {
     return [...this.offered].filter(([name]) => !this.called.has(name)).sort((a, b) => b[1] - a[1])
+  }
+
+  private neverInvoked(): Array<[string, number]> {
+    return [...this.skills].filter(([name]) => !this.skillCalls.has(name)).sort((a, b) => b[1] - a[1])
   }
 
   // Offered tools called so rarely that a stub pays (see REWRITE_TOKENS), as
@@ -237,29 +299,30 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
   }
 
   // The one-click change for the Tool Filter: its current lists plus every
-  // never-called tool (to drop) and rarely called one (to shorten) it does
-  // not match yet, offered once enough calls have been seen. Undefined
-  // without a filter to write to, or nothing to add.
-  private action(never: Array<[string, number]>, rare: Array<[string, number, number]>): { action?: ModuleAction; hint: string } {
+  // never-called tool (to drop), rarely called one (to shorten) and
+  // never-invoked skill (to drop from the listing) it does not match yet,
+  // offered once enough calls have been seen. Undefined without a filter to
+  // write to, or nothing to add.
+  private action(never: Array<[string, number]>, rare: Array<[string, number, number]>, idle: Array<[string, number]>): { action?: ModuleAction; hint: string } {
     const filter = this.filter?.()
     if (!filter) return { hint: '' }
     const dropped = Array.isArray(filter.dropTools) ? filter.dropTools : []
     const shortened = Array.isArray(filter.shortenTools) ? filter.shortenTools : []
+    const droppedSkills = Array.isArray(filter.dropSkills) ? filter.dropSkills : []
     const drop = never.map(([name]) => name).filter(name => !matchesAny(dropped, name))
     const shorten = rare.map(([name]) => name).filter(name => !matchesAny(dropped, name) && !matchesAny(shortened, name))
-    if (drop.length === 0 && shorten.length === 0) return { hint: '' }
+    const skills = idle.map(([name]) => name).filter(name => !matchesAny(droppedSkills, name))
+    if (drop.length === 0 && shorten.length === 0 && skills.length === 0) return { hint: '' }
     if (this.calls < MIN_EVIDENCE_CALLS) return { hint: ` The Tool Filter action appears after ${MIN_EVIDENCE_CALLS.toLocaleString('en-US')} calls (${this.calls.toLocaleString('en-US')} so far).` }
-    const label = shorten.length === 0 ? `Drop these ${drop.length} tools in the Tool Filter`
-      : drop.length === 0 ? `Shorten these ${shorten.length} rarely called tools in the Tool Filter`
-      : `Drop ${drop.length} never-called and shorten ${shorten.length} rarely called tools in the Tool Filter`
     return {
       action: {
-        label,
+        label: actionLabel(drop.length, shorten.length, skills.length),
         module: 'tool-filter',
         enabled: true,
         options: {
           ...(drop.length > 0 ? { dropTools: [...dropped, ...drop] } : {}),
           ...(shorten.length > 0 ? { shortenTools: [...shortened, ...shorten] } : {}),
+          ...(skills.length > 0 ? { dropSkills: [...droppedSkills, ...skills] } : {}),
         },
       },
       hint: '',
@@ -275,9 +338,14 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     const rareListed = rare.slice(0, DETAIL_LIMIT).map(([name, n, calls]) => `${name} (${n.toLocaleString('en-US')} tokens, ${calls.toLocaleString('en-US')} ${calls === 1 ? 'call' : 'calls'})`)
     const rareMore = rare.length > DETAIL_LIMIT ? `, and ${rare.length - DETAIL_LIMIT} more` : ''
     const rareDetail = rare.length > 0 ? `Rarely called, where a stub pays, largest first: ${rareListed.join(', ')}${rareMore}.` : ''
-    const { action, hint } = this.action(never, rare)
+    const idle = this.neverInvoked()
+    const idleTokens = idle.reduce((sum, [, n]) => sum + n, 0)
+    const idleListed = idle.slice(0, DETAIL_LIMIT).map(([name, n]) => `${name} (${n.toLocaleString('en-US')})`)
+    const idleMore = idle.length > DETAIL_LIMIT ? `, and ${idle.length - DETAIL_LIMIT} more` : ''
+    const idleDetail = idle.length > 0 ? `Skills never invoked, largest first (tokens per request): ${idleListed.join(', ')}${idleMore}.` : ''
+    const { action, hint } = this.action(never, rare, idle)
     const neverDetail = never.length > 0 ? `Never called, largest first (tokens per request): ${listed.join(', ')}${more}.` : ''
-    const detail = [neverDetail, rareDetail].filter(Boolean).join(' ') + hint
+    const detail = [neverDetail, rareDetail, idleDetail].filter(Boolean).join(' ') + hint
     return {
       ...super.getStats(),
       totalInvocations: this.requests,
@@ -288,6 +356,9 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
         { key: 'calls', label: 'Calls seen', value: this.calls },
         { key: 'never', label: 'Never called', value: never.length },
         { key: 'neverTokens', label: 'Their tokens per request', value: neverTokens.toLocaleString('en-US') },
+        { key: 'skills', label: 'Skills listed', value: this.skills.size },
+        { key: 'skillsNever', label: 'Skills never invoked', value: idle.length },
+        { key: 'skillsNeverTokens', label: 'Their tokens per request', value: idleTokens.toLocaleString('en-US') },
       ],
       ...(detail ? { detail } : {}),
       ...(action ? { action } : {}),
@@ -300,6 +371,8 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     this.offered.clear()
     this.called.clear()
     this.offeredOn.clear()
+    this.skills.clear()
+    this.skillCalls.clear()
     this.countedCalls.clear()
     this.calls = 0
     this.changed()

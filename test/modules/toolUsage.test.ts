@@ -135,7 +135,7 @@ describe('ToolUsageModule', () => {
   // been seen to trust the list, naming only the tools the filter does not
   // already cover, with the filter's full new list.
   it('offers to drop the never-called tools in the Tool Filter once a thousand calls say so', () => {
-    const filter = { enabled: false, dropTools: ['CronCreate', 'mcp__axiom__*'], shortenTools: [] as string[], shortenTo: 200 }
+    const filter = { enabled: false, dropTools: ['CronCreate', 'mcp__axiom__*'], shortenTools: [] as string[], shortenTo: 200, dropSkills: [] as string[] }
     const mod = new ToolUsageModule({ enabled: true }, () => filter)
     const tools = [...offered, tool('mcp__axiom__axiom_query_symbol', 3)]
     const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ role: 'assistant', content: [{ type: 'tool_use', id: `c${i}`, name: 'Bash', input: {} }] }))
@@ -169,7 +169,7 @@ describe('ToolUsageModule', () => {
     const history = (bash: number) => JSON.stringify({ tools, messages: [{ role: 'user', content: 'hi' }, ...call('Bash', bash), ...call('Read', 100), ...call('Artifact', 2), ...call('Sometimes', 30), ...call('Tiny', 1)] })
 
     it('offers to shorten a large tool whose calls are few enough for the stub to pay, beside the drop', () => {
-      const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200 }
+      const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200, dropSkills: [] as string[] }
       const mod = new ToolUsageModule({ enabled: true }, () => filter)
       mod.transformRequest(history(800), ctx)
       expect(mod.getStats().action).toBeUndefined()
@@ -206,7 +206,7 @@ describe('ToolUsageModule', () => {
     // A deferred tool is on the list of the few requests after it was
     // loaded, so its stub is sent on few calls and saves little.
     it('counts a stub as saving only on the requests that offered the tool', () => {
-      const filter = { enabled: false, dropTools: ['NotebookEdit'], shortenTools: [] as string[], shortenTo: 200 }
+      const filter = { enabled: false, dropTools: ['NotebookEdit'], shortenTools: [] as string[], shortenTo: 200, dropSkills: [] as string[] }
       const mod = new ToolUsageModule({ enabled: true }, () => filter)
       mod.transformRequest(history(6000), ctx)
       expect(mod.getStats().action?.options).toEqual({ shortenTools: ['Artifact'] })
@@ -224,7 +224,7 @@ describe('ToolUsageModule', () => {
         first.transformRequest(history(6000), ctx)
         first.flush()
 
-        const filter = { enabled: false, dropTools: ['NotebookEdit'], shortenTools: [] as string[], shortenTo: 200 }
+        const filter = { enabled: false, dropTools: ['NotebookEdit'], shortenTools: [] as string[], shortenTo: 200, dropSkills: [] as string[] }
         const second = new ToolUsageModule({ enabled: true }, () => filter)
         second.persistTo(file)
         expect(second.getStats().action?.options).toEqual({ shortenTools: ['Artifact'] })
@@ -240,7 +240,7 @@ describe('ToolUsageModule', () => {
       try {
         const file = join(dir, 'tool-usage.json')
         fs.writeFileSync(file, JSON.stringify({ requests: 10, calls: 5000, offered: { Bash: 800, Artifact: 8167 }, called: ['Bash', 'Artifact'] }))
-        const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200 }
+        const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200, dropSkills: [] as string[] }
         const mod = new ToolUsageModule({ enabled: true }, () => filter)
         mod.persistTo(file)
         expect(kpi(mod, 'called')).toBe(2)
@@ -249,6 +249,102 @@ describe('ToolUsageModule', () => {
       } finally {
         fs.rmSync(dir, { recursive: true, force: true })
       }
+    })
+  })
+
+  // Claude Code's skill listing is read back on every call like the tool
+  // list: 30 of the 93 skills one developer had listed were invoked in 30
+  // days. The card names the rest for the Tool Filter's dropSkills.
+  describe('skills', () => {
+    const listing = [
+      'The following skills are available for use with the Skill tool:',
+      '',
+      '- deslop: Remove AI writing patterns from prose.',
+      `- claude-api: Reference for the Claude API.\nTRIGGER - ${'read this first. '.repeat(30)}`,
+      `- speckit-plan: ${'Execute the planning workflow. '.repeat(8)}`,
+      '- anthropic-skills:pdf',
+      '',
+      'Today is Monday.',
+    ].join('\n')
+    const listed = { role: 'system', content: [{ type: 'text', text: listing }] }
+    const invoke = (skill: string, id: string) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'Skill', input: { skill } }] })
+    const bash = (n: number) => Array.from({ length: n }, (_, i) => ({ role: 'assistant', content: [{ type: 'tool_use', id: `b${i}`, name: 'Bash', input: {} }] }))
+    const tools = [tool('Bash'), tool('Skill')]
+
+    it('lists the skills no call has invoked, largest first, with what they cost', () => {
+      const mod = usage()
+      mod.transformRequest(JSON.stringify({ tools, messages: [listed, invoke('deslop', 's1'), invoke('deslop', 's2')] }), ctx)
+      expect(kpi(mod, 'skills')).toBe(4)
+      expect(kpi(mod, 'skillsNever')).toBe(3)
+      expect(mod.getStats().detail).toMatch(/Skills never invoked, largest first \(tokens per request\): claude-api \(\d+\), speckit-plan \(\d+\), anthropic-skills:pdf \(\d+\)\./)
+      expect(mod.getStats().detail).not.toMatch(/Skills never invoked[^.]*deslop/)
+    })
+
+    it('learns an invocation from a streamed response, and one written with a slash', () => {
+      const mod = usage()
+      mod.transformRequest(JSON.stringify({ tools, messages: [listed, invoke('/claude-api', 's1')] }), ctx)
+      mod.observeResponse('{}', ctx, sse(
+        { type: 'message_start', message: { id: 'm1', content: [] } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 's9', name: 'Skill', input: {} } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"skill":"specki' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: 't-plan","args":"x"}' } },
+      ))
+      expect(kpi(mod, 'skillsNever')).toBe(2)
+      expect(mod.getStats().detail).toMatch(/Skills never invoked[^.]*: deslop \(\d+\), anthropic-skills:pdf \(\d+\)\./)
+    })
+
+    it('offers the never-invoked skills to the Tool Filter once a thousand calls say so', () => {
+      const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200, dropSkills: ['anthropic-skills:*'] }
+      const mod = new ToolUsageModule({ enabled: true }, () => filter)
+      mod.transformRequest(JSON.stringify({ tools, messages: [listed, invoke('deslop', 's1'), ...bash(900)] }), ctx)
+      expect(mod.getStats().action).toBeUndefined()
+      mod.transformRequest(JSON.stringify({ tools, messages: [listed, invoke('deslop', 's1'), ...bash(1000)] }), ctx)
+      expect(mod.getStats().action).toEqual({
+        label: 'Drop these 2 never-invoked skills in the Tool Filter',
+        module: 'tool-filter',
+        enabled: true,
+        options: { dropSkills: ['anthropic-skills:*', 'claude-api', 'speckit-plan'] },
+      })
+      filter.dropSkills = ['anthropic-skills:*', 'claude-api', 'speckit-*']
+      expect(mod.getStats().action).toBeUndefined()
+    })
+
+    it('puts tools and skills in one action when both have something to drop', () => {
+      const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200, dropSkills: [] as string[] }
+      const mod = new ToolUsageModule({ enabled: true }, () => filter)
+      mod.transformRequest(JSON.stringify({ tools: [...tools, tool('NotebookEdit', 5)], messages: [listed, invoke('deslop', 's1'), invoke('claude-api', 's2'), invoke('speckit-plan', 's3'), ...bash(1000)] }), ctx)
+      expect(mod.getStats().action).toEqual({
+        label: 'Drop 1 never-called tools and drop 1 never-invoked skills in the Tool Filter',
+        module: 'tool-filter',
+        enabled: true,
+        options: { dropTools: ['NotebookEdit'], dropSkills: ['anthropic-skills:pdf'] },
+      })
+    })
+
+    it('keeps the skills and their counts across a restart', () => {
+      const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-tool-usage-'))
+      try {
+        const file = join(dir, 'tool-usage.json')
+        const first = usage()
+        first.persistTo(file)
+        first.transformRequest(JSON.stringify({ tools, messages: [listed, invoke('deslop', 's1')] }), ctx)
+        first.flush()
+        const second = usage()
+        second.persistTo(file)
+        expect(kpi(second, 'skills')).toBe(4)
+        expect(kpi(second, 'skillsNever')).toBe(3)
+        second.resetStats()
+        expect(kpi(second, 'skills')).toBe(0)
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    })
+
+    it('reports nothing about skills for a client that lists none', () => {
+      const mod = usage()
+      mod.transformRequest(JSON.stringify({ tools, messages: [{ role: 'user', content: 'hi' }] }), ctx)
+      expect(kpi(mod, 'skills')).toBe(0)
+      expect(mod.getStats().detail ?? '').not.toContain('Skills')
     })
   })
 

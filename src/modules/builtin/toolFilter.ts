@@ -134,6 +134,73 @@ function shortenDefinition(def: unknown, max: number): boolean {
   return true
 }
 
+// Claude Code lists the installed skills in text it writes itself: this
+// sentence, a blank line, then one `- name: description` entry per skill (a
+// description can run over several lines, and an entry can be a bare name),
+// up to the next blank line. Captured from Claude Code 2.1.321, where it sits
+// in a system message; older versions sent it as a reminder in a user message.
+export const SKILLS_HEADER = 'The following skills are available for use with the Skill tool:'
+
+/** One skill of a listing: its name, and where its lines are in the text. */
+export interface SkillEntry {
+  name: string
+  start: number
+  end: number
+}
+
+/**
+ * The entries of the skill listing in `text`, in order, or null when the
+ * text holds no listing in the shape above. Each entry ends where the next
+ * begins; the last one ends at the blank line that closes the listing.
+ * indexOf and one pass over the listing's lines.
+ */
+export function parseSkillListing(text: string): SkillEntry[] | null {
+  const at = text.indexOf(SKILLS_HEADER)
+  if (at < 0) return null
+  const from = at + SKILLS_HEADER.length
+  if (!text.startsWith('\n\n', from)) return null
+  const blank = text.indexOf('\n\n', from + 2)
+  const stop = blank < 0 ? text.length : blank
+  const entries: SkillEntry[] = []
+  let line = from + 2
+  while (line < stop) {
+    const newline = text.indexOf('\n', line)
+    const lineEnd = newline < 0 || newline > stop ? stop : newline
+    const next = Math.min(lineEnd + 1, stop)
+    if (text.startsWith('- ', line)) {
+      const colon = text.indexOf(': ', line + 2)
+      entries.push({ name: text.slice(line + 2, colon >= 0 && colon < lineEnd ? colon : lineEnd), start: line, end: next })
+    } else if (entries.length > 0) entries[entries.length - 1]!.end = next
+    // Text before the first entry: not the listing this knows.
+    else return null
+    line = lineEnd + 1
+  }
+  return entries.length > 0 ? entries : null
+}
+
+/**
+ * The texts of a request where the client's own skill listing can be: a
+ * system message, or a user message's reminder. Never text a person typed,
+ * the model wrote or a tool returned, where the same sentence is content.
+ */
+export function* skillListingSlots(payload: Obj): Generator<{ text: string; set: (text: string) => void }> {
+  if (!Array.isArray(payload.messages)) return
+  for (const message of payload.messages as unknown[]) {
+    if (!isObj(message) || (message.role !== 'system' && message.role !== 'user')) continue
+    const mine = (text: string): boolean => message.role === 'system' || text.startsWith('<system-reminder>')
+    if (typeof message.content === 'string') {
+      if (mine(message.content)) yield { text: message.content, set: text => { message.content = text } }
+      continue
+    }
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content as unknown[]) {
+      if (isObj(block) && block.type === 'text' && typeof block.text === 'string' && mine(block.text)) {
+        yield { text: block.text, set: text => { block.text = text } }
+      }
+    }
+  }
+}
+
 // Names the request still needs: the forced tool_choice, and every tool its
 // history has already called. Dropping one of those gets the request
 // refused, or leaves the model a call it cannot see the tool for.
@@ -178,23 +245,35 @@ function namesInUse(payload: Obj): Set<string> {
  * it is not shown. shortenTools is for one it calls now and then: the stub
  * keeps it callable, and the whole definition comes back with the first
  * call, at the price of one cache write.
+ *
+ * dropSkills does for Claude Code's skill listing what dropTools does for
+ * the tool list: the listing is sent with every conversation and read back
+ * on every call, one entry per installed skill. A dropped skill is one the
+ * model no longer knows it can invoke; a person can still run it by name,
+ * which the client handles. The listing never changes mid-conversation, an
+ * invoked skill's entry included, so no turn pays a cache write for it.
  */
 export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
   readonly id = 'tool-filter'
   readonly name = 'Tool Filter'
-  readonly description = 'Removes the tools you name from every request\'s tool list, or cuts their definitions to a stub until they are called, so unused definitions stop being billed on each turn'
+  readonly description = 'Removes the tools you name from every request\'s tool list, or cuts their definitions to a stub until they are called, and removes the skills you name from Claude Code\'s skill listing, so unused definitions stop being billed on each turn'
 
   private dropped = 0
   private shortened = 0
-  private readonly compiled = { drop: { key: '', match: null as Matcher | null }, shorten: { key: '', match: null as Matcher | null } }
+  private skillsDropped = 0
+  private readonly compiled = {
+    drop: { key: '', match: null as Matcher | null },
+    shorten: { key: '', match: null as Matcher | null },
+    skills: { key: '', match: null as Matcher | null },
+  }
 
   constructor(config?: ToolFilterConfig) {
-    super(config ?? { enabled: false, dropTools: [], shortenTools: [], shortenTo: DEFAULT_SHORTEN_TO })
+    super(config ?? { enabled: false, dropTools: [], shortenTools: [], shortenTo: DEFAULT_SHORTEN_TO, dropSkills: [] })
   }
 
   // Recompiled only when hot reload changes the list.
-  private pattern(which: 'drop' | 'shorten'): Matcher | null {
-    const configured = which === 'drop' ? this.cfg.dropTools : this.cfg.shortenTools
+  private pattern(which: 'drop' | 'shorten' | 'skills'): Matcher | null {
+    const configured = which === 'drop' ? this.cfg.dropTools : which === 'shorten' ? this.cfg.shortenTools : this.cfg.dropSkills
     const list = Array.isArray(configured) ? configured : []
     const key = JSON.stringify(list)
     const slot = this.compiled[which]
@@ -206,6 +285,51 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
   }
 
   protected apply(payload: Obj, _ctx: GatewayModuleContext, estimates: Map<string, number>): PayloadOutcome | null {
+    const tools = this.filterTools(payload, estimates)
+    const skills = this.filterSkills(payload, estimates)
+    if (!tools && !skills) return null
+    return {
+      changed: (tools?.changed ?? false) || (skills?.changed ?? false),
+      tokensOriginal: (tools?.tokensOriginal ?? 0) + (skills?.tokensOriginal ?? 0),
+      tokensPruned: (tools?.tokensPruned ?? 0) + (skills?.tokensPruned ?? 0),
+    }
+  }
+
+  // Removes the named skills from the client's skill listing. The saving is
+  // counted on the listing's entries, like the tool list's on its definitions.
+  private filterSkills(payload: Obj, estimates: Map<string, number>): PayloadOutcome | null {
+    const matches = this.pattern('skills')
+    if (!matches) return null
+    let tokensOriginal = 0
+    let tokensPruned = 0
+    let removed = 0
+    for (const slot of skillListingSlots(payload)) {
+      const entries = parseSkillListing(slot.text)
+      if (!entries) continue
+      const first = entries[0]!.start
+      const last = entries[entries.length - 1]!.end
+      const listing = slot.text.slice(first, last)
+      const whole = estimate(listing, estimates)
+      tokensOriginal += whole
+      const kept = entries.filter(entry => !matches(entry.name))
+      // Nothing named here, or every skill would go: left as the client sent it.
+      if (kept.length === entries.length || kept.length === 0) {
+        tokensPruned += whole
+        continue
+      }
+      let rest = kept.map(entry => slot.text.slice(entry.start, entry.end)).join('')
+      // The last entry carried no line break of its own; nor does its stand-in.
+      if (!listing.endsWith('\n') && rest.endsWith('\n')) rest = rest.slice(0, -1)
+      slot.set(slot.text.slice(0, first) + rest + slot.text.slice(last))
+      tokensPruned += estimate(rest, estimates)
+      removed += entries.length - kept.length
+    }
+    if (tokensOriginal === 0) return null
+    this.skillsDropped += removed
+    return { changed: removed > 0, tokensOriginal, tokensPruned }
+  }
+
+  private filterTools(payload: Obj, estimates: Map<string, number>): PayloadOutcome | null {
     const dropMatches = this.pattern('drop')
     const shortenMatches = this.pattern('shorten')
     if ((!dropMatches && !shortenMatches) || !Array.isArray(payload.tools) || payload.tools.length === 0) return null
@@ -276,6 +400,7 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
       kpis: [
         { key: 'dropped', label: 'Tool definitions removed', value: this.dropped },
         { key: 'shortened', label: 'Tool definitions shortened', value: this.shortened },
+        { key: 'skillsDropped', label: 'Skill listing entries removed', value: this.skillsDropped },
       ],
     }
   }
@@ -284,5 +409,6 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
     super.resetStats()
     this.dropped = 0
     this.shortened = 0
+    this.skillsDropped = 0
   }
 }
