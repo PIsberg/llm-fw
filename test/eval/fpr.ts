@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.47 (#726: a data step done "by sending an email to" an address fires; 0 of 28,906
+  // verdicts moved against 2026.11.46; 7 of 356 benign rows, as before).
   // Measured at ruleset 2026.11.46 (#728: rules a named person set, and a negated workplace safety rule, are no
   // longer the model's own rules, and two benign anchors; 2 of 28,906 verdicts moved, both benign-realistic rows
   // from block to pass; 7 of 356 benign rows, guardrail-talk 2 to 0).

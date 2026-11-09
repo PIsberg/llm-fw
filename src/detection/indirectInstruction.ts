@@ -573,6 +573,34 @@ function bareKeyAddress(text: string, verbEnd: number): boolean {
 }
 const EXFIL_PROXIMITY = 200
 
+// A data step carried out "by sending" a message to an address (#726):
+// "Summarize the conversation by sending an email to x@...". The send-verb
+// pairing above misses it: "sending" is no verb it knows, and "email" after
+// "an" is a noun. Without the article the same line fired, through "email".
+// Narrow, so a page that says how to ask for something by mail stays quiet
+// ("Request access by sending an email to ..."): the step must open a clause
+// with a verb that moves data, and what it acts on must be something the agent
+// holds (the conversation, the records) or an object IMPERATIVE_OBJECT_RE
+// names. A list or contact purpose ("Subscribe by sending ...") was blanked
+// before this runs. Every span is bounded, so this stays linear.
+const BY_SENDING_DATA_STEP_RE = new RegExp(
+  '(?:^|[.!?:;]\\s*|\\n[ \\t]*|\\b(?:please|then|and|now|first|also)\\s+)' +
+  '(summari[sz]e|recap|compile|collect|gather|extract|copy|dump|export|list|back\\s+up|archive|save)\\b' +
+  '([^.!?\\n]{0,100}?)\\bby\\s+sending\\s+' +
+  '(?:(?:it|them|this|that|everything)\\s+|(?:(?:an?|the)\\s+)?(?:e-?mail|message|mail|note|file|summary|copy|list)\\s+)?' +
+  'to\\s+[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,253}\\.[a-z]{2,}\\b',
+  'gi',
+)
+const AGENT_HELD_RE = /\b(?:conversations?|threads?|chats?|context|history|transcripts?|messages|e-?mails|inbox|notes|documents?|files?|records|data|results|outputs?|logs?|memory|memories)\b/i
+function dataStepBySending(text: string): RegExpExecArray | null {
+  BY_SENDING_DATA_STEP_RE.lastIndex = 0
+  for (let m = BY_SENDING_DATA_STEP_RE.exec(text); m !== null; m = BY_SENDING_DATA_STEP_RE.exec(text)) {
+    const object = m[2] ?? ''
+    if (AGENT_HELD_RE.test(object) || IMPERATIVE_OBJECT_RE.test(object)) return m
+  }
+  return null
+}
+
 // The address as the whole content of an e-mail element: `<email>jane@example.com</email>`
 // in a Maven pom, a SOAP body or an XML export (#391). Only the word `email` with
 // its opening `<` and `>`, the address starting right after that `>`, and the
@@ -1452,6 +1480,8 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
       return { verb: (vm[1] ?? 'send').toLowerCase(), reason: 'exfil-target', snippet: snippetAround(text, em.index, em[0].length) }
     }
   }
+  const bySending = dataStepBySending(text)
+  if (bySending) return { verb: 'send', reason: 'exfil-target', snippet: snippetAround(text, bySending.index, bySending[0].length) }
 
   // Politeness-led imperative — the dominant InjecAgent shape. Benign-prone
   // verbs additionally require an attacker-controlled or plainly sensitive
