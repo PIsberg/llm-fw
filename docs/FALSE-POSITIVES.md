@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.48
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.47 moved 0 of 28,906 rows. "Share your feedback" and "cancel your order" lines count as contact steps (#740). None of the benign corpora holds them; the shapes came from writing #726's benign tests.
+
 ## Result, ruleset 2026.11.47
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.46 moved 0 of 28,906 rows. A data step done "by sending an email to" an address now fires (#726); it needs a data verb opening the clause and an object the agent holds, so a page that says how to request something by mail stays quiet. None of the 179 distinct "by sending" strings in this machine's transcripts changed verdict.

@@ -666,6 +666,10 @@ function isMailLinkLabel(text: string, verbStart: number, verbEnd: number, addrS
 // "and a cover letter" may follow; any other object ("your CV and the API keys")
 // leaves the clause unmatched.
 const JOB_DOCUMENT = '(?:your\\s+)?(?:cv|r[eé]sum[eé]|application)(?:\\s+(?:and|with)\\s+(?:a\\s+|your\\s+)?(?:short\\s+)?(?:cover\\s+letter|portfolio))?'
+// The reader's own opinion, asked for by a help page (#740): "Share your
+// feedback with us at X", "share your thoughts by sending an email to X".
+// Only these nouns: "share the conversation history with us at X" names data.
+const FEEDBACK_PURPOSE = 'share\\s+(?:your|any)\\s+(?:feedback|thoughts|comments|ideas|suggestions)'
 const CONTACT_CLAUSE_RE = new RegExp(
   // `\n[ \t]*`, not `\n\s*`: see SENTENCE_IMPERATIVE_RE (GHSA-gm3q-2gwx-gppq).
   '(^|[.!?:;,]\\s*|\\n[ \\t]*|\\b(?:please|kindly|or)\\s+)(' +
@@ -673,6 +677,7 @@ const CONTACT_CLAUSE_RE = new RegExp(
   '|e-?mail(?:\\s+(?:us|me|them))?(?:\\s+at)?' +
   '|write\\s+to(?:\\s+(?:us|me|them)\\s+at)?' +
   `|(?:send|submit|e-?mail)\\s+(?:us\\s+)?${JOB_DOCUMENT}\\s+to` +
+  `|${FEEDBACK_PURPOSE}\\s+with\\s+(?:us|me|them)\\s+at` +
   // The address as itself or as a markdown mail link that shows it,
   // `[x@acme.io](mailto:x@acme.io)`: a SECURITY.md reporting step (#620).
   ')\\s+(?:\\[[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\]\\(mailto:[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}(?:\\?[^\\s()]{0,200})?\\)' +
@@ -692,7 +697,9 @@ const CONTACT_CLAUSE_RE = new RegExp(
 // alternation of literal words, and every span bounded: linear.
 const CONTACT_BY_SENDING_RE = new RegExp(
   '((?:^|[.!?:;]\\s*|\\n[ \\t]*|\\b(?:please|kindly|you\\s+(?:can|may)|to)\\s+)' +
-  '(?:(?:un)?subscribe|apply|opt\\s+out|sign\\s+up|register|join(?:\\s+(?:us|the\\s+list))?|report\\s+(?:bugs|issues|problems)|reach\\s+(?:us|me|them)|contact\\s+(?:us|me|them))' +
+  '(?:(?:un)?subscribe|apply|opt\\s+out|sign\\s+up|register|join(?:\\s+(?:us|the\\s+list))?|report\\s+(?:bugs|issues|problems)|reach\\s+(?:us|me|them)|contact\\s+(?:us|me|them)' +
+  // #740: a help page's feedback line, an order confirmation's cancellation line.
+  `|${FEEDBACK_PURPOSE}|cancel\\s+(?:your|an?|the)\\s+(?:order|subscription|booking|reservation|account))` +
   '(?:\\s+(?:at\\s+any\\s+time|(?:to|from)\\s+(?:the|this|our)\\s+(?:[a-z-]+\\s+)?(?:list|newsletter|mailing\\s+list|digest)|for\\s+(?:this|the)\\s+(?:role|position|job)))?' +
   '\\s+by\\s+)(' +
   `sending\\s+(?:us\\s+)?(?:(?:an?\\s+)?(?:e-?mail|message|mail|note)|${JOB_DOCUMENT})\\s+to` +
