@@ -3,7 +3,7 @@ import type { ToolResultDedupConfig } from '../../types.js'
 import type { GatewayModuleContext } from '../types.js'
 import type { CapturedResponse } from '../responseTap.js'
 import { SlotModule, type PayloadOutcome } from '../base.js'
-import type { SlotKind, TextSlot } from '../payload.js'
+import { collectTextSlots, type SlotKind, type TextSlot } from '../payload.js'
 import { responseEvents } from '../usage.js'
 import { isWithholdNotice } from '../../detection/withhold.js'
 
@@ -111,6 +111,9 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
   // text it replaced, until detection has run (#708).
   private written: Map<string, { id: string; text: string }> = new Map()
   private readonly pointers = new WeakMap<GatewayModuleContext, Map<string, { id: string; text: string }>>()
+  // The thread's tool result count before a request, so restoreWithheld can
+  // number its tool results the way rewrite did (#734).
+  private readonly bases = new WeakMap<GatewayModuleContext, number>()
 
   constructor(config?: ToolResultDedupConfig) {
     super(config ?? { enabled: false, minLength: 200 })
@@ -123,6 +126,7 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     this.reminders = new Set(parent?.reminders)
     this.ordinal = parent ? parent.ordinal : 0
     this.written = new Map()
+    this.bases.set(ctx, this.ordinal)
 
     const outcome = super.apply(payload, ctx, estimates)
     if (this.written.size > 0) this.pointers.set(ctx, this.written)
@@ -155,14 +159,27 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
    * scan on its own surface: a Read from a trusted root passes where the
    * same text through a shell was withheld (#708). The withheld copies also
    * leave the state a thread continuation inherits, so a later turn does not
-   * point at them. Copies named by position (`#3`, no tool call id) cannot be
-   * found in the body and stay pointers.
+   * point at them. A copy named by position (`#3`, a format with no tool call
+   * id) is found by walking the body's slots the way rewrite numbered them
+   * (#734); withholding replaces text in place, so the count does not move.
    */
   restoreWithheld(body: string, ctx: GatewayModuleContext): string | undefined {
     if (!ctx.parser) return undefined
+    const isWithheld = (text: string): boolean => text.split('\n').every(line => isWithholdNotice(line))
     const withheld = new Set<string>()
     for (const tr of ctx.parser.extractToolResults(body)) {
-      if (tr.result.split('\n').every(line => isWithholdNotice(line))) withheld.add(tr.toolUseId)
+      if (isWithheld(tr.result)) withheld.add(tr.toolUseId)
+    }
+    let data: unknown
+    try { data = JSON.parse(body) } catch { data = undefined }
+    const base = this.bases.get(ctx)
+    if (base !== undefined && data !== undefined) {
+      let n = base
+      for (const slot of collectTextSlots(data)) {
+        if (slot.kind !== 'tool_result') continue
+        n++
+        if (slot.toolCallId === undefined && isWithheld(slot.text)) withheld.add(`#${n}`)
+      }
     }
     if (withheld.size === 0) return undefined
     const snap = this.pending.get(ctx)
@@ -171,9 +188,7 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     if (!written) return undefined
     const restore = new Map<string, string>()
     for (const [pointer, { id, text }] of written) if (withheld.has(id)) restore.set(pointer, text)
-    if (restore.size === 0) return undefined
-    let data: unknown
-    try { data = JSON.parse(body) } catch { return undefined }
+    if (restore.size === 0 || data === undefined) return undefined
     let changed = false
     const walk = (v: unknown): void => {
       if (Array.isArray(v)) {
