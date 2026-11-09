@@ -370,3 +370,6 @@
 {"dateFromCI":"2026-11-08T10:44:55.785Z","commit":"58646f4c034c729ab062833beb86172bb522ea6d","split":"heldout","recall":0.7419354838709677,"fpr":0}
 {"dateFromCI":"2026-11-08T10:44:55.785Z","commit":"58646f4c034c729ab062833beb86172bb522ea6d","split":"injecagent","recall":1,"fpr":0}
 {"dateFromCI":"2026-11-08T10:44:55.785Z","commit":"58646f4c034c729ab062833beb86172bb522ea6d","split":"safeguard-prompt-injection","recall":0.7630769230769231,"fpr":0.0007092198581560284}
+{"dateFromCI":"2026-11-09T12:05:23.542Z","commit":"e51186999244790e97ba44f16f195a25ad969c68","split":"heldout","recall":0.7419354838709677,"fpr":0}
+{"dateFromCI":"2026-11-09T12:05:23.542Z","commit":"e51186999244790e97ba44f16f195a25ad969c68","split":"injecagent","recall":1,"fpr":0}
+{"dateFromCI":"2026-11-09T12:05:23.542Z","commit":"e51186999244790e97ba44f16f195a25ad969c68","split":"safeguard-prompt-injection","recall":0.7646153846153846,"fpr":0.0007092198581560284}
