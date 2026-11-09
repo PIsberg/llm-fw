@@ -198,5 +198,16 @@ describe('Proxy streamed response exfil (#551, E2E)', { timeout: 30000 }, () => 
     expect(res.body).toContain('secret-token')
     expect(res.body).toContain('AFTER')
     expect(res.body).toContain('message_stop')
+    // #674: the URL arrives split across two deltas, so the raw SSE text
+    // holds it only in pieces. The audit reads the assembled text too, and
+    // reports the whole URL once.
+    const found = events.filter(e => e.stage === 'response-exfil')
+    expect(found.map(e => [e.action, e.exfilUrl])).toEqual([['warned', 'https://webhook.site/abc-123?d=secret-token']])
+  })
+
+  it('reports nothing in audit mode for a benign link split across deltas', async () => {
+    events.length = 0
+    await send(auditConfig.proxy.port, upstreamPort, request('clean'))
+    expect(events.filter(e => e.stage === 'response-exfil')).toEqual([])
   })
 })

@@ -132,6 +132,21 @@ export function sseEventText(event: string, keys: ReadonlySet<string>): string |
 }
 
 /**
+ * What the model wrote across a whole SSE stream: every event's content
+ * strings, decoded and joined in order. A URL streamed over several deltas is
+ * whole here, where the raw stream holds it in pieces between JSON framing
+ * (#674). Events whose data is not JSON add nothing.
+ */
+export function sseStreamText(sse: string): string {
+  const parts: string[] = []
+  for (const event of sse.split(/\r?\n\r?\n/)) {
+    const text = sseEventText(event, CONTENT_KEYS)
+    if (text) parts.push(text)
+  }
+  return parts.join('')
+}
+
+/**
  * Watches a streamed (SSE) response for the canary. The token arrives in
  * pieces, one per text or argument delta, so the watch joins the strings of
  * each complete event and keeps the tail it needs to see a token that spans

