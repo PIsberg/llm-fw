@@ -374,7 +374,7 @@ In pipeline order, which is also the order of the cards:
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
 | `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never or rarely get called (on by default) |
 | `stream-usage` | `modules.streamUsage` | asks OpenAI-style chat streams to report usage; saves nothing, makes the meter complete |
-| `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
+| `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers, and moves the one-hour entries of clients you name to five minutes; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
 | `usage-meter` | `modules.usageMeter` | nothing; reads responses (on by default) |
 | `prompt-monitor` | `modules.promptMonitor` | nothing; keeps the prompts users type for the Prompts tab (off by default) |
@@ -832,7 +832,8 @@ Responses API, which this module does not touch.
 
 ### Prompt cache marker
 
-`modules.cacheControl.enabled` (`LLM_FW_CACHE_CONTROL_ENABLED`). Anthropic
+`modules.cacheControl.enabled` (`LLM_FW_CACHE_CONTROL_ENABLED`),
+`modules.cacheControl.ttl`, `cacheSystem`, `shortTtlClients`, `shortTtlScope`. Anthropic
 caches a prompt prefix only when the request asks for it, and a cached prefix
 is billed at a fraction of the input price on every later request that
 repeats it. For an Anthropic Messages request (`api.anthropic.com`,
@@ -847,13 +848,71 @@ turn by turn.
 
 A request that places any marker of its own is left alone: the client has
 already decided, and a request may hold at most four. Claude Code places its
-own, so this changes nothing for it; the card counts both cases. Writing an
+own, so this changes nothing for it unless you name it in `shortTtlClients`
+(below); the card counts both cases. Writing an
 entry costs more than an uncached read (1.25 times the input price for five
 minutes), so a one-off request that is never repeated pays more, and a
 prefix shorter than the model's minimum (512 to 4,096 tokens) is not cached
 at all. Check the Usage Meter's cache reads to see whether it pays. Under
 observe mode the original body goes upstream, and the card counts the request
 under **Would mark** instead.
+
+**Five-minute entries for runs that never idle.** `shortTtlClients` and
+`shortTtlScope` are the one case where the module changes markers a client
+placed. Claude Code asks for a one-hour entry on every breakpoint. Such an
+entry costs 2 times the input price to write where a five-minute one costs
+1.25, and the extra buys one thing: the conversation can idle for more than
+five minutes and still read its cache. An interactive session needs that. A
+run that never idles (print mode, `claude -p`; an agent in a CI job) pays it
+for nothing.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `shortTtlClients` | `[]` | Names of clients, each matched anywhere in the request's `User-Agent`, in any case. A matching request's one-hour breakpoints become five-minute ones. Claude Code's print mode sends `claude-cli/<version> (external, sdk-cli)`, so `sdk-cli` names it and leaves an interactive session (`(external, cli)`) alone. |
+| `shortTtlScope` | `messages` | `messages`: only the conversation's own breakpoints (on message blocks, on tool results, and the top-level automatic one); the tools and system prompt keep their one-hour entry, which separate runs share. `all`: those too. |
+
+The model is sent the same text either way; only the TTL the cache entry is
+written with changes, and a later call reads a five-minute entry exactly as
+it reads a one-hour one (each read renews it). The API wants one-hour
+breakpoints before five-minute ones, which both scopes keep.
+
+Measured on 30 days of one developer's Claude Code transcripts (2026-11-09,
+52,734 API calls; one-hour writes at 2, five-minute writes at 1.25, cache
+reads at 0.1, output at 5 times input). The one-hour premium, the difference
+between the two write prices, was 4.99% of the whole bill:
+
+| Sessions | One-hour premium, share of the whole bill | What five-minute entries would have added |
+| --- | --- | --- |
+| Interactive (267 conversations, 42,548 calls; 205 idled five minutes or more at least once) | 4.14% | rewrites worth 30.71% of the bill: every idle gap writes the whole prompt again. Leave these alone. |
+| Print mode (577 runs, 2,231 calls; none idled five minutes between calls) | 0.86%, which is 27.2% of what those runs cost | nothing inside a run. With `all`, 25 of the 577 runs started 5 to 60 minutes after the previous one and would have written the shared prefix again, 0.04% of the bill. |
+| Subagents and Python SDK sessions | 0 | They already ask for five-minute entries. |
+
+Checked live on 2026-11-09 (Claude Code 2.1.321 in print mode, Claude Haiku
+5.5, through the gateway in enforce mode, a task of three calls, the shared
+prefix already cached, each arm twice):
+
+| | Off | `messages` | Off | `all` |
+| --- | --- | --- | --- | --- |
+| Written to the cache | 14,064 tokens, one-hour | 14,091, five-minute | 14,159, one-hour | 14,187, five-minute |
+| Read from the cache | 62,123 | 62,150 | 62,218 | 62,225 |
+| Cost, as Claude Code reported it | $0.00364 | $0.00260 (28.5% less) | $0.00370 | $0.00266 (28.2% less) |
+
+Every arm answered correctly in three calls, and the calls after the first
+read the five-minute entries the earlier ones wrote. With `all`, the request
+also read the tools and system prompt entry an earlier run had written with
+a one-hour TTL.
+
+What it can cost: if one step of a named client's run takes five minutes or
+more (a long build or test command), the next call finds its entries expired
+and writes the conversation again at 1.25 times input where it would have
+read it at 0.1. With `messages` that is the conversation only; with `all`
+the tools and system prompt as well, and also whenever two runs start more
+than five minutes apart. Name only clients whose steps are short, and prefer
+`messages` unless runs come in bursts or more than an hour apart. Whether a
+client is in print mode is read from its `User-Agent`, which a client can set
+to anything; this is a billing choice for traffic you run yourself, not a
+control. The card counts requests and breakpoints moved, and, under observe
+mode, the requests it would have moved.
 
 ### Response cache
 

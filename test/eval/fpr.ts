@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.50 (two Prompt Cache Marker defaults in config.ts, no detection file changed; 7 of
+  // 356 benign rows, as before).
   // Held at ruleset 2026.11.49 (two Tool Filter defaults in config.ts, no detection file changed; 7 of 356
   // benign rows, as before).
   // Held at ruleset 2026.11.48 (#740: "share your feedback" and "cancel your order" contact lines are contact

@@ -14,7 +14,7 @@ import type { Config } from '../../src/types.js'
 // Modules that only read and may therefore be on by default.
 const READ_ONLY = new Set(['usageMeter', 'toolUsage'])
 // A different valid value for each string option, for the hot-reload check.
-const OTHER_STRING: Record<string, string> = { ttl: '1h' }
+const OTHER_STRING: Record<string, string> = { ttl: '1h', shortTtlScope: 'all' }
 
 const snake = (key: string) => key.replace(/[A-Z]/g, c => '_' + c).toUpperCase()
 const options = (key: string) => Object.entries((DEFAULT_CONFIG.modules as unknown as Record<string, Record<string, unknown>>)[key]!)
