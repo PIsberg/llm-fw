@@ -211,7 +211,7 @@ describe('/api/modules', () => {
     // Both at once: the switch and an option.
     const both = await call('POST', '/api/modules', JSON.stringify({ id: 'tool-filter', enabled: true, options: { dropTools: [' NotebookEdit ', 'mcp__axiom__*'] } }))
     expect(both.status).toBe(200)
-    expect(config.modules?.toolFilter).toEqual({ enabled: true, dropTools: ['NotebookEdit', 'mcp__axiom__*'] })
+    expect(config.modules?.toolFilter).toEqual({ enabled: true, dropTools: ['NotebookEdit', 'mcp__axiom__*'], shortenTools: [], shortenTo: 200 })
     expect(mgr.getModule('tool-filter')?.enabled).toBe(true)
   })
 

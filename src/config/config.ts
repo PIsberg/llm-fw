@@ -448,6 +448,9 @@ export const DEFAULT_CONFIG: Config = {
       enabled: false,
       // Which tools a client never uses is the operator's call.
       dropTools: [],
+      // Tools a client calls now and then: kept callable, cut to a stub.
+      shortenTools: [],
+      shortenTo: 200,
     },
     toolDefinitionPruner: {
       enabled: false,

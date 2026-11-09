@@ -578,6 +578,16 @@ export interface ToolFilterConfig extends ModuleSwitchConfig {
    * Empty by default, so turning the module on changes nothing by itself.
    */
   dropTools: string[];
+  /**
+   * Tools whose definitions are cut to a stub, same patterns as dropTools:
+   * each description is cut to its first paragraph, the name and the schema
+   * stay, so the tool can still be called. Once a conversation has called
+   * it, that conversation is sent the whole definition again. For tools a
+   * client calls now and then; empty by default.
+   */
+  shortenTools: string[];
+  /** Characters kept of each description in a shortened definition. */
+  shortenTo: number;
 }
 
 export interface LeanCtxConfig extends ModuleSwitchConfig {
