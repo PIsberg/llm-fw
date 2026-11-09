@@ -270,3 +270,70 @@ describe('ToolResultDedupModule after detection withheld a tool result (#708)', 
     expect(res2.modified).toBe(false)
   })
 })
+
+// #734: a format whose tool results carry no id (an OpenAI-compatible local
+// server that takes `role: 'tool'` without `tool_call_id`) gets pointers that
+// name the earlier copy by position. The position is counted the same way the
+// pointer was numbered, from the start of the thread.
+describe('ToolResultDedupModule restores a pointer named by position (#734)', () => {
+  const notice = withholdNotice('tool_result', 'indirect-instruction')
+  const other = 'other line\n'.repeat(40)
+
+  const chat: GatewayModuleContext = { ...ctx, target: 'localhost', path: '/v1/chat/completions', parser: getParser('/v1/chat/completions') }
+  const withholdChat = (body: string, index: number): string => {
+    const data = JSON.parse(body)
+    data.messages[index].content = notice
+    return JSON.stringify(data)
+  }
+
+  it('restores #n when the n-th tool result was withheld', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c: GatewayModuleContext = { ...chat }
+    const out = (mod.transformRequest(JSON.stringify({ messages: [
+      { role: 'user', content: 'read it twice' },
+      { role: 'tool', content: file },
+      { role: 'tool', content: file },
+    ] }), c) as { body: string }).body
+    expect(JSON.parse(out).messages[2].content).toBe('[llm-fw: identical to the earlier tool result #1]')
+    const restored = mod.restoreWithheld(withholdChat(out, 1), c)
+    expect(restored).toBeDefined()
+    const msgs = JSON.parse(restored!).messages
+    expect(msgs[1].content).toBe(notice)
+    expect(msgs[2].content).toBe(file)
+  })
+
+  it('leaves #n alone when a different position was withheld', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c: GatewayModuleContext = { ...chat }
+    const out = (mod.transformRequest(JSON.stringify({ messages: [
+      { role: 'tool', content: file },
+      { role: 'tool', content: file },
+      { role: 'tool', content: other },
+    ] }), c) as { body: string }).body
+    expect(mod.restoreWithheld(withholdChat(out, 2), c)).toBeUndefined()
+  })
+
+  it('counts positions from the start of a server-side thread', () => {
+    const responses: GatewayModuleContext = { ...ctx, target: 'api.openai.com', path: '/v1/responses', parser: getParser('/v1/responses') }
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c1: GatewayModuleContext = { ...responses }
+    mod.transformRequest(JSON.stringify({ store: true, input: [{ type: 'function_call_output', output: other }] }), c1)
+    mod.observeResponse('{}', c1, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from(JSON.stringify({ id: 'resp_734', object: 'response', output: [] })),
+    })
+    // The thread already holds one result, so these two are #2 and #3.
+    const c2: GatewayModuleContext = { ...responses }
+    const out = (mod.transformRequest(JSON.stringify({ previous_response_id: 'resp_734', input: [
+      { type: 'function_call_output', output: file },
+      { type: 'function_call_output', output: file },
+    ] }), c2) as { body: string }).body
+    expect(JSON.parse(out).input[1].output).toBe('[llm-fw: identical to the earlier tool result #2]')
+    const data = JSON.parse(out)
+    data.input[0].output = notice
+    const restored = mod.restoreWithheld(JSON.stringify(data), c2)
+    expect(restored).toBeDefined()
+    expect(JSON.parse(restored!).input[1].output).toBe(file)
+  })
+})

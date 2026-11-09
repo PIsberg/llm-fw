@@ -425,7 +425,8 @@ is scanned again, so each copy is judged on its own surface and path: a `Read`
 from a `trustedPaths` root passes where the same text through a shell command
 was withheld, and a second untrusted copy is withheld too. A withheld copy is
 also dropped from what a thread continuation remembers. A copy named by
-position (`#n`) cannot be found again and stays a pointer.
+position (`#n`) is found by counting the request's tool results the way the
+pointers were numbered, from the start of the thread.
 
 A client that keeps the conversation on the server and sends only the new
 messages (`thread` with `type: "continue"` and `previous_message_id`, or the
