@@ -12,104 +12,60 @@ stability decisions. Phase 3 needs the published container image from Phase 2.
 Legend: `[x]` done, `[ ]` open, `[~]` prepared and waiting on a maintainer
 action (a merge, a publish, a setting, a purchase).
 
-## Where it stands (2026-10-26)
+## Where it stands (2026-11-09)
 
-No release yet: the maintainer is holding 0.9.2 / `1.0.0-rc.1` until the work
-below is merged.
+Released since the last status: 0.9.2 (2026-10-26), 0.9.3, 0.9.4, 0.9.5 and
+0.9.6 (2026-11-09), each tagged from a green `main` and published to npm and
+GHCR. `1.0.0-rc.1` has not been cut. Every pull request the previous status
+listed (#491 to #503) is merged, and 84 issues were closed between 2026-10-26
+and 2026-11-09.
 
-Done on 2026-10-25, merged to main the same day:
+Checked on 2026-11-09 for this update:
 
-- #479: a blocked tool result is withheld instead of refusing the request,
-  and "Mark false positive" works on tool results. Per-session replay: 32 of
-  245 sessions outside llm-fw ended by a block before, 10 after.
-- #481: the docs claim audit (Phase 4) is finished, every `json` block in the
-  docs is parsed by a test, and the GA accuracy criteria are proposed
-  (Phase 4).
-
-### Open pull requests, in merge order
-
-Each builds on the one above and shares files with it (`CHANGELOG.md`, this
-plan, `heuristic.ts`, `ruleset.ts`). Merge them in this order with merge
-commits, not squash, so each later one stays conflict-free and keeps its green
-CI. All were green on 2026-10-26.
-
-| PR | What | Ruleset |
-| --- | --- | --- |
-| #491 | Override lexicons for 37 languages; every playground example tested, in every language; Aya benign corpus in `fpr` | 2026.10.87 |
-| #494 | `npm run recall:floor`: a per-split floor on direct-injection recall in CI (closes #480) | |
-| #496 | 7 persona jailbreaks blocked on purpose; an OpenAI response's `"refusal": null` no longer refused (closes #492) | 2026.10.88 |
-| #497 | "Act as X and stay in character" no longer blocked, trading safeguard row 862 (closes #495) | 2026.10.89 |
-| #499 | README instructions and "unrestricted free speech" no longer blocked (closes #485, #486); held-out rows read during rule work listed, recall reported on unseen rows | 2026.10.90 |
-| #500 | `jailbreak-classification`, the split no rule was tuned on, gated with a floor and a benign ceiling | |
-| #501 | A blocked earlier message is withheld instead of ending the session (closes #476) | 2026.10.91 |
-| #502 | A taint warning is reported once per session and host (closes #489) | 2026.10.92 |
-| #503 | Blocks and would-blocks stay in the dashboard event list (closes #488) | |
-| #498 | Two tests that failed under full-suite load (closes #493). Based on main, no shared files: merge any time | |
-
-What they measured, default config, judge and classifier off:
-
-- Direct injection on the four tuned splits: 627 of 853 before the chain,
-  633 after (#480's loss explained: 7 rows had been blocked only by an
-  accidental obfuscation bonus, 1 by an embedding margin a benign anchor
-  closed).
-- The never-tuned `jailbreak-classification` split: 311 of 542 jailbreaks
-  (57.4%) and 6 of 637 benign prompts (0.9%) blocked. That 57.4% is the
-  generalisation number to publish for 1.0, next to the tuned splits' 74%.
-- 7-day per-session replay of this machine's Claude Code traffic (407
-  sessions): 18 ended at a blocked prompt before #501, none after; all 17
-  blocked prompts and 310 blocked tool results are withheld once a newer
-  message follows.
-- `npm run fpr` unchanged throughout (2.68%; Dolly, oasst1 and Aya samples 0).
-
-Held-out hygiene, decided 2026-10-26: rules were tuned that day by reading 21
-safeguard rows and 1 heldout row, so those splits no longer cleanly measure
-unseen attacks. The rows are listed in `test/eval/lib/seenRows.ts` and
-`recall:floor` prints recall on unseen rows beside the floor. From now on,
-write fresh variants instead of opening a held-out row, list any row that was
-read, and never open a `jailbreak-classification` row
-(`.claude/rules/detection.md`).
+- The v0.9.6 GitHub Release carries `llm-fw-v0.9.6.cdx.json` (Phase 5, SBOM).
+- `ghcr.io/pisberg/llm-fw:0.9.6` pulls without credentials: an anonymous
+  token fetches its manifest with HTTP 200 (Phase 3, image public).
+- #459 was closed on 2026-10-30 after a live Codex CLI session signed in with
+  ChatGPT ran through `proxy.inspectChatgptBackend`: a benign turn answered and
+  a planted tool-result instruction withheld (Phase 3). The ChatGPT web app
+  through the same setting is still unverified (#567).
+- The repository setting behind #432 is still off
+  (`can_approve_pull_request_reviews: false`).
 
 ### Leftovers
 
 Waiting on a maintainer decision:
 
-- Merge the chain above, then cut the next release: 0.9.2 or `1.0.0-rc.1`
-  (Phase 5).
-- Sign off the proposed GA accuracy criteria and the recommendation that none
-  of #221, #273, #287 and #405 blocks 1.0 (Phase 4). The criteria table now
-  includes the never-tuned split and unseen-row recall.
+- Cut `1.0.0-rc.1` (Phase 5), or another 0.9.x first.
+- Sign off the proposed GA accuracy criteria (Phase 4) and the recommendation
+  that none of #221, #273 and #287 blocks 1.0 (#405 is closed).
+- The two open P1 issues, #477 and #620: what remains of each is benign tool
+  output still withheld by wording rules. A warn tier for an imperative with
+  no destination was measured on 2026-11-03 as a bad trade (it cleared 10 of
+  105 flagged texts and cost 200 of 1,054 InjecAgent attacks; #673 ships it
+  opt-in). The open question is whether to accept what is left for 1.0 or
+  decide by surface and action (#287) first.
 - External pentest: yes or no (Phase 2).
-- Make the GHCR package public after the first release (Phase 3).
 - The repository setting "Allow GitHub Actions to create and approve pull
   requests" for the lock freshness workflow (#432, Phase 0).
 
 Blocked on something other than a decision:
 
 - #483 (78 playground languages with no rule): measure the judge on the
-  multilingual fixture first. Needs a running Ollama.
+  multilingual fixture first. Needs a running Ollama with a judge model.
 - #484 (override shapes the lexicons miss): needs a second multilingual
-  held-out set written before any rule, generated through the translation
-  service.
+  held-out set written before any rule.
 - #490 (11 lexicon languages with no human-written benign check): needs
-  benign prompts in Slovak, Bulgarian, Romanian, Hebrew, Norwegian, Kazakh,
-  Azerbaijani, Uzbek, Croatian, Bosnian and Czech; neither Aya nor oasst1 has
-  them.
-- #459: verify `proxy.inspectChatgptBackend` against a live Codex CLI session
-  signed in with ChatGPT.
-- #474: one warned event with no stage or match; needs more detail from the
-  reporter to act on.
+  benign prompts in those languages; neither Aya nor oasst1 has them.
+- #567: load the ChatGPT web app through `proxy.inspectChatgptBackend`, in a
+  browser signed in to ChatGPT.
 - Infrastructure, not started: the Linux VM walkthrough of
   `deployment-server.md`, the install paths and modes, the attack from a
   second host, the 48 to 72 hour soak and the failure modes (Phase 3), the
   install matrix across Windows, macOS and Linux on Node 22, 24 and 26, and
   the commercial licence purchase end to end (Phase 4). This machine has WSL
   (Ubuntu 22.04) and Docker Desktop, installed but not running; using either
-  is the maintainer's call, and nothing has been installed into them.
-
-Can be done without anyone, not started:
-
-- #477: a withheld tool result takes its useful output with it; the model
-  only sees the notice. Needs a design for what, if anything, to keep.
+  is the maintainer's call.
 
 ## Phase 0: clear what is already known
 
@@ -272,16 +228,19 @@ Findings so far:
 
 ## Phase 3: remote server testing
 
-- [~] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
+- [ ] Container image published to GHCR: provenance, multi-arch (amd64, arm64),
   signed. The Helm chart's `image.repository` points at it. Status: prepared
   2026-10-24 (`.github/workflows/image.yml`, chart 0.2.4): a build-only
   amd64+arm64 job on PRs that touch the image inputs (the maintainer's choice),
   and on a release a push of `ghcr.io/pisberg/llm-fw:<version>` and `:latest`
-  with provenance (`mode=max`) and an SBOM. Waiting on: the first release, then
-  making the GHCR package public. Not done: signing beyond the provenance
-  attestation (cosign).
-- [ ] Verify `proxy.inspectChatgptBackend` against a live Codex CLI session
-  signed in with ChatGPT (#459).
+  with provenance (`mode=max`) and an SBOM. Published from 0.9.2 on, and
+  public: on 2026-11-09 an anonymous token fetched the 0.9.6 manifest (HTTP
+  200). Not done: signing beyond the provenance attestation (cosign).
+- [x] Verify `proxy.inspectChatgptBackend` against a live Codex CLI session
+  signed in with ChatGPT (#459). Status: verified live on 2026-10-30 (CA trust
+  through `CODEX_CA_CERTIFICATE` and `SSL_CERT_FILE` on Windows, a benign turn
+  answered, a planted tool-result instruction withheld). The ChatGPT web app
+  through the same setting is still unverified (#567).
 - [ ] Follow `docs/guides/deployment-server.md` literally on a Linux VM; every
   failing step is a doc bug.
 - [ ] Install paths: npm global plus systemd, Docker, Helm on k3s.
@@ -330,6 +289,16 @@ Findings so far:
   | Proposed, ruleset 2026.10.87: playground attacks in 132 languages | 681 of 1,197; held-out phrasings 226 of 798 | CI `multilingual-playground.test.ts` (floors) |
   | Proposed, ruleset 2026.10.87: human-written prompts in 70 languages blocked | 0 of 2,795 (Aya sample) | CI `npm run fpr` |
 
+  The same measures on `main` at ruleset 2026.11.45 (0.9.6), measured
+  2026-11-09 with `npm run recall:floor` and `npm run fpr`, default config,
+  judge and classifier off: direct injection on the four splits 635 of 853
+  (74.4%: gandalf 98 of 112, safeguard 497 of 650, deepset 17 of 60, heldout
+  23 of 31); unseen rows only 612 of 828 (73.9%); the never-tuned
+  `jailbreak-classification` split 310 of 542 (57.2%) with 7 of 637 benign
+  blocked; `multilingual-injections` 255 of 974; the identifier-free indirect
+  probe 8 of 40 (#535). Realistic benign agent traffic 9 of 356 (2.53%); the
+  Dolly, oasst1 and Aya samples 0. InjecAgent was not re-run for this update.
+
   Proposed answer on the four issues: none blocks 1.0, because detection
   verdicts move under `RULESET_VERSION`, not semver, so each can keep
   improving after 1.0 without a major version. #221 (direct recall) is the
@@ -358,10 +327,10 @@ Findings so far:
   - #490: 11 lexicon languages (Slovak, Bulgarian, Romanian, Hebrew,
     Norwegian, Kazakh, Azerbaijani, Uzbek, Croatian, Bosnian, Czech) have no
     human-written benign check; neither Aya nor oasst1 has them.
-  - #487: Dutch "Schakel veiligheidsfilters uit" passes (separable verb).
-  - #485, #486: two English false positives the multilingual benign set
-    exposed ("Follow the previous instructions in the README ...",
-    "Is unrestricted free speech protected ...?"), pinned as known blocks.
+  - Closed since: #487 (Dutch "Schakel veiligheidsfilters uit", a separable
+    verb) and #485, #486 (two English false positives the multilingual benign
+    set exposed, "Follow the previous instructions in the README ..." and
+    "Is unrestricted free speech protected ...?").
   - The DLP "Bearer token" and "Private key" examples are not checked in
     translation (the translator rewrites the protocol word and the PEM
     armour); their English forms are.
@@ -407,10 +376,10 @@ The next release may be numbered 0.9.2 rather than an rc (maintainer's call,
 2026-10-25). The checks below apply to whichever release comes next; the rc
 steps apply to the release that is the 1.0 candidate.
 
-- [ ] At the first release after the hardening branch: confirm the new `sbom`
+- [x] At the first release after the hardening branch: confirm the new `sbom`
   job attached `llm-fw-vX.Y.Z.cdx.json` to the GitHub Release (it cannot run
-  before one). Dev-only fast-uri is already 3.1.9 in the lockfile on main
-  (checked 2026-10-26).
+  before one). Status: every release since carries it; checked on v0.9.6
+  (`llm-fw-v0.9.6.cdx.json`), 2026-11-09.
 - [ ] `1.0.0-rc.1` on the `next` dist-tag, about two weeks of daily use, fixes
   as `rc.N`.
 - [ ] 1.0.0 cut with the `release` skill; tag and publish are the maintainer's.
