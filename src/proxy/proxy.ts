@@ -41,7 +41,7 @@ import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { isTokenCountRequest } from './tokenCount.js'
 import { bodyCap } from './bodyCap.js'
-import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT } from './canary.js'
+import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT, sseStreamText } from './canary.js'
 import { TlsSessionCache } from './tlsSessions.js'
 import { ExfilStreamHold } from './streamExfil.js'
 import { streamErrorEvent } from './streamError.js'
@@ -1354,6 +1354,23 @@ export class ProxyServer {
     return block ? neutralizeExfil(text, findings) : null
   }
 
+  /**
+   * The end-of-stream audit of a forwarded SSE response, which can only
+   * report. It reads what the model wrote, assembled across events, so a URL
+   * split over two deltas is reported whole; the raw stream held it only in
+   * pieces, reported as a fragment cut at the JSON framing (#674). The raw
+   * text is still read for anything the assembly drops; a raw finding the
+   * assembled text already holds is not reported twice.
+   */
+  private auditSseExfil(sseText: string, req: http.IncomingMessage, hostname: string): void {
+    if (!this.config.responseScan?.enabled) return
+    const assembled = sseStreamText(sseText)
+    const whole = scanResponseExfil(assembled, this.isExfilDestination)
+    const raw = scanResponseExfil(sseText, this.isExfilDestination)
+      .filter(f => !assembled.includes(f.url.split('"')[0] ?? f.url))
+    if (whole.length || raw.length) this.emitExfil([...whole, ...raw], false, req, hostname)
+  }
+
   private readonly isExfilDestination = (hostname: string, path: string): boolean =>
     this.urlClassifier.classifyDetailed(hostname, path).action === 'block'
 
@@ -1846,7 +1863,7 @@ export class ProxyServer {
           // What already reached the client still gets its audit; the hold's
           // unreleased text never reached it and is dropped with the connection.
           if (mode === 'sse') {
-            this.runResponseExfilScan(sseText, req, hostname, false)
+            this.auditSseExfil(sseText, req, hostname)
             this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
           }
@@ -1898,7 +1915,7 @@ export class ProxyServer {
             // Already streamed → audit only (cannot retract sent bytes); in
             // block mode the hold above already judged every line that opened
             // markup.
-            this.runResponseExfilScan(sseText, req, hostname, false)
+            this.auditSseExfil(sseText, req, hostname)
             this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
           }
