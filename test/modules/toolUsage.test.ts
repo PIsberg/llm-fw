@@ -135,7 +135,7 @@ describe('ToolUsageModule', () => {
   // been seen to trust the list, naming only the tools the filter does not
   // already cover, with the filter's full new list.
   it('offers to drop the never-called tools in the Tool Filter once a thousand calls say so', () => {
-    const filter = { enabled: false, dropTools: ['CronCreate', 'mcp__axiom__*'] }
+    const filter = { enabled: false, dropTools: ['CronCreate', 'mcp__axiom__*'], shortenTools: [] as string[], shortenTo: 200 }
     const mod = new ToolUsageModule({ enabled: true }, () => filter)
     const tools = [...offered, tool('mcp__axiom__axiom_query_symbol', 3)]
     const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ role: 'assistant', content: [{ type: 'tool_use', id: `c${i}`, name: 'Bash', input: {} }] }))
@@ -156,6 +156,100 @@ describe('ToolUsageModule', () => {
     expect(mod.getStats().action).toBeUndefined()
     // Without a filter to write to, none either.
     expect(new ToolUsageModule({ enabled: true }).getStats().action).toBeUndefined()
+  })
+
+  // A tool called now and then cannot be dropped, and the largest definition
+  // on one developer's requests (8,167 tokens) was one called in 0.3% of
+  // sessions. Those are offered to the Tool Filter's shortenTools instead,
+  // but only where the stub saves more than the cache rewrite each first
+  // call costs: a tool called under once in 200 calls lost money as a stub.
+  describe('rarely called tools', () => {
+    const tools = [tool('Bash'), tool('Read'), tool('Artifact', 800), tool('Sometimes', 800), tool('Tiny'), tool('NotebookEdit', 5)]
+    const call = (name: string, n: number) => Array.from({ length: n }, (_, i) => ({ role: 'assistant', content: [{ type: 'tool_use', id: `${name}${i}`, name, input: {} }] }))
+    const history = (bash: number) => JSON.stringify({ tools, messages: [{ role: 'user', content: 'hi' }, ...call('Bash', bash), ...call('Read', 100), ...call('Artifact', 2), ...call('Sometimes', 30), ...call('Tiny', 1)] })
+
+    it('offers to shorten a large tool whose calls are few enough for the stub to pay, beside the drop', () => {
+      const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200 }
+      const mod = new ToolUsageModule({ enabled: true }, () => filter)
+      mod.transformRequest(history(800), ctx)
+      expect(mod.getStats().action).toBeUndefined()
+
+      mod.transformRequest(history(6000), ctx)
+      const stats = mod.getStats()
+      // Tiny is as rare, but a stub of it saves nothing; Sometimes is as
+      // large, but its 30 first calls cost more than its stub saves.
+      expect(stats.action).toEqual({
+        label: 'Drop 1 never-called and shorten 1 rarely called tools in the Tool Filter',
+        module: 'tool-filter',
+        enabled: true,
+        options: { dropTools: ['NotebookEdit'], shortenTools: ['Artifact'] },
+      })
+      expect(stats.detail).toMatch(/Rarely called[^.]*Artifact \([\d,]+ tokens, 2 calls\)/)
+      expect(stats.detail).not.toMatch(/Rarely called[^.]*(Tiny|Read|Bash|Sometimes)/)
+
+      filter.dropTools = ['NotebookEdit']
+      expect(mod.getStats().action).toEqual({
+        label: 'Shorten these 1 rarely called tools in the Tool Filter',
+        module: 'tool-filter',
+        enabled: true,
+        options: { shortenTools: ['Artifact'] },
+      })
+
+      // Named already, by either list: nothing left to offer.
+      filter.shortenTools = ['Art*']
+      expect(mod.getStats().action).toBeUndefined()
+      filter.shortenTools = []
+      filter.dropTools = ['NotebookEdit', 'Artifact']
+      expect(mod.getStats().action).toBeUndefined()
+    })
+
+    // A deferred tool is on the list of the few requests after it was
+    // loaded, so its stub is sent on few calls and saves little.
+    it('counts a stub as saving only on the requests that offered the tool', () => {
+      const filter = { enabled: false, dropTools: ['NotebookEdit'], shortenTools: [] as string[], shortenTo: 200 }
+      const mod = new ToolUsageModule({ enabled: true }, () => filter)
+      mod.transformRequest(history(6000), ctx)
+      expect(mod.getStats().action?.options).toEqual({ shortenTools: ['Artifact'] })
+      const without = JSON.stringify({ tools: tools.filter(t => t.name !== 'Artifact'), messages: [{ role: 'user', content: 'hi' }] })
+      for (let i = 0; i < 9; i++) mod.transformRequest(without, ctx)
+      expect(mod.getStats().action).toBeUndefined()
+    })
+
+    it('keeps the count of each tool across a restart', () => {
+      const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-tool-usage-'))
+      try {
+        const file = join(dir, 'tool-usage.json')
+        const first = usage()
+        first.persistTo(file)
+        first.transformRequest(history(6000), ctx)
+        first.flush()
+
+        const filter = { enabled: false, dropTools: ['NotebookEdit'], shortenTools: [] as string[], shortenTo: 200 }
+        const second = new ToolUsageModule({ enabled: true }, () => filter)
+        second.persistTo(file)
+        expect(second.getStats().action?.options).toEqual({ shortenTools: ['Artifact'] })
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    })
+
+    // A file written before the counts existed says only that a tool was
+    // called, not how often: no evidence that it is rare.
+    it('offers nothing to shorten from a file that has no counts', () => {
+      const dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-tool-usage-'))
+      try {
+        const file = join(dir, 'tool-usage.json')
+        fs.writeFileSync(file, JSON.stringify({ requests: 10, calls: 5000, offered: { Bash: 800, Artifact: 8167 }, called: ['Bash', 'Artifact'] }))
+        const filter = { enabled: false, dropTools: [] as string[], shortenTools: [] as string[], shortenTo: 200 }
+        const mod = new ToolUsageModule({ enabled: true }, () => filter)
+        mod.persistTo(file)
+        expect(kpi(mod, 'called')).toBe(2)
+        expect(mod.getStats().action).toBeUndefined()
+        expect(mod.getStats().detail ?? '').not.toContain('Rarely called')
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    })
   })
 
   it('does nothing while off', () => {

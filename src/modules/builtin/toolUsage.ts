@@ -19,6 +19,10 @@ interface SavedUsage {
   calls: number
   offered: Record<string, number>
   called: string[]
+  /** Calls per tool. Absent from a file written before the counts existed. */
+  counts?: Record<string, number>
+  /** Requests whose tool list held the tool. Absent from such a file too. */
+  offeredOn?: Record<string, number>
 }
 // Coalesce writes: one per this many ms while traffic flows.
 const SAVE_DELAY_MS = 5000
@@ -33,6 +37,21 @@ const DETAIL_LIMIT = 30
 // tool not called yet may still be needed, and the click removes it from
 // what the model can call.
 const MIN_EVIDENCE_CALLS = 1000
+// When a stub pays. A shortened tool's whole definition comes back the first
+// time a conversation calls it, and that changes the front of the prompt: the
+// provider writes the whole prompt to its cache again, at 2 times the input
+// price where reading it would have cost 0.1. On a 250,000-token prompt (the
+// mean of one developer's Claude Code calls was 260,000) that is 475,000
+// tokens of input, against a tenth of the definition saved on every call the
+// stub was sent. Counting every call of the tool as such a rewrite, and
+// asking for the saving to be 4 times the cost:
+//
+//   calls of the tool x REWRITE_TOKENS <= definition tokens x calls it was offered on
+//
+// Measured on 30 days of that developer's transcripts (52,612 API calls): the
+// two tools this picks saved a net 1.1% of the bill, while every tool called
+// under once in 200 calls, picked without it, lost 4.0% (238 rewrites).
+const REWRITE_TOKENS = 19_000_000
 
 // Each tool definition in the Anthropic, OpenAI chat, Responses API and
 // Gemini shapes, with the JSON it is billed as.
@@ -76,8 +95,9 @@ function historyCalls(payload: Obj): Array<[string, string]> {
 }
 
 /**
- * Records which offered tools a client actually calls, so you know which to
- * name in the Tool Filter's dropTools. Every tool definition is billed on every
+ * Records which offered tools a client actually calls, and how often, so you
+ * know which to name in the Tool Filter's dropTools (never called) and
+ * shortenTools (called now and then). Every tool definition is billed on every
  * request, as a cache read once cached; one the model never calls is cost with
  * no use. Calls are learned from the request history and from responses,
  * because a request that continues a server-side thread (Claude Code through
@@ -87,12 +107,17 @@ function historyCalls(payload: Obj): Array<[string, string]> {
 export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
   readonly id = 'tool-usage'
   readonly name = 'Tool Usage'
-  readonly description = 'Records which offered tools get called, and lists the ones that never do with their token cost, for the Tool Filter. Changes nothing.'
+  readonly description = 'Records which offered tools get called, and lists the ones that never or rarely do with their token cost, for the Tool Filter. Changes nothing.'
 
   private requests = 0
   // Name to the token estimate of its definition as last offered.
   private readonly offered = new Map<string, number>()
-  private readonly called = new Set<string>()
+  // Calls per tool. Infinity for a tool a file without counts lists as
+  // called: how often is unknown, so it is never taken for rare.
+  private readonly called = new Map<string, number>()
+  // Requests whose tool list held the tool: a deferred tool is offered on
+  // few of them, and a stub saves only where the definition was sent.
+  private readonly offeredOn = new Map<string, number>()
   private readonly countedCalls = new Set<string>()
   private calls = 0
 
@@ -124,7 +149,15 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
       for (const [name, n] of Object.entries(saved.offered ?? {}).slice(0, MAX_TOOLS)) {
         if (typeof n === 'number') this.offered.set(name, n)
       }
-      for (const name of (saved.called ?? []).slice(0, MAX_TOOLS)) if (typeof name === 'string') this.called.add(name)
+      const counts = saved.counts ?? {}
+      for (const name of (saved.called ?? []).slice(0, MAX_TOOLS)) {
+        if (typeof name !== 'string') continue
+        const n = Object.hasOwn(counts, name) ? counts[name] : undefined
+        this.called.set(name, typeof n === 'number' && n > 0 ? n : Infinity)
+      }
+      for (const [name, n] of Object.entries(saved.offeredOn ?? {}).slice(0, MAX_TOOLS)) {
+        if (typeof n === 'number' && this.offered.has(name)) this.offeredOn.set(name, n)
+      }
     } catch { /* nothing saved yet, or unreadable: start empty */ }
   }
 
@@ -133,7 +166,8 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = undefined
     if (!this.file) return
-    const saved: SavedUsage = { requests: this.requests, calls: this.calls, offered: Object.fromEntries(this.offered), called: [...this.called] }
+    const counts = Object.fromEntries([...this.called].filter(([, n]) => Number.isFinite(n)))
+    const saved: SavedUsage = { requests: this.requests, calls: this.calls, offered: Object.fromEntries(this.offered), called: [...this.called.keys()], counts, offeredOn: Object.fromEntries(this.offeredOn) }
     try {
       fs.mkdirSync(dirname(this.file), { recursive: true })
       const tmp = `${this.file}.tmp`
@@ -155,7 +189,7 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     this.countedCalls.add(id)
     if (this.countedCalls.size > MAX_CALL_IDS) this.countedCalls.delete(this.countedCalls.values().next().value!)
     this.calls++
-    this.called.add(name)
+    this.called.set(name, (this.called.get(name) ?? 0) + 1)
     this.changed()
   }
 
@@ -163,10 +197,13 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     const tools = offeredTools(payload)
     if (tools.length > 0) {
       this.requests++
+      const names = new Set<string>()
       for (const { name, json } of tools) {
         if (!this.offered.has(name) && this.offered.size >= MAX_TOOLS) continue
         this.offered.set(name, estimate(json, estimates))
+        names.add(name)
       }
+      for (const name of names) this.offeredOn.set(name, (this.offeredOn.get(name) ?? 0) + 1)
       this.changed()
     }
     for (const [id, name] of historyCalls(payload)) this.count(id, name)
@@ -182,22 +219,48 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     return [...this.offered].filter(([name]) => !this.called.has(name)).sort((a, b) => b[1] - a[1])
   }
 
-  // The one-click change for the Tool Filter: its current list plus every
-  // never-called tool it does not match yet, offered once enough calls have
-  // been seen. Undefined without a filter to write to, or nothing to add.
-  private action(never: Array<[string, number]>): { action?: ModuleAction; hint: string } {
+  // Offered tools called so rarely that a stub pays (see REWRITE_TOKENS), as
+  // [name, definition tokens, calls], largest first. Empty until enough
+  // calls have been seen.
+  private rarelyCalled(): Array<[string, number, number]> {
+    if (this.calls < MIN_EVIDENCE_CALLS || this.requests === 0) return []
+    const out: Array<[string, number, number]> = []
+    for (const [name, tokens] of this.offered) {
+      const n = this.called.get(name)
+      if (n === undefined) continue
+      // Requests with a tool list stand for all calls: a client that
+      // continues a server-side thread sends the list on a few of them.
+      const offeredCalls = this.calls * (this.offeredOn.get(name) ?? 0) / this.requests
+      if (n * REWRITE_TOKENS <= tokens * offeredCalls) out.push([name, tokens, n])
+    }
+    return out.sort((a, b) => b[1] - a[1])
+  }
+
+  // The one-click change for the Tool Filter: its current lists plus every
+  // never-called tool (to drop) and rarely called one (to shorten) it does
+  // not match yet, offered once enough calls have been seen. Undefined
+  // without a filter to write to, or nothing to add.
+  private action(never: Array<[string, number]>, rare: Array<[string, number, number]>): { action?: ModuleAction; hint: string } {
     const filter = this.filter?.()
     if (!filter) return { hint: '' }
     const dropped = Array.isArray(filter.dropTools) ? filter.dropTools : []
-    const add = never.map(([name]) => name).filter(name => !matchesAny(dropped, name))
-    if (add.length === 0) return { hint: '' }
+    const shortened = Array.isArray(filter.shortenTools) ? filter.shortenTools : []
+    const drop = never.map(([name]) => name).filter(name => !matchesAny(dropped, name))
+    const shorten = rare.map(([name]) => name).filter(name => !matchesAny(dropped, name) && !matchesAny(shortened, name))
+    if (drop.length === 0 && shorten.length === 0) return { hint: '' }
     if (this.calls < MIN_EVIDENCE_CALLS) return { hint: ` The Tool Filter action appears after ${MIN_EVIDENCE_CALLS.toLocaleString('en-US')} calls (${this.calls.toLocaleString('en-US')} so far).` }
+    const label = shorten.length === 0 ? `Drop these ${drop.length} tools in the Tool Filter`
+      : drop.length === 0 ? `Shorten these ${shorten.length} rarely called tools in the Tool Filter`
+      : `Drop ${drop.length} never-called and shorten ${shorten.length} rarely called tools in the Tool Filter`
     return {
       action: {
-        label: `Drop these ${add.length} tools in the Tool Filter`,
+        label,
         module: 'tool-filter',
         enabled: true,
-        options: { dropTools: [...dropped, ...add] },
+        options: {
+          ...(drop.length > 0 ? { dropTools: [...dropped, ...drop] } : {}),
+          ...(shorten.length > 0 ? { shortenTools: [...shortened, ...shorten] } : {}),
+        },
       },
       hint: '',
     }
@@ -208,7 +271,13 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     const neverTokens = never.reduce((sum, [, n]) => sum + n, 0)
     const listed = never.slice(0, DETAIL_LIMIT).map(([name, n]) => `${name} (${n.toLocaleString('en-US')})`)
     const more = never.length > DETAIL_LIMIT ? `, and ${never.length - DETAIL_LIMIT} more` : ''
-    const { action, hint } = this.action(never)
+    const rare = this.rarelyCalled()
+    const rareListed = rare.slice(0, DETAIL_LIMIT).map(([name, n, calls]) => `${name} (${n.toLocaleString('en-US')} tokens, ${calls.toLocaleString('en-US')} ${calls === 1 ? 'call' : 'calls'})`)
+    const rareMore = rare.length > DETAIL_LIMIT ? `, and ${rare.length - DETAIL_LIMIT} more` : ''
+    const rareDetail = rare.length > 0 ? `Rarely called, where a stub pays, largest first: ${rareListed.join(', ')}${rareMore}.` : ''
+    const { action, hint } = this.action(never, rare)
+    const neverDetail = never.length > 0 ? `Never called, largest first (tokens per request): ${listed.join(', ')}${more}.` : ''
+    const detail = [neverDetail, rareDetail].filter(Boolean).join(' ') + hint
     return {
       ...super.getStats(),
       totalInvocations: this.requests,
@@ -220,7 +289,7 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
         { key: 'never', label: 'Never called', value: never.length },
         { key: 'neverTokens', label: 'Their tokens per request', value: neverTokens.toLocaleString('en-US') },
       ],
-      ...(never.length > 0 ? { detail: `Never called, largest first (tokens per request): ${listed.join(', ')}${more}.${hint}` } : {}),
+      ...(detail ? { detail } : {}),
       ...(action ? { action } : {}),
     }
   }
@@ -230,6 +299,7 @@ export class ToolUsageModule extends PayloadModule<ModuleSwitchConfig> {
     this.requests = 0
     this.offered.clear()
     this.called.clear()
+    this.offeredOn.clear()
     this.countedCalls.clear()
     this.calls = 0
     this.changed()

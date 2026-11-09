@@ -78,6 +78,7 @@ const OPTION_RULES: Record<string, Pick<ModuleOption, 'min' | 'max' | 'values'>>
   'repeatCollapse.minRun': { min: 2, max: 1_000_000 },
   'blobElide.minLength': { min: 64, max: 100_000_000 },
   'toolResultDedup.minLength': { min: 1, max: 100_000_000 },
+  'toolFilter.shortenTo': { min: 20, max: 100_000 },
   'leanCtx.timeoutMs': { min: 1, max: 60_000 },
   'responseCache.ttlSeconds': { min: 1, max: 31_536_000 },
   'responseCache.maxEntries': { min: 1, max: 1_000_000 },

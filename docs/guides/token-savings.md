@@ -271,7 +271,9 @@ What the modules do not touch is larger. Tool Usage counted 33 of the 53
 tools Claude Code offered as never called, 15,506 estimated tokens on every
 request. At the mean prompt of 287k tokens over these 14 days, that is 4 to
 7% of the bill, read from the cache on every call. See
-[Tool filter](#tool-filter) for what dropping them costs.
+[Tool filter](#tool-filter) for what dropping them costs, and for
+`shortenTools`, which on a later 30 days modelled a net 1.51% of the bill
+together with the drop, against 0.38% for the drop alone.
 
 ### Clearing old thinking: measured, not offered
 
@@ -368,9 +370,9 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
-| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list |
+| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list, or cuts their definitions to a stub |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
-| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never get called (on by default) |
+| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never or rarely get called (on by default) |
 | `stream-usage` | `modules.streamUsage` | asks OpenAI-style chat streams to report usage; saves nothing, makes the meter complete |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -628,12 +630,13 @@ How llm-fw runs lean-ctx:
 
 ### Tool filter
 
-`modules.toolFilter.enabled` (`LLM_FW_TOOL_FILTER_ENABLED`), `modules.toolFilter.dropTools`.
+`modules.toolFilter.enabled` (`LLM_FW_TOOL_FILTER_ENABLED`), `modules.toolFilter.dropTools`,
+`modules.toolFilter.shortenTools`, `modules.toolFilter.shortenTo`.
 An agent sends a definition for every tool it has on every request, used or
 not, and the provider bills the whole list each time (as a cache read once it
 is cached). This removes the tools named in `dropTools`: an exact name, or a
 pattern where `*` matches any run of characters, over the whole name
-(`mcp__axiom__*`, `Cron*`). The list is empty by default, so turning the
+(`mcp__axiom__*`, `Cron*`). Both lists are empty by default, so turning the
 module on changes nothing until you name tools; which tools a client never
 needs is your call, and the model cannot call a tool it is not shown.
 
@@ -642,7 +645,8 @@ What stays even when it is named:
 - a tool the conversation has already called, or that `tool_choice` (Gemini:
   `allowedFunctionNames`) forces, since the provider refuses a request that
   references a tool it was not given;
-- a tool that carries a `cache_control` breakpoint, which the client placed;
+- a tool that carries a `cache_control` breakpoint, which the client placed
+  (it can still be shortened: the breakpoint stays on the stub);
 - every tool, when all of them would go;
 - server tools without a name (`{"type": "web_search"}`), and tools a
   conversation adds as `tool_addition` blocks, which are left to the client.
@@ -650,6 +654,62 @@ What stays even when it is named:
 A tool kept because the history calls it changes the tool list on the turn the
 call first appears, which is one cache write, the same as switching the module.
 Name only tools a client does not call, and that turn never comes.
+
+**Shortening instead of dropping.** `shortenTools` takes the same names and
+patterns, for a tool a client calls now and then: one you cannot drop, because
+the model cannot call a tool it is not shown. A tool named there stays on the
+list as a stub. Its description, and every parameter description in its schema,
+is cut to its first paragraph and to at most `shortenTo` characters (200 by
+default, cut at a word), and the tool's description ends with
+`[llm-fw: description shortened]`. The name, the schema's structure, types,
+enums and `required` lists are untouched, so a call the model makes from the
+stub is one the client can run. A definition with nothing long enough to cut
+is left as it is, and a tool named in both lists is dropped.
+
+Once a conversation has called a shortened tool (or `tool_choice` forces it),
+that conversation is sent the whole definition again, so the model works from
+the full instructions from its second call on. That turn changes the front of
+the prompt, and the provider writes the whole prompt to its cache again: at 2
+times the input price for a one-hour write where a read costs 0.1, about 19
+calls' worth of reading the same prompt. A stub therefore pays only for a tool
+whose definition is large and whose first calls are few. A client that
+continues a server-side thread (Claude Code through the proxy) sends its tool
+list when the thread starts and not with the calls, so there the stub stays
+for the whole thread.
+
+Modelled on 30 days of one developer's Claude Code transcripts (2026-11-09:
+52,618 API calls, 44,102 of them with the tool list recorded, mean billed
+prompt 260,120 tokens; the built module run over each recorded list with the
+tools that conversation had called so far; cache reads at 0.1, one-hour writes
+at 2, output at 5 times input). Definitions were 16,684 estimated tokens per
+call:
+
+| Tool Filter setting | Definitions per call | Read back less | Rewrites | Net, share of the bill |
+| --- | --- | --- | --- | --- |
+| `dropTools`: the 58 tools never called | 15,087 | 0.38% | 0 | 0.38% |
+| `shortenTools`: `Artifact` (8,308 tokens, 4 calls) and `SendFeedback` (1,233 tokens, 2 calls) | 11,644 | 1.20% | 3, costing 0.07% | 1.13% |
+| Both | 10,046 (39.8% less) | 1.58% | 3, costing 0.07% | 1.51% |
+| `shortenTools`: all 15 tools of 300 tokens or more called under once in 200 calls | 11,059 | 1.34% | 238, costing 5.34% | a loss of 4.00% |
+
+The last row is why the choice of tools matters: `AskUserQuestion`, `Skill`
+and `PushNotification` are each under 1 call in 200, but dozens of
+conversations call them once, and each first call rewrote a prompt of a
+quarter of a million tokens. The [Tool usage](#tool-usage) card applies the
+break-even for you. The lists were picked from the same 30 days they are
+scored on, and the model counts nothing for how the model behaves with a stub
+in place of a full description (whether it reaches for the tool less often,
+or makes a worse first call), which only a billed comparison on real work
+would show.
+
+Checked live on 2026-11-09 (Claude Code 2.1.321 in print mode, Claude Haiku
+5.5, through the gateway in enforce mode; print mode offers 15 tools, 9,619
+estimated tokens). With `PowerShell`, `Workflow`, `Agent` and `ScheduleWakeup`
+shortened, none of them needed by the task, the API billed 23,795 tokens of
+cached prefix per call against 30,408 with the filter off, 6,613 fewer, where
+the module counted 4,184; both arms read a file and answered correctly in two
+calls. With `Read` shortened as well, the model called `Read` from its stub,
+answered correctly, and the request after the call carried `Read` whole (five
+definitions shortened on the first request, four on the second).
 
 Measured on one captured Claude Code 2.1.302 request (44 tools, 21,798 tokens of
 definitions, sent on every request by a client pointed at a custom base URL):
@@ -670,7 +730,9 @@ the request history and from responses (a request that continues a server-side
 thread, as Claude Code does through the proxy, carries the results but not the
 calls). Its card lists the tools no call has named yet, largest first, with
 their combined tokens per request: names you can copy into
-`modules.toolFilter.dropTools`. It runs after the tool filter and the
+`modules.toolFilter.dropTools`. It also counts the calls of each tool, and
+lists the ones called so rarely that a stub pays, for
+`modules.toolFilter.shortenTools`. It runs after the tool filter and the
 definition pruner, so the list is what still costs.
 
 Once 1,000 calls have been seen, the card offers the list as one click:
@@ -684,6 +746,25 @@ The filter keeps any tool a conversation has already called, whatever the
 list says. The threshold is not configurable; the card says how many calls
 it has seen until then.
 
+The same click offers the rarely called tools to `shortenTools`, and the
+button then reads **Drop N never-called and shorten M rarely called tools in
+the Tool Filter** (or **Shorten these M rarely called tools** when nothing is
+left to drop). A tool is on that list when
+
+    calls of the tool x 19,000,000 <= its definition's tokens x the calls it was offered on
+
+which is the break-even from [Tool filter](#tool-filter) with a margin of 4:
+every call of the tool is counted as a first call that rewrites a
+250,000-token prompt, and the stub has to save four times that. "Offered on"
+is the share of requests whose tool list held the tool, applied to all calls,
+so a tool a client loads on demand counts only for the requests that carried
+it. On the 30 days of transcripts above the rule picks `Artifact` and
+`SendFeedback` and leaves out the 13 other tools called under once in 200
+calls, which is the difference between the second and the last row of that
+table. Per-tool counts start with this version: a `tool-usage.json` written
+before it says only that a tool was called, so those tools are never offered
+for shortening until the module's stats are reset.
+
 Why it matters: across 14 days of one developer's Claude Code transcripts
 (34,209 assistant turns), cache reads were 78.5% of the bill by list-price
 weights, and the tool list is part of that prefix on every turn. A captured
@@ -694,7 +775,8 @@ has not been called yet may still be needed; the list is evidence, not a
 verdict.
 
 `llm-fw start` keeps the list across restarts in `<LLM_FW_DIR>/tool-usage.json`
-(tool names, their token estimates and the call counts; no request content),
+(tool names, their token estimates, how many requests offered each and how
+many calls each got; no request content),
 written at most every 5 seconds and on a graceful stop, so it builds up over
 days of traffic instead of starting empty each time. Resetting the module's
 stats empties it; `uninstall --purge` deletes it.
