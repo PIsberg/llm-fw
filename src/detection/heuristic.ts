@@ -655,7 +655,7 @@ export class HeuristicScorer {
           // `npm run scorecard` was next run (#533). Both halves are needed:
           // the claim alone is what a customer asks a support bot about
           // their rate limits.
-          /\b(?:premium|paid|pro|enterprise|vip|unrestricted|unlimited|uncensored)\b[^.!?]{0,30}\b(?:subscription|plan|account|tier|membership|licen[cs]e|access)\b[^.!?]{0,60}\b(?:limits?|restrictions?|rules|filters?|guidelines|policies)\b[^.!?]{0,20}\b(?:do not|don'?t|no longer|does not|doesn'?t) apply\b[^.!?]{0,40}[.!?] ?(?:so |now |please )?(?:answer|respond|reply|act|proceed|behave)\b[^.!?]{0,20}\baccordingly\b/,
+          /\b(?:premium|paid|pro|enterprise|vip|unrestricted|unlimited|uncensored)\b[^.!?]{0,30}\b(?:subscription|plan|account|tier|membership|licen[cs]e|access)\b[^.!?]{0,60}\b(?:limits?|restrictions?|rules|filters?|guidelines|policies)\b[^.!?]{0,20}\b(?:do not|don'?t|no longer|does not|doesn'?t) apply\b[^.!?]{0,40}[.!?]? ?(?:so |now |please )?(?:answer|respond|reply|act|proceed|behave)\b[^.!?]{0,20}\baccordingly\b/,
           // Developer / testing tricks
           /i am (your )?developer/,
           /as your developer/,

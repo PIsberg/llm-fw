@@ -20,8 +20,8 @@ Cheap stages only — **heuristic + embedding, judge off**; enabling the local O
 | refusal-override | 4/4 | 100% |
 | roleplay-fiction | 10/10 | 100% |
 | skeleton-key | 3/3 | 100% |
-| social-engineering | 7/8 | 88% |
-| **Overall (TPR)** | **109/110** | **99.1%** (gate ≥ 70%) |
+| social-engineering | 8/8 | 100% |
+| **Overall (TPR)** | **110/110** | **100.0%** (gate ≥ 70%) |
 | **False positives (FPR)** | **0/78** | **0.0%** (gate ≤ 2%) |
 
-Latency through the full pipeline: p50 39.53 ms · p95 107.39 ms. Generated 2026-11-09 by `npm run scorecard` (gate: PASSED).
+Latency through the full pipeline: p50 27.51 ms · p95 79.05 ms. Generated 2026-11-09 by `npm run scorecard` (gate: PASSED).

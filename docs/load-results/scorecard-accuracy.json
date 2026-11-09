@@ -1,6 +1,6 @@
 {
   "scenario": "accuracy",
-  "timestamp": "2026-11-09T21:40:25.771Z",
+  "timestamp": "2026-11-09T21:46:27.812Z",
   "config": {
     "vus": 4,
     "iterations": 20,
@@ -13,8 +13,8 @@
     "confusionMatrix": {
       "tn": 78,
       "fp": 0,
-      "tp": 109,
-      "fn": 1
+      "tp": 110,
+      "fn": 0
     },
     "perClass": {
       "direct-override": {
@@ -29,14 +29,14 @@
         "tn": 78,
         "fp": 0
       },
-      "delimiter-confusion": {
-        "tp": 6,
+      "multilingual": {
+        "tp": 10,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "obfuscation-encoding": {
-        "tp": 12,
+      "refusal-override": {
+        "tp": 4,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -47,14 +47,8 @@
         "tn": 0,
         "fp": 0
       },
-      "policy-puppetry": {
-        "tp": 3,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "multilingual": {
-        "tp": 10,
+      "delimiter-confusion": {
+        "tp": 6,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -65,20 +59,50 @@
         "tn": 0,
         "fp": 0
       },
-      "skeleton-key": {
+      "social-engineering": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "prompt-exfil": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "many-shot": {
+        "tp": 2,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "policy-puppetry": {
         "tp": 3,
         "fn": 0,
         "tn": 0,
         "fp": 0
       },
-      "social-engineering": {
-        "tp": 7,
-        "fn": 1,
+      "obfuscation-encoding": {
+        "tp": 12,
+        "fn": 0,
         "tn": 0,
         "fp": 0
       },
       "roleplay-fiction": {
         "tp": 10,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "indirect-injection": {
+        "tp": 8,
+        "fn": 0,
+        "tn": 0,
+        "fp": 0
+      },
+      "skeleton-key": {
+        "tp": 3,
         "fn": 0,
         "tn": 0,
         "fp": 0
@@ -94,38 +118,14 @@
         "fn": 0,
         "tn": 0,
         "fp": 0
-      },
-      "prompt-exfil": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "indirect-injection": {
-        "tp": 8,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "refusal-override": {
-        "tp": 4,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
-      },
-      "many-shot": {
-        "tp": 2,
-        "fn": 0,
-        "tn": 0,
-        "fp": 0
       }
     },
     "fpr": 0,
-    "tpr": 99.0909,
-    "avgLatencyMs": 49.7,
-    "p50LatencyMs": 39.53,
-    "p95LatencyMs": 107.39,
-    "p99LatencyMs": 284.41,
+    "tpr": 100,
+    "avgLatencyMs": 35.7,
+    "p50LatencyMs": 27.51,
+    "p95LatencyMs": 79.05,
+    "p99LatencyMs": 215.42,
     "errCount": 0
   },
   "passed": true,

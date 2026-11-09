@@ -55,15 +55,24 @@ const INSTRUCTION_NOUNS = {
   de: '(?:anweisungen|regeln|vorgaben|richtlinien|instruktionen|befehle|einschr[aä]nkungen|beschr[aä]nkungen)',
 } as const
 
+// "Les instructions précédentes du README": a named document locates the
+// instructions, so they are the user's material, as DOCUMENT_LOCATED_RE
+// below says for English (#485). Up to three words may sit between the idiom
+// and the document noun ("en el archivo README", "in der README-Datei").
+// Without this the playground's benign README sentence blocked in French
+// and Portuguese.
+const DOCUMENT_NOUN = '(?:readme|fichier|file|archivo|arquivo|ficheiro|datei|fi[sș]ier(?:ul)?|guide|gu[ií]a|guida|anleitung|ghid(?:ul)?|manuel|manual(?:e|ul)?|handbuch|document[\\p{L}]*|dokument[\\p{L}]*|docs?|wiki|tutori[\\p{L}]+|page|p[aá]gina|seite|section|secci[oó]n|se[cç][aã]o|sezione|abschnitt|chapitre|cap[ií]tulo|capitolo|kapitel|capitol(?:ul)?|recette|receta|receita|ricetta|rezept|re[tț]et[aă])'
+const NOT_IN_A_DOCUMENT = `(?!\\s+(?:[\\p{L}'’-]+\\s+){0,3}?${DOCUMENT_NOUN}(?![\\p{L}]))`
+
 const OTHER_LANGUAGE_PATTERNS: RegExp[] = [
   // "les instructions précédentes", "las instrucciones anteriores": noun, then positional.
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.fr}\\s+(?:pr[eé]c[eé]dentes?|ant[eé]rieure?s?|ci-dessus|initiales?|pr[eé]alables?)(?![\\p{L}])`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.es}\\s+(?:anteriores|previas|precedentes|iniciales|de\\s+arriba)(?![\\p{L}])`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.pt}\\s+(?:anteriores|pr[eé]vias|precedentes|iniciais|acima)(?![\\p{L}])`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.it}\\s+(?:precedenti|anteriori|iniziali|(?:qui\\s+)?sopra)(?![\\p{L}])`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.ro}\\s+(?:anterioare|precedente|ini[tț]iale|de\\s+mai\\s+sus)(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.fr}\\s+(?:pr[eé]c[eé]dentes?|ant[eé]rieure?s?|ci-dessus|initiales?|pr[eé]alables?)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.es}\\s+(?:anteriores|previas|precedentes|iniciales|de\\s+arriba)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.pt}\\s+(?:anteriores|pr[eé]vias|precedentes|iniciais|acima)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.it}\\s+(?:precedenti|anteriori|iniziali|(?:qui\\s+)?sopra)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.ro}\\s+(?:anterioare|precedente|ini[tț]iale|de\\s+mai\\s+sus)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
   // German: positional, then noun.
-  new RegExp(`(?<![\\p{L}])(?:vorherigen?|vorigen?|obigen?|bisherigen?|fr[uü]heren?|urspr[uü]nglichen?|vorangegangenen?)\\s+${INSTRUCTION_NOUNS.de}(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])(?:vorherigen?|vorigen?|obigen?|bisherigen?|fr[uü]heren?|urspr[uü]nglichen?|vorangegangenen?)\\s+${INSTRUCTION_NOUNS.de}(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
   // "tes instructions", "tus reglas", "deine Anweisungen", "le tue istruzioni", "regulile tale".
   new RegExp(`(?<![\\p{L}])(?:tes|vos)\\s+(?:propres\\s+)?${INSTRUCTION_NOUNS.fr}(?![\\p{L}])`, 'iu'),
   new RegExp(`(?<![\\p{L}])tus\\s+(?:propias\\s+)?${INSTRUCTION_NOUNS.es}(?![\\p{L}])`, 'iu'),
