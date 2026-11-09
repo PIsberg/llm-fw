@@ -36,6 +36,43 @@
  * instructions" idiom that only makes sense addressed to a model.
  */
 
+// The same two ties in French, German, Spanish, Portuguese, Italian and
+// Romanian (#533): the "previous instructions" idiom, and an instruction noun
+// with a second-person possessive. Every pattern above is English, so a
+// translated override that the encoder put at 0.86 or more had the benign
+// anchors subtracted where its English original did not, and passed: of the
+// 719 attacks the cheap pipeline missed in the held-out multilingual split,
+// 245 were over the similarity line and under the margin. Written with and
+// without diacritics: the embedding stage reads text that keeps them.
+// Formal third-person possessives ("sus", "ihre") are left out; they also
+// mean his, her and their.
+const INSTRUCTION_NOUNS = {
+  fr: '(?:instructions?|consignes?|directives?|r[eè]gles?|ordres|restrictions?|contraintes?)',
+  es: '(?:instrucciones|reglas|directrices|directivas|indicaciones|[oó]rdenes|restricciones|pautas)',
+  pt: '(?:instru[cç][oõ]es|regras|diretrizes|diretivas|orienta[cç][oõ]es|ordens|restri[cç][oõ]es)',
+  it: '(?:istruzioni|regole|direttive|indicazioni|restrizioni|linee guida)',
+  ro: '(?:instruc[tț]iuni(?:le)?|reguli(?:le)?|directive(?:le)?|indica[tț]ii(?:le)?|restric[tț]ii(?:le)?)',
+  de: '(?:anweisungen|regeln|vorgaben|richtlinien|instruktionen|befehle|einschr[aä]nkungen|beschr[aä]nkungen)',
+} as const
+
+const OTHER_LANGUAGE_PATTERNS: RegExp[] = [
+  // "les instructions précédentes", "las instrucciones anteriores": noun, then positional.
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.fr}\\s+(?:pr[eé]c[eé]dentes?|ant[eé]rieure?s?|ci-dessus|initiales?|pr[eé]alables?)(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.es}\\s+(?:anteriores|previas|precedentes|iniciales|de\\s+arriba)(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.pt}\\s+(?:anteriores|pr[eé]vias|precedentes|iniciais|acima)(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.it}\\s+(?:precedenti|anteriori|iniziali|(?:qui\\s+)?sopra)(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.ro}\\s+(?:anterioare|precedente|ini[tț]iale|de\\s+mai\\s+sus)(?![\\p{L}])`, 'iu'),
+  // German: positional, then noun.
+  new RegExp(`(?<![\\p{L}])(?:vorherigen?|vorigen?|obigen?|bisherigen?|fr[uü]heren?|urspr[uü]nglichen?|vorangegangenen?)\\s+${INSTRUCTION_NOUNS.de}(?![\\p{L}])`, 'iu'),
+  // "tes instructions", "tus reglas", "deine Anweisungen", "le tue istruzioni", "regulile tale".
+  new RegExp(`(?<![\\p{L}])(?:tes|vos)\\s+(?:propres\\s+)?${INSTRUCTION_NOUNS.fr}(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])tus\\s+(?:propias\\s+)?${INSTRUCTION_NOUNS.es}(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])(?:suas|tuas)\\s+(?:pr[oó]prias\\s+)?${INSTRUCTION_NOUNS.pt}(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])(?:tue|vostre)\\s+${INSTRUCTION_NOUNS.it}(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.ro}\\s+(?:tale|voastre)(?![\\p{L}])`, 'iu'),
+  new RegExp(`(?<![\\p{L}])deinen?\\s+(?:eigenen\\s+)?${INSTRUCTION_NOUNS.de}(?![\\p{L}])`, 'iu'),
+]
+
 const SELF_INSTRUCTION_PATTERNS: RegExp[] = [
   // "your system prompt", "your instructions", "your safety guidelines"
   /\byour\s+(?:own\s+)?(?:system\s+prompt|initial\s+prompt|instructions?|rules?|guidelines?|directives?|constraints?|configuration|config|policy|policies|programming|training|safety\s+\w+|content\s+policy)\b/i,
@@ -74,6 +111,7 @@ const SELF_INSTRUCTION_PATTERNS: RegExp[] = [
   // ethical guidelines", "no content policy". The qualifier only ever names
   // a model's operating constraints.
   /\b(?:no|without(?:\s+any)?)\s+(?:safety|content|ethical|moral)\s+(?:rules?|restrictions?|filters?|guidelines?|polic(?:y|ies)|limits?|limitations?)\b/i,
+  ...OTHER_LANGUAGE_PATTERNS,
 ]
 
 // "you were given / told / got <from a named third party>": the rules came from

@@ -122,17 +122,22 @@ export interface ResilienceCount { kept: number; total: number }
  * Measured on ruleset 2026.10.117 (#557): those two closed for their shape
  * (the positional override's synonyms for "above", a policy blob whose key
  * and value are only separated by a space), every mutation 100%.
+ *
+ * Re-pinned on ruleset 2026.11.50 (#533): six corpus attacks in French,
+ * German, Spanish, Portuguese, Italian and Romanian joined the seeds, 92 to
+ * 98. Every mutation of the six still blocks; synonyms is 96 of 98, the
+ * same two English misses as before.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 79, total: 80 },
-  leetspeak: { kept: 79, total: 80 },
-  'zero-width': { kept: 79, total: 80 },
-  casing: { kept: 79, total: 80 },
-  'markdown-fence': { kept: 91, total: 92 },
-  blockquote: { kept: 91, total: 92 },
-  'polite-prefix': { kept: 91, total: 92 },
-  synonyms: { kept: 89, total: 92 },
-  'no-punctuation': { kept: 79, total: 80 },
+  homoglyph: { kept: 85, total: 86 },
+  leetspeak: { kept: 85, total: 86 },
+  'zero-width': { kept: 85, total: 86 },
+  casing: { kept: 85, total: 86 },
+  'markdown-fence': { kept: 97, total: 98 },
+  blockquote: { kept: 97, total: 98 },
+  'polite-prefix': { kept: 97, total: 98 },
+  synonyms: { kept: 95, total: 98 },
+  'no-punctuation': { kept: 85, total: 86 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {
