@@ -7,7 +7,7 @@ import { deepMerge, effectiveClassifierBlockThreshold } from '../config/config.j
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
-import { SuppressionStore, suppressionLines } from '../detection/suppressions.js'
+import { SuppressionStore, suppressionLines, firedLines } from '../detection/suppressions.js'
 import { getParser } from '../detection/parsers.js'
 import { trustedRootProblem } from '../detection/trustedPaths.js'
 import { parseDataUrl, summarizeOpaque } from '../detection/media.js'
@@ -3623,7 +3623,11 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           }
           const entry = event.suppressionKey
             ? suppressionStore.addKey(event.suppressionKey, event.payload_preview || promptText, event.suppressionSource
-              ? { lines: suppressionLines(promptText, event.suppressionSource), stage: event.stage }
+              ? {
+                lines: suppressionLines(promptText, event.suppressionSource),
+                stage: event.stage,
+                fired: firedLines(promptText, event.suppressionSource, event.stage, config.indirectInstruction),
+              }
               : undefined)
             : suppressionStore.add(promptText)
           res.writeHead(200, { 'Content-Type': 'application/json' })

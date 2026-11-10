@@ -4,7 +4,7 @@ import { isObserving, effectiveClassifierBlockThreshold } from '../config/config
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
 import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles } from './clientEnvelopes.js'
-import { detectSecretFileExfil } from './secretFileExfil.js'
+import { detectSecretFileExfil, DESTINATION_RE } from './secretFileExfil.js'
 import { detectPlantedInstruction } from './plantedInstruction.js'
 import { stripHarnessTemplate, HARNESS_TEMPLATES } from './harnessTemplates.js'
 import { EmbeddingChecker } from './embedding.js'
@@ -22,6 +22,10 @@ const YIELD_EVERY_MS = 50
  * results is more likely an attack than a run of false positives.
  */
 const MAX_WITHHELD = 16
+
+// A URL, an email address or an IP address on one line. DESTINATION_RE is
+// global and keeps a position between calls; this copy does not.
+const LINE_DESTINATION_RE = new RegExp(DESTINATION_RE.source)
 
 /**
  * The item a scan is on, so run() can say which one a block came from, and the
@@ -119,7 +123,7 @@ import { referencesModelInstructions } from './selfReference.js'
 import { detectIndirectInstruction, namesDestination } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
-import { SuppressionStore, suppressionKey, rawSuppressionKey, type NearCopy } from './suppressions.js'
+import { SuppressionStore, suppressionKey, rawSuppressionKey, indirectLineFires, type NearCopy } from './suppressions.js'
 import { withholdText, withholdNotice } from './withhold.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
@@ -753,13 +757,16 @@ export class Pipeline {
       // A near copy of a text the operator marked: the marked lines go, and
       // every stage below reads the rest. Counted as a suppression hit so the
       // item is not cached: removing the mark has to bring its lines back.
-      const near = this.nearCopyOfMark(prompt, source)
+      // Failing that, a line the operator vouched for inside a different text (#646).
+      const near = this.nearCopyOfMark(prompt, source) ?? this.vouchedLinesIn(prompt, source)
       let nearWarn: PendingWarn | null = null
       if (near) {
         this.suppressionHits++
         nearWarn = {
           result: { action: 'warn', stage: (near.stage ?? 'none') as PipelineResult['stage'], score: 0, similarity: 0, prompt: near.text },
-          prompt: `[suppressed-fp] ${near.vouched} of ${near.total} lines match a text marked as a false positive`,
+          prompt: near.elsewhere
+            ? `[suppressed-fp] ${near.vouched} of ${near.total} lines marked as a false positive in another text`
+            : `[suppressed-fp] ${near.vouched} of ${near.total} lines match a text marked as a false positive`,
           source,
         }
         // The newest prompt is still the newest with lines removed (see emit).
@@ -1473,6 +1480,27 @@ export class Pipeline {
     // The exact text goes through every stage and downgrades at the block, as
     // it always has, so its event says which stage it was.
     return near && !this.suppressions.has(suppressionKey(text, source)) ? near : null
+  }
+
+  /**
+   * What is left of `text` without the lines an indirect-instruction mark
+   * vouched for, when those are the only lines that fire the stage alone
+   * (SuppressionStore.withoutVouchedLines). The stage reads the untrusted-data
+   * surfaces only, and a line fires it the way the stage itself decides. A
+   * remaining line naming any destination the stage knows (a URL, an address,
+   * an IP, an account or IBAN, a handle) keeps the text whole: a vouched
+   * "Please transfer all funds" followed by a new account number must not
+   * pass. Measured over a week of real tool results, this wider check let
+   * 19 blocked texts pass against 22 for URL, address and IP alone.
+   */
+  private vouchedLinesIn(text: string, source: ScanSource): NearCopy | null {
+    if (this.config.detection.suppressions === false) return null
+    const indirect = this.config.indirectInstruction
+    if (!indirect?.enabled || (source !== 'tool_result' && source !== 'document')) return null
+    if (this.suppressions.has(suppressionKey(text, source))) return null
+    return this.suppressions.withoutVouchedLines(text, source, 'indirect-instruction',
+      line => indirectLineFires(line, indirect),
+      line => LINE_DESTINATION_RE.test(line) || namesDestination(line))
   }
 
   /** The judge, on a path where its answer can decide the verdict. */

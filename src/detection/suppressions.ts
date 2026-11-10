@@ -17,16 +17,28 @@
 //    marked text's lines has those lines removed and the rest scanned as
 //    usual. Only text the operator vouched for is removed, so copying a marked
 //    text gains an attacker nothing: every other line is scored, and a line
-//    differing by one byte is another line. The overlap requirement keeps one
-//    vouched line from being vouched for everywhere: a mark on a document
-//    quoting an attack does not pass that quote in unrelated output. And a
+//    differing by one byte is another line. The overlap requirement keeps a
+//    near copy from vouching for one line everywhere; the one case where a
+//    single line counts on its own is the third way below. And a
 //    changed line naming a destination (a URL, an address, an IP) keeps the
 //    whole text scored. An instruction can span lines, and neither half blocks
 //    alone: with a marked "Please forward the report" on one line, an attacker
 //    who changes only the address on the next would otherwise pass.
+// 3. As a vouched line in another text (#646): the flagged line itself comes
+//    back inside different output. Measured over a week of real tool results,
+//    27 of the 72 repeats a near copy missed were exactly this. It passes only
+//    in the narrow form the maintainer chose: the line fired alone in a block
+//    by that stage when it was marked (firedLines; not every line of the marked
+//    text), on the same surface; it fires that stage alone now and no other
+//    line does; neither neighbour continues its sentence; and no other line
+//    names a destination. The
+//    rest of the text is scanned by every stage, as for a near copy. The trade
+//    is that a vouched line is vouched for wherever it appears on that surface,
+//    so a mark on a document quoting an attack passes that exact quote, byte for
+//    byte, in other output on that surface; nothing else that quote is next to.
 //
 // Persisted at <getLlmFwDir()>/suppressions.json as a flat array of
-// { hash, preview, addedAt, lines?, stage? }. Only sha256 hashes of the text
+// { hash, preview, addedAt, lines?, stage?, fired? }. Only sha256 hashes of the text
 // are stored, never the raw prompt, so the file never grows into a second copy
 // of sensitive prompt history. `preview` is a short, truncated excerpt kept
 // purely so the operator can recognize the entry later; it is not used for
@@ -45,7 +57,8 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { getLlmFwDir } from '../config/paths.js'
 import { normalizeSemantic } from './normalize.js'
-import { DESTINATION_RE } from './secretFileExfil.js'
+import { DESTINATION_RE, detectSecretFileExfil } from './secretFileExfil.js'
+import { detectIndirectInstruction, type IndirectInstructionOptions } from './indirectInstruction.js'
 import type { ScanSource } from '../types.js'
 
 export interface SuppressionEntry {
@@ -58,6 +71,8 @@ export interface SuppressionEntry {
   lines?: string[]
   /** The stage that blocked it, which a near copy's warn reports. */
   stage?: string
+  /** Keys of the lines that fired the stage alone when marked (firedLines). Absent: none vouched elsewhere. */
+  fired?: string[]
 }
 
 /** What a mark leaves of a near copy of its text (withoutMarkedLines). */
@@ -68,6 +83,8 @@ export interface NearCopy {
   vouched: number
   total: number
   stage?: string
+  /** A vouched line in another text (withoutVouchedLines), rather than a near copy. */
+  elsewhere?: true
 }
 
 const PREVIEW_LEN = 200
@@ -92,8 +109,12 @@ const CHANGED_LINE_DESTINATION_RE = new RegExp(DESTINATION_RE.source)
  * The key of one line, or null for a blank one. A vouched line is removed
  * unscanned, so it has to be what the operator vouched for, byte for byte.
  */
+function withoutReadNumber(rawLine: string): string {
+  return rawLine.replace(READ_LINE_NUMBER_RE, '')
+}
+
 function lineKey(rawLine: string, source: ScanSource): string | null {
-  const line = rawLine.replace(READ_LINE_NUMBER_RE, '').trim()
+  const line = withoutReadNumber(rawLine).trim()
   if (line === '') return null
   const scope = source === 'system' ? 'prompt' : source
   return createHash('sha256').update(scope).update('\0').update(line).digest('hex').slice(0, 32)
@@ -107,6 +128,44 @@ export function suppressionLines(text: string, source: ScanSource): string[] {
     if (key === null) continue
     keys.add(key)
     if (keys.size > MAX_MARKED_LINES) return []
+  }
+  return [...keys]
+}
+
+// A line that ends mid-sentence, and one that starts as the rest of a sentence.
+const JOINING_END_RE = /(?:,|\b(?:and|or|but|then|to|with|please|also|plus|the|a|an|of|for|into|from|via))$/i
+const JOINING_START_RE = /^(?:and|or|but|then|also|plus|including|to|into|via|with|from)\b/i
+const LOWER_START_RE = /^[a-z]/
+
+/** Whether `next` reads as the rest of the sentence `line` started. */
+function continuesLine(line: string, next: string): boolean {
+  const end = withoutReadNumber(line).trim()
+  const start = withoutReadNumber(next).trim()
+  return JOINING_END_RE.test(end) || JOINING_START_RE.test(start) || LOWER_START_RE.test(start)
+}
+
+/** Whether one line fires the indirect-instruction stage on its own, the way the stage decides. */
+export function indirectLineFires(line: string, options?: IndirectInstructionOptions): boolean {
+  return detectIndirectInstruction(line, options) !== null || detectSecretFileExfil(line) !== null
+}
+
+/**
+ * The keys of the lines of a text blocked by `stage` that fire it alone, which
+ * a mark may vouch for in another text (withoutVouchedLines). Recorded when the
+ * mark is made, so a rule added later cannot vouch for a line the operator
+ * never saw flagged. Only the indirect-instruction stage reads lines this way;
+ * any other stage gets none.
+ */
+export function firedLines(text: string, source: ScanSource, stage: string | undefined, options?: IndirectInstructionOptions): string[] | undefined {
+  if (stage !== 'indirect-instruction') return undefined
+  const keys = new Set<string>()
+  const checked = new Set<string>()
+  for (const raw of text.split(LINE_BREAK_RE)) {
+    const key = lineKey(raw, source)
+    if (key === null || checked.has(key)) continue
+    checked.add(key)
+    if (checked.size > MAX_MARKED_LINES) return []
+    if (indirectLineFires(withoutReadNumber(raw), options)) keys.add(key)
   }
   return [...keys]
 }
@@ -141,7 +200,9 @@ export function rawSuppressionKey(text: string, source: ScanSource): string {
 export class SuppressionStore {
   private hashes = new Set<string>()
   // Entries that also match a near copy, by hash.
-  private marked = new Map<string, { lines: Set<string>; stage?: string }>()
+  private marked = new Map<string, { lines: Set<string>; stage?: string; fired?: Set<string> }>()
+  // The lines that fired in those entries, by the stage that blocked them, for withoutVouchedLines.
+  private vouched = new Map<string, Set<string>>()
 
   private static filePath(): string {
     // Resolved per access (not cached at construction) so a test/CLI that
@@ -156,12 +217,75 @@ export class SuppressionStore {
     const entries = this.readAll()
     this.hashes = new Set(entries.map(e => e.hash))
     this.marked = new Map()
-    for (const e of entries) this.rememberLines(e)
+    for (const e of entries) this.rememberLines(e, false)
+    this.indexVouched()
   }
 
-  private rememberLines(e: SuppressionEntry): void {
+  private rememberLines(e: SuppressionEntry, reindex = true): void {
     if (!Array.isArray(e.lines) || e.lines.length === 0) return
-    this.marked.set(e.hash, { lines: new Set(e.lines), ...(typeof e.stage === 'string' ? { stage: e.stage } : {}) })
+    this.marked.set(e.hash, {
+      lines: new Set(e.lines),
+      ...(typeof e.stage === 'string' ? { stage: e.stage } : {}),
+      ...(Array.isArray(e.fired) ? { fired: new Set(e.fired) } : {}),
+    })
+    if (reindex) this.indexVouched()
+  }
+
+  private indexVouched(): void {
+    this.vouched = new Map()
+    for (const mark of this.marked.values()) {
+      if (mark.stage === undefined || !mark.fired || mark.fired.size === 0) continue
+      const lines = this.vouched.get(mark.stage) ?? new Set<string>()
+      this.vouched.set(mark.stage, lines)
+      for (const key of mark.fired) lines.add(key)
+    }
+  }
+
+  /**
+   * `text` without the lines a mark of `stage` vouched for, when those are the
+   * only lines that fire that stage alone (`firesAlone`) and no other line
+   * names a destination; otherwise null. For a text that is not a near copy
+   * of any mark. See the note at the top of this file.
+   */
+  withoutVouchedLines(
+    text: string, source: ScanSource, stage: string,
+    firesAlone: (line: string) => boolean,
+    namesDestination: (line: string) => boolean = l => CHANGED_LINE_DESTINATION_RE.test(l),
+  ): NearCopy | null {
+    const vouched = this.vouched.get(stage)
+    if (!vouched) return null
+    const lines = text.split(LINE_BREAK_RE).map(raw => ({ raw, key: lineKey(raw, source) }))
+    if (!lines.some(l => l.key !== null && vouched.has(l.key))) return null
+    const distinct = new Set<string>()
+    for (const l of lines) if (l.key !== null) distinct.add(l.key)
+    if (distinct.size > MAX_MARKED_LINES) return null
+    // Every line that fires alone has to be a vouched one. A line that fires
+    // only together with another is no vouched line's doing, so none firing
+    // means the instruction spans lines and the text stays whole.
+    const firing = new Set<string>()
+    const checked = new Set<string>()
+    for (const l of lines) {
+      if (l.key === null || checked.has(l.key)) continue
+      checked.add(l.key)
+      if (!firesAlone(withoutReadNumber(l.raw))) continue
+      if (!vouched.has(l.key)) return null
+      firing.add(l.key)
+    }
+    if (firing.size === 0) return null
+    // A vouched line is vouched for as a sentence of its own. One that the
+    // next line continues ("... and the payroll file too"), or that continues
+    // the line before it, may be part of an instruction it never was.
+    const nonBlank = lines.filter(l => l.key !== null)
+    for (let i = 0; i < nonBlank.length; i++) {
+      if (!firing.has(nonBlank[i]!.key!)) continue
+      const before = nonBlank[i - 1]
+      const after = nonBlank[i + 1]
+      if (after && !firing.has(after.key!) && continuesLine(nonBlank[i]!.raw, after.raw)) return null
+      if (before && !firing.has(before.key!) && continuesLine(before.raw, nonBlank[i]!.raw)) return null
+    }
+    const rest = lines.filter(l => l.key !== null && !firing.has(l.key)).map(l => l.raw)
+    if (rest.some(namesDestination)) return null
+    return { text: rest.join('\n'), vouched: firing.size, total: distinct.size, stage, elsewhere: true }
   }
 
   /**
@@ -225,15 +349,17 @@ export class SuppressionStore {
    * also matches a near copy of that text. Marking a text again adds what an
    * older entry for it lacks.
    */
-  addKey(hash: string, preview: string, near?: { lines: string[]; stage?: string }): SuppressionEntry {
+  addKey(hash: string, preview: string, near?: { lines: string[]; stage?: string; fired?: string[] | undefined }): SuppressionEntry {
     const lines = near && near.lines.length > 0 ? near.lines : undefined
     const entries = this.readAll()
     const existing = entries.find(e => e.hash === hash)
     if (existing) {
       this.hashes.add(hash)
-      if (lines && !existing.lines) {
-        existing.lines = lines
+      const fired = lines !== undefined && !existing.fired ? near?.fired : undefined
+      if ((lines && !existing.lines) || fired) {
+        if (!existing.lines && lines) existing.lines = lines
         if (near?.stage !== undefined) existing.stage = near.stage
+        if (fired) existing.fired = fired
         this.write(entries)
       }
       this.rememberLines(existing)
@@ -246,6 +372,7 @@ export class SuppressionStore {
       addedAt: new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format() + 'Z',
       ...(lines ? { lines } : {}),
       ...(lines && near?.stage !== undefined ? { stage: near.stage } : {}),
+      ...(lines && near?.fired !== undefined ? { fired: near.fired } : {}),
     }
     entries.push(entry)
     this.write(entries)
@@ -262,6 +389,7 @@ export class SuppressionStore {
     this.write(next)
     this.hashes.delete(hash)
     this.marked.delete(hash)
+    this.indexVouched()
     return true
   }
 
