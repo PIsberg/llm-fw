@@ -28,7 +28,7 @@ not run them:
 | `npx vitest run test/cli/` on `windows-latest` | CLI on Windows | Windows-only CLI behaviour (`it.runIf(win32)` cases, Task Scheduler round trip). Runs locally on a Windows machine |
 | `npm run test:load:perf` | Load Tests | p99 latency ceiling |
 | `npm run test:load:accuracy` | Load Tests | FPR ceiling, TPR floor, under concurrency |
-| `npm run scorecard` | Load Tests | deterministic sweep, per-class recall |
+| `npm run scorecard` | Load Tests | deterministic sweep: every attack class at its pinned count and no benign prompt blocked (`test/load/lib/scorecardFloor.ts`, #750), besides the 70% TPR and 2% FPR overall gate; a corpus edit re-pins the class it touches |
 | `npm run test:judge` | Stage 3 Judge (`judge.yml`), nightly and on PRs touching the judge | Stage 3 coverage: each `stage3-corpus.json` prompt passes Stages 1 and 2 and the judge blocks it. Needs a running Ollama and fails without one (`LLM_FW_JUDGE_MODEL=qwen2.5:3b`) |
 | `npm run fpr` | Load Tests | false-positive SLO on four HELD-OUT benign corpora: hand-written agent traffic, a 2,000-row Dolly-15k sample, a 2,000-row oasst1 sample of conversational user turns and a 2,795-row Aya sample of prompts in 70 languages. The full 15,011 rows run nightly, report-only (`--only=dolly-15k-full`) |
 | `npm run recall:floor` | Load Tests | direct-injection recall: an absolute floor of blocked attacks per held-out split (gandalf, safeguard, deepset, heldout, jailbreak-classification, multilingual-injections), plus a ceiling on jailbreak-classification's benign rows, and a floor and benign ceiling on the identifier-free indirect-injection probe (#535), in `test/eval/lib/recallFloor.ts`; also prints recall on unseen rows |

@@ -268,7 +268,9 @@ blocked rows changes is a moved verdict wearing the same number.
    gate `main` in the Load Tests check, `fpr` fails on the *first* false
    positive in any category that currently has none, and `recall:floor` fails
    when a held-out direct-injection split, or the identifier-free
-   indirect-injection probe, blocks fewer attacks than its floor.
+   indirect-injection probe, blocks fewer attacks than its floor, and
+   `scorecard` fails when one attack class detects one row fewer than its
+   pinned count or one benign prompt blocks (`test/load/lib/scorecardFloor.ts`).
    See [Testing requirements](#testing-requirements).
 4. Update the docs the change makes wrong (see above).
 5. Open the PR against `main`. Describe *why* the change is needed and how you
