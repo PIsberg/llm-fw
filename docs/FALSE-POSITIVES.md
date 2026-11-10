@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.53
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.52 moved 0 of 13,895 rows. The change (#749) stops "follow the previous instructions" and "don't forget the earlier rules" from counting as text that names the model's instructions in six languages, so the benign anchors apply to it. No benign corpus held the shape; of the 48 hand-written benign sentences in `test/detection/fixtures/override-shapes.json` that share words with an override, 10 blocked in Stage 2 before and 3 after, and its 36 attacks all still block. Those 3 (the first Spanish, Portuguese and Romanian rows) block on their measured margin; benign anchors that freed them cost 40 held-out multilingual attacks and 4 safeguard attacks, so they still block.
+
 ## Result, ruleset 2026.11.52
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The cut is for one new Tool Filter default in `config.ts` (`modules.toolFilter.dropSkills`), which is one of the hashed files; no detection file changed, so `verdicts:diff` was not run.

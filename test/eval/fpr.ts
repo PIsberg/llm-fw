@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.53 (#749: a compliance verb before "the previous instructions" in six languages; 0 of
+  // 13,895 verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.52 (one Tool Filter default in config.ts, no detection file changed; 7 of 356
   // benign rows, as before).
   // Held at ruleset 2026.11.51 (#533: two weak signals block together, override shapes in six languages; 26 of
