@@ -241,6 +241,7 @@ const PURGED_FILES: ReadonlyArray<readonly [string, string]> = [
   ['audit.jsonl', 'audit log'], ['audit.jsonl.1', 'rotated audit log'],
   ['ocr-cache', 'OCR cache'],
   ['tool-usage.json', 'which offered tools your clients called (Tool Usage module)'],
+  ['usage-clients.json', 'how each client\'s conversations used the prompt cache (Usage Meter module)'],
 ];
 
 /**

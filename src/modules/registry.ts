@@ -52,7 +52,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'streamUsage', create: cfg => new StreamUsageModule(cfg) },
   { key: 'cacheControl', create: cfg => new CacheControlModule(cfg as CacheControlConfig) },
   { key: 'responseCache', create: cfg => new ResponseCacheModule(cfg as ResponseCacheConfig) },
-  { key: 'usageMeter', create: cfg => new UsageMeterModule(cfg) },
+  { key: 'usageMeter', create: (cfg, modules) => new UsageMeterModule(cfg, () => modules.cacheControl) },
   { key: 'promptMonitor', create: cfg => new PromptMonitorModule(cfg as PromptMonitorConfig) },
 ]
 

@@ -11,6 +11,7 @@ import { Pipeline } from '../detection/pipeline.js';
 import { SuppressionStore } from '../detection/suppressions.js';
 import { ModuleManager } from '../modules/registry.js';
 import type { ToolUsageModule } from '../modules/builtin/toolUsage.js';
+import type { UsageMeterModule } from '../modules/builtin/usageMeter.js';
 import { startConfigHotReload } from '../config/hotReload.js';
 import { removeRuntimeState, writeRuntimeState } from './runtimeState.js';
 import { X509Certificate } from 'node:crypto';
@@ -284,6 +285,7 @@ export async function run(args: string[] = []): Promise<void> {
   let auditLog: AuditLog | null = null;
   let auditWebhook: AuditWebhook | null = null;
   let toolUsage: ToolUsageModule | null = null;
+  let usageMeter: UsageMeterModule | null = null;
   // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
   // the record of the last seconds before a rollout — exactly the window
   // someone goes looking for afterwards.
@@ -300,6 +302,7 @@ export async function run(args: string[] = []): Promise<void> {
       { what: 'audit webhook', done: auditWebhook ? auditWebhook.stop() : Promise.resolve() },
       { what: 'audit log', done: auditLog ? auditLog.close() : Promise.resolve() },
       { what: 'tool usage', done: Promise.resolve().then(() => toolUsage?.flush()) },
+      { what: 'usage by client', done: Promise.resolve().then(() => usageMeter?.flush()) },
     ];
     const results = await Promise.allSettled(tasks.map(t => t.done));
     results.forEach((r, i) => {
@@ -423,6 +426,10 @@ export async function run(args: string[] = []): Promise<void> {
   // suggests for the Tool Filter rest on more than one process's traffic.
   toolUsage = (modules.getModule('tool-usage') as ToolUsageModule | undefined) ?? null;
   toolUsage?.persistTo(join(getLlmFwDir(), 'tool-usage.json'));
+  // So does the Usage Meter's evidence on how each client's conversations
+  // use the prompt cache: fifty conversations can be days of traffic.
+  usageMeter = (modules.getModule('usage-meter') as UsageMeterModule | undefined) ?? null;
+  usageMeter?.persistTo(join(getLlmFwDir(), 'usage-clients.json'));
   const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
