@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fastestMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
+import { underMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
 import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil } from '../../src/detection/responseExfil.js'
 
 // Test predicate: treat the attacker host as an exfil sink, everything else clean.
@@ -90,7 +90,7 @@ describe('scanResponseExfil', () => {
     it('stays linear on 200 KB of near-definitions', { timeout: LINEAR_TIME_TIMEOUT }, () => {
       for (const filler of ['"[', '\n[', '\\n[ ', ' '.repeat(2), '1-', 'aZ09_-']) {
         const text = filler.repeat(Math.ceil(200_000 / filler.length))
-        const ms = fastestMs(() => {
+        const ms = underMs(500, () => {
           scanResponseExfil(text, isExfil)
         })
         expect(ms).toBeLessThan(500)
@@ -190,7 +190,7 @@ describe('scanResponseExfil', () => {
     it('stays linear on 400 KB of unfinished tags, raw and in a JSON body', { timeout: LINEAR_TIME_TIMEOUT }, () => {
       for (const filler of ['<img src="', '<img ', '<img alt="', '<IMG SRC=', '<img src=x '])  {
         const text = filler.repeat(Math.ceil(400_000 / filler.length))
-        const ms = fastestMs(() => {
+        const ms = underMs(500, () => {
           scanResponseExfil(text, isExfil)
           scanResponseExfil(JSON.stringify({ content: [{ type: 'text', text }] }), isExfil)
         })
@@ -323,7 +323,7 @@ describe('encoded destinations (#580)', () => {
     it('stays linear on 200 KB of unfinished poster, href and srcset attributes', { timeout: LINEAR_TIME_TIMEOUT }, () => {
       for (const filler of ['<video poster="', '<a href="', '<img srcset="https://a.example/x 1x, ', '<audio src=x ']) {
         const text = filler.repeat(Math.ceil(200_000 / filler.length))
-        const ms = fastestMs(() => {
+        const ms = underMs(500, () => {
           scanResponseExfil(text, isExfil)
           scanResponseExfil(JSON.stringify({ text }), isExfil)
         })
@@ -341,7 +341,7 @@ describe('encoded destinations (#580)', () => {
     for (const filler of ['https&#58;', '\\\\', 'ht\t', '&#x2F;', '\\/']) {
       const inline = '![x](' + filler.repeat(Math.ceil(200_000 / filler.length))
       const tag = '<img src="' + filler.repeat(Math.ceil(200_000 / filler.length))
-      const ms = fastestMs(() => {
+      const ms = underMs(2000, () => {
         scanResponseExfil(inline, isExfil)
         scanResponseExfil(tag, isExfil)
         scanResponseExfil(JSON.stringify({ text: inline + tag }), isExfil)
@@ -415,7 +415,7 @@ describe('scanJsonTextFields', () => {
     for (const filler of ['<img src="', ' ', '1-', 'aGVsbG8_d29ybGQ']) {
       const one = goJson({ text: filler.repeat(Math.ceil(200_000 / filler.length)) })
       const many = goJson({ content: Array.from({ length: 20_000 }, () => ({ text: `${filler}x` })) })
-      const ms = fastestMs(() => {
+      const ms = underMs(2000, () => {
         scanJsonTextFields(one, isExfil, [])
         scanJsonTextFields(many, isExfil, [])
       })

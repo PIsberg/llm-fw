@@ -87,8 +87,11 @@ checks in `overrideLexicon.test.ts` and `tokens.test.ts` past their budgets
 The full unit run can do the same on a developer machine: about 230 files in parallel
 workers put one 400 KB scan at 1.3 s against a 500 ms ceiling, and a case with six large
 scans past vitest's 5 s default, where each passed alone (#754). A linear-time test
-takes the fastest of three runs (`fastestMs` in `test/linearTime.ts`), which a load
-burst rarely reaches and a quadratic scan always does, and sets
+against a fixed ceiling takes up to ten runs and stops at the first under it (`underMs`
+in `test/linearTime.ts`): fastest of three still let one run reach 560 ms against 500
+under the full suite. A load burst rarely spans ten runs, and a quadratic scan is over
+the ceiling on every one. A test whose ceiling is a ratio to a small input takes the
+fastest of three (`fastestMs`). Both set
 `{ timeout: LINEAR_TIME_TIMEOUT }` so the budget bounds a hang rather than measuring speed.
 
 The default run skips nothing. The OCR (`image-attacks.test.ts`) and speech

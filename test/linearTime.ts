@@ -21,6 +21,25 @@ export function fastestMs(work: () => unknown, runs = 3): number {
 }
 
 /**
+ * The fastest of up to `maxRuns` runs of `work`, stopping at the first run
+ * under `ceilingMs`. Fastest of three was not enough: on 2026-11-10 one full
+ * local unit run still took 560 ms against a 500 ms ceiling on the best of
+ * three (`responseExfil.test.ts`, 400 KB of `<IMG SRC=`), and the same case
+ * alone takes a fraction of that. A burst spanning ten runs is rarer still,
+ * a passing case still runs once, and a quadratic scan is over the ceiling on
+ * every run, so it still fails, only after `maxRuns` tries.
+ */
+export function underMs(ceilingMs: number, work: () => unknown, maxRuns = 10): number {
+  let best = Number.POSITIVE_INFINITY
+  for (let i = 0; i < maxRuns && best >= ceilingMs; i++) {
+    const started = performance.now()
+    work()
+    best = Math.min(best, performance.now() - started)
+  }
+  return best
+}
+
+/**
  * The per-test budget for a case that times several large inputs. It bounds a
  * hang; the assertion inside is what states the property.
  */
