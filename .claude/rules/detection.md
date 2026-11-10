@@ -124,7 +124,9 @@ Do not repeat the current ruleset value in prose anywhere. It goes stale.
   so far was traffic no corpus held; this is where it shows. See
   [docs/TESTING.md](../../docs/TESTING.md#real-traffic-replay-local-only).
 - `npm run bench:competitors` compares against third-party guardrails on the
-  same held-out splits. Useful context for a detection PR, not required.
+  same held-out splits, llm-fw's own presets measured in the same run, and
+  rewrites `docs/BENCHMARK-COMPETITORS.md`. Useful context for a detection
+  PR, not required.
 
 Numbers over adjectives in the PR body: give the measured before and after, not
 "improved".

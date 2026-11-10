@@ -169,7 +169,9 @@ Full details are in [`docs/TESTING.md`](docs/TESTING.md). In short:
   threshold, new corpus entries).
 - `npm run bench:competitors` and the harness under `test/eval/competitors/`
   compare against third-party guardrails on the same held-out splits — useful
-  context for a detection PR, not required to run for most contributions.
+  context for a detection PR, not required to run for most contributions. It
+  measures llm-fw's own presets in the same run and rewrites
+  `docs/BENCHMARK-COMPETITORS.md`; expect about an hour on a laptop CPU.
 
 ## Documentation expectations
 

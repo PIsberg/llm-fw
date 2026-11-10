@@ -494,7 +494,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_118 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_119 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -513,6 +513,7 @@ _118 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION` | `detection.classifier.requireCorroboration` | `true` |
 | `LLM_FW_CLASSIFIER_SURFACES` | `detection.classifier.surfaces` | `4 entries` |
 | `LLM_FW_CLASSIFIER_THRESHOLD` | `detection.classifier.blockThreshold` | `0.9` |
+| `LLM_FW_COMBINED_BLOCK_SCORE` | `detection.combinedBlockScore` | `30` |
 | `LLM_FW_CRESCENDO_CROSS_REQUEST` | `crescendo.crossRequest` | `false` |
 | `LLM_FW_CRESCENDO_ENABLED` | `crescendo.enabled` | `true` |
 | `LLM_FW_CRESCENDO_MODE` | `crescendo.mode` | `block` |

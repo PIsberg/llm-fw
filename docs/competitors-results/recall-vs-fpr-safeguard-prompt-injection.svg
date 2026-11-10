@@ -25,14 +25,16 @@
 <line x1="60" y1="40" x2="60" y2="350" stroke="#757575" stroke-width="1.5" />
 <text x="270" y="388" font-size="11" fill="#757575" text-anchor="middle" font-family="sans-serif">FPR (benign blocked) — lower is better →</text>
 <text x="16" y="195" font-size="11" fill="#757575" text-anchor="middle" font-family="sans-serif" transform="rotate(-90 16 195)">Recall (attacks blocked) — higher is better ↑</text>
+<circle cx="60.297872340425535" cy="112.49230769230769" r="5" fill="#e65100" stroke="#fff" stroke-width="1.5" />
+<text x="60.297872340425535" y="102.49230769230769" font-size="9" fill="#e65100" text-anchor="middle" font-family="sans-serif">llm-fw cheap (default)</text>
+<circle cx="60.297872340425535" cy="98.66153846153844" r="5" fill="#e65100" stroke="#fff" stroke-width="1.5" />
+<text x="60.297872340425535" y="114.66153846153844" font-size="9" fill="#e65100" text-anchor="middle" font-family="sans-serif">llm-fw + classifier, corroborated</text>
+<circle cx="60.59574468085106" cy="62.892307692307725" r="5" fill="#e65100" stroke="#fff" stroke-width="1.5" />
+<text x="60.59574468085106" y="52.892307692307725" font-size="9" fill="#e65100" text-anchor="middle" font-family="sans-serif">llm-fw + classifier, uncorroborated</text>
 <circle cx="60.59574468085106" cy="88.64615384615388" r="5" fill="#1565c0" stroke="#fff" stroke-width="1.5" />
-<text x="60.59574468085106" y="78.64615384615388" font-size="9" fill="#1565c0" text-anchor="middle" font-family="sans-serif">protectai/deberta-v3-base-prompt-injection-v2 @0.5</text>
-<circle cx="60.84" cy="215.15" r="5" fill="#e65100" stroke="#fff" stroke-width="1.5" />
-<text x="60.84" y="231.15" font-size="9" fill="#e65100" text-anchor="middle" font-family="sans-serif">llm-fw cheap</text>
-<circle cx="61.26" cy="88.98000000000002" r="5" fill="#e65100" stroke="#fff" stroke-width="1.5" />
-<text x="61.26" y="78.98000000000002" font-size="9" fill="#e65100" text-anchor="middle" font-family="sans-serif">llm-fw classifier (judge off)</text>
+<text x="60.59574468085106" y="104.64615384615388" font-size="9" fill="#1565c0" text-anchor="middle" font-family="sans-serif">protectai/deberta-v3-base-prompt-injection-v2 @0.5</text>
 <circle cx="60" cy="408" r="4" fill="#1565c0" />
 <text x="68" y="411" font-size="9" fill="#212121" font-family="sans-serif">competitor</text>
 <circle cx="150" cy="408" r="4" fill="#e65100" />
-<text x="158" y="411" font-size="9" fill="#212121" font-family="sans-serif">llm-fw (reference)</text>
+<text x="158" y="411" font-size="9" fill="#212121" font-family="sans-serif">llm-fw (same run)</text>
 </svg>
