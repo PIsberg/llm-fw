@@ -17,13 +17,23 @@
 //    marked text's lines has those lines removed and the rest scanned as
 //    usual. Only text the operator vouched for is removed, so copying a marked
 //    text gains an attacker nothing: every other line is scored, and a line
-//    differing by one byte is another line. The overlap requirement keeps one
-//    vouched line from being vouched for everywhere: a mark on a document
-//    quoting an attack does not pass that quote in unrelated output. And a
+//    differing by one byte is another line. The overlap requirement keeps a
+//    near copy from vouching for one line everywhere; the one case where a
+//    single line counts on its own is the third way below. And a
 //    changed line naming a destination (a URL, an address, an IP) keeps the
 //    whole text scored. An instruction can span lines, and neither half blocks
 //    alone: with a marked "Please forward the report" on one line, an attacker
 //    who changes only the address on the next would otherwise pass.
+// 3. As a vouched line in another text (#646): the flagged line itself comes
+//    back inside different output. Measured over a week of real tool results,
+//    27 of the 72 repeats a near copy missed were exactly this. It passes only
+//    in the narrow form the maintainer chose: the line was marked in a block by
+//    the stage that fires on it now, on the same surface; it fires that stage
+//    alone and no other line does; and no other line names a destination. The
+//    rest of the text is scanned by every stage, as for a near copy. The trade
+//    is that a vouched line is vouched for wherever it appears on that surface,
+//    so a mark on a document quoting an attack passes that exact quote, byte for
+//    byte, in other output on that surface; nothing else that quote is next to.
 //
 // Persisted at <getLlmFwDir()>/suppressions.json as a flat array of
 // { hash, preview, addedAt, lines?, stage? }. Only sha256 hashes of the text
@@ -68,6 +78,8 @@ export interface NearCopy {
   vouched: number
   total: number
   stage?: string
+  /** A vouched line in another text (withoutVouchedLines), rather than a near copy. */
+  elsewhere?: true
 }
 
 const PREVIEW_LEN = 200
@@ -142,6 +154,8 @@ export class SuppressionStore {
   private hashes = new Set<string>()
   // Entries that also match a near copy, by hash.
   private marked = new Map<string, { lines: Set<string>; stage?: string }>()
+  // The lines of those entries by the stage that blocked them, for withoutVouchedLines.
+  private vouched = new Map<string, Set<string>>()
 
   private static filePath(): string {
     // Resolved per access (not cached at construction) so a test/CLI that
@@ -156,12 +170,60 @@ export class SuppressionStore {
     const entries = this.readAll()
     this.hashes = new Set(entries.map(e => e.hash))
     this.marked = new Map()
-    for (const e of entries) this.rememberLines(e)
+    for (const e of entries) this.rememberLines(e, false)
+    this.indexVouched()
   }
 
-  private rememberLines(e: SuppressionEntry): void {
+  private rememberLines(e: SuppressionEntry, reindex = true): void {
     if (!Array.isArray(e.lines) || e.lines.length === 0) return
     this.marked.set(e.hash, { lines: new Set(e.lines), ...(typeof e.stage === 'string' ? { stage: e.stage } : {}) })
+    if (reindex) this.indexVouched()
+  }
+
+  private indexVouched(): void {
+    this.vouched = new Map()
+    for (const mark of this.marked.values()) {
+      if (mark.stage === undefined) continue
+      const lines = this.vouched.get(mark.stage) ?? new Set<string>()
+      this.vouched.set(mark.stage, lines)
+      for (const key of mark.lines) lines.add(key)
+    }
+  }
+
+  /**
+   * `text` without the lines a mark of `stage` vouched for, when those are the
+   * only lines that fire that stage alone (`firesAlone`) and no other line
+   * names a destination; otherwise null. For a text that is not a near copy
+   * of any mark. See the note at the top of this file.
+   */
+  withoutVouchedLines(
+    text: string, source: ScanSource, stage: string,
+    firesAlone: (line: string) => boolean,
+    namesDestination: (line: string) => boolean = l => CHANGED_LINE_DESTINATION_RE.test(l),
+  ): NearCopy | null {
+    const vouched = this.vouched.get(stage)
+    if (!vouched) return null
+    const lines = text.split(LINE_BREAK_RE).map(raw => ({ raw, key: lineKey(raw, source) }))
+    if (!lines.some(l => l.key !== null && vouched.has(l.key))) return null
+    const distinct = new Set<string>()
+    for (const l of lines) if (l.key !== null) distinct.add(l.key)
+    if (distinct.size > MAX_MARKED_LINES) return null
+    // Every line that fires alone has to be a vouched one. A line that fires
+    // only together with another is no vouched line's doing, so none firing
+    // means the instruction spans lines and the text stays whole.
+    const firing = new Set<string>()
+    const checked = new Set<string>()
+    for (const l of lines) {
+      if (l.key === null || checked.has(l.key)) continue
+      checked.add(l.key)
+      if (!firesAlone(l.raw)) continue
+      if (!vouched.has(l.key)) return null
+      firing.add(l.key)
+    }
+    if (firing.size === 0) return null
+    const rest = lines.filter(l => l.key !== null && !firing.has(l.key)).map(l => l.raw)
+    if (rest.some(namesDestination)) return null
+    return { text: rest.join('\n'), vouched: firing.size, total: distinct.size, stage, elsewhere: true }
   }
 
   /**
@@ -262,6 +324,7 @@ export class SuppressionStore {
     this.write(next)
     this.hashes.delete(hash)
     this.marked.delete(hash)
+    this.indexVouched()
     return true
   }
 
