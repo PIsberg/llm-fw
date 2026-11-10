@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractClaudeCodeTags } from '../../scripts/client-tags.js'
+import { extractClaudeCodeTags, skillListingDrift } from '../../scripts/client-tags.js'
 import { CLAUDE_CODE_TAGS } from '../../src/detection/clientTags.js'
 
 // A minified Claude Code bundle in miniature: tag constants declared together,
@@ -54,5 +54,33 @@ describe('extracting the tags Claude Code wraps its own text in', () => {
     expect(listed).toEqual([...listed].sort())
     expect(listed.length).toBe(CLAUDE_CODE_TAGS.size)
     for (const t of ['task-notification', 'skill-format', 'bash-stdout', 'local-command-caveat', 'system-reminder']) expect(CLAUDE_CODE_TAGS.has(t)).toBe(true)
+  })
+})
+
+// #753: dropSkills finds Claude Code's skill listing by the sentence it
+// starts with. The sentence is a template in the bundle; this is it, as
+// 2.1.321 has it, with the minifier's names.
+describe('the skill listing sentence in a Claude Code build', () => {
+  const template = [
+    'skill_listing:(e)=>{if(!e.content)return[];let[n,r]=e.addsToEarlier===!0?["also ",". This list adds to the skills listed earlier in this conversation and is not the full list"]:["",""];',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal minified-bundle fixture
+    'return Tu([De({content:de()&&Wi()?`The following skills are ${n}available; a script loads one with \\`await tools.Skill({skill: "name"})\\`, and its instructions arrive as a message right after the script\'s result${r}:\n\n${e.content}`',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal minified-bundle fixture
+    ':`The following skills are ${n}available for use with the Skill tool${r}:\n\n${e.content}`,isMeta:!0})])},',
+  ].join('')
+
+  it('finds every part the Tool Filter matches on', () => {
+    expect(skillListingDrift(`x${template}y`)).toEqual([])
+    // A minifier that escapes the line breaks, or renames the variables, is the same sentence.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal minified-bundle fixture
+    expect(skillListingDrift(template.replaceAll(':\n\n${e.content}', ':\\n\\n${$a.content}').replaceAll('${n}', '${q$}'))).toEqual([])
+  })
+
+  it('names the part a release changed', () => {
+    expect(skillListingDrift(template.replace('for use with the Skill tool', 'through the Skill tool'))).toEqual([expect.stringContaining('for use with the Skill tool')])
+    expect(skillListingDrift(template.replace('"also "', '"additionally "'))).toEqual([expect.stringContaining('also')])
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal minified-bundle fixture
+    expect(skillListingDrift(template.replaceAll(':\n\n${e.content}', ':\n${e.content}'))).toHaveLength(2)
+    expect(skillListingDrift('no listing here')).toHaveLength(3)
   })
 })

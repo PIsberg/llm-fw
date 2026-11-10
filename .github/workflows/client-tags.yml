@@ -17,6 +17,8 @@ on:
     paths:
       - 'scripts/client-tags.ts'
       - 'src/detection/clientTags.ts'
+      # The skill listing's wording, which the same check reads from the build.
+      - 'src/modules/builtin/toolFilter.ts'
       - '.github/workflows/client-tags.yml'
 
 permissions:

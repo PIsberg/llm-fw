@@ -386,6 +386,56 @@ describe('ToolFilterModule dropSkills', () => {
     expect(skills([]).transformRequest(request([typed, systemMessage(listing())]), ctx).modified).toBe(false)
   })
 
+  // #753: Claude Code 2.1.321 builds the listing's first sentence from a
+  // template with four outcomes. A listing sent later in a conversation says
+  // "also" and that it adds to the earlier one, and a client that loads
+  // skills from scripts words the middle differently.
+  describe('the four ways Claude Code words the listing', () => {
+    const adds = '. This list adds to the skills listed earlier in this conversation and is not the full list'
+    const script = 'available; a script loads one with `await tools.Skill({skill: "name"})`, and its instructions arrive as a message right after the script\'s result'
+    const worded = (sentence: string, kept: string[] = entries) => `# Environment\n\n${sentence}:\n\n${kept.join('\n')}\n\nToday's date is 2026-11-10.`
+    const sentences = {
+      'a later listing': `The following skills are also available for use with the Skill tool${adds}`,
+      'script mode': `The following skills are ${script}`,
+      'a later listing in script mode': `The following skills are also ${script}${adds}`,
+    }
+    it.each(Object.entries(sentences))('removes the named skills from %s', (_name, sentence) => {
+      const res = skills(['deslop', 'speckit-*']).transformRequest(request([typed, systemMessage(worded(sentence))]), ctx)
+      expect(textOf(res.body)).toBe(worded(sentence, [entries[1]!, entries[4]!, entries[5]!]))
+    })
+
+    it('finds the listing after other text that starts the same way, and each listing of a conversation', () => {
+      const first = `The following skills are not what this is about.\n\n${listing()}`
+      const later = worded(sentences['a later listing'], ['- wizard: Generate a wizard.', '- deslop: again'])
+      const res = skills(['deslop']).transformRequest(request([typed, systemMessage(first), typed, systemMessage(later)]), ctx)
+      expect(textOf(res.body)).toBe(`The following skills are not what this is about.\n\n${listing(entries.slice(1))}`)
+      expect(textOf(res.body, 3)).toBe(worded(sentences['a later listing'], ['- wizard: Generate a wizard.']))
+    })
+
+    it('leaves a sentence it does not know alone', () => {
+      const reworded = worded('The following skills can be invoked with the Skill tool')
+      expect(skills(['deslop']).transformRequest(request([typed, systemMessage(reworded)]), ctx).modified).toBe(false)
+    })
+  })
+
+  // If a release rewords the sentence, dropSkills removes nothing and breaks
+  // nothing. The card says so instead of staying silent.
+  it('says when requests offer the Skill tool and none carries a listing it knows', () => {
+    const mod = skills(['deslop'])
+    const reworded = request([typed, systemMessage(`The following skills can be invoked:\n\n${entries.join('\n')}\n\nend`)])
+    for (let i = 0; i < 19; i++) mod.transformRequest(reworded, ctx)
+    expect(mod.getStats().detail).toBeUndefined()
+    mod.transformRequest(reworded, ctx)
+    expect(mod.getStats().detail).toMatch(/20 requests offered the Skill tool and none carried a skill listing/)
+    // One listing in the known format, and the warning is gone.
+    mod.transformRequest(request([typed, systemMessage(listing())]), ctx)
+    expect(mod.getStats().detail).toBeUndefined()
+    // A request without the Skill tool is no evidence either way.
+    const quiet = skills(['deslop'])
+    for (let i = 0; i < 30; i++) quiet.transformRequest(JSON.stringify({ tools: [tool('Bash')], messages: [typed] }), ctx)
+    expect(quiet.getStats().detail).toBeUndefined()
+  })
+
   // 200 KB of entries, of continuation lines, and of header copies: one pass each.
   it('stays linear on a huge listing and on repeated headers', () => {
     const many = Array.from({ length: 4000 }, (_, i) => `- skill-${i}: ${'does a thing. '.repeat(3)}`)

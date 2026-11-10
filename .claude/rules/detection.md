@@ -56,7 +56,11 @@ gap is a local fix; a threshold move is a global one.
 Claude Code and Codex wrap their own text in markup, and the classifier mistakes
 the tags for injection. `src/detection/clientTags.ts` is GENERATED from the
 Claude Code binary by `npm run client-tags`: never edit it by hand. When the
-scheduled Client Tags workflow fails, a release added or dropped a tag: run
+scheduled Client Tags workflow fails on a `skill listing:` line, the release
+reworded the sentence its skill listing starts with: update `SKILL_LISTING`
+in `src/modules/builtin/toolFilter.ts` and its tests (no ruleset cut, the
+Tool Filter is not detection). When it
+fails on tags, a release added or dropped a tag: run
 `npm run client-tags` against that release, look at what each new tag wraps
 (a tag that wraps third-party text keeps that text scored, only the tag goes),
 and cut the ruleset. An exemption for a fixed harness sentence or field shape

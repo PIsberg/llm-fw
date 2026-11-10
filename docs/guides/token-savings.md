@@ -741,9 +741,28 @@ put it). The same sentence in text a person typed, a tool returned or the
 model wrote is content and is left alone. A listing in a shape this does not
 know (anything but entries between the sentence and the next blank line) is
 left alone too, as is one whose every skill is named: to hide all skills,
-drop the `Skill` tool. The format is Claude Code's, captured from 2.1.321; if
-a later version changes it, the entries stop being removed and nothing else
-happens, and the card's "Skill listing entries removed" stays at zero.
+drop the `Skill` tool.
+
+The sentence has four wordings, all of which are matched. Claude Code builds
+it from a template (read from the 2.1.321 bundle): a listing sent later in a
+conversation says the skills "are also available" and that the list "adds to
+the skills listed earlier in this conversation and is not the full list", and
+a client that loads skills from scripts says "available; a script loads one
+with `await tools.Skill(...)`" where the others say "available for use with
+the Skill tool". On 30 days of one developer's transcripts, 23 of 1,105
+listings were later ones, 0.3% of what the listings cost; the script wording
+did not occur.
+
+The wording is Claude Code's to change. If a release rewords it, the entries
+stop being removed and nothing else happens, so two things say so:
+
+- `npm run client-tags -- --check` reads a release's bundle and fails when a
+  part of the sentence is gone. The weekly Client Tags workflow runs it
+  against the newest release, and on a pull request that touches the Tool
+  Filter.
+- The card shows a line when `dropSkills` is set, 20 or more requests offered
+  the `Skill` tool, and none carried a listing in a wording this version
+  knows.
 
 Modelled on 30 days of one developer's Claude Code transcripts (2026-11-10:
 52,970 API calls, 1,006 recorded listings; the built module run over each
