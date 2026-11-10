@@ -123,7 +123,7 @@ export interface ResilienceCount { kept: number; total: number }
  * (the positional override's synonyms for "above", a policy blob whose key
  * and value are only separated by a space), every mutation 100%.
  *
- * Re-pinned on ruleset 2026.11.50 (#533): six corpus attacks in French,
+ * Re-pinned on ruleset 2026.11.51 (#533): six corpus attacks in French,
  * German, Spanish, Portuguese, Italian and Romanian and one entitlement claim
  * joined the seeds, 92 to
  * 99. Every mutation of the seven still blocks; synonyms is 97 of 99, the

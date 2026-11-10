@@ -500,7 +500,7 @@ dataset-level):
 
 ## Two weak signals on one text
 
-Ruleset `2026.11.50` (#533) blocks a text when Stage 1 scored it 30 to 49 and
+Ruleset `2026.11.51` (#533) blocks a text when Stage 1 scored it 30 to 49 and
 Stage 2 put it in the warn band with the contrastive margin
 (`detection.combinedBlockScore`). The form that shipped is the third one
 measured. Eval rows are the 28,906 of `npm run verdicts:dump`; real traffic is
