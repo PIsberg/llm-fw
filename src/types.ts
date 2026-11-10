@@ -593,6 +593,13 @@ export interface ToolFilterConfig extends ModuleSwitchConfig {
   shortenTools: string[];
   /** Characters kept of each description in a shortened definition. */
   shortenTo: number;
+  /**
+   * Skills removed from the skill listing Claude Code sends with every
+   * conversation, same patterns as dropTools (`speckit-*`,
+   * `anthropic-skills:*`). The model no longer knows it can invoke them; a
+   * person can still run one by name. Empty by default.
+   */
+  dropSkills: string[];
 }
 
 export interface LeanCtxConfig extends ModuleSwitchConfig {

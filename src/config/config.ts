@@ -460,6 +460,8 @@ export const DEFAULT_CONFIG: Config = {
       // Tools a client calls now and then: kept callable, cut to a stub.
       shortenTools: [],
       shortenTo: 200,
+      // Skills the model never invokes, out of Claude Code's skill listing.
+      dropSkills: [],
     },
     toolDefinitionPruner: {
       enabled: false,

@@ -370,9 +370,9 @@ In pipeline order, which is also the order of the cards:
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
 | `tool-result-dedup` | `modules.toolResultDedup` | repeated tool output |
 | `tool-result-truncate` | `modules.toolResultTruncate` | the middle of oversized tool output, file reads aside (lossy) |
-| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list, or cuts their definitions to a stub |
+| `tool-filter` | `modules.toolFilter` | removes the tools you name from the tool list, or cuts their definitions to a stub; removes the skills you name from Claude Code's skill listing |
 | `tool-definition-pruner` | `modules.toolDefinitionPruner` | tool and parameter descriptions |
-| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never or rarely get called (on by default) |
+| `tool-usage` | `modules.toolUsage` | nothing; lists the offered tools that never or rarely get called, and the listed skills never invoked (on by default) |
 | `stream-usage` | `modules.streamUsage` | asks OpenAI-style chat streams to report usage; saves nothing, makes the meter complete |
 | `cache-control` | `modules.cacheControl` | adds Anthropic prompt-cache markers, and moves the one-hour entries of clients you name to five minutes; saves cost, not tokens |
 | `response-cache` | `modules.responseCache` | nothing; answers a repeated request from a stored response |
@@ -631,7 +631,8 @@ How llm-fw runs lean-ctx:
 ### Tool filter
 
 `modules.toolFilter.enabled` (`LLM_FW_TOOL_FILTER_ENABLED`), `modules.toolFilter.dropTools`,
-`modules.toolFilter.shortenTools`, `modules.toolFilter.shortenTo`.
+`modules.toolFilter.shortenTools`, `modules.toolFilter.shortenTo`,
+`modules.toolFilter.dropSkills`.
 An agent sends a definition for every tool it has on every request, used or
 not, and the provider bills the whole list each time (as a cache read once it
 is cached). This removes the tools named in `dropTools`: an exact name, or a
@@ -720,6 +721,48 @@ definitions to 11,347 tokens, 48%. Its effect on the bill is not measured; the
 tool list is a cache read on most turns, so expect a tenth of that in cost
 between cache writes, and the full amount on each write.
 
+**Skills.** Claude Code tells the model which skills it can invoke in a
+listing it writes itself: the sentence "The following skills are available
+for use with the Skill tool:", then one `- name: description` entry per
+installed skill. It is sent with every conversation and read back from the
+cache on every call, like the tool list. `dropSkills` removes the entries you
+name (same names and `*` patterns: `speckit-*`, `anthropic-skills:*`), with
+the lines that continue them, and nothing else in that text.
+
+What a dropped skill loses is the model's knowledge that it exists, so the
+model will not invoke it on its own. A person can still run it by name
+(`/deslop`): the client loads a skill a person asks for whatever the listing
+says. Unlike a dropped tool, a dropped skill never comes back mid-conversation,
+also after it was invoked, so no turn pays a cache write for it.
+
+The listing is recognised by that sentence, in a system message or in a
+`<system-reminder>` of a user message (where older versions of Claude Code
+put it). The same sentence in text a person typed, a tool returned or the
+model wrote is content and is left alone. A listing in a shape this does not
+know (anything but entries between the sentence and the next blank line) is
+left alone too, as is one whose every skill is named: to hide all skills,
+drop the `Skill` tool. The format is Claude Code's, captured from 2.1.321; if
+a later version changes it, the entries stop being removed and nothing else
+happens, and the card's "Skill listing entries removed" stays at zero.
+
+Modelled on 30 days of one developer's Claude Code transcripts (2026-11-10:
+52,970 API calls, 1,006 recorded listings; the built module run over each
+listing with every skill no session invoked through the Skill tool named in
+`dropSkills`). 121 skills were listed and 29 invoked. Removing the other 92
+took the listing from 5,276 to 1,381 estimated tokens, 73.8% less, and that
+is 1.58% of the bill: a listing is written to the cache once and read on
+every later call of its session, here on 51,033 of the 52,970 calls. The
+list was picked from the same 30 days it is scored on, and nothing is counted
+for a skill the model would have invoked had it seen it.
+
+Checked live on 2026-11-10 (Claude Code 2.1.321 in print mode with the
+developer's own settings, Claude Haiku 5.5, through the gateway in enforce
+mode, each arm twice): with 52 of the 85 listed skills dropped, the API
+billed a prompt of 34,383 tokens against 40,320 with the filter off, 5,937
+fewer, where the module counted 3,805. Asked how many skills starting with
+`speckit` it could invoke and whether `deslop` was on the list, the model
+answered "7 yes" with the filter off and "0 yes" with it on, both times.
+
 ### Tool usage
 
 `modules.toolUsage.enabled` (`LLM_FW_TOOL_USAGE_ENABLED`), on by default
@@ -765,6 +808,18 @@ table. Per-tool counts start with this version: a `tool-usage.json` written
 before it says only that a tool was called, so those tools are never offered
 for shortening until the module's stats are reset.
 
+Skills are counted the same way. The card reads Claude Code's skill listing
+from each request (see **Skills** under [Tool filter](#tool-filter)), with
+the token estimate of every entry, and counts each invocation the model makes
+through the `Skill` tool, from the request history and from responses. It
+lists the skills never invoked, largest first, and after the same 1,000 calls
+the click also offers them to `modules.toolFilter.dropSkills` (**Drop these N
+never-invoked skills in the Tool Filter**, or one button naming tools and
+skills together). A skill a person runs by name does not go through the
+`Skill` tool and is not counted; dropping it from the listing does not stop
+that. On the 30 days of transcripts above, 92 of 121 listed skills were never
+invoked by the model.
+
 Why it matters: across 14 days of one developer's Claude Code transcripts
 (34,209 assistant turns), cache reads were 78.5% of the bill by list-price
 weights, and the tool list is part of that prefix on every turn. A captured
@@ -775,8 +830,8 @@ has not been called yet may still be needed; the list is evidence, not a
 verdict.
 
 `llm-fw start` keeps the list across restarts in `<LLM_FW_DIR>/tool-usage.json`
-(tool names, their token estimates, how many requests offered each and how
-many calls each got; no request content),
+(tool and skill names, their token estimates, how many requests offered each
+tool and how many calls each tool and skill got; no request content),
 written at most every 5 seconds and on a graceful stop, so it builds up over
 days of traffic instead of starting empty each time. Resetting the module's
 stats empties it; `uninstall --purge` deletes it.
@@ -913,6 +968,19 @@ client is in print mode is read from its `User-Agent`, which a client can set
 to anything; this is a billing choice for traffic you run yourself, not a
 control. The card counts requests and breakpoints moved, and, under observe
 mode, the requests it would have moved.
+
+Measured and not offered: five-minute entries only inside a tool loop. The
+idea was to keep the one-hour entry on the first call of each prompt a person
+types, which then covers everything before it, and to write the calls of the
+tool loop that follows at the five-minute price. Modelled on the same 30
+days (265 interactive conversations, 42,716 calls, 75.9% of their one-hour
+writes inside tool loops), it would have saved 3.00% of the bill and lost
+5.72%: the entries written inside a loop had expired at 773 prompts typed 5
+to 60 minutes after the previous call and at 598 gaps of that length in the
+middle of a loop (a long command, a scheduled wake-up, a permission prompt),
+and each time the loop's content was written again. A net loss of 2.72%, so
+`shortTtlClients` stays a choice per client and does not look inside a
+conversation.
 
 ### Response cache
 
