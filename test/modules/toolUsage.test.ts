@@ -340,6 +340,14 @@ describe('ToolUsageModule', () => {
       }
     })
 
+    it('counts the skills of a later listing too', () => {
+      const mod = usage()
+      const later = { role: 'system', content: [{ type: 'text', text: 'The following skills are also available for use with the Skill tool. This list adds to the skills listed earlier in this conversation and is not the full list:\n\n- wizard: Generate a wizard.\n\nend' }] }
+      mod.transformRequest(JSON.stringify({ tools, messages: [listed, { role: 'user', content: 'hi' }, later] }), ctx)
+      expect(kpi(mod, 'skills')).toBe(5)
+      expect(mod.getStats().detail).toMatch(/Skills never invoked[^.]*wizard/)
+    })
+
     it('reports nothing about skills for a client that lists none', () => {
       const mod = usage()
       mod.transformRequest(JSON.stringify({ tools, messages: [{ role: 'user', content: 'hi' }] }), ctx)

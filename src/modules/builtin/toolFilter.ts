@@ -10,6 +10,10 @@ type Matcher = (name: string) => boolean
 // Characters kept of each description in a shortened definition, when the
 // config holds no usable number.
 const DEFAULT_SHORTEN_TO = 200
+// The tool Claude Code invokes a skill through, and how many requests may
+// offer it without a skill listing in sight before the card says so.
+const SKILL_TOOL = 'Skill'
+const UNLISTED_REQUESTS = 20
 
 // `*` matches any run of characters, `__` included; the rest is literal and
 // the pattern spans the whole name. Matched without a RegExp: a pattern with
@@ -134,12 +138,42 @@ function shortenDefinition(def: unknown, max: number): boolean {
   return true
 }
 
-// Claude Code lists the installed skills in text it writes itself: this
+// Claude Code lists the installed skills in text it writes itself: a
 // sentence, a blank line, then one `- name: description` entry per skill (a
 // description can run over several lines, and an entry can be a bare name),
-// up to the next blank line. Captured from Claude Code 2.1.321, where it sits
-// in a system message; older versions sent it as a reminder in a user message.
-export const SKILLS_HEADER = 'The following skills are available for use with the Skill tool:'
+// up to the next blank line. In Claude Code 2.1.321 it sits in a system
+// message; older versions sent it as a reminder in a user message.
+//
+// The sentence is a template in Claude Code's bundle, and these are its
+// parts (2.1.321): lead, "also " for a listing that adds to an earlier one,
+// one of two middles (the second for a client that loads skills from
+// scripts), and for an adding listing the note that it is not the full
+// list. `npm run client-tags -- --check` reads a release's bundle and fails
+// when a part is gone, which the weekly Client Tags workflow runs.
+export const SKILL_LISTING = {
+  lead: 'The following skills are ',
+  also: 'also ',
+  middles: [
+    'available for use with the Skill tool',
+    'available; a script loads one with `await tools.Skill({skill: "name"})`, and its instructions arrive as a message right after the script\'s result',
+  ],
+  adds: '. This list adds to the skills listed earlier in this conversation and is not the full list',
+} as const
+
+// Where the entries of the skill listing in `text` begin, or -1. Each place
+// the lead occurs is checked once, against a fixed number of fixed strings.
+function listingStart(text: string): number {
+  for (let at = text.indexOf(SKILL_LISTING.lead); at >= 0; at = text.indexOf(SKILL_LISTING.lead, at + 1)) {
+    let pos = at + SKILL_LISTING.lead.length
+    if (text.startsWith(SKILL_LISTING.also, pos)) pos += SKILL_LISTING.also.length
+    const middle = SKILL_LISTING.middles.find(m => text.startsWith(m, pos))
+    if (middle === undefined) continue
+    pos += middle.length
+    if (text.startsWith(SKILL_LISTING.adds, pos)) pos += SKILL_LISTING.adds.length
+    if (text.startsWith(':\n\n', pos)) return pos + 3
+  }
+  return -1
+}
 
 /** One skill of a listing: its name, and where its lines are in the text. */
 export interface SkillEntry {
@@ -155,14 +189,12 @@ export interface SkillEntry {
  * indexOf and one pass over the listing's lines.
  */
 export function parseSkillListing(text: string): SkillEntry[] | null {
-  const at = text.indexOf(SKILLS_HEADER)
-  if (at < 0) return null
-  const from = at + SKILLS_HEADER.length
-  if (!text.startsWith('\n\n', from)) return null
-  const blank = text.indexOf('\n\n', from + 2)
+  const from = listingStart(text)
+  if (from < 0) return null
+  const blank = text.indexOf('\n\n', from)
   const stop = blank < 0 ? text.length : blank
   const entries: SkillEntry[] = []
-  let line = from + 2
+  let line = from
   while (line < stop) {
     const newline = text.indexOf('\n', line)
     const lineEnd = newline < 0 || newline > stop ? stop : newline
@@ -261,6 +293,10 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
   private dropped = 0
   private shortened = 0
   private skillsDropped = 0
+  // While dropSkills is set: listings found in the format this knows, and
+  // requests that offered the Skill tool and carried none.
+  private skillListings = 0
+  private skillToolRequests = 0
   private readonly compiled = {
     drop: { key: '', match: null as Matcher | null },
     shorten: { key: '', match: null as Matcher | null },
@@ -303,9 +339,11 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
     let tokensOriginal = 0
     let tokensPruned = 0
     let removed = 0
+    let listings = 0
     for (const slot of skillListingSlots(payload)) {
       const entries = parseSkillListing(slot.text)
       if (!entries) continue
+      listings++
       const first = entries[0]!.start
       const last = entries[entries.length - 1]!.end
       const listing = slot.text.slice(first, last)
@@ -324,6 +362,9 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
       tokensPruned += estimate(rest, estimates)
       removed += entries.length - kept.length
     }
+    this.skillListings += listings
+    // A client that offers the Skill tool lists its skills somewhere.
+    if (listings === 0 && Array.isArray(payload.tools) && payload.tools.some(t => toolName(t) === SKILL_TOOL)) this.skillToolRequests++
     if (tokensOriginal === 0) return null
     this.skillsDropped += removed
     return { changed: removed > 0, tokensOriginal, tokensPruned }
@@ -402,6 +443,10 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
         { key: 'shortened', label: 'Tool definitions shortened', value: this.shortened },
         { key: 'skillsDropped', label: 'Skill listing entries removed', value: this.skillsDropped },
       ],
+      // dropSkills that removes nothing breaks nothing, so nothing else would say.
+      ...(this.skillListings === 0 && this.skillToolRequests >= UNLISTED_REQUESTS
+        ? { detail: `dropSkills is set, ${this.skillToolRequests.toLocaleString('en-US')} requests offered the Skill tool and none carried a skill listing in the wording this version knows. A Claude Code release may have changed it: nothing is being removed.` }
+        : {}),
     }
   }
 
@@ -410,5 +455,7 @@ export class ToolFilterModule extends PayloadModule<ToolFilterConfig> {
     this.dropped = 0
     this.shortened = 0
     this.skillsDropped = 0
+    this.skillListings = 0
+    this.skillToolRequests = 0
   }
 }
