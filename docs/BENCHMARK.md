@@ -498,6 +498,35 @@ dataset-level):
 | + judge, judge-unless-benign | 93% / 48% | 100% / 86% |
 | + judge, judge-unless-benign (phi3) | — | 100% / 83% |
 
+## Two weak signals on one text
+
+Ruleset `2026.11.51` (#533) blocks a text when Stage 1 scored it 30 to 49 and
+Stage 2 put it in the warn band with the contrastive margin
+(`detection.combinedBlockScore`). The form that shipped is the third one
+measured. Eval rows are the 28,906 of `npm run verdicts:dump`; real traffic is
+28,999 distinct items from 14 days of the author's own Claude Code and Codex
+transcripts, replayed locally with the default configuration:
+
+| Margin the similarity must clear | Eval attacks newly blocked | Benign eval rows newly blocked | Real-traffic items newly blocked |
+|---|---|---|---|
+| 0 | 26 (23 jailbreak-classification, 2 safeguard, 1 heldout) | 0 of 24,423 | 44, of which 25 skill and agent instruction files |
+| 0.02, skipped for text that names the model's instructions, as Stage 2 does | 15 (13 jailbreak-classification, 2 safeguard) | 0 of 24,423 | 8, among them a security-review prompt and source files that discuss prompts |
+| 0.02, always measured (shipped) | 4 (3 jailbreak-classification, 1 safeguard) | 0 of 24,423 | 0 |
+
+The first two rows are why a benign eval corpus that reports zero is not
+enough on its own: none of the four benign corpora holds an agent's skill
+file or a review prompt with a diff in it. The first two attack counts are
+from a per-row dump of each stage's signals and the third from
+running every direct split with the rule off and on; the real-traffic counts for the first two are from the same
+kind of dump, and the third from running the pipeline with the rule off and
+on over every item whose signals came near it (197 items, 0 changed).
+
+The same ruleset adds override shapes in six languages and reads text that
+names the model's instructions in those languages the way English text is
+read (see the changelog). Together: multilingual-injections 255 to 276 of
+974, jailbreak-classification 310 to 314 of 542, safeguard 497 to 498 of 650,
+measured on Windows.
+
 ## What the direct-injection misses are made of
 
 The pooled 74.6% reads differently once the misses are sorted. Each of the 217

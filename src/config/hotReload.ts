@@ -92,6 +92,7 @@ const HOT_PATHS: Path[] = [
   ['detection', 'heuristicBlockThreshold'],
   ['detection', 'embeddingBlockThreshold'],
   ['detection', 'embeddingWarnThreshold'],
+  ['detection', 'combinedBlockScore'],
   ['detection', 'embeddingMarginThreshold'],
   ['detection', 'chunkTokenLimit'],
   ['detection', 'chunkSize'],

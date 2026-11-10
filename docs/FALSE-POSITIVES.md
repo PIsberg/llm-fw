@@ -73,9 +73,13 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
-## Result, ruleset 2026.11.51
+## Result, ruleset 2026.11.52
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The cut is for one new Tool Filter default in `config.ts` (`modules.toolFilter.dropSkills`), which is one of the hashed files; no detection file changed, so `verdicts:diff` was not run.
+
+## Result, ruleset 2026.11.51
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.48 moved 26 of 28,906 rows, all attacks from pass to block. Three additions (#533): two weak signals on one text block together (`detection.combinedBlockScore`), override shapes in French, German, Spanish, Portuguese, Italian and Romanian, and text in those languages that names the model's instructions is judged on similarity alone. A replay of 28,999 items of real Claude Code and Codex traffic ruled out two looser forms of the first (44 and 8 new blocks) that these corpora passed with 0; see [BENCHMARK.md](BENCHMARK.md#two-weak-signals-on-one-text). One false positive no corpus held is fixed: "don't forget the previous instructions" in Italian and Portuguese blocked.
 
 ## Result, ruleset 2026.11.50
 
