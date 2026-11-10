@@ -690,7 +690,7 @@ What it does, in order:
    next `start` would re-arm the sinkhole). What you authored is kept: your
    other settings in `config.json`, both false-positive stores
    (`whitelist.json`, `suppressions.json`), the audit log, the OCR cache, the
-   Tool Usage counts (`tool-usage.json`) and the licence key. It prints what it removed and what it left. `--purge` deletes
+   Tool Usage counts (`tool-usage.json`), the Usage Meter's counts per client (`usage-clients.json`) and the licence key. It prints what it removed and what it left. `--purge` deletes
    all of that too, except the licence key.
 6. **Names a `.llm-fw.json` in the current directory and leaves it alone.**
    Versions before 0.9.1 of `setup-judge` wrote judge settings there; llm-fw

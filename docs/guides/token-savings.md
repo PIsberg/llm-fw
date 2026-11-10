@@ -967,7 +967,10 @@ than five minutes apart. Name only clients whose steps are short, and prefer
 client is in print mode is read from its `User-Agent`, which a client can set
 to anything; this is a billing choice for traffic you run yourself, not a
 control. The card counts requests and breakpoints moved, and, under observe
-mode, the requests it would have moved.
+mode, the requests it would have moved. Which clients to name need not be a
+guess: the [Usage meter](#usage-meter) counts, per client, how many
+conversations idled and what five-minute entries would have changed, and
+offers the ones that qualify.
 
 Measured and not offered: five-minute entries only inside a tool loop. The
 idea was to keep the one-hour entry on the first call of each prompt a person
@@ -1053,6 +1056,43 @@ sends `stream_options.include_usage`; the
 [stream usage reporter](#stream-usage-reporter) adds it), the Responses API `response.completed`
 event, and Gemini `usageMetadata`. A response larger than `proxy.maxBodyBytes`
 is not metered, so a large download is never held in memory twice.
+
+**Cache entries by client.** The card also keeps, per client, the evidence
+for the Prompt Cache Marker's
+[`shortTtlClients`](#prompt-cache-marker): five-minute cache entries pay for a
+client whose conversations never idle five minutes, and cost a rewrite each
+time one does. For every client that names its conversation (Claude Code
+sends `x-claude-code-session-id`) it shows one line:
+
+    claude-cli (sdk-cli): 577 conversations, 0 idled 5 minutes or more, 21,183,696 one-hour cache-write tokens, five-minute entries would have cost 15,887,772 input tokens less
+
+A client is Claude Code with its mode (the part of its `User-Agent` in
+brackets: `cli` is an interactive session, `sdk-cli` print mode), or any
+other client's product name. The last figure is 0.75 times the tokens written
+at the one-hour price (2 against 1.25 times input), less 1.15 times the
+tokens read from the cache by calls that followed 5 to 60 idle minutes, which
+five-minute entries would have had to write again (1.25 against 0.1). A gap
+of an hour or more costs both lifetimes the same and is left out. It is in
+input tokens, so multiply by your input price.
+
+After 50 conversations of a client whose saving is at least four times that
+cost, the card offers **Use five-minute cache entries for sdk-cli**, which
+adds the name to `modules.cacheControl.shortTtlClients` and switches the
+Prompt Cache Marker on; like the Tool Usage action it is armed on the first
+click and sent on the second. For a client already named there, with the Prompt Cache Marker switched on, the line
+says how many calls followed five idle minutes, which is how often its
+entries had expired: if that number grows, the client does idle, and the
+name should come out again.
+
+`llm-fw start` keeps these totals across restarts in
+`<LLM_FW_DIR>/usage-clients.json` (client names and counts; no request
+content, no session ids), written at most every 5 seconds and on a graceful
+stop. The conversations themselves are held in memory only, the 5,000 most
+recent, so a restart in the middle of a conversation counts it twice.
+Resetting the module's stats empties the file; `uninstall --purge` deletes
+it. A client whose name is not plain letters, digits, dots, dashes and
+underscores is not reported: a `User-Agent` is whatever the client sends,
+and the name can end up in your config.
 
 ### Prompt monitor
 

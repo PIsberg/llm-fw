@@ -7,6 +7,11 @@ export interface Usage {
   cacheReadTokens: number
   cacheWriteTokens: number
   outputTokens: number
+  /**
+   * The part of cacheWriteTokens written with a one-hour lifetime, at twice
+   * the input price. Anthropic only, and only when it is above zero.
+   */
+  cacheWrite1hTokens?: number
 }
 
 type Obj = Record<string, unknown>
@@ -67,6 +72,8 @@ function fold(acc: Usage | null, data: unknown): Usage | null {
       if ('input_tokens' in u) next.inputTokens = num(u.input_tokens)
       if ('cache_read_input_tokens' in u) next.cacheReadTokens = num(u.cache_read_input_tokens)
       if ('cache_creation_input_tokens' in u) next.cacheWriteTokens = num(u.cache_creation_input_tokens)
+      const hour = isObj(u.cache_creation) ? num(u.cache_creation.ephemeral_1h_input_tokens) : 0
+      if (hour > 0) next.cacheWrite1hTokens = hour
       if ('output_tokens' in u) next.outputTokens = num(u.output_tokens)
     }
     return next
