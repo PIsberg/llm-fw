@@ -75,7 +75,7 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.11.54
 
-**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.53 moved 0 of 13,895 rows. The change (#646) acts only on text an operator marked: a line vouched for in an indirect-instruction mark passes inside a different tool result or document when it is the only line that fires that stage alone and no other line names a destination. These corpora hold no marks, so they cannot move. Its effect was measured on a week of one developer's real Claude Code and Codex tool results instead (about 10,200 distinct texts, rule stages only, the first text of each finding marked): later texts of a marked finding still blocked went from 59 to 48, and 19 fewer texts blocked in all.
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.53 moved 0 of 13,895 rows. The change (#646) acts only on text an operator marked: a line that fired alone in an indirect-instruction mark passes inside a different tool result or document when it is the only line that fires that stage alone, no neighbouring line continues its sentence, and no other line names a destination. These corpora hold no marks, so they cannot move. Its effect was measured on a week of one developer's real Claude Code and Codex tool results instead (9,980 distinct texts, rule stages only, the first text of each finding marked, main and this branch over the same window): later texts of a marked finding still blocked went from 55 to 46, and texts blocked in all from 316 to 301.
 
 ## Result, ruleset 2026.11.53
 

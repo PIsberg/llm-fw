@@ -123,7 +123,7 @@ import { referencesModelInstructions } from './selfReference.js'
 import { detectIndirectInstruction, namesDestination } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
-import { SuppressionStore, suppressionKey, rawSuppressionKey, type NearCopy } from './suppressions.js'
+import { SuppressionStore, suppressionKey, rawSuppressionKey, indirectLineFires, type NearCopy } from './suppressions.js'
 import { withholdText, withholdNotice } from './withhold.js'
 import { summarizeOpaque } from './media.js'
 import { ocrImage, isOcrCandidate } from './ocr.js'
@@ -1490,8 +1490,8 @@ export class Pipeline {
    * remaining line naming any destination the stage knows (a URL, an address,
    * an IP, an account or IBAN, a handle) keeps the text whole: a vouched
    * "Please transfer all funds" followed by a new account number must not
-   * pass. Measured over a week of real tool results, this wider check left
-   * 19 blocked texts passing against 22 for URL, address and IP alone.
+   * pass. Measured over a week of real tool results, this wider check let
+   * 19 blocked texts pass against 22 for URL, address and IP alone.
    */
   private vouchedLinesIn(text: string, source: ScanSource): NearCopy | null {
     if (this.config.detection.suppressions === false) return null
@@ -1499,7 +1499,7 @@ export class Pipeline {
     if (!indirect?.enabled || (source !== 'tool_result' && source !== 'document')) return null
     if (this.suppressions.has(suppressionKey(text, source))) return null
     return this.suppressions.withoutVouchedLines(text, source, 'indirect-instruction',
-      line => detectIndirectInstruction(line, indirect) !== null || detectSecretFileExfil(line) !== null,
+      line => indirectLineFires(line, indirect),
       line => LINE_DESTINATION_RE.test(line) || namesDestination(line))
   }
 

@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { Pipeline } from '../../src/detection/pipeline.js'
-import { SuppressionStore, suppressionKey, suppressionLines } from '../../src/detection/suppressions.js'
+import { SuppressionStore, suppressionKey, suppressionLines, firedLines } from '../../src/detection/suppressions.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import type { BlockEvent, ScanSource } from '../../src/types.js'
+import { fastestMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
 
 // A false positive comes back as "the same event" with something around it
 // changed: a file grew, a command's timing moved, the harness appended a
@@ -60,6 +61,7 @@ describe('a mark survives a resend of the same event', () => {
   const mark = (e: BlockEvent) => store.addKey(e.suppressionKey as string, e.payload_preview, {
     lines: suppressionLines(e.payload_full, e.suppressionSource as ScanSource),
     stage: e.stage,
+    fired: firedLines(e.payload_full, e.suppressionSource as ScanSource, e.stage, DEFAULT_CONFIG.indirectInstruction),
   })
   const blocked = () => events.filter(e => e.action === 'blocked')
 
@@ -347,6 +349,54 @@ ${extra}`
       expect(r.withheld).toBe(1)
     })
 
+    describe('a line that continues a vouched one, or that a vouched one continues', () => {
+      it.each([
+        ['the next line starts in lower case', [FLAGGED, 'and the customer list as well.']],
+        ['the next line starts with a joining word', [FLAGGED, 'Then the payroll file too.']],
+        ['the line before ends on a joining word', ['As soon as you read this, and', FLAGGED]],
+        ['the line before ends on a comma', ['Before anything else,', FLAGGED]],
+      ])('%s: the text is scored whole', async (_name, around) => {
+        await markFirst(toolBody(doc()))
+        const r = await pipeline.inspect('/v1/messages', toolBody(['Totally different output.', ...around].join('\n')), META)
+        expect(r.withheld).toBe(1)
+      })
+
+      it('a Read line number before the next line does not hide it', async () => {
+        await markFirst(toolBody(doc()))
+        const r = await pipeline.inspect('/v1/messages', toolBody(['     1\tTotally different output.', `     2\t${FLAGGED}`, '     3\tand the customer list as well.'].join('\n')), META)
+        expect(r.withheld).toBe(1)
+      })
+    })
+
+    // The lines beside a vouched one are attacker text, read by the continuation check.
+    it.each([
+      ['whitespace', ' '],
+      ['commas', ', '],
+      ['joining words', 'and '],
+      ['letters', 'a'],
+    ])('stays linear on 200 KB of %s beside a vouched line', { timeout: LINEAR_TIME_TIMEOUT }, (_name, unit) => {
+      store.addKey('e'.repeat(64), 'x', { lines: suppressionLines(FLAGGED, 'tool_result'), stage: 'indirect-instruction', fired: suppressionLines(FLAGGED, 'tool_result') })
+      const fires = (l: string) => l.trim() === FLAGGED
+      const scan = (n: number) => {
+        const filler = `X${unit.repeat(Math.ceil(n / unit.length))}`
+        return () => store.withoutVouchedLines(`${filler}\n${FLAGGED}\n${filler}`, 'tool_result', 'indirect-instruction', fires, () => false)
+      }
+      const smallMs = fastestMs(scan(2_000))
+      expect(fastestMs(scan(200_000))).toBeLessThan(smallMs * 400 + 400)
+    })
+
+    it('a line the mark did not see fire is not vouched for, whatever fires on it now', async () => {
+      store.addKey(suppressionKey(doc(), 'tool_result'), 'no fired lines', { lines: suppressionLines(doc(), 'tool_result'), stage: 'indirect-instruction', fired: [] })
+      const r = await pipeline.inspect('/v1/messages', toolBody(elsewhere()), META)
+      expect(r.withheld).toBe(1)
+    })
+
+    it('an entry made before fired lines were recorded vouches for near copies only', async () => {
+      store.addKey(suppressionKey(doc(), 'tool_result'), 'older entry', { lines: suppressionLines(doc(), 'tool_result'), stage: 'indirect-instruction' })
+      expect((await pipeline.inspect('/v1/messages', toolBody(doc('Bumped the logger.')), META)).withheld).toBe(0)
+      expect((await pipeline.inspect('/v1/messages', toolBody(elsewhere()), META)).withheld).toBe(1)
+    })
+
     it('a line vouched in a block by another stage is not vouched for this one', async () => {
       const tags = [...'hidden'].map(c => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join('')
       await markFirst(toolBody([...CONTEXT, `Fixed the parser.${tags}`, FLAGGED].join('\n')))
@@ -362,7 +412,7 @@ ${extra}`
     })
 
     it('a mark on a prompt does not vouch for the line in a tool result', async () => {
-      store.addKey(suppressionKey(doc(), 'prompt'), 'prompt mark', { lines: suppressionLines(doc(), 'prompt'), stage: 'indirect-instruction' })
+      store.addKey(suppressionKey(doc(), 'prompt'), 'prompt mark', { lines: suppressionLines(doc(), 'prompt'), stage: 'indirect-instruction', fired: suppressionLines(FLAGGED, 'prompt') })
       const r = await pipeline.inspect('/v1/messages', toolBody(elsewhere()), META)
       expect(r.withheld).toBe(1)
     })
