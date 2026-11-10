@@ -2,7 +2,7 @@
 
 # Competitor guardrail head-to-head
 
-Generated 2026-11-10 on ruleset 2026.11.50 by `npm run bench:competitors`. Do not edit by hand.
+Generated 2026-11-10 on ruleset 2026.11.51 by `npm run bench:competitors`. Do not edit by hand.
 
 Third-party prompt-injection guardrails and llm-fw on the same rows of the same splits (see [BENCHMARK.md](BENCHMARK.md) for what each split is). Recall is attacks blocked, FPR is benign rows blocked, and the counts behind each rate are in brackets. A split with no attack rows has no recall and one with no benign rows has no FPR. Direct injection, indirect injection and benign-only traffic are separate tables and are never averaged.
 
