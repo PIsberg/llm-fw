@@ -1,0 +1,23 @@
+{
+  "generatedBy": "npm run codex-tags",
+  "release": "rust-v0.167.0",
+  "tags": [
+    "apps_instructions",
+    "codex_internal_context",
+    "collaboration_mode",
+    "context_window",
+    "context_window_guidance",
+    "environment_context",
+    "environments_instructions",
+    "external_*",
+    "git_attribution",
+    "goal_context",
+    "multi_agent_mode",
+    "plugins_instructions",
+    "realtime_conversation",
+    "skills_instructions",
+    "startup_context",
+    "tools",
+    "user_instructions"
+  ]
+}

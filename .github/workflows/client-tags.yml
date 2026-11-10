@@ -8,6 +8,11 @@ name: Client Tags
 # blocked someone. This job reads the newest release every week and fails when
 # it adds or drops a tag, so the next one is found here instead.
 #
+# Codex does the same with its own wrappers (<environment_context>, the
+# AGENTS.md envelope). `npm run codex-tags -- --check` reads the tag constants
+# from the codex-rs sources of its newest release and fails when one is added
+# or gone against scripts/codex-tags.json (#607).
+#
 # The binary is downloaded with `npm pack` and only read, never run.
 on:
   schedule:
@@ -19,6 +24,8 @@ on:
       - 'src/detection/clientTags.ts'
       # The skill listing's wording, which the same check reads from the build.
       - 'src/modules/builtin/toolFilter.ts'
+      - 'scripts/codex-tags.ts'
+      - 'scripts/codex-tags.json'
       - '.github/workflows/client-tags.yml'
 
 permissions:
@@ -26,7 +33,7 @@ permissions:
 
 jobs:
   check:
-    name: Claude Code tags match src/detection/clientTags.ts
+    name: Claude Code and Codex tags match the committed lists
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -58,3 +65,10 @@ jobs:
 
       - name: Compare its tags with the committed list
         run: npm run client-tags -- --from "$RUNNER_TEMP/package/claude" --check
+
+      # Reads source files over HTTPS, never builds or runs Codex.
+      - name: Compare Codex's tags with scripts/codex-tags.json
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run codex-tags -- --check
