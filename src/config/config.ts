@@ -71,6 +71,15 @@ export const DEFAULT_CONFIG: Config = {
     // are heuristic-covered anyway). 0.02 clears the benign cluster with room to
     // spare while keeping the cross-lingual recall the embedding stage exists for.
     embeddingMarginThreshold: 0.02,
+    // Two weak signals on the same text block together (#533): a heuristic
+    // score of 30 to 49 (one mid-weight rule, under the stage's own line of
+    // 50) and a similarity in the warn band (0.80 or more) whose measured
+    // margin clears the one above. Worth 3 attacks in the never-tuned
+    // jailbreak split and 1 in safeguard, no benign row of 24,423, and none
+    // of 28,999 items of real agent traffic. At 20 the jailbreak split's
+    // benign rows start to block (7 to 14 of 637); see pipeline.ts for the
+    // two looser margins that real traffic ruled out. 0 turns it off.
+    combinedBlockScore: 30,
     // Bound on how long either ML stage may spend loading its weights before
     // the stage is disabled and the firewall comes up without it. A load
     // FAILURE already degraded this way; before this existed a load HANG did
@@ -838,6 +847,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_EMBEDDING_MAX_CHUNKS: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && n >= 0) c.detection.embeddingMaxChunks = n; },
   LLM_FW_EMBEDDING_MAX_PASSES: (c, v) => { c.detection.embeddingMaxPassesPerRequest = envInt('LLM_FW_EMBEDDING_MAX_PASSES', v, { min: 0 }); },
   LLM_FW_EMBEDDING_BLOCK_THRESHOLD: (c, v) => { c.detection.embeddingBlockThreshold = envFloat('LLM_FW_EMBEDDING_BLOCK_THRESHOLD', v, { min: 0, max: 1 }); },
+  LLM_FW_COMBINED_BLOCK_SCORE: (c, v) => { c.detection.combinedBlockScore = envFloat('LLM_FW_COMBINED_BLOCK_SCORE', v, { min: 0, max: 100 }); },
   LLM_FW_EMBEDDING_WARN_THRESHOLD: (c, v) => { c.detection.embeddingWarnThreshold = envFloat('LLM_FW_EMBEDDING_WARN_THRESHOLD', v, { min: 0, max: 1 }); },
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },
   LLM_FW_TAINT_MODE: (c, v) => { if (c.taint && (v === 'audit' || v === 'block')) c.taint.mode = v; },
