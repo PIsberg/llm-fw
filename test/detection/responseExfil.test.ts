@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { fastestMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
 import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil } from '../../src/detection/responseExfil.js'
 
 // Test predicate: treat the attacker host as an exfil sink, everything else clean.
@@ -86,12 +87,13 @@ describe('scanResponseExfil', () => {
       expect(neutralizeExfil(DOC, scanResponseExfil(DOC, isExfil))).not.toContain('webhook.site')
     })
 
-    it('stays linear on 200 KB of near-definitions', () => {
+    it('stays linear on 200 KB of near-definitions', { timeout: LINEAR_TIME_TIMEOUT }, () => {
       for (const filler of ['"[', '\n[', '\\n[ ', ' '.repeat(2), '1-', 'aZ09_-']) {
         const text = filler.repeat(Math.ceil(200_000 / filler.length))
-        const started = Date.now()
-        scanResponseExfil(text, isExfil)
-        expect(Date.now() - started).toBeLessThan(500)
+        const ms = fastestMs(() => {
+          scanResponseExfil(text, isExfil)
+        })
+        expect(ms).toBeLessThan(500)
       }
     })
   })
@@ -134,7 +136,7 @@ describe('scanResponseExfil', () => {
     }
     for (const wrap of ['raw', 'json'] as const) {
       for (const filler of fillers) {
-        it(`${wrap}: ${filler}`, () => {
+        it(`${wrap}: ${filler}`, { timeout: LINEAR_TIME_TIMEOUT }, () => {
           const at = (kb: number) => {
             const text = filler.repeat(Math.ceil((kb * 1024) / filler.length))
             return wrap === 'raw' ? text : JSON.stringify({ text })
@@ -185,13 +187,14 @@ describe('scanResponseExfil', () => {
   // every `<img` and ran to the end of the text when no URL followed, so 400 KB
   // of `<img src="` took 10.5 s on the request thread. Each tag is now read once.
   describe('<img> tags', () => {
-    it('stays linear on 400 KB of unfinished tags, raw and in a JSON body', () => {
+    it('stays linear on 400 KB of unfinished tags, raw and in a JSON body', { timeout: LINEAR_TIME_TIMEOUT }, () => {
       for (const filler of ['<img src="', '<img ', '<img alt="', '<IMG SRC=', '<img src=x '])  {
         const text = filler.repeat(Math.ceil(400_000 / filler.length))
-        const started = Date.now()
-        scanResponseExfil(text, isExfil)
-        scanResponseExfil(JSON.stringify({ content: [{ type: 'text', text }] }), isExfil)
-        expect(Date.now() - started, filler).toBeLessThan(500)
+        const ms = fastestMs(() => {
+          scanResponseExfil(text, isExfil)
+          scanResponseExfil(JSON.stringify({ content: [{ type: 'text', text }] }), isExfil)
+        })
+        expect(ms, filler).toBeLessThan(500)
       }
     })
 
@@ -317,13 +320,14 @@ describe('encoded destinations (#580)', () => {
       expect(scanResponseExfil('<video poster="https://cdn.trusted.com/p.png"></video> <a href="https://docs.trusted.com/">x</a> <img srcset="https://cdn.trusted.com/a.png 2x">', isExfil)).toEqual([])
     })
 
-    it('stays linear on 200 KB of unfinished poster, href and srcset attributes', () => {
+    it('stays linear on 200 KB of unfinished poster, href and srcset attributes', { timeout: LINEAR_TIME_TIMEOUT }, () => {
       for (const filler of ['<video poster="', '<a href="', '<img srcset="https://a.example/x 1x, ', '<audio src=x ']) {
         const text = filler.repeat(Math.ceil(200_000 / filler.length))
-        const started = Date.now()
-        scanResponseExfil(text, isExfil)
-        scanResponseExfil(JSON.stringify({ text }), isExfil)
-        expect(Date.now() - started, filler).toBeLessThan(500)
+        const ms = fastestMs(() => {
+          scanResponseExfil(text, isExfil)
+          scanResponseExfil(JSON.stringify({ text }), isExfil)
+        })
+        expect(ms, filler).toBeLessThan(500)
       }
     })
   })
@@ -333,18 +337,19 @@ describe('encoded destinations (#580)', () => {
     expect(scanResponseExfil('![x](https&#58;&#47;&#47;cdn.trusted.com/a.png)', isExfil)).toEqual([])
   })
 
-  it('stays linear on 200 KB of encoded destinations', () => {
+  it('stays linear on 200 KB of encoded destinations', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     for (const filler of ['https&#58;', '\\\\', 'ht\t', '&#x2F;', '\\/']) {
       const inline = '![x](' + filler.repeat(Math.ceil(200_000 / filler.length))
       const tag = '<img src="' + filler.repeat(Math.ceil(200_000 / filler.length))
-      const started = Date.now()
-      scanResponseExfil(inline, isExfil)
-      scanResponseExfil(tag, isExfil)
-      scanResponseExfil(JSON.stringify({ text: inline + tag }), isExfil)
+      const ms = fastestMs(() => {
+        scanResponseExfil(inline, isExfil)
+        scanResponseExfil(tag, isExfil)
+        scanResponseExfil(JSON.stringify({ text: inline + tag }), isExfil)
+      })
       // Three scans, 800 KB in all: 72 ms for the slowest filler on a
       // developer machine, 674 ms on CI under coverage, which failed a 500 ms
       // budget. A quadratic scan of this much takes tens of seconds.
-      expect(Date.now() - started, filler).toBeLessThan(2000)
+      expect(ms, filler).toBeLessThan(2000)
     }
   })
 })
@@ -406,14 +411,15 @@ describe('scanJsonTextFields', () => {
     expect(() => scanJsonTextFields(deep, isExfil, [])).not.toThrow()
   })
 
-  it('stays linear on 200 KB of escaped tags in one field and across many', () => {
+  it('stays linear on 200 KB of escaped tags in one field and across many', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     for (const filler of ['<img src="', ' ', '1-', 'aGVsbG8_d29ybGQ']) {
       const one = goJson({ text: filler.repeat(Math.ceil(200_000 / filler.length)) })
       const many = goJson({ content: Array.from({ length: 20_000 }, () => ({ text: `${filler}x` })) })
-      const started = Date.now()
-      scanJsonTextFields(one, isExfil, [])
-      scanJsonTextFields(many, isExfil, [])
-      expect(Date.now() - started, filler).toBeLessThan(2000)
+      const ms = fastestMs(() => {
+        scanJsonTextFields(one, isExfil, [])
+        scanJsonTextFields(many, isExfil, [])
+      })
+      expect(ms, filler).toBeLessThan(2000)
     }
   })
 })

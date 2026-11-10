@@ -84,6 +84,13 @@ CI runner, and under coverage instrumentation that load pushed the 200 KB timing
 checks in `overrideLexicon.test.ts` and `tokens.test.ts` past their budgets
 (1.7 to 3.1 s against 1.5 s, 650 ms against 500 ms).
 
+The full unit run can do the same on a developer machine: about 230 files in parallel
+workers put one 400 KB scan at 1.3 s against a 500 ms ceiling, and a case with six large
+scans past vitest's 5 s default, where each passed alone (#754). A linear-time test
+takes the fastest of three runs (`fastestMs` in `test/linearTime.ts`), which a load
+burst rarely reaches and a quadratic scan always does, and sets
+`{ timeout: LINEAR_TIME_TIMEOUT }` so the budget bounds a hang rather than measuring speed.
+
 The default run skips nothing. The OCR (`image-attacks.test.ts`) and speech
 transcription (`transcribe.model.test.ts`) suites run real models in it: the
 first run downloads about 12 MB of tesseract.js data and the 40 MB Whisper

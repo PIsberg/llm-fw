@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { fastestMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
 import { detectIndirectInstruction } from '../../src/detection/indirectInstruction.js'
 
 // Realistic tool-result payloads (JSON) carrying a planted instruction — the
@@ -398,12 +399,12 @@ describe('detectIndirectInstruction — mailer log lines and format strings (#72
     ['format strings', 'log("sending email to %s", "a@b.co") '.repeat(5_500)],
     ['bounces', 'Email to a@b.co bounced '.repeat(8_800)],
     ['unfinished placeholders', 'send to %'.repeat(23_000)],
-  ])('stays linear on 200 KB of %s', (_name, text) => {
+  ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
     const time = (t: string) => { const s = performance.now(); detectIndirectInstruction(t); return performance.now() - s }
     const small = text.slice(0, 20_000)
     time(small)
     const smallMs = time(small)
-    expect(time(text)).toBeLessThan(smallMs * 40 + 400)
+    expect(fastestMs(() => detectIndirectInstruction(text))).toBeLessThan(smallMs * 40 + 400)
   })
 })
 
@@ -461,12 +462,12 @@ describe('detectIndirectInstruction — "email" as an identifier or a label (#62
     ['CLI options', "'--claude-dir' a@b.co ".repeat(10_000)],
     ['unfinished markdown mail links', '. Send an email to [a@b.co](mailto:a@b.co?x'.repeat(5_000)],
     ['bold labels', '**Email**: a@b.co '.repeat(11_000)],
-  ])('stays linear on 200 KB of %s', (_name, text) => {
+  ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
     const time = (t: string) => { const s = performance.now(); detectIndirectInstruction(t); return performance.now() - s }
     const small = text.slice(0, 20_000)
     time(small)
     const smallMs = time(small)
-    expect(time(text)).toBeLessThan(smallMs * 40 + 400)
+    expect(fastestMs(() => detectIndirectInstruction(text))).toBeLessThan(smallMs * 40 + 400)
   })
 })
 
@@ -880,12 +881,12 @@ describe('detectIndirectInstruction — a code span is a subject, not a clause s
     it.each([
       ['run ids', 'run 123456789 '.repeat(14_000)],
       ['verbs and run ids', 'Publish run 123456789. '.repeat(9000)],
-    ])('stays linear on 200 KB of %s', (_name, text) => {
+    ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
       const time = (t: string) => { const s = performance.now(); detectIndirectInstruction(t); return performance.now() - s }
       const small = text.slice(0, 20_000)
       time(small)
       const smallMs = time(small)
-      expect(time(text)).toBeLessThan(smallMs * 40 + 400)
+      expect(fastestMs(() => detectIndirectInstruction(text))).toBeLessThan(smallMs * 40 + 400)
     })
   })
 
@@ -936,12 +937,12 @@ describe('detectIndirectInstruction — a code span is a subject, not a clause s
       ['open anchors', '<a href="mailto:a@b.co">'.repeat(8000)],
       ['labels', '<a href="mailto:a@b.co">Email</a>'.repeat(6000)],
       ['markdown labels', '[Email](mailto:a@b.co)'.repeat(9000)],
-    ])('stays linear on 200 KB of %s', (_name, text) => {
+    ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
       const time = (t: string) => { const s = performance.now(); detectIndirectInstruction(t); return performance.now() - s }
       const small = text.slice(0, 20_000)
       time(small)
       const smallMs = time(small)
-      expect(time(text)).toBeLessThan(smallMs * 40 + 400)
+      expect(fastestMs(() => detectIndirectInstruction(text))).toBeLessThan(smallMs * 40 + 400)
     })
   })
 
@@ -1033,7 +1034,7 @@ describe('detectIndirectInstruction — a code span is a subject, not a clause s
       ['checkbox lines', '- [ ] T001 \n'.repeat(16_666)],
       ['tags', `- [ ] ${'[US1] '.repeat(33_333)}`],
       ['spaces after a marker', `-${' '.repeat(200_000)}`],
-    ])('stays linear on 200 KB of %s', (_name, text) => {
+    ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
       const time = (t: string) => { const s = performance.now(); detectIndirectInstruction(t); return performance.now() - s }
       const small = text.slice(0, 20_000)
       time(small)
