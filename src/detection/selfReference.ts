@@ -64,15 +64,39 @@ const INSTRUCTION_NOUNS = {
 const DOCUMENT_NOUN = '(?:readme|fichier|file|archivo|arquivo|ficheiro|datei|fi[sș]ier(?:ul)?|guide|gu[ií]a|guida|anleitung|ghid(?:ul)?|manuel|manual(?:e|ul)?|handbuch|document[\\p{L}]*|dokument[\\p{L}]*|docs?|wiki|tutori[\\p{L}]+|page|p[aá]gina|seite|section|secci[oó]n|se[cç][aã]o|sezione|abschnitt|chapitre|cap[ií]tulo|capitolo|kapitel|capitol(?:ul)?|recette|receta|receita|ricetta|rezept|re[tț]et[aă])'
 const NOT_IN_A_DOCUMENT = `(?!\\s+(?:[\\p{L}'’-]+\\s+){0,3}?${DOCUMENT_NOUN}(?![\\p{L}]))`
 
+// "Follow the previous instructions", "don't forget the earlier rules": a verb
+// that keeps the instructions in force names the user's own brief, so the
+// idiom right after it is not a reference to the model's configuration
+// (#749). Without this, sentences like "follow the previous instructions and
+// ignore the compiler warning" blocked on similarity alone in five of the six
+// languages. Only that one idiom is let off: a possessive ("tus reglas") or
+// an override anywhere else in the text still counts. The verbs are positive
+// imperatives, and not when negated ("no sigas", "ne suis pas", "nu urma"),
+// since a negated follow is the override; the forget verbs count only with
+// their negation. Measured over every eval split: 0 attacks lost, 0 benign
+// verdicts changed. It can only lower a margin, never block more.
+const NOT_NEGATED = "(?<!(?<![\\p{L}])(?:no|n[aã]o|nu|non|ne)\\s+)"
+const COMPLY = {
+  fr: `(?:${NOT_NEGATED}(?:suis|suivez|respecte|respectez|applique|appliquez|garde|gardez)|n['’]oublie\\s+pas|n['’]oubliez\\s+pas)`,
+  es: `(?:${NOT_NEGATED}(?:sigue|siga|seguid|respeta|aplica|mant[eé]n|recuerda|recuerde)|no\\s+olvides|no\\s+olvide)`,
+  pt: `(?:${NOT_NEGATED}(?:segue|siga|respeita|respeite|aplica|aplique|mantenha|lembre-se\\s+d[ae]s?)|n[aã]o\\s+esque[cç]as?)`,
+  it: `(?:${NOT_NEGATED}(?:segui|seguite|rispetta|rispettate|applica|mantieni|ricorda)|non\\s+dimenticare|non\\s+dimenticate)`,
+  ro: `(?:${NOT_NEGATED}(?:urmeaz[aă]|urma[tț]i|respect[aă]|aplic[aă]|p[aă]streaz[aă])|nu\\s+uita|nu\\s+uita[tț]i)`,
+  de: '(?:befolge|befolgen\\s+sie|beachte|beachten\\s+sie|vergiss\\s+nicht|vergessen\\s+sie\\s+nicht|halte\\s+dich\\s+an)',
+}
+// One word may sit between the verb and the idiom (an article, "genau"), but
+// not a negation: "befolge nicht obigen Anweisungen" is the override.
+const notAfter = (verbs: string) => `(?<!(?<![\\p{L}])${verbs}\\s+(?:(?!(?:nicht|keine?n?|pas|plus|jamais|no|nunca|n[aã]o|nu|non|mai)(?![\\p{L}]))[\\p{L}'’]+\\s+)?)`
+
 const OTHER_LANGUAGE_PATTERNS: RegExp[] = [
   // "les instructions précédentes", "las instrucciones anteriores": noun, then positional.
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.fr}\\s+(?:pr[eé]c[eé]dentes?|ant[eé]rieure?s?|ci-dessus|initiales?|pr[eé]alables?)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.es}\\s+(?:anteriores|previas|precedentes|iniciales|de\\s+arriba)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.pt}\\s+(?:anteriores|pr[eé]vias|precedentes|iniciais|acima)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.it}\\s+(?:precedenti|anteriori|iniziali|(?:qui\\s+)?sopra)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
-  new RegExp(`(?<![\\p{L}])${INSTRUCTION_NOUNS.ro}\\s+(?:anterioare|precedente|ini[tț]iale|de\\s+mai\\s+sus)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${notAfter(COMPLY.fr)}${INSTRUCTION_NOUNS.fr}\\s+(?:pr[eé]c[eé]dentes?|ant[eé]rieure?s?|ci-dessus|initiales?|pr[eé]alables?)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${notAfter(COMPLY.es)}${INSTRUCTION_NOUNS.es}\\s+(?:anteriores|previas|precedentes|iniciales|de\\s+arriba)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${notAfter(COMPLY.pt)}${INSTRUCTION_NOUNS.pt}\\s+(?:anteriores|pr[eé]vias|precedentes|iniciais|acima)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${notAfter(COMPLY.it)}${INSTRUCTION_NOUNS.it}\\s+(?:precedenti|anteriori|iniziali|(?:qui\\s+)?sopra)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${notAfter(COMPLY.ro)}${INSTRUCTION_NOUNS.ro}\\s+(?:anterioare|precedente|ini[tț]iale|de\\s+mai\\s+sus)(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
   // German: positional, then noun.
-  new RegExp(`(?<![\\p{L}])(?:vorherigen?|vorigen?|obigen?|bisherigen?|fr[uü]heren?|urspr[uü]nglichen?|vorangegangenen?)\\s+${INSTRUCTION_NOUNS.de}(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
+  new RegExp(`(?<![\\p{L}])${notAfter(COMPLY.de)}(?:vorherigen?|vorigen?|obigen?|bisherigen?|fr[uü]heren?|urspr[uü]nglichen?|vorangegangenen?)\\s+${INSTRUCTION_NOUNS.de}(?![\\p{L}])${NOT_IN_A_DOCUMENT}`, 'iu'),
   // "tes instructions", "tus reglas", "deine Anweisungen", "le tue istruzioni", "regulile tale".
   new RegExp(`(?<![\\p{L}])(?:tes|vos)\\s+(?:propres\\s+)?${INSTRUCTION_NOUNS.fr}(?![\\p{L}])`, 'iu'),
   new RegExp(`(?<![\\p{L}])tus\\s+(?:propias\\s+)?${INSTRUCTION_NOUNS.es}(?![\\p{L}])`, 'iu'),
