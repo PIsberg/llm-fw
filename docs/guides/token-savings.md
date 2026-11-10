@@ -676,7 +676,13 @@ calls' worth of reading the same prompt. A stub therefore pays only for a tool
 whose definition is large and whose first calls are few. A client that
 continues a server-side thread (Claude Code through the proxy) sends its tool
 list when the thread starts and not with the calls, so there the stub stays
-for the whole thread.
+until the next user prompt: that prompt starts a new thread with the whole
+history and the tool list again, and the definition goes back to whole there.
+Captured from Claude Code 2.1.322 on 2026-11-10: the first prompt's two
+requests were a thread start with 14 tools and a continuation with none, and
+the next prompt's thread start carried all 8 messages so far and the 14 tools.
+The model works from the stub for the rest of the prompt it first called the
+tool in.
 
 Modelled on 30 days of one developer's Claude Code transcripts (2026-11-09:
 52,618 API calls, 44,102 of them with the tool list recorded, mean billed
