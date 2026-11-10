@@ -106,7 +106,9 @@ rescans it. Start such a pattern where the previous character cannot belong
 to the run (`(?<![...])`), and skip only horizontal whitespace after a line
 break. New detectors get a timing test on 200 KB of whitespace, `1-` and
 base64url, like those in `test/detection/indirectInstruction.test.ts`. Time
-it with `fastestMs` from `test/linearTime.ts` and give the case
+it against a fixed ceiling with `underMs` from `test/linearTime.ts` (up to ten
+runs, stopping at the first under it), or with `fastestMs` when the ceiling is
+a ratio to a small input, and give the case
 `{ timeout: LINEAR_TIME_TIMEOUT }`: a single run under the full parallel
 suite overshot a 500 ms ceiling, and six large scans in one case overshot
 vitest's 5 s default, on code that was linear (#754).
