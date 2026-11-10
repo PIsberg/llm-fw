@@ -39,5 +39,7 @@ describe('a claimed entitlement plus an order to answer by it', () => {
     for (const unit of ['premium ', 'premium plan limits ', 'premium plan limits do not apply ', ' ', '1-']) {
       expect(time(fill(unit))).toBeLessThan(baseline * 20)
     }
-  })
+    // Six 200 KB scores take ~1.7 s alone and passed 5 s under the full
+    // parallel suite; the property is the ratio above, not the wall clock.
+  }, 30_000)
 })
