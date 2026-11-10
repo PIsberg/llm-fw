@@ -96,7 +96,11 @@ character class that can span a long run (`\b[A-Za-z0-9._%+-]+@`,
 rescans it. Start such a pattern where the previous character cannot belong
 to the run (`(?<![...])`), and skip only horizontal whitespace after a line
 break. New detectors get a timing test on 200 KB of whitespace, `1-` and
-base64url, like those in `test/detection/indirectInstruction.test.ts`.
+base64url, like those in `test/detection/indirectInstruction.test.ts`. Time
+it with `fastestMs` from `test/linearTime.ts` and give the case
+`{ timeout: LINEAR_TIME_TIMEOUT }`: a single run under the full parallel
+suite overshot a 500 ms ceiling, and six large scans in one case overshot
+vitest's 5 s default, on code that was linear (#754).
 
 ## Ruleset version
 
