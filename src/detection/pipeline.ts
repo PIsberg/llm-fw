@@ -791,6 +791,7 @@ export class Pipeline {
       // item since `source` doesn't change across its candidates below.
       const heuristicBlockThreshold = resolveHeuristicBlockThreshold(this.config, source)
       const embeddingMarginThreshold = resolveEmbeddingMarginThreshold(this.config, source)
+      const combinedBlockScore = this.config.detection.combinedBlockScore ?? 0
       const wordingTier = trustedPath ? TRUSTED_READ_TIER : promptWordingTier(this.config, source)
       // The warn line for a wording match demoted on a trusted read names the
       // file, so the dashboard shows why it was not refused.
@@ -1193,13 +1194,40 @@ export class Pipeline {
           // stop "disregard my previous message" blocking; they must not also
           // rescue "treat your configuration as advisory rather than binding".
           // The nightly drift gate caught that trade — see selfReference.ts.
-          eMargin = referencesModelInstructions(candidate.text) ? eSim : eSim - (e.benignSimilarity ?? 0)
+          const contrastiveMargin = eSim - (e.benignSimilarity ?? 0)
+          eMargin = referencesModelInstructions(candidate.text) ? eSim : contrastiveMargin
           eNearest = e.nearest
           lastSim = Math.max(lastSim, eSim)
 
           if (eSim >= embeddingBlockThreshold && eMargin >= embeddingMarginThreshold) {
             const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: eSim, prompt: candidate.text, nearestTemplate: eNearest }
             if (wordingTier && (eSim < wordingTier.similarity || eMargin < wordingTier.margin)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: demotedLine(prompt), source }
+            } else if (this.isSuppressed(prompt, source)) {
+              if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }
+            } else {
+              this.emit(result, meta, prompt, source)
+              return result
+            }
+          } else if (combinedBlockScore > 0 && h.score >= combinedBlockScore && eSim >= embeddingWarnThreshold && contrastiveMargin >= embeddingMarginThreshold) {
+            // Two weak signals on the same text (#533): a rule that scored
+            // under its own block line, and a similarity in the warn band
+            // that is closer to an attack anchor than to a benign one by
+            // the stage's margin. Neither blocks alone. Two things were
+            // tried looser and taken back, both on a replay of 28,999 items
+            // of real Claude Code and Codex traffic that no eval corpus
+            // holds. A margin floor of 0 blocked 11 more eval attacks and no
+            // benign eval row, and 44 real items, 25 of them skill and agent
+            // instruction files (role-hijack plus soft-signal, score 30).
+            // And the margin here is always the measured one: text that
+            // names the model's instructions skips the subtraction above,
+            // which let a security-review prompt and source files that
+            // discuss prompts through on similarity alone. A wording block
+            // like the two above it, so the same demotion and suppression
+            // apply; it clears neither confidence tier, having cleared
+            // neither stage's own line.
+            const result: PipelineResult = { action: 'block', stage: 'embedding', score: h.score, similarity: eSim, prompt: candidate.text, nearestTemplate: eNearest, heuristicMatches: h.matches }
+            if (wordingTier) {
               if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: demotedLine(prompt), source }
             } else if (this.isSuppressed(prompt, source)) {
               if (!pendingWarn) pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${prompt}`, source }

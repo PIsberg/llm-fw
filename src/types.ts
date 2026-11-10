@@ -60,6 +60,11 @@ export interface ProxyConfig {
 
 export interface DetectionConfig {
   heuristicBlockThreshold: number;
+  // Two weak signals on the same text: a heuristic score at or above this,
+  // together with an embedding similarity at or above embeddingWarnThreshold
+  // whose measured contrastive margin clears embeddingMarginThreshold, blocks.
+  // Neither stage would block on its own there. 0 or absent turns it off.
+  combinedBlockScore?: number;
   embeddingBlockThreshold: number;
   embeddingWarnThreshold: number;
   // Contrastive margin: the embedding stage only treats a prompt as injection
