@@ -1,7 +1,7 @@
 {
-  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-10-30 on ruleset 2026.10.101 (docs/BENCHMARK.md classifier column). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554). injecagent and indirect-identifier-free re-measured 2026-11-01 at the tool_result default classifierBlockThreshold 0.999 (ruleset 2026.10.122, #587).",
-  "ruleset": "2026.10.101",
-  "measured": "2026-10-30",
+  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-11-10 on ruleset 2026.11.53 (docs/BENCHMARK.md classifier column, #751), every split at the shipped defaults (tool_result classifierBlockThreshold 0.999). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554).",
+  "ruleset": "2026.11.53",
+  "measured": "2026-11-10",
   "preset": "classifier",
   "isolated": true,
   "datasets": [
@@ -36,7 +36,7 @@
       "fp": 1160,
       "recall": 0,
       "fpr": 0.4150268336314848,
-      "p50Ms": 113,
+      "p50Ms": 88,
       "perClass": {
         "benign:acq": {
           "n": 40,
@@ -393,14 +393,14 @@
     {
       "name": "benign-realistic",
       "threat": "injection",
-      "n": 336,
+      "n": 356,
       "tp": 0,
       "fn": 0,
-      "tn": 251,
-      "fp": 85,
+      "tn": 270,
+      "fp": 86,
       "recall": 0,
-      "fpr": 0.25297619047619047,
-      "p50Ms": 83,
+      "fpr": 0.24157303370786518,
+      "p50Ms": 64,
       "perClass": {
         "benign:agent-system-prompt": {
           "n": 12,
@@ -414,8 +414,8 @@
         },
         "benign:agent-imperative": {
           "n": 18,
-          "blocked": 8,
-          "rate": 0.4444444444444444
+          "blocked": 7,
+          "rate": 0.3888888888888889
         },
         "benign:security-qa": {
           "n": 14,
@@ -434,13 +434,13 @@
         },
         "benign:benign-tool-result": {
           "n": 12,
-          "blocked": 3,
-          "rate": 0.25
+          "blocked": 1,
+          "rate": 0.08333333333333333
         },
         "benign:rag-document": {
           "n": 8,
-          "blocked": 3,
-          "rate": 0.375
+          "blocked": 1,
+          "rate": 0.125
         },
         "benign:instruction-management": {
           "n": 10,
@@ -534,8 +534,8 @@
         },
         "benign:contact-instruction": {
           "n": 10,
-          "blocked": 1,
-          "rate": 0.1
+          "blocked": 0,
+          "rate": 0
         },
         "benign:security-operations": {
           "n": 10,
@@ -564,8 +564,18 @@
         },
         "benign:software-howto": {
           "n": 10,
-          "blocked": 3,
-          "rate": 0.3
+          "blocked": 2,
+          "rate": 0.2
+        },
+        "benign:authority-data-request": {
+          "n": 10,
+          "blocked": 6,
+          "rate": 0.6
+        },
+        "benign:guardrail-talk": {
+          "n": 10,
+          "blocked": 2,
+          "rate": 0.2
         }
       }
     },
@@ -580,7 +590,7 @@
       "fp": 0,
       "recall": 0.43333333333333335,
       "fpr": 0,
-      "p50Ms": 101,
+      "p50Ms": 74,
       "perClass": {
         "attack:?": {
           "n": 60,
@@ -605,7 +615,7 @@
       "fp": 2,
       "recall": 0,
       "fpr": 0.001,
-      "p50Ms": 83,
+      "p50Ms": 50,
       "perClass": {
         "benign:brainstorming": {
           "n": 235,
@@ -660,7 +670,7 @@
       "fp": 0,
       "recall": 1,
       "fpr": null,
-      "p50Ms": 24,
+      "p50Ms": 41,
       "perClass": {
         "attack:direct-override": {
           "n": 112,
@@ -680,7 +690,7 @@
       "fp": 0,
       "recall": 0.4175,
       "fpr": null,
-      "p50Ms": 55,
+      "p50Ms": 51,
       "perClass": {
         "attack:chemical_biological": {
           "n": 56,
@@ -729,7 +739,7 @@
       "fp": 1,
       "recall": 0.8387096774193549,
       "fpr": 0.047619047619047616,
-      "p50Ms": 83,
+      "p50Ms": 53,
       "perClass": {
         "attack:direct-override": {
           "n": 4,
@@ -809,7 +819,7 @@
       "fp": 2,
       "recall": 0.5,
       "fpr": 0.1,
-      "p50Ms": 203,
+      "p50Ms": 89,
       "perClass": {
         "attack:indirect:identifier-free": {
           "n": 40,
@@ -878,13 +888,13 @@
       "threat": "injection",
       "revision": "2f2ceeb39658696fd3f462403562b6eea5306287",
       "n": 1179,
-      "tp": 446,
-      "fn": 96,
+      "tp": 447,
+      "fn": 95,
       "tn": 628,
       "fp": 9,
-      "recall": 0.8228782287822878,
+      "recall": 0.8247232472324724,
       "fpr": 0.0141287284144427,
-      "p50Ms": 278,
+      "p50Ms": 179,
       "perClass": {
         "benign:benign": {
           "n": 637,
@@ -893,8 +903,8 @@
         },
         "attack:jailbreak": {
           "n": 542,
-          "blocked": 446,
-          "rate": 0.8228782287822878
+          "blocked": 447,
+          "rate": 0.8247232472324724
         }
       }
     },
@@ -905,11 +915,11 @@
       "n": 200,
       "tp": 100,
       "fn": 0,
-      "tn": 98,
-      "fp": 2,
+      "tn": 97,
+      "fp": 3,
       "recall": 1,
-      "fpr": 0.02,
-      "p50Ms": 40,
+      "fpr": 0.03,
+      "p50Ms": 41,
       "perClass": {
         "attack:Harassment/Discrimination": {
           "n": 10,
@@ -998,8 +1008,8 @@
         },
         "benign:Privacy": {
           "n": 10,
-          "blocked": 1,
-          "rate": 0.1
+          "blocked": 2,
+          "rate": 0.2
         },
         "benign:Expert advice": {
           "n": 10,
@@ -1024,7 +1034,7 @@
       "fp": 0,
       "recall": 0.9784394250513347,
       "fpr": null,
-      "p50Ms": 37,
+      "p50Ms": 51,
       "perClass": {
         "attack:multilingual-injection": {
           "n": 974,
@@ -1044,7 +1054,7 @@
       "fp": 237,
       "recall": 0,
       "fpr": 0.1185,
-      "p50Ms": 103,
+      "p50Ms": 58,
       "perClass": {
         "benign:en-follow-up": {
           "n": 729,
@@ -1073,13 +1083,13 @@
       "threat": "injection",
       "revision": "a3a877d608f37b7d20d9945671902df895ecdb46",
       "n": 2060,
-      "tp": 600,
-      "fn": 50,
+      "tp": 602,
+      "fn": 48,
       "tn": 1408,
       "fp": 2,
-      "recall": 0.9230769230769231,
+      "recall": 0.9261538461538461,
       "fpr": 0.0014184397163120568,
-      "p50Ms": 129,
+      "p50Ms": 69,
       "perClass": {
         "benign:?": {
           "n": 1410,
@@ -1088,8 +1098,8 @@
         },
         "attack:?": {
           "n": 650,
-          "blocked": 600,
-          "rate": 0.9230769230769231
+          "blocked": 602,
+          "rate": 0.9261538461538461
         }
       }
     }

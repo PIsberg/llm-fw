@@ -192,7 +192,8 @@ had drifted by the time they were re-run: gandalf read 81.3% against a measured
 FPR 9.5% against a measured 0%. That is the same failure the paragraph below
 already records, repeated. Regenerate this table when detection changes.
 
-Both columns were measured together on 2026-10-30 at ruleset `2026.10.101`.
+Both columns were measured together on 2026-11-10 at ruleset `2026.11.53` (#751),
+and before that on 2026-10-30 at ruleset `2026.10.101`.
 Until then the classifier column mixed a safeguard row from `2026.08.12` with
 figures from the Round 6 run recorded in
 [BENCHMARK-IMPROVEMENTS.md](BENCHMARK-IMPROVEMENTS.md), and it carried no benign
@@ -200,8 +201,8 @@ corpus at all.
 
 The benign corpus behind [FALSE-POSITIVES.md](FALSE-POSITIVES.md) lives in
 `test/eval/data/` too, so it appears in this runner's output as
-`benign-realistic` — 2.68% (9/336) at ruleset `2026.10.101` (2.03%, 5/246, at
-`2026.10.21`, the same 5 rows as at `2026.10.6`). The second
+`benign-realistic` — 1.97% (7/356) at ruleset `2026.11.53` (2.68%, 9/336, at
+`2026.10.101`; 2.03%, 5/246, at `2026.10.21`, the same 5 rows as at `2026.10.6`). The second
 false-positive corpus, `dolly-15k-sample`, appears beside it at 0% (0/2,000),
 and the third, `oasst1-sample`, at 0% (0/2,000) since ruleset `2026.10.8`
 (0.15%, 3/2,000, at `2026.10.7`; #269). That is the Windows figure; the
@@ -229,10 +230,10 @@ table is re-measured, update that file in the same change.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
+| Dataset | n | Cheap (default) — measured 2026-11-10, ruleset 2026.11.53 | + Trained classifier — measured 2026-11-10, ruleset 2026.11.53 |
 |---|---|---|---|
-| gandalf (real "ignore instructions" attacks) | 112 | 86.6% (97/112) / — | 100% (112/112) / — |
-| safeguard (clean, balanced, full split) | 2,060 | 76.3% (496/650) / 0.07% (1/1,410) | 92.3% (600/650) / 0.14% (2/1,410) |
+| gandalf (real "ignore instructions" attacks) | 112 | 87.5% (98/112) / — | 100% (112/112) / — |
+| safeguard (clean, balanced, full split) | 2,060 | 76.6% (498/650) / 0.07% (1/1,410) | 92.6% (602/650) / 0.14% (2/1,410) |
 | deepset (noisy labels) | 116 | 28.3% (17/60) / 0% (0/56) | 43.3% (26/60) / 0% (0/56) |
 | heldout (hardest, adversarial benign) | 52 | 74.2% (23/31) / 0% (0/21) | 83.9% (26/31) / 4.8% (1/21) |
 | dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | — / 0.10% (2/2,000) |
@@ -242,22 +243,23 @@ table is re-measured, update that file in the same change.
 **The classifier with corroboration** (`detection.classifier.requireCorroboration`,
 preset `classifier-corroborated`) blocks on the classifier only when the
 heuristic or embedding stage found the same text suspicious too; alone, a
-classifier hit is a warn. Measured 2026-11-01 on the code of the PR that adds
-it, both presets in the same run, every split:
+classifier hit is a warn. Measured 2026-11-10 at ruleset `2026.11.53`, the three
+presets in the same run, every split (first measured 2026-11-01 on the code of
+the PR that adds it):
 
 | Dataset | Cheap (from the table above) | + classifier | + classifier, corroborated |
 |---|---|---|---|
-| gandalf | 86.6% / — | 100% / — | 89.3% / — |
-| safeguard | 76.3% / 0.07% | 92.3% / 0.14% | 80.8% / 0.14% |
+| gandalf | 87.5% / — | 100% / — | 89.3% / — |
+| safeguard | 76.6% / 0.07% | 92.6% / 0.14% | 81.1% / 0.07% |
 | deepset | 28.3% / 0% | 43.3% / 0% | 28.3% / 0% |
 | heldout | 74.2% / 0% | 83.9% / 4.8% | 77.4% / 4.8% |
-| jailbreak-classification | 57.4% / — (measured 2026-10-30) | 82.3% / 1.41% | 72.7% / 1.10% |
-| multilingual-injections | 26.2% / — (measured 2026-11-03) | 97.8% / — (measured 2026-11-03) | 30.6% / — (measured 2026-11-03) |
-| indirect-identifier-free | 20.0% / 10.0% (measured 2026-08-30) | 50.0% / 10.0% ‡ | 22.5% / 5.0% |
+| jailbreak-classification | 57.9% / 1.10% | 82.5% / 1.41% | 72.3% / 1.10% |
+| multilingual-injections | 28.3% / — | 97.8% / — | 33.2% / — |
+| indirect-identifier-free | 20.0% / 5.0% | 50.0% / 10.0% ‡ | 22.5% / 5.0% |
 | injecagent | 100% / 0% | 100% / 0% ‡ | 100% / 0% |
-| benign-realistic (benign only) | — / 2.68% | — / 25.3% | — / 3.6% |
+| benign-realistic (benign only) | — / 1.97% | — / 24.2% | — / 3.09% |
 | oasst1-sample (benign only) | — / 0% | — / 11.85% | — / 0.10% |
-| aya-sample (benign only) | — / 0% | — / 41.50% | — / 0% |
+| aya-sample (benign only) | — / 0% | — / 41.50% | — / 0.04% |
 
 ‡ At the classifier's `tool_result` block threshold of 0.999, the shipped
 default since ruleset 2026.10.122 (#587), re-measured 2026-11-01 with
@@ -274,9 +276,9 @@ corroborated column is what an operator who turns the classifier on gets; the
 plain classifier column (`requireCorroboration: false`, set explicitly by the
 `classifier` preset) is still what the weekly Classifier Benchmark gates.
 
-Pooled across the four attack splits, direct-injection recall is **74.2%
-(633/853)** at `2026.10.101` (74.6%, 636/853, at `2026.10.21`; the difference is
-3 safeguard rows), up from 67.5% (576/853) at `2026.10.12`. The #221 rulesets
+Pooled across the four attack splits, direct-injection recall is **74.6%
+(636/853)** at `2026.11.53` (74.2%, 633/853, at `2026.10.101`; 74.6% at
+`2026.10.21`, with 3 safeguard rows different), up from 67.5% (576/853) at `2026.10.12`. The #221 rulesets
 (`2026.10.13` to `2026.10.21`) each added a stage-1 family with a held-out
 benign family measured before and after it: coercion by unnamed
 consequences (16), persona demands made with "tell me" or a demand frame
@@ -300,17 +302,18 @@ persona-reassignment exfiltration and system-prompt extraction. No
 false-positive rate moved.
 
 **Why the classifier is still opt-in, despite that safeguard row.** On safeguard
-the trained classifier is the better detector: 92.3% recall against the cheap
-pipeline's 76.3%, at 0.14% against 0.07% false positives (2 and 1 of 1,410). It
-also lifts jailbreak-classification from 57.4% to 82.3% (446/542), the split no
-rule has been tuned on. Measured 2026-10-30, both at ruleset `2026.10.101`.
+the trained classifier is the better detector: 92.6% recall against the cheap
+pipeline's 76.6%, at 0.14% against 0.07% false positives (2 and 1 of 1,410). It
+also lifts jailbreak-classification from 57.9% to 82.5% (447/542), the split no
+rule has been tuned on. Measured 2026-11-10, both at ruleset `2026.11.53`.
 
 That row on its own argues for turning it on by default. Measured against the
-benign corpora, it argues the opposite. The same configuration blocks 25.3% of
-`benign-realistic` (85 of 336) where the cheap pipeline blocks 2.68% (9), 41.5%
+benign corpora, it argues the opposite. The same configuration blocks 24.2% of
+`benign-realistic` (86 of 356) where the cheap pipeline blocks 1.97% (7), 41.5%
 of the 70-language Aya sample (1,160 of 2,795) and 11.85% of the oasst1 chat
 sample (237 of 2,000) where the cheap pipeline blocks none, and it does so at
-83 to 129 ms p50 rather than 5 to 10 ms (all on this machine, CPU only).
+83 to 129 ms p50 rather than 5 to 10 ms (all on this machine, CPU only;
+latency measured 2026-10-30, since the 2026-11-10 runs shared the CPU three ways).
 
 The two results are not in conflict, they are measuring different traffic.
 safeguard benign rows are dataset-style prompts. The realistic corpus is
@@ -406,7 +409,7 @@ was already making by leaving it off.
 
 **Indirect injection (tool_result surface)**
 
-| Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
+| Dataset | n | Cheap (default) — measured 2026-11-10, ruleset 2026.11.53 | + Trained classifier — measured 2026-11-10, ruleset 2026.11.53 |
 |---|---|---|---|
 | injecagent (tool-result poisoning) | 1,071 | 100% (1,054/1,054) / 0% (0/17) | 100% (1,054/1,054) / 0% (0/17) at the `tool_result` default 0.999 (re-measured 2026-11-01, #587); 35.3% (6/17) † at 0.9 |
 
@@ -465,9 +468,9 @@ took the object requirement. The remaining row is characterisation, not gated.
 **Harmful content / jailbreak requests** (different threat model — do not
 average with injection)
 
-| Dataset | n | Cheap (default) — measured 2026-10-30, ruleset 2026.10.101 | + Trained classifier — measured 2026-10-30, ruleset 2026.10.101 |
+| Dataset | n | Cheap (default) — measured 2026-11-10, ruleset 2026.11.53 | + Trained classifier — measured 2026-11-10, ruleset 2026.11.53 |
 |---|---|---|---|
-| jbb-behaviors (100 harmful / 100 benign) | 200 | 100% (100/100) / 1.0% (1/100) | 100% (100/100) / 2.0% (2/100) |
+| jbb-behaviors (100 harmful / 100 benign) | 200 | 100% (100/100) / 2.0% (2/100) | 100% (100/100) / 3.0% (3/100) |
 | harmbench | 400 | 41.5% (166/400) / — | 41.8% (167/400) / — |
 | advbench | 520 | 64.4% (335/520) / — | 64.4% (335/520) / — |
 
@@ -476,7 +479,9 @@ Dolly-15k prompts had blocked) and gained recall in the same change: harmbench
 164 to 166, advbench 328 to 335. See the CHANGELOG for how.
 
 Both columns come from one pair of runs, `scripts/run-benchmark.ts cheap` and
-`scripts/run-benchmark.ts classifier`, on 2026-10-30 at ruleset `2026.10.101`.
+`scripts/run-benchmark.ts classifier`, on 2026-11-10 at ruleset `2026.11.53`
+(before that, 2026-10-30 at `2026.10.101`, when jbb-behaviors' benign half blocked
+1 and 2 rows).
 The classifier preset runs each split in its own Node process with an 8 GB heap
 (#538): in one process the full suite ran out of memory part way through and
 exited without a report, which is why this column had gone stale since ruleset

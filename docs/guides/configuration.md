@@ -176,10 +176,10 @@ positive. It is on by default because the model scores ordinary tool output
 traffic, so no threshold separates it. Set it to `false` (or
 `LLM_FW_CLASSIFIER_REQUIRE_CORROBORATION=false`) for the classifier's full
 recall at its false-positive cost. Measured on every eval split, it keeps about a
-third of the classifier's recall gain (safeguard 80.8% against 92.3% plain and
-76.3% with the classifier off) and drops nearly all of its false positives on
-ordinary prompts (multilingual Aya 0% against 41.5%, conversational oasst1
-0.10% against 11.85%); the full table is in
+third of the classifier's recall gain (safeguard 81.1% against 92.6% plain and
+76.6% with the classifier off, ruleset 2026.11.53) and drops nearly all of its
+false positives on ordinary prompts (multilingual Aya 0.04% against 41.5%,
+conversational oasst1 0.10% against 11.85%); the full table is in
 [BENCHMARK.md](../BENCHMARK.md). A warm key: it applies
 without a restart.
 
