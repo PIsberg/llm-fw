@@ -14,12 +14,14 @@
  *   npm run scorecard             # sweep + docs/SCORECARD.md (+ CI summary)
  *   npm run scorecard -- --readme # also refresh the README section
  *
- * Exit code mirrors the sweep gate (1 on FPR/TPR floor violation), so CI can
+ * Exit code mirrors the sweep gate (1 on FPR/TPR floor violation), and is 1
+ * when a class falls under its floor in test/load/lib/scorecardFloor.ts, so CI can
  * use this single step as both scorecard publisher and accuracy gate.
  */
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { evaluateScorecardFloor } from '../test/load/lib/scorecardFloor.js'
 
 interface ClassCounts { tp: number; fn: number; tn: number; fp: number }
 interface SweepResult {
@@ -106,6 +108,18 @@ function main(): void {
     console.error('\ngen-scorecard: sweep gate FAILED — leaving docs/SCORECARD.md untouched.')
     for (const f of data.failures ?? []) console.error(`  • ${f}`)
     process.exit(sweep.status || 1)
+  }
+  // The sweep gate is overall; this one is per class (#750). Same rule: a
+  // regression does not get published as the product's accuracy.
+  const floor = evaluateScorecardFloor(data.results.perClass)
+  if (floor.failures.length > 0) {
+    console.error('\ngen-scorecard: per-class floor FAILED — leaving docs/SCORECARD.md untouched.')
+    for (const f of floor.failures) console.error(`  • ${f}`)
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const list = floor.failures.map(f => '- ' + f).join('\n')
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Detection Scorecard: per-class floor failed\n\n${list}\n\n${render(data)}\n`)
+    }
+    process.exit(1)
   }
   const table = render(data)
   const doc = `# Detection Scorecard\n\n${table}\n`
