@@ -221,6 +221,21 @@ describe('ToolFilterModule shortenTools', () => {
     expect(forced.modified).toBe(false)
   })
 
+  it('sends the whole definition again when a server-side thread restarts after a call (#744)', () => {
+    // Claude Code 2.1.322 through the proxy, captured 2026-11-10: a thread
+    // starts with the tool list, its continuations carry neither the list
+    // nor the calls, and the next user prompt starts a new thread with the
+    // whole history, system messages among it, and the list again.
+    const sys = { role: 'system', content: [{ type: 'text', text: 'reminder' }] }
+    const start = shortener(['Artifact']).transformRequest(request({ thread: { type: 'create' }, messages: [{ role: 'user', content: 'hi' }, sys] }), ctx)
+    expect(defs(start.body)[1]!.description).toMatch(/shortened\]$/)
+    const cont = JSON.stringify({ thread: { type: 'continue', previous_message_id: 'msg_1' }, messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] }, sys] })
+    expect(shortener(['Artifact']).transformRequest(cont, ctx).modified).toBe(false)
+    const [hi, use, result] = called('Artifact')
+    const restart = shortener(['Artifact']).transformRequest(request({ thread: { type: 'create' }, messages: [hi, sys, use, result, sys, { role: 'assistant', content: 'done' }, { role: 'user', content: 'next' }, sys] }), ctx)
+    expect(defs(restart.body)[1]).toEqual(big('Artifact'))
+  })
+
   it('sends the same tool list on every turn that has not called the tool', () => {
     const turn1 = shortener(['Artifact']).transformRequest(request(), ctx).body
     const turn2 = shortener(['Artifact']).transformRequest(request({ messages: called('Bash') }), ctx).body
