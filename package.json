@@ -72,6 +72,7 @@
     "bench:trend": "node --import tsx/esm scripts/bench-trend.ts",
     "bench:compare": "node --import tsx/esm scripts/bench-compare.ts",
     "client-tags": "node --import tsx/esm scripts/client-tags.ts",
+    "codex-tags": "node --import tsx/esm scripts/codex-tags.ts",
     "replay:transcripts": "node --import tsx/esm scripts/replay-transcripts.ts",
     "verdicts:dump": "node --import tsx/esm scripts/verdict-dump.ts",
     "verdicts:diff": "node --import tsx/esm scripts/verdict-diff.ts",

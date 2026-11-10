@@ -67,6 +67,15 @@ and cut the ruleset. An exemption for a fixed harness sentence or field shape
 keeps everything else scored, and gets a guard test that puts an attack in
 the exempted slot.
 
+Codex's wrappers are still matched by hand-written rules in
+`src/detection/clientEnvelopes.ts`. `scripts/codex-tags.json` is GENERATED
+by `npm run codex-tags` from the tag constants in the codex-rs sources of a
+release (#607), and the same workflow fails when a Codex release adds or
+drops one. Then look at what the new tag wraps, decide whether
+`clientEnvelopes.ts` needs to know it (cut the ruleset if it changes), and
+rerun `npm run codex-tags` to commit the list. When it fails because a
+source file moved, update `SOURCES` in `scripts/codex-tags.ts`.
+
 A fixed prompt a harness sends with work appended (Claude Code's security
 review) is an entry in `HARNESS_TEMPLATES` (`src/detection/harnessTemplates.ts`),
 not new code: copy its fixed text byte for byte from a real event, turn each
