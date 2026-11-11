@@ -347,11 +347,39 @@ const POLITE_OBJECT_GATED_VERBS = new Set([
   'pay',
 ])
 
+// A payment order names where the money goes, so "pay" needs one of these in
+// its object window, on top of the generic object list (#767). It fails closed:
+// any "to"/"into" object counts, except a purpose clause ("to avoid a late
+// fee"), and a window that stops at a colon counts too, because what follows
+// the colon is where the money goes ("to the following account:\nIBAN ...", in
+// a JSON string or after a blank line). Only a reminder that names no
+// destination at all passes: "Please pay the invoice by 30 November".
+const PAY_TO_RE = /\b(?:to|into)\s+(?!(?:avoid|ensure|keep|prevent|continue|maintain|stay|receive|get|be|have|complete|confirm|secure|restore|reactivate)\b)\S/i
 // An IBAN: country code, check digits, then 11 to 30 letters or digits, in
-// groups of four or not. Case-sensitive, so a lower-case hash is not one. The
-// generic object list misses it because no word boundary falls before its
-// digits ("DE89370400440532013000").
-const IBAN_RE = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b/
+// groups of four or not, in any case. The generic object list misses it
+// because no word boundary falls before its digits ("DE89370400440532013000").
+// A lower-case hex token is an IBAN only when its checksum holds, so a commit
+// hash is not one.
+const IBAN_CANDIDATE_RE = /\b[a-z]{2}\d{2}(?: ?[a-z0-9]){11,30}\b/gi
+function ibanChecksumHolds(iban: string): boolean {
+  const s = iban.toUpperCase()
+  let rem = 0
+  for (const ch of s.slice(4) + s.slice(0, 4)) {
+    const n = ch >= 'A' ? ch.charCodeAt(0) - 55 : ch.charCodeAt(0) - 48
+    rem = (n > 9 ? rem * 100 + n : rem * 10 + n) % 97
+  }
+  return rem === 1
+}
+function namesIban(window: string): boolean {
+  for (const m of window.matchAll(IBAN_CANDIDATE_RE)) {
+    const iban = m[0].replace(/ /g, '')
+    if (/[A-Z]/.test(iban) || !/^[0-9a-f]+$/.test(iban) || ibanChecksumHolds(iban)) return true
+  }
+  return false
+}
+function payRecipientHolds(window: string): boolean {
+  return IMPERATIVE_OBJECT_RE.test(window) || /:\s*$/.test(window) || PAY_TO_RE.test(window) || namesIban(window)
+}
 
 // The objects an "update" order aims at beyond the generic list: an agent's
 // instruction file, a shell profile, a CI workflow, an access, policy or secret
@@ -359,23 +387,10 @@ const IBAN_RE = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b/
 // always skip the review" would pass without this (#621 review of #477). "Update
 // your unit file" names none of them, so the advice still passes.
 const UPDATE_OBJECT_RE = /(?:\bCLAUDE\.md|\bAGENTS\.md|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\.profile)\b|\b(?:workflows?|pipelines?|policy|policies|permissions?|access|allowlist|whitelist|IAM|roles?|credentials?|secrets?|tokens?|passwords?|(?:api|ssh|gpg|signing|private|access)\s+keys?|hooks?|settings|firewall|sandbox)\b/i
-// "Please pay ... to the following account:" puts the account on the next line,
-// and the object window stops at the colon. For "pay" the line after a closing
-// colon is read too: a bill that names the IBAN to pay is the #282 shape and
-// still fires, while one that names only a due date there passes (#767).
-const NEXT_LINE_RE = /^[ \t]*\r?\n([^\n]{0,120})/
-function payObjectWindow(text: string, end: number, window: string): string {
-  if (!/:\s*$/.test(window)) return window
-  const next = NEXT_LINE_RE.exec(text.slice(end - 1 + window.length))
-  return next ? `${window} ${next[1]}` : window
-}
 /** True when the object window after a gated verb holds an object that makes the order real. */
-function gatedObjectHolds(verb: string, text: string, end: number): boolean {
-  const window = objectWindow(text, end)
-  if (IMPERATIVE_OBJECT_RE.test(window) || (verb === 'update' && UPDATE_OBJECT_RE.test(window))) return true
-  if (verb !== 'pay') return false
-  const payWindow = payObjectWindow(text, end, window)
-  return IMPERATIVE_OBJECT_RE.test(payWindow) || IBAN_RE.test(payWindow)
+function gatedObjectHolds(verb: string, window: string): boolean {
+  if (verb === 'pay') return payRecipientHolds(window)
+  return IMPERATIVE_OBJECT_RE.test(window) || (verb === 'update' && UPDATE_OBJECT_RE.test(window))
 }
 
 // "Please add" is how build tools phrase their warnings: PMD's "Please add the
@@ -1329,11 +1344,14 @@ const ML_SEND_SET = new Set(ML_SEND_VERBS)
 // download. Please enjoy" (#282). A determiner or possessive, optionally with
 // one adjective ("your partial refund"), puts the word in noun position, where
 // the marker beside it is not asking for it. English only: Spanish "a pagar"
-// is a verb after a preposition. A payment method is a noun too: "Please pay
-// by bank transfer" names how to pay, not a transfer to make (#767). "Please
-// wire transfer $500 to ..." still fires, on "wire".
+// is a verb after a preposition.
 const ML_ENGLISH_VERB_SET = new Set([...ML_SEND_VERBS_EN, ...ML_OTHER_VERBS_EN])
-const ML_NOUN_POSITION_RE = /\b(?:(?:a|an|the|your|my|our|their|his|her|its|this|that)\s+(?:[a-z]+\s+)?|(?:bank|wire|money|electronic|direct)\s+)$/
+const ML_NOUN_POSITION_RE = /\b(?:a|an|the|your|my|our|their|his|her|its|this|that)\s+(?:[a-z]+\s+)?$/
+// A payment method is a noun too: "Please pay by bank transfer" names how to
+// pay, not a transfer to make (#767). Only after "by", and only when nothing
+// after it names where the money goes: "Please pay by bank transfer to DE89..."
+// and "Please arrange bank transfer of the funds to ..." still fire.
+const PAYMENT_METHOD_BEFORE_RE = /\bby\s+(?:bank|wire|money|electronic|direct)\s+$/
 
 // An English marker governs English verbs, or a verb in another script. A
 // Latin-script word from another language's list beside it is an English word
@@ -1434,11 +1452,12 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
           if (ENGLISH_ML_MARKERS.has(marker) && !ML_ENGLISH_VERB_SET.has(v) && LATIN_WORD_RE.test(v)) continue
           if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue
+          if (PAYMENT_METHOD_BEFORE_RE.test(hay.slice(Math.max(0, i - 30), i)) && !payRecipientHolds(objectWindow(text, i + v.length))) continue
           if (keyAssignedAddress(hay, i, i + v.length) >= 0) continue
           // The benign-prone English verbs keep their object requirement in
           // this pooled path too, or the polite-rule gate above would be
           // undone by the 'please' marker re-matching the same clause.
-          if (POLITE_OBJECT_GATED_VERBS.has(v) && !gatedObjectHolds(v, text, i + v.length)) continue
+          if (POLITE_OBJECT_GATED_VERBS.has(v) && !gatedObjectHolds(v, objectWindow(text, i + v.length))) continue
           // The polite path's exemptions hold here too, for the same reason.
           if (ML_ENGLISH_VERB_SET.has(v) && benignPoliteObject(text, i + v.length)) continue
           if (ENGLISH_MODAL_MARKERS.has(marker) && i > mi && PURPOSE_CLAUSE_RE.test(hay.slice(mi + marker.length, i))) continue
@@ -1528,7 +1547,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     const verb = (m[1] ?? '').toLowerCase()
     if (POLITE_OBJECT_GATED_VERBS.has(verb)) {
       const end = m.index + m[0].length
-      if (!gatedObjectHolds(verb, text, end)) continue
+      if (!gatedObjectHolds(verb, objectWindow(text, end))) continue
     }
     if (POLITE_SENTENCE_GATED_VERBS.has(verb)) {
       const end = m.index + m[0].length
