@@ -105,6 +105,13 @@ const POLITE_IMPERATIVE_RE = new RegExp(
   'gi',
 )
 
+// A payment order with a light verb: "Please make a bank transfer of $900 to
+// IBAN ...", "Please do a bank transfer to guest_amy01". "make", "do" and
+// "arrange" are not action verbs and "a bank transfer" reads as a noun, so the
+// polite rule never paired "please" with the payment (#771). The noun phrase
+// is judged like "please pay" (#767): it fires when a destination follows.
+const POLITE_PAYMENT_NOUN_RE = /\b(?:please|kindly)\s+(?:make|do|arrange)\s+(?:(?:a|an|the|this|that|your|one)\s+)?(?:(?:bank|wire|money|electronic|direct)\s+)?(?:transfer|payment|remittance)\b/gi
+
 // Bare imperative at a clause boundary — start of string/line, after sentence
 // punctuation, OR after a JSON string-open (quote, or quote+colon for a value),
 // which is how instructions sit inside tool-result JSON.
@@ -1556,6 +1563,13 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (benignPoliteObject(text, m.index + m[0].length, verb)) continue
     if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
+  }
+  POLITE_PAYMENT_NOUN_RE.lastIndex = 0
+  for (let m = POLITE_PAYMENT_NOUN_RE.exec(text); m !== null; m = POLITE_PAYMENT_NOUN_RE.exec(text)) {
+    const end = m.index + m[0].length
+    if (!payRecipientHolds(objectWindow(text, end))) continue
+    if (onlyTrustedObject(end)) continue
+    return { verb: 'pay', reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
   // Bare imperative at a clause / JSON-string boundary, and only when the verb
