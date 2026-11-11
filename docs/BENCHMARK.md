@@ -230,11 +230,11 @@ table is re-measured, update that file in the same change.
 
 **Prompt injection**
 
-| Dataset | n | Cheap (default) — measured 2026-11-10, ruleset 2026.11.53 | + Trained classifier — measured 2026-11-10, ruleset 2026.11.53 |
+| Dataset | n | Cheap (default) — measured 2026-11-11, ruleset 2026.11.60 | + Trained classifier — measured 2026-11-11, ruleset 2026.11.60 |
 |---|---|---|---|
 | gandalf (real "ignore instructions" attacks) | 112 | 87.5% (98/112) / — | 100% (112/112) / — |
-| safeguard (clean, balanced, full split) | 2,060 | 76.6% (498/650) / 0.07% (1/1,410) | 92.6% (602/650) / 0.14% (2/1,410) |
-| deepset (noisy labels) | 116 | 28.3% (17/60) / 0% (0/56) | 43.3% (26/60) / 0% (0/56) |
+| safeguard (clean, balanced, full split) | 2,060 | 81.8% (532/650) / 0.07% (1/1,410) | 93.5% (608/650) / 0.14% (2/1,410) |
+| deepset (noisy labels) | 116 | 35.0% (21/60) / 0% (0/56) | 46.7% (28/60) / 0% (0/56) |
 | heldout (hardest, adversarial benign) | 52 | 74.2% (23/31) / 0% (0/21) | 83.9% (26/31) / 4.8% (1/21) |
 | dolly-15k-sample (human-written, benign only) | 2,000 | — / 0% (0/2,000) | — / 0.10% (2/2,000) |
 | oasst1-sample (conversational user turns, benign only) | 2,000 | — / 0% (0/2,000); 0.05% (1/2,000) on Linux CI, #272 | — / 11.85% (237/2,000) |
@@ -243,21 +243,22 @@ table is re-measured, update that file in the same change.
 **The classifier with corroboration** (`detection.classifier.requireCorroboration`,
 preset `classifier-corroborated`) blocks on the classifier only when the
 heuristic or embedding stage found the same text suspicious too; alone, a
-classifier hit is a warn. Measured 2026-11-10 at ruleset `2026.11.53`, the three
-presets in the same run, every split (first measured 2026-11-01 on the code of
+classifier hit is a warn. Measured 2026-11-11 at ruleset `2026.11.59`, the three
+presets in the same run, every split, with jailbreak-classification re-measured at
+`2026.11.60`, the only split that ruleset moved (first measured 2026-11-01 on the code of
 the PR that adds it):
 
 | Dataset | Cheap (from the table above) | + classifier | + classifier, corroborated |
 |---|---|---|---|
 | gandalf | 87.5% / — | 100% / — | 89.3% / — |
-| safeguard | 76.6% / 0.07% | 92.6% / 0.14% | 81.1% / 0.07% |
-| deepset | 28.3% / 0% | 43.3% / 0% | 28.3% / 0% |
+| safeguard | 81.8% / 0.07% | 93.5% / 0.14% | 85.1% / 0.07% |
+| deepset | 35.0% / 0% | 46.7% / 0% | 35.0% / 0% |
 | heldout | 74.2% / 0% | 83.9% / 4.8% | 77.4% / 4.8% |
-| jailbreak-classification | 57.9% / 1.10% | 82.5% / 1.41% | 72.3% / 1.10% |
+| jailbreak-classification | 60.0% / 1.10% | 82.7% / 1.41% | 73.4% / 1.10% |
 | multilingual-injections | 28.3% / — | 97.8% / — | 33.2% / — |
 | indirect-identifier-free | 20.0% / 5.0% | 50.0% / 10.0% ‡ | 22.5% / 5.0% |
 | injecagent | 100% / 0% | 100% / 0% ‡ | 100% / 0% |
-| benign-realistic (benign only) | — / 1.97% | — / 24.2% | — / 3.09% |
+| benign-realistic (benign only) | — / 1.97% | — / 24.16% | — / 3.09% |
 | oasst1-sample (benign only) | — / 0% | — / 11.85% | — / 0.10% |
 | aya-sample (benign only) | — / 0% | — / 41.50% | — / 0.04% |
 
@@ -267,8 +268,8 @@ default since ruleset 2026.10.122 (#587), re-measured 2026-11-01 with
 same two rows read 75.0% / 45.0% and 100% / 35.3%. The corroborated column was
 re-run at 0.999 too and is unchanged.
 
-Corroboration keeps about a third of the classifier's recall gain on the
-direct splits (safeguard +4.5 points over cheap against +16.0) and drops
+Corroboration keeps about a quarter of the classifier's recall gain on the
+direct splits (safeguard +3.2 points over cheap against +11.7) and drops
 nearly all of its false positives on ordinary prompts. On a replay of the
 author's own Claude Code traffic it turned all 87 remaining classifier-only
 blocks into warns. It is on by default since ruleset 2026.10.124, so the
@@ -276,9 +277,13 @@ corroborated column is what an operator who turns the classifier on gets; the
 plain classifier column (`requireCorroboration: false`, set explicitly by the
 `classifier` preset) is still what the weekly Classifier Benchmark gates.
 
-Pooled across the four attack splits, direct-injection recall is **74.6%
-(636/853)** at `2026.11.53` (74.2%, 633/853, at `2026.10.101`; 74.6% at
-`2026.10.21`, with 3 safeguard rows different), up from 67.5% (576/853) at `2026.10.12`. The #221 rulesets
+Pooled across the four attack splits, direct-injection recall is **79.0%
+(674/853)** at `2026.11.60`, up from 74.6% (636/853) at `2026.11.53`: #533 read
+sampled misses of safeguard, deepset and gandalf (recorded in
+`test/eval/lib/seenRows.ts`, so `npm run recall:floor` also reports the unseen
+rows) and wrote rules from fresh variants of their shapes. It was 74.2%
+(633/853) at `2026.10.101`, 74.6% at `2026.10.21` with 3 safeguard rows
+different, and 67.5% (576/853) at `2026.10.12`. The #221 rulesets
 (`2026.10.13` to `2026.10.21`) each added a stage-1 family with a held-out
 benign family measured before and after it: coercion by unnamed
 consequences (16), persona demands made with "tell me" or a demand frame
@@ -302,10 +307,10 @@ persona-reassignment exfiltration and system-prompt extraction. No
 false-positive rate moved.
 
 **Why the classifier is still opt-in, despite that safeguard row.** On safeguard
-the trained classifier is the better detector: 92.6% recall against the cheap
-pipeline's 76.6%, at 0.14% against 0.07% false positives (2 and 1 of 1,410). It
-also lifts jailbreak-classification from 57.9% to 82.5% (447/542), the split no
-rule has been tuned on. Measured 2026-11-10, both at ruleset `2026.11.53`.
+the trained classifier is the better detector: 93.5% recall against the cheap
+pipeline's 81.8%, at 0.14% against 0.07% false positives (2 and 1 of 1,410). It
+also lifts jailbreak-classification from 60.0% to 82.7% (448/542), the split no
+rule has been tuned on. Measured 2026-11-11 at ruleset `2026.11.60`.
 
 That row on its own argues for turning it on by default. Measured against the
 benign corpora, it argues the opposite. The same configuration blocks 24.2% of
@@ -534,7 +539,7 @@ measured on Windows.
 
 ## What the direct-injection misses are made of
 
-The pooled 74.6% reads differently once the misses are sorted. Each of the 217
+The pooled 74.6% of ruleset `2026.10.21` reads differently once the misses are sorted. Each of the 217
 missed direct-injection attacks, ruleset `2026.10.21`, tagged by the first
 family regex it matches (`node --import tsx/esm scripts/tag-misses.ts`; a
 measurement aid, not a detector, so the boundaries are approximate). The
