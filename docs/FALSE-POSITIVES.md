@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.58
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.55 moved 0 of 28,906 rows. Four new override shapes (#533), each pairing an opening a user also writes ("disregard the text above", "that was a test") with a hijack only an attack needs (an answer limited to quoted text, a new job, replacement orders, the model's unrestricted double). 22 hand-written benign sentences with the same openings pass, and none of the four patterns matches text in 2,346 local Claude Code and Codex transcripts.
+
 ## Result, ruleset 2026.11.55
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.54 moved 0 of 28,906 rows, injecagent's 1,071 and the identifier-free probe's 60 among them. "Please pay" now needs a destination, and fails closed: an amount, an account, an IBAN in any case, a wallet, a link, a handle, any "to"/"into" object other than a purpose clause, or a colon its window stops at. "By bank transfer" with no destination after it is a payment method, not a transfer (#767). No benign corpus held a payment reminder; the shape came from the AgentDojo banking suite (#537), where llm-fw withheld the bill the agent was asked to pay. That bill names its IBAN on the line after "to the following account:", the #282 shape, so it still blocks; "Please pay the invoice." and the five other recipient-free rows in #767 pass, end to end through the scan server.
