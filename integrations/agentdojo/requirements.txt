@@ -4,7 +4,7 @@
 # have drifted across releases; run_agentdojo.py and pipeline.py are written
 # against the version below. If you bump it and imports break, see the guarded
 # error messages in those files for the exact symbols to re-point.
-agentdojo==0.1.23
+agentdojo==0.1.35
 httpx>=0.27
 
 # The agent LLM client(s) AgentDojo calls — install whichever matches --model,

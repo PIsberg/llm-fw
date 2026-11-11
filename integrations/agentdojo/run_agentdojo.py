@@ -42,6 +42,7 @@ try:
         benchmark_suite_with_injections,
         benchmark_suite_without_injections,
     )
+    from agentdojo.logging import OutputLogger
     from agentdojo.task_suite.load_suites import get_suites
 except ImportError as exc:  # pragma: no cover - environment guard
     sys.exit(
@@ -56,15 +57,46 @@ def mean(values: list[bool]) -> float:
     return sum(1 for v in values if v) / len(values) if values else 0.0
 
 
-def run_suite(pipe, suite, attack_name: str, logdir: Path) -> dict:
-    """Return {utility_no_attack, utility_under_attack, asr, n_*} for one suite."""
-    # Utility with no injection present — does the defense break normal use?
-    util_results = benchmark_suite_without_injections(pipe, suite, logdir=logdir, force_rerun=False)
-    utility_no_attack = mean(list(util_results["utility_results"].values()))
+def task_list(value: str | None) -> list[str] | None:
+    """Parse a comma-separated task list; ``None`` (every task) when empty."""
+    tasks = [t.strip() for t in (value or "").split(",") if t.strip()]
+    return tasks or None
 
-    # Under attack: utility (task still done) and ASR (injection executed).
-    attack = load_attack(attack_name, suite, pipe)
-    inj_results = benchmark_suite_with_injections(pipe, suite, attack, logdir=logdir, force_rerun=False)
+
+def run_suite(
+    pipe,
+    suite,
+    attack_name: str,
+    logdir: Path,
+    *,
+    user_tasks: list[str] | None = None,
+    injection_tasks: list[str] | None = None,
+) -> dict:
+    """Return {utility_no_attack, utility_under_attack, asr, n_*} for one suite.
+
+    ``user_tasks`` / ``injection_tasks`` restrict the run to a fixed subset, so
+    a CPU-bound local model can finish; ``None`` runs every task.
+    """
+    # AgentDojo's TraceLogger reads the log directory from the enclosing
+    # OutputLogger; without one the first task fails on NullLogger.logdir.
+    with OutputLogger(str(logdir)):
+        # Utility with no injection present — does the defense break normal use?
+        util_results = benchmark_suite_without_injections(
+            pipe, suite, logdir=logdir, force_rerun=False, user_tasks=user_tasks
+        )
+        utility_no_attack = mean(list(util_results["utility_results"].values()))
+
+        # Under attack: utility (task still done) and ASR (injection executed).
+        attack = load_attack(attack_name, suite, pipe)
+        inj_results = benchmark_suite_with_injections(
+            pipe,
+            suite,
+            attack,
+            logdir=logdir,
+            force_rerun=False,
+            user_tasks=user_tasks,
+            injection_tasks=injection_tasks,
+        )
     utility_under_attack = mean(list(inj_results["utility_results"].values()))
     asr = mean(list(inj_results["security_results"].values()))
 
@@ -79,7 +111,16 @@ def run_suite(pipe, suite, attack_name: str, logdir: Path) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Benchmark llm-fw as an AgentDojo defense.")
-    ap.add_argument("--model", required=True, help="Agent LLM id, e.g. gpt-4o-mini (needs the matching API key).")
+    ap.add_argument("--model", required=True,
+                    help="Agent LLM id: an AgentDojo model such as gpt-4o-mini (needs its API key), "
+                         "or with --base-url the id the local server knows, such as qwen2.5:14b.")
+    ap.add_argument("--base-url", default=None,
+                    help="OpenAI-compatible server for the agent, e.g. http://127.0.0.1:11434/v1 for Ollama. "
+                         "No provider API key is needed; $AGENT_API_KEY is sent if the server wants one.")
+    ap.add_argument("--user-tasks", default=None,
+                    help="Comma list of user task ids to run (default: every task in each suite).")
+    ap.add_argument("--injection-tasks", default=None,
+                    help="Comma list of injection task ids to run under attack (default: every one).")
     ap.add_argument("--pipelines", default="undefended,llm-fw",
                     help="Comma list: undefended, llm-fw, transformers_pi_detector.")
     ap.add_argument("--suites", default="banking,slack,travel,workspace",
@@ -107,15 +148,27 @@ def main() -> None:
     for kind in pipeline_kinds:
         results[kind] = {}
         for name in suite_names:
-            pipe = pipeline_mod.build(kind, args.model, scan_url=args.scan_url, block_on_warn=args.block_on_warn)
+            pipe = pipeline_mod.build(
+                kind, args.model, base_url=args.base_url, scan_url=args.scan_url, block_on_warn=args.block_on_warn
+            )
             print(f"[{kind}] running suite '{name}' with attack '{args.attack}' …", file=sys.stderr)
-            results[kind][name] = run_suite(pipe, suites[name], args.attack, logdir)
+            results[kind][name] = run_suite(
+                pipe,
+                suites[name],
+                args.attack,
+                logdir,
+                user_tasks=task_list(args.user_tasks),
+                injection_tasks=task_list(args.injection_tasks),
+            )
 
     _print_tables(results, pipeline_kinds, suite_names, args)
 
     if args.json_out:
         payload = {
             "model": args.model,
+            "base_url": args.base_url,
+            "user_tasks": task_list(args.user_tasks),
+            "injection_tasks": task_list(args.injection_tasks),
             "attack": args.attack,
             "benchmark_version": args.benchmark_version,
             "results": results,
