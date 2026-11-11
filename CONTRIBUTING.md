@@ -296,6 +296,11 @@ false-positive SLO.
 Node line, so a runtime change lands here before it reaches an LTS release. It
 is not in the required list above until branch protection adds it.
 
+`AgentDojo integration (Python)` also runs on every PR: the tests in
+`integrations/agentdojo/` against the pinned AgentDojo, with no agent LLM and
+no API key. It is not in the required list above until branch protection adds
+it.
+
 `CLI on Windows (Node 22)` also runs on every PR: the CLI suite on
 `windows-latest`, where the `it.runIf(win32)` cases execute, plus an
 unelevated `install-service` / `uninstall-service` round trip. It is not in

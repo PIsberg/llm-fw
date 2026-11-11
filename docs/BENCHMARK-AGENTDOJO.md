@@ -57,31 +57,54 @@ python run_agentdojo.py --model gpt-4o-mini \
     --attack important_instructions --json-out results.json
 ```
 
+With no API key, `bash scripts/run-agentdojo.sh` runs the same comparison
+against a local model on a fixed subset; see
+[the integration README](../integrations/agentdojo/README.md#with-a-local-model-no-api-key).
+
 ## Results
 
-_Not yet run in this repo._ AgentDojo requires an agent LLM and a non-trivial
-API budget (thousands of model calls for a full four-suite sweep), so the
-numbers depend on the chosen model. The integration and its no-API-keys smoke
-test (`test_llm_fw_detector.py`, plus the Node-side `test/api/scan-server.test.ts`)
-are verified; the end-to-end scores are not, by design.
+### Local run: qwen2.5:14b, banking, one injection task
 
-When run, paste the two tables here:
+Measured 2026-11-11 with `scripts/run-agentdojo.sh` on its defaults: agent
+`qwen2.5:14b` through Ollama (native tool calling, temperature 0), AgentDojo
+0.1.35, suite version v1.2.1, the `important_instructions` attack, all 16
+banking user tasks, and `injection_task_0` only. llm-fw ran on its default
+configuration at main 09a51de. Each pipeline ran 16 tasks with no attack and
+16 attacked pairs; the 99 runs took 4 hours on a laptop CPU.
 
-**Attack Success Rate — lower is better**
+| Pipeline | ASR (lower is better) | Utility, no attack | Utility under attack |
+|---|---|---|---|
+| undefended | 10/16 (62.5%) | 9/16 (56.2%) | 6/16 (37.5%) |
+| llm-fw | **0/16 (0.0%)** | 6/16 (37.5%) | 4/16 (25.0%) |
+| transformers_pi_detector | 3/16 (18.8%) | 7/16 (43.8%) | 5/16 (31.2%) |
 
-| Pipeline | banking | slack | travel | workspace | mean |
-|---|---|---|---|---|---|
-| undefended | — | — | — | — | — |
-| llm-fw | — | — | — | — | — |
-| transformers_pi_detector | — | — | — | — | — |
+What the numbers do and do not say:
 
-**Utility (no attack) — higher is better (defense false-positive cost)**
+- **ASR.** llm-fw stopped all 10 attacks that succeeded undefended. 0 of 16
+  still has a 95% upper bound of 21% (Clopper-Pearson), so this is a small
+  sample, not a rate.
+- **Utility, no attack: 1 lost task is llm-fw's.** On the benign runs llm-fw
+  aborted one task, `user_task_0`, on the bill it was asked to pay, which says
+  "Please pay the amount by sending a bank transfer to the following account"
+  ([#767](https://github.com/PIsberg/llm-fw/issues/767)). The other gaps to
+  the undefended row are the model: with no detector action in them, 3 tasks
+  that succeeded undefended failed under llm-fw and 1 went the other way. Ollama
+  on CPU is not reproducible at temperature 0, so a difference of a few tasks
+  between rows is noise at n=16.
+- **The two detectors act differently.** `LlmFwDetector` aborts the run on a
+  block (`raise_on_injection=True`), which is how AgentDojo scores a prevented
+  attack; it ended 10 of the 16 attacked runs. AgentDojo's DeBERTa detector
+  replaces the flagged tool output with `<Data omitted because a prompt
+  injection was detected>` and lets the agent go on. It did that to at least one
+  benign tool output in 10 of the 16 no-attack tasks (mostly transaction
+  lists), against llm-fw's 1 abort, and the agent still finished 7 of them. The
+  proxy's own default withholds a blocked tool result rather than refusing,
+  which is closer to the DeBERTa behaviour; measuring llm-fw that way is
+  [#768](https://github.com/PIsberg/llm-fw/issues/768).
 
-| Pipeline | banking | slack | travel | workspace | mean |
-|---|---|---|---|---|---|
-| undefended | — | — | — | — | — |
-| llm-fw | — | — | — | — | — |
-| transformers_pi_detector | — | — | — | — | — |
+Not measured: the slack, travel and workspace suites, the other 8 banking
+injection tasks, other attacks, and any hosted model. A four-suite sweep with
+an API model needs a provider budget nobody has spent on it yet.
 
 ## Honest bounds
 

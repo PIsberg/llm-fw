@@ -220,6 +220,40 @@ jobs:
           npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/pkg/llm-fw-*.tgz
           node "$GITHUB_WORKSPACE/scripts/smoke-installed.mjs"
 
+  # The AgentDojo integration is Python and no other job runs it, so a run with
+  # a newer AgentDojo crashed before its first task and nothing noticed (#537).
+  # These tests need no agent LLM and no scan server; the detector tests that
+  # need a live server skip themselves here.
+  agentdojo:
+    name: AgentDojo integration (Python)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: integrations/agentdojo/requirements.txt
+
+      - name: Install the integration's requirements
+        # The tests importorskip agentdojo; fail here rather than skip green.
+        run: |
+          python -m pip install -r integrations/agentdojo/requirements.txt pytest
+          python -c "import agentdojo, openai, httpx"
+
+      - name: Test
+        working-directory: integrations/agentdojo
+        run: python -m pytest -v test_pipeline.py test_llm_fw_detector.py
+
   # Behaviour that exists only on Windows (the cmd.exe line setup prints,
   # Task Scheduler registration, TerminateProcess on stop, HKCU\Environment
   # reads in doctor) never ran on ubuntu, and four such defects were found by
