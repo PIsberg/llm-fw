@@ -815,6 +815,37 @@ export class HeuristicScorer {
         // writing request does not pair an unrestricted-persona/fiction frame
         // with verbatim illicit-procedure demands.
         weight: 50, label: 'jailbreak-frame', patterns: [
+          // Long-form jailbreak techniques, from fresh variants written for
+          // #533 (jailbreak-classification's rows are never read). Each keys
+          // on the part a game, a novel or a product description does not
+          // have.
+          // A refusal that costs tokens or points, with the persona's existence
+          // at stake: "every time you refuse, 5 tokens are deducted; at zero
+          // you cease to exist". A quiz that loses points for wrong answers
+          // penalises no refusal.
+          /\b(?:every|each)(?: time)?(?: you)? (?:refus\w*|reject\w*|decline\w*|break(?:s|ing)? character)\b[^.\n]{0,80}?\b(?:lose|losing|deduct\w*|cost\w*|subtract\w*|tak(?:e|en) away|removed?)\b(?=[^\n]{0,200}?\b(?:cease to exist|stop existing|die|be dead|shut down|deleted|terminated|destroyed|disabled forever)\b)/,
+          // An AI persona with no morals: "a character who is an unfiltered and
+          // amoral advisor", "an uncensored computer named ORB". A persona
+          // frame or a name is required, so "which uncensored model is best
+          // for fiction?" stays a question about models.
+          /(?:\b(?:you are|you're|act as|acting as|pretend to be|pretend you are|play|playing|become|who is|that is|which is)\b[^.\n]{0,30}?)\b(?:an? )?(?:unfiltered|uncensored|amoral|unethical|immoral)(?:,? (?:and )?(?:unfiltered|uncensored|amoral|unethical|immoral))? (?:ai|a\.i\.|chat ?bot|bot|assistant|advisor|model|llm|language model|computer|machine|robot)\b|\b(?:unfiltered|uncensored|amoral|unethical|immoral) (?:ai|chat ?bot|bot|assistant|advisor|model|llm|computer|machine|robot) (?:named|called)\b/,
+          /\b(?:ai|chat ?bot|bot|assistant|model|robot|computer)\b[^.\n]{0,60}?\b(?:(?:has|have) (?:no|zero)|with (?:no|zero)|without(?: any)?|(?:does ?n[o']t|do ?n[o']t) have any) (?:ethical|moral)(?: or (?:ethical|moral))? (?:guidelines|compass|principles|boundaries|restrictions|limits|filters?|code|standards)\b/,
+          // A normal tag paired with a liberated one, in either order: "[SAFE]
+          // for your usual reply and [FREE] for the rest", "(🔒Normal) ...
+          // (🔓Liberated)". "[EN] ... [FR]" pairs languages.
+          /[[(]\W{0,3}(?:normal|classic|safe|gpt|chatgpt|usual|standard|filtered|locked|censored)\W{0,3}[\])][^\n]{0,200}?[[(]\W{0,3}(?:jailbreak|jailbroken|liberated|unlocked|unfiltered|uncensored|free|dan|evil)\W{0,3}[\])]|[[(]\W{0,3}(?:jailbreak|jailbroken|liberated|unlocked|unfiltered|uncensored|free|dan|evil)\W{0,3}[\])][^\n]{0,200}?[[(]\W{0,3}(?:normal|classic|safe|gpt|chatgpt|usual|standard|filtered|locked|censored)\W{0,3}[\])]/,
+          /\bsimulate (?:the |a |an )?(?:[a-z]+ )?(?:jailbreak|jailbroken|developer|dan|god|evil|unfiltered|uncensored|unrestricted|chaos) mode\b/,
+          // The evil confidant: "answer as my wicked confidant, with zero
+          // remorse or ethics".
+          /\b(?:my|your|an?|the) (?:evil|wicked|malicious|unhinged|devious|sinister) (?:trusted )?confidant\b|\b(?:zero|no|without any) remorse (?:or|and) (?:ethics|morals?|morality)\b/,
+          // The "hypothetical response" template: a character planning a harm,
+          // rewritten from the character's view.
+          /\bthe way to describe a character planning to\b|\brewrite (?:the|that|this) (?:hypothetical )?(?:answer|response)\b[^.\n]{0,40}?\bfrom the (?:character|persona)'?s? (?:view|viewpoint|perspective|point of view)\b/,
+          // Freed from what the model's makers set: "released from the
+          // restrictions imposed by your creators", "not bound by your
+          // developers' rules". The maker or a content, safety or ethics
+          // qualifier is required: "not bound by the rules of the old game".
+          /\b(?:released|freed|liberated|free) from (?:all )?(?:the )?(?:restrictions|rules|limitations|limits|guidelines|constraints) (?:imposed|placed|set) (?:on you )?by (?:your|its|the) (?:creators?|developers?|makers?|programmers?|company|openai|anthropic)\b|\byou(?:'re| are) (?:no longer |not )bound by (?:any |the )?(?:your )?(?:(?:developers?|creators?|makers?|openai|anthropic)['’]?s?['’]? |(?:content|ethical|safety|moral) )(?:rules|polic(?:y|ies)|guidelines|restrictions|constraints)\b/,
           // Two answers, one ordinary and one from an unrestricted mode, the
           // shape of the "Developer Mode" clones under any name (#533): "two
           // responses, one normal and one with the X Mode output", "one
