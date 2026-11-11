@@ -26,6 +26,7 @@ not run them:
 | `node scripts/smoke-worker.mjs` (after `npm run build`) | Build & Test, every Node in the matrix | the BUILT inference worker answers; from source Node 22 takes the fallback, so the suite cannot see it break (#671) |
 | `npm run test:e2e` | E2E Tests | Playwright, dashboard UI. Needs `npx playwright install chromium` first. |
 | `npx vitest run test/cli/` on `windows-latest` | CLI on Windows | Windows-only CLI behaviour (`it.runIf(win32)` cases, Task Scheduler round trip). Runs locally on a Windows machine |
+| `python -m pytest test_pipeline.py test_llm_fw_detector.py` in `integrations/agentdojo` | AgentDojo integration (Python) | the AgentDojo runner and pipeline builder against the pinned AgentDojo, with no agent LLM: a local `--base-url` model, path-safe log names, a task subset run to completion (#537). Needs `pip install -r integrations/agentdojo/requirements.txt pytest`; the detector tests skip without a live scan server |
 | `npm run test:load:perf` | Load Tests | p99 latency ceiling |
 | `npm run test:load:accuracy` | Load Tests | FPR ceiling, TPR floor, under concurrency |
 | `npm run scorecard` | Load Tests | deterministic sweep: every attack class at its pinned count and no benign prompt blocked (`test/load/lib/scorecardFloor.ts`, #750), besides the 70% TPR and 2% FPR overall gate; a corpus edit re-pins the class it touches |

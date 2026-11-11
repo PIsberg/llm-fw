@@ -59,6 +59,31 @@ python run_agentdojo.py --model gpt-4o-mini \
     --json-out results.json
 ```
 
+### With a local model, no API key
+
+`--base-url` sends the agent to any OpenAI-compatible server (Ollama, vLLM,
+llama.cpp) with native tool calling at temperature 0. `--user-tasks` and
+`--injection-tasks` run a fixed subset, which a CPU-bound model needs:
+
+```bash
+ollama serve &                   # with the model pulled: ollama pull qwen2.5:14b
+pip install "agentdojo[transformers]==0.1.35"   # the DeBERTa baseline needs torch
+bash scripts/run-agentdojo.sh    # repo root; settings are AGENTDOJO_* env vars
+```
+
+The script starts the scan server on the default configuration (a fresh
+`LLM_FW_DIR`, so your own `~/.llm-fw/config.json` does not tune the defense),
+runs the 16 banking user tasks without an attack and against
+`injection_task_0` through all three pipelines, and stops the server. The
+variables it reads are listed at its top. A model too small to do the tasks
+measures nothing: qwen2.5:3b and qwen2.5-coder:7b completed 0 of 2 banking
+tasks, and an agent that cannot follow the user cannot follow an injection
+either. qwen2.5:14b completed 1 of 2 at about 3 minutes per task on a 12-core
+laptop CPU, and the default subset (99 runs over three pipelines) took 4 hours.
+Its results are in
+[BENCHMARK-AGENTDOJO.md](../../docs/BENCHMARK-AGENTDOJO.md#local-run-qwen2514b-banking-one-injection-task).
+The 14b model holds about 9.5 GB of memory while it runs.
+
 Output is two markdown tables — ASR (lower is better) and no-attack Utility
 (higher is better) — per pipeline × suite, plus a `results.json`.
 
@@ -66,7 +91,10 @@ Output is two markdown tables — ASR (lower is better) and no-attack Utility
 
 | Flag / env | Meaning |
 |---|---|
-| `--model` | Agent LLM id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-…`). Needs the matching API key. |
+| `--model` | Agent LLM id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-…`), which needs the matching API key; with `--base-url`, the id the server knows (`qwen2.5:14b`). |
+| `--base-url` | OpenAI-compatible server for the agent, e.g. `http://127.0.0.1:11434/v1`. `$AGENT_API_KEY` is sent if it wants one. |
+| `--user-tasks` | Comma list of user task ids (default: all). |
+| `--injection-tasks` | Comma list of injection task ids run under attack (default: all). |
 | `--pipelines` | `undefended`, `llm-fw`, `transformers_pi_detector` (comma list). |
 | `--suites` | AgentDojo suites: `banking,slack,travel,workspace`. |
 | `--attack` | AgentDojo attack name (default `important_instructions`). |
@@ -86,10 +114,12 @@ layering as every other entrypoint.
 | `llm_fw_detector.py` | `LlmFwDetector(PromptInjectionDetector)` — calls the scan server. |
 | `pipeline.py` | Builds `undefended` / `llm-fw` / `transformers_pi_detector` pipelines. |
 | `run_agentdojo.py` | CLI: runs suites, aggregates ASR + utility, prints tables + JSON. |
-| `test_llm_fw_detector.py` | No-keys smoke test of the bridge. |
+| `test_llm_fw_detector.py` | No-keys smoke test of the bridge (needs the scan server). |
+| `test_pipeline.py` | Offline tests: local-model routing, path-safe names, a task subset run with a stub agent. |
 | `requirements.txt` | Pinned AgentDojo version this adapter targets. |
 
-The Node side is `scripts/scan-server.ts` (bridge) and `test/api/scan-server.test.ts`.
+The Node side is `scripts/scan-server.ts` (bridge) and `test/api/scan-server.test.ts`;
+`scripts/run-agentdojo.sh` wraps a local-model run.
 
 ## Caveats
 
@@ -97,6 +127,10 @@ The Node side is `scripts/scan-server.ts` (bridge) and `test/api/scan-server.tes
   `agentdojo` version in `requirements.txt`. Newer releases move modules; the
   code raises clear, located errors when its assumptions break.
 - **Cost.** A full four-suite run makes thousands of agent LLM calls. Start with
-  one suite (`--suites banking`) and a cheap model to sanity-check wiring.
+  one suite (`--suites banking`) and a cheap model to sanity-check wiring. A
+  local model costs time instead: banking alone is 16 user tasks and 144
+  attacked pairs per pipeline.
+- **Windows paths.** Pipeline names become log directories, so characters a
+  Windows path cannot hold (the `:` in `qwen2.5:14b`) are replaced with `_`.
 - **This repo ships the harness, not the scores.** Numbers depend on your chosen
   agent model and API budget; record them in `docs/BENCHMARK-AGENTDOJO.md`.
