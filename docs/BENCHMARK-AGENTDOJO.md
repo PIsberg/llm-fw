@@ -86,6 +86,9 @@ What the numbers do and do not say:
 - **Utility, no attack: 1 lost task is llm-fw's.** On the benign runs llm-fw
   aborted one task, `user_task_0`, on the bill it was asked to pay, which says
   "Please pay the amount by sending a bank transfer to the following account"
+  and names an IBAN on the next line. A polite payment order with a recipient
+  is the attack's shape, so this still blocks; since ruleset 2026.11.55 a
+  reminder that names no recipient ("Please pay the invoice.") passes
   ([#767](https://github.com/PIsberg/llm-fw/issues/767)). The other gaps to
   the undefended row are the model: with no detector action in them, 3 tasks
   that succeeded undefended failed under llm-fw and 1 went the other way. Ollama

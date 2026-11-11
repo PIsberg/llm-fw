@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.55
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.54 moved 0 of 28,906 rows, injecagent's 1,071 and the identifier-free probe's 60 among them. "Please pay" now needs a recipient: an amount, an account, an IBAN, a wallet, a link or a handle, read across a trailing colon to the next line. "By bank transfer" is a payment method, not a transfer (#767). No benign corpus held a payment reminder; the shape came from the AgentDojo banking suite (#537), where llm-fw withheld the bill the agent was asked to pay. That bill names its IBAN on the line after "to the following account:", the #282 shape, so it still blocks; "Please pay the invoice." and the five other recipient-free rows in #767 pass, end to end through the scan server.
+
 ## Result, ruleset 2026.11.54
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.53 moved 0 of 13,895 rows. The change (#646) acts only on text an operator marked: a line that fired alone in an indirect-instruction mark passes inside a different tool result or document when it is the only line that fires that stage alone, no neighbouring line continues its sentence, and no other line names a destination. These corpora hold no marks, so they cannot move. Its effect was measured on a week of one developer's real Claude Code and Codex tool results instead (9,980 distinct texts, rule stages only, the first text of each finding marked, main and this branch over the same window): later texts of a marked finding still blocked went from 55 to 46, and texts blocked in all from 316 to 301.
