@@ -1709,3 +1709,21 @@ describe('detectIndirectInstruction: a payment reminder with no recipient (#767)
     })
   }
 })
+
+// The pooled multilingual pass paired every request marker with every verb in
+// the text, so text where each nearby pair is excused never returned early and
+// the walk was quadratic: 1.6 MB of refund notices took 8.3 s on the thread
+// serving every client. Each marker now visits only the verbs within reach.
+describe('detectIndirectInstruction: the pooled marker pass stays linear', () => {
+  it.each([
+    ['refund notices', 'Please check your refund. '],
+    ['purchase receipts', 'Please keep your purchase receipt for your records. '],
+  ])('on 1.6 MB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, unit) => {
+    const fill = (n: number) => unit.repeat(Math.ceil(n / unit.length)).slice(0, n)
+    const small = fill(50 * 1024)
+    const big = fill(1600 * 1024)
+    const smallMs = fastestMs(() => detectIndirectInstruction(small))
+    // 32 times the input: linear stays near 32 times the time, quadratic is near 1,000.
+    expect(fastestMs(() => detectIndirectInstruction(big), 2)).toBeLessThan(smallMs * 64 + 400)
+  })
+})
