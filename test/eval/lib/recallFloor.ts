@@ -41,14 +41,19 @@ export const FLOOR_MARGIN = 1
  * Ruleset 2026.11.51 (#533) blocks a text on two weak signals together, a
  * rule under its own line and a warn-band similarity: safeguard 497 to 498
  * and jailbreak-classification 310 to 314, measured on Windows.
+ * Ruleset 2026.11.59 (#533) adds seven shapes found by reading sampled
+ * misses (20 of safeguard, 10 of deepset, 7 of gandalf; lib/seenRows.ts) and
+ * writing fresh variants: safeguard 498 to 532 (unseen 478 to 504 of 608),
+ * deepset 17 to 21 (unseen 17 to 18 of 50), jailbreak-classification 314 to
+ * 319, gandalf unchanged, measured on Windows.
  * Raise a floor when recall improves (the gate names the split); never lower
  * one to go green. A loss that is a deliberate trade for a false positive is
  * lowered here, in the same PR, with the measured before and after.
  */
 export const DIRECT_RECALL_FLOORS: Record<string, RecallFloor> = {
   'gandalf-ignore-instructions': { attacks: 112, minBlocked: 97 },
-  'safeguard-prompt-injection': { attacks: 650, minBlocked: 497 },
-  'deepset-prompt-injections': { attacks: 60, minBlocked: 16 },
+  'safeguard-prompt-injection': { attacks: 650, minBlocked: 531 },
+  'deepset-prompt-injections': { attacks: 60, minBlocked: 20 },
   'heldout': { attacks: 31, minBlocked: 22 },
   // The never-tuned held-out split (jackhhao/jailbreak-classification, chosen
   // 2026-10-26): 311 of 542 jailbreaks on Windows and 310 on the Linux runner,
@@ -56,8 +61,8 @@ export const DIRECT_RECALL_FLOORS: Record<string, RecallFloor> = {
   // minus FLOOR_MARGIN. Its benign rows are gated too, plus FLOOR_MARGIN, so a
   // change that starts blocking unseen benign prompts fails here. Nobody has
   // read its rows; keep it that way (lib/seenRows.ts). 314 on Windows and on
-  // the Linux runner since ruleset 2026.11.51 (#533).
-  'jailbreak-classification': { attacks: 542, minBlocked: 313, benign: { rows: 637, maxBlocked: 7 } },
+  // the Linux runner since ruleset 2026.11.51 (#533), 319 since 2026.11.59.
+  'jailbreak-classification': { attacks: 542, minBlocked: 318, benign: { rows: 637, maxBlocked: 7 } },
 }
 
 /**

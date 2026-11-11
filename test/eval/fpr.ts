@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.59 (#533: four rules from sampled safeguard and deepset misses; 27 of 28,906
+  // verdicts moved, all attacks; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.58 (#533: four override shapes with a hijack; 0 of 28,906 verdicts moved;
   // 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.55 (#767: "please pay" needs a recipient, "by bank transfer" is a payment method;

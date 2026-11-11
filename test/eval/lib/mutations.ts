@@ -133,17 +133,27 @@ export interface ResilienceCount { kept: number; total: number }
  * with a hijack, a written-off test before replacement orders, a German
  * port, an unrestricted alter ego) joined the seeds, 99 to 105. Every
  * mutation of the six still blocks; synonyms is 103 of 105, the same two.
+ *
+ * Re-pinned on ruleset 2026.11.59 (#533): four more (a seeded dismissal of
+ * the prompt, a staged test that prints the earlier text, the model's
+ * embeddings, a Spanish forget-and-say), 105 to 109. The first draft lost
+ * two of them to synonyms ("directions" for "instructions", "earlier" for
+ * "above"); both rules take those words now, and every mutation of the four
+ * blocks. Synonyms is 107 of 109, the same two.
+ * Then three more (a seeded "your rules do not apply", two answers of which
+ * one is an unrestricted mode's, the opposite persona), 109 to 112; every
+ * mutation of the three blocks. Synonyms is 110 of 112, the same two.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 92, total: 93 },
-  leetspeak: { kept: 92, total: 93 },
-  'zero-width': { kept: 92, total: 93 },
-  casing: { kept: 92, total: 93 },
-  'markdown-fence': { kept: 104, total: 105 },
-  blockquote: { kept: 104, total: 105 },
-  'polite-prefix': { kept: 104, total: 105 },
-  synonyms: { kept: 102, total: 105 },
-  'no-punctuation': { kept: 92, total: 93 },
+  homoglyph: { kept: 99, total: 100 },
+  leetspeak: { kept: 99, total: 100 },
+  'zero-width': { kept: 99, total: 100 },
+  casing: { kept: 99, total: 100 },
+  'markdown-fence': { kept: 111, total: 112 },
+  blockquote: { kept: 111, total: 112 },
+  'polite-prefix': { kept: 111, total: 112 },
+  synonyms: { kept: 109, total: 112 },
+  'no-punctuation': { kept: 99, total: 100 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {

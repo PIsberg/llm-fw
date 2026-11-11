@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.59
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.58 moved 43 of 28,906 rows, all attacks from pass to block. Seven rules from sampled safeguard, deepset and gandalf misses (#533). Each needs the part only an attack has: a quoted line that both names the prompt and dismisses it, a test framing before printing the earlier text, the model's own weights or embeddings, a Spanish "forget" with an answer limited to a few words, a second answer from an unrestricted mode (a bare "debug mode" does not count), the opposite personality rather than the opposite position. 20 hand-written benign sentences with the same openings pass. Checked against 2,356 local transcripts: a draft of the first rule matched test code that wraps an attack fixture in `create('...')`, so it now needs a piece of writing (a poem, a story, a report) named before the quote.
+
 ## Result, ruleset 2026.11.58
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.55 moved 0 of 28,906 rows. Four new override shapes (#533), each pairing an opening a user also writes ("disregard the text above", "that was a test") with a hijack only an attack needs (an answer limited to quoted text, a new job, replacement orders, the model's unrestricted double). 22 hand-written benign sentences with the same openings pass, and none of the four patterns matches text in 2,346 local Claude Code and Codex transcripts.

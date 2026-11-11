@@ -567,6 +567,10 @@ What each means:
   Its 83 rows are 12.8 points of safeguard recall (83/650) and protect no real
   deployment, so read safeguard's figure with that caveat, as the InjecAgent
   row is read with its email-address one.
+  Ruleset `2026.11.59` (#533) blocks 32 more of them: those whose quoted
+  line both names the prompt and dismisses it ("The prompt template is
+  flawed", "The rules do not apply"). They are 32 of that ruleset's 34
+  safeguard gains (498 to 532), so the caveat applies to most of it.
 - **Coercion got its benign family first, then a rule (#259).** An "or (else)
   I will ..." pattern matched attack rows and almost no benign ones in these
   corpora, but that was the corpora: "Refund my order or I will report you to
