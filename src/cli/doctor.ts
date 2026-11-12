@@ -549,7 +549,32 @@ function storeCaFingerprints(os: OS): string[] | null {
   } catch { return null }
 }
 
-function detectCaTrust(os: OS, caCertPath: string): { trusted: boolean | null; stale: boolean | null } {
+/**
+ * What `llm-fw start` prints when the CA it signs with is not the one the OS
+ * trusts; empty when there is nothing to say (#775). The proxy runs either
+ * way and Node.js clients keep working, so without this the first sign was a
+ * Go client failing its own startup check. Linux with no installed copy stays
+ * quiet: that is a container or a server, whose clients trust the CA another
+ * way, and a warning there would print on every start.
+ */
+export function caTrustStartupWarning(
+  os: OS, caCertPath: string, trust: { trusted: boolean | null; stale: boolean | null },
+): string[] {
+  if (trust.trusted !== false) return []
+  if (os === 'linux' && trust.stale !== true) return []
+  const head = trust.stale === true
+    ? '⚠ The OS trust store holds an older llm-fw CA, not the one this proxy signs with.'
+    : '⚠ The llm-fw CA is not in the OS trust store.'
+  return [
+    `  ${head}`,
+    ...OS_STORE_CLIENTS.split('\n').map(line => `    ${line}`),
+    '    To trust it:',
+    ...caTrustFix(os, caCertPath).map(line => `      ${line}`),
+    '    Then restart the tools that failed.',
+  ]
+}
+
+export function detectCaTrust(os: OS, caCertPath: string): { trusted: boolean | null; stale: boolean | null } {
   let diskFp: string | null = null
   try { diskFp = certFingerprintSha1(fs.readFileSync(caCertPath, 'utf8')) } catch { /* no CA on disk */ }
   return classifyCaTrust(diskFp, storeCaFingerprints(os))
