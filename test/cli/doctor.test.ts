@@ -6,6 +6,7 @@ import {
   setEnvCmd,
   classifyCaTrust,
   caTrustStartupWarning,
+  trustStoreTool,
   certFingerprintSha1,
   parseStoreCaFingerprints,
   parseIphlpsvcRunning,
@@ -564,5 +565,25 @@ describe('caTrustStartupWarning', () => {
   it('warns on Linux when the installed copy is a rotated-out CA', () => {
     expect(caTrustStartupWarning('linux', '/home/u/.llm-fw/ca.crt', { trusted: false, stale: true }).join('\n'))
       .toContain('update-ca-certificates')
+  })
+})
+
+// start now reads the trust store on every run, in whatever directory the user
+// is in. The store tool is named by absolute path so nothing in that directory
+// or earlier on PATH can stand in for it.
+describe('trustStoreTool', () => {
+  it('is certutil.exe under the Windows system directory', () => {
+    expect(trustStoreTool('win32', { SystemRoot: 'D:\\Win' })).toBe('D:\\Win\\System32\\certutil.exe')
+  })
+
+  it('falls back to C:\\Windows when SystemRoot is unset or not an absolute path', () => {
+    expect(trustStoreTool('win32', {})).toBe('C:\\Windows\\System32\\certutil.exe')
+    expect(trustStoreTool('win32', { SystemRoot: 'Win' })).toBe('C:\\Windows\\System32\\certutil.exe')
+    expect(trustStoreTool('win32', { SystemRoot: '.' })).toBe('C:\\Windows\\System32\\certutil.exe')
+  })
+
+  it('is /usr/bin/security on macOS, and nothing on Linux, which reads a file', () => {
+    expect(trustStoreTool('darwin', {})).toBe('/usr/bin/security')
+    expect(trustStoreTool('linux', {})).toBeNull()
   })
 })
