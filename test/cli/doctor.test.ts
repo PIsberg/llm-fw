@@ -5,6 +5,8 @@ import {
   summarize,
   setEnvCmd,
   classifyCaTrust,
+  caTrustStartupWarning,
+  trustStoreTool,
   certFingerprintSha1,
   parseStoreCaFingerprints,
   parseIphlpsvcRunning,
@@ -524,5 +526,64 @@ describe('evaluateProbe — what the running process recorded', () => {
 
   it('says nothing about enforcement when the process is not running', () => {
     expect(find(probe({ running: false, runtime: null }), 'Enforcement')).toBeUndefined()
+  })
+})
+
+// `llm-fw start` says so itself (#775): the CA had been replaced by a
+// non-elevated setup, only `doctor` knew, and the first sign was Antigravity
+// failing its own startup check with "certificate signed by unknown authority".
+describe('caTrustStartupWarning', () => {
+  const ca = 'C:\\Users\\u\\.llm-fw\\ca.crt'
+
+  it('says nothing when the CA on disk is in the OS trust store', () => {
+    expect(caTrustStartupWarning('win32', ca, { trusted: true, stale: false })).toEqual([])
+    expect(caTrustStartupWarning('win32', ca, { trusted: true, stale: true })).toEqual([])
+  })
+
+  it('says nothing when the store could not be read', () => {
+    expect(caTrustStartupWarning('win32', ca, { trusted: null, stale: null })).toEqual([])
+  })
+
+  it('names the failure a Go client reports and the command that fixes it, when the store holds only a rotated-out CA', () => {
+    const text = caTrustStartupWarning('win32', ca, { trusted: false, stale: true }).join('\n')
+    expect(text).toContain('older llm-fw CA')
+    expect(text).toContain('certificate signed by unknown authority')
+    expect(text).toContain(`certutil -addstore -f Root "${ca}"`)
+    expect(text).toContain(`certutil -user -addstore -f Root "${ca}"`)
+  })
+
+  it('warns on a desktop OS whose store has no llm-fw CA at all', () => {
+    expect(caTrustStartupWarning('win32', ca, { trusted: false, stale: false }).join('\n')).toContain('certutil -addstore')
+    expect(caTrustStartupWarning('darwin', '/Users/u/.llm-fw/ca.crt', { trusted: false, stale: false }).join('\n'))
+      .toContain('security add-trusted-cert')
+  })
+
+  it('stays quiet on Linux with no installed copy: a container or server whose clients trust the CA another way', () => {
+    expect(caTrustStartupWarning('linux', '/root/.llm-fw/ca.crt', { trusted: false, stale: false })).toEqual([])
+  })
+
+  it('warns on Linux when the installed copy is a rotated-out CA', () => {
+    expect(caTrustStartupWarning('linux', '/home/u/.llm-fw/ca.crt', { trusted: false, stale: true }).join('\n'))
+      .toContain('update-ca-certificates')
+  })
+})
+
+// start now reads the trust store on every run, in whatever directory the user
+// is in. The store tool is named by absolute path so nothing in that directory
+// or earlier on PATH can stand in for it.
+describe('trustStoreTool', () => {
+  it('is certutil.exe under the Windows system directory', () => {
+    expect(trustStoreTool('win32', { SystemRoot: 'D:\\Win' })).toBe('D:\\Win\\System32\\certutil.exe')
+  })
+
+  it('falls back to C:\\Windows when SystemRoot is unset or not an absolute path', () => {
+    expect(trustStoreTool('win32', {})).toBe('C:\\Windows\\System32\\certutil.exe')
+    expect(trustStoreTool('win32', { SystemRoot: 'Win' })).toBe('C:\\Windows\\System32\\certutil.exe')
+    expect(trustStoreTool('win32', { SystemRoot: '.' })).toBe('C:\\Windows\\System32\\certutil.exe')
+  })
+
+  it('is /usr/bin/security on macOS, and nothing on Linux, which reads a file', () => {
+    expect(trustStoreTool('darwin', {})).toBe('/usr/bin/security')
+    expect(trustStoreTool('linux', {})).toBeNull()
   })
 })

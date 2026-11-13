@@ -562,6 +562,14 @@ export async function run(args: string[] = []): Promise<void> {
     console.log(`  Proxy port:  ${config.proxy.port}`);
     console.log(`  HTTPS_PROXY: http://127.0.0.1:${config.proxy.port}`);
     console.log(`  Dashboard:   http://127.0.0.1:${config.dashboard.port}`);
+    // Local mode only: a standalone server's clients are other machines, and
+    // its own trust store says nothing about theirs. Never fatal (#775).
+    try {
+      const { caTrustStartupWarning, detectCaTrust } = await import('./doctor.js');
+      const os = platform() as 'win32' | 'darwin' | 'linux';
+      const lines = caTrustStartupWarning(os, caCertPath, detectCaTrust(os, caCertPath));
+      if (lines.length) console.warn(['', ...lines].join('\n'));
+    } catch { /* the check is advice, not a gate */ }
   }
 
   // Printed on every start, in both modes. Standalone mode in particular is the

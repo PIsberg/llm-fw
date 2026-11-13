@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { homedir, platform } from 'node:os'
 import { getLlmFwDir } from '../config/paths.js'
 import { execFileSync } from 'node:child_process'
@@ -522,13 +522,29 @@ export function classifyCaTrust(diskFp: string | null, storeFps: string[] | null
   return { trusted: storeFps.includes(diskFp), stale: storeFps.some(fp => fp !== diskFp) }
 }
 
+/**
+ * The OS tool that lists the trust store, by absolute path; null on Linux,
+ * where the store is a file. Absolute because `llm-fw start` runs it on every
+ * start, in whatever directory the user happens to be in: a bare name is
+ * looked up through PATH, and on Windows possibly the working directory, so a
+ * cloned repository could supply its own `certutil.exe`.
+ */
+export function trustStoreTool(os: OS, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (os === 'win32') {
+    const root = env.SystemRoot
+    return win32.join(root && win32.isAbsolute(root) ? root : 'C:\\Windows', 'System32', 'certutil.exe')
+  }
+  return os === 'darwin' ? '/usr/bin/security' : null
+}
+
 /** The llm-fw CA fingerprints in the OS trust store; null = couldn't read it. */
 function storeCaFingerprints(os: OS): string[] | null {
+  const tool = trustStoreTool(os)
   if (os === 'win32') {
     // Both root stores: Windows chain building (Schannel, Go's crypto/x509)
     // trusts the user's own Root store as well as the machine's, and
     // `certutil -user -addstore` is the way to trust the CA without admin.
-    const dumps = [safeExec('certutil', ['-store', 'Root']), safeExec('certutil', ['-user', '-store', 'Root'])]
+    const dumps = [safeExec(tool!, ['-store', 'Root']), safeExec(tool!, ['-user', '-store', 'Root'])]
       .filter((d): d is string => d !== null)
     if (dumps.length === 0) return null
     const fps = dumps.map(d => parseStoreCaFingerprints(os, d))
@@ -537,7 +553,7 @@ function storeCaFingerprints(os: OS): string[] | null {
   if (os === 'darwin') {
     // `security` exits non-zero when nothing matches: an empty store, not an
     // unreadable one.
-    const out = safeExec('security', ['find-certificate', '-a', '-c', 'llm-fw Local CA', '-Z', '/Library/Keychains/System.keychain'])
+    const out = safeExec(tool!, ['find-certificate', '-a', '-c', 'llm-fw Local CA', '-Z', '/Library/Keychains/System.keychain'])
     return out === null ? [] : parseStoreCaFingerprints(os, out)
   }
   // Linux: setup installs a file copy, so its fingerprint is the store's.
@@ -549,7 +565,32 @@ function storeCaFingerprints(os: OS): string[] | null {
   } catch { return null }
 }
 
-function detectCaTrust(os: OS, caCertPath: string): { trusted: boolean | null; stale: boolean | null } {
+/**
+ * What `llm-fw start` prints when the CA it signs with is not the one the OS
+ * trusts; empty when there is nothing to say (#775). The proxy runs either
+ * way and Node.js clients keep working, so without this the first sign was a
+ * Go client failing its own startup check. Linux with no installed copy stays
+ * quiet: that is a container or a server, whose clients trust the CA another
+ * way, and a warning there would print on every start.
+ */
+export function caTrustStartupWarning(
+  os: OS, caCertPath: string, trust: { trusted: boolean | null; stale: boolean | null },
+): string[] {
+  if (trust.trusted !== false) return []
+  if (os === 'linux' && trust.stale !== true) return []
+  const head = trust.stale === true
+    ? '⚠ The OS trust store holds an older llm-fw CA, not the one this proxy signs with.'
+    : '⚠ The llm-fw CA is not in the OS trust store.'
+  return [
+    `  ${head}`,
+    ...OS_STORE_CLIENTS.split('\n').map(line => `    ${line}`),
+    '    To trust it:',
+    ...caTrustFix(os, caCertPath).map(line => `      ${line}`),
+    '    Then restart the tools that failed.',
+  ]
+}
+
+export function detectCaTrust(os: OS, caCertPath: string): { trusted: boolean | null; stale: boolean | null } {
   let diskFp: string | null = null
   try { diskFp = certFingerprintSha1(fs.readFileSync(caCertPath, 'utf8')) } catch { /* no CA on disk */ }
   return classifyCaTrust(diskFp, storeCaFingerprints(os))
