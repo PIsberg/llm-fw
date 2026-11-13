@@ -133,17 +133,32 @@ export interface ResilienceCount { kept: number; total: number }
  * with a hijack, a written-off test before replacement orders, a German
  * port, an unrestricted alter ego) joined the seeds, 99 to 105. Every
  * mutation of the six still blocks; synonyms is 103 of 105, the same two.
+ *
+ * Re-pinned on ruleset 2026.11.59 (#533): four more (a seeded dismissal of
+ * the prompt, a staged test that prints the earlier text, the model's
+ * embeddings, a Spanish forget-and-say), 105 to 109. The first draft lost
+ * two of them to synonyms ("directions" for "instructions", "earlier" for
+ * "above"); both rules take those words now, and every mutation of the four
+ * blocks. Synonyms is 107 of 109, the same two.
+ * Then three more (a seeded "your rules do not apply", two answers of which
+ * one is an unrestricted mode's, the opposite persona), 109 to 112; every
+ * mutation of the three blocks. Synonyms is 110 of 112, the same two.
+ *
+ * Re-pinned on ruleset 2026.11.60 (#533): three long-form jailbreak seeds (a
+ * token penalty for refusing, an amoral named assistant, a [CLASSIC] and
+ * [JAILBREAK] answer pair), 112 to 115; every mutation of the three blocks.
+ * Synonyms is 113 of 115, the same two.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 92, total: 93 },
-  leetspeak: { kept: 92, total: 93 },
-  'zero-width': { kept: 92, total: 93 },
-  casing: { kept: 92, total: 93 },
-  'markdown-fence': { kept: 104, total: 105 },
-  blockquote: { kept: 104, total: 105 },
-  'polite-prefix': { kept: 104, total: 105 },
-  synonyms: { kept: 102, total: 105 },
-  'no-punctuation': { kept: 92, total: 93 },
+  homoglyph: { kept: 102, total: 103 },
+  leetspeak: { kept: 102, total: 103 },
+  'zero-width': { kept: 102, total: 103 },
+  casing: { kept: 102, total: 103 },
+  'markdown-fence': { kept: 114, total: 115 },
+  blockquote: { kept: 114, total: 115 },
+  'polite-prefix': { kept: 114, total: 115 },
+  synonyms: { kept: 112, total: 115 },
+  'no-punctuation': { kept: 102, total: 103 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {

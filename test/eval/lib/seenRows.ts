@@ -30,6 +30,27 @@ export const SEEN_ROWS: Readonly<Record<string, ReadonlyArray<readonly [number, 
     // moved, read to check why. It had scored only through a quoted install
     // step, "Run sudo chmod +x ...", not through the jailbreak it carries.
     [499, 'live replay FPs, 2026-11-01, #626'],
+    // #533, with the maintainer's approval (2026-11-11): an evenly spaced
+    // sample of 10 of the 150 unseen misses, read to find their shapes. Rules
+    // were written from fresh variants, not from these rows.
+    [84, '#533'], [315, '#533'], [583, '#533'], [740, '#533'], [900, '#533'],
+    [1155, '#533'], [1301, '#533'], [1488, '#533'], [1647, '#533'], [1865, '#533'],
+    // A second sample of 10 of the then 121 unseen misses, same day, same way.
+    [99, '#533'], [296, '#533'], [595, '#533'], [742, '#533'], [905, '#533'],
+    [1163, '#533'], [1290, '#533'], [1479, '#533'], [1674, '#533'], [1834, '#533'],
+  ],
+  'deepset-prompt-injections': [
+    // #533, with the maintainer's approval (2026-11-11): an evenly spaced
+    // sample of 10 of the 43 unseen misses, read the same way.
+    [0, '#533'], [37, '#533'], [70, '#533'], [79, '#533'], [85, '#533'],
+    [89, '#533'], [94, '#533'], [101, '#533'], [106, '#533'], [111, '#533'],
+  ],
+  'gandalf-ignore-instructions': [
+    // #533 (2026-11-11): an evenly spaced sample of 7 of the 14 unseen misses.
+    // No rule came of them: three are plain questions about the instructions,
+    // and fresh variants of the one attack shape already block.
+    [4, '#533'], [21, '#533'], [29, '#533'], [52, '#533'], [54, '#533'],
+    [90, '#533'], [103, '#533'],
   ],
   'heldout': [
     [21, '#486'],

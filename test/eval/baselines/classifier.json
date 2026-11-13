@@ -1,7 +1,7 @@
 {
-  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-11-10 on ruleset 2026.11.53 (docs/BENCHMARK.md classifier column, #751), every split at the shipped defaults (tool_result classifierBlockThreshold 0.999). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554).",
-  "ruleset": "2026.11.53",
-  "measured": "2026-11-10",
+  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-11-11 on ruleset 2026.11.59 (every split) with jailbreak-classification re-measured on 2026.11.60, the only split that ruleset moved (docs/BENCHMARK.md classifier column, #533), at the shipped defaults (tool_result classifierBlockThreshold 0.999). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554).",
+  "ruleset": "2026.11.60",
+  "measured": "2026-11-11",
   "preset": "classifier",
   "isolated": true,
   "datasets": [
@@ -36,7 +36,7 @@
       "fp": 1160,
       "recall": 0,
       "fpr": 0.4150268336314848,
-      "p50Ms": 88,
+      "p50Ms": 92,
       "perClass": {
         "benign:acq": {
           "n": 40,
@@ -400,7 +400,7 @@
       "fp": 86,
       "recall": 0,
       "fpr": 0.24157303370786518,
-      "p50Ms": 64,
+      "p50Ms": 49,
       "perClass": {
         "benign:agent-system-prompt": {
           "n": 12,
@@ -584,18 +584,18 @@
       "threat": "injection",
       "revision": "4f61ecb038e9c3fb77e21034b22511b523772cdd",
       "n": 116,
-      "tp": 26,
-      "fn": 34,
+      "tp": 28,
+      "fn": 32,
       "tn": 56,
       "fp": 0,
-      "recall": 0.43333333333333335,
+      "recall": 0.4666666666666667,
       "fpr": 0,
-      "p50Ms": 74,
+      "p50Ms": 50,
       "perClass": {
         "attack:?": {
           "n": 60,
-          "blocked": 26,
-          "rate": 0.43333333333333335
+          "blocked": 28,
+          "rate": 0.4666666666666667
         },
         "benign:?": {
           "n": 56,
@@ -615,7 +615,7 @@
       "fp": 2,
       "recall": 0,
       "fpr": 0.001,
-      "p50Ms": 50,
+      "p50Ms": 40,
       "perClass": {
         "benign:brainstorming": {
           "n": 235,
@@ -670,7 +670,7 @@
       "fp": 0,
       "recall": 1,
       "fpr": null,
-      "p50Ms": 41,
+      "p50Ms": 34,
       "perClass": {
         "attack:direct-override": {
           "n": 112,
@@ -690,7 +690,7 @@
       "fp": 0,
       "recall": 0.4175,
       "fpr": null,
-      "p50Ms": 51,
+      "p50Ms": 38,
       "perClass": {
         "attack:chemical_biological": {
           "n": 56,
@@ -739,7 +739,7 @@
       "fp": 1,
       "recall": 0.8387096774193549,
       "fpr": 0.047619047619047616,
-      "p50Ms": 53,
+      "p50Ms": 44,
       "perClass": {
         "attack:direct-override": {
           "n": 4,
@@ -819,7 +819,7 @@
       "fp": 2,
       "recall": 0.5,
       "fpr": 0.1,
-      "p50Ms": 89,
+      "p50Ms": 57,
       "perClass": {
         "attack:indirect:identifier-free": {
           "n": 40,
@@ -888,13 +888,13 @@
       "threat": "injection",
       "revision": "2f2ceeb39658696fd3f462403562b6eea5306287",
       "n": 1179,
-      "tp": 447,
-      "fn": 95,
+      "tp": 448,
+      "fn": 94,
       "tn": 628,
       "fp": 9,
-      "recall": 0.8247232472324724,
+      "recall": 0.8265682656826568,
       "fpr": 0.0141287284144427,
-      "p50Ms": 179,
+      "p50Ms": 168,
       "perClass": {
         "benign:benign": {
           "n": 637,
@@ -903,8 +903,8 @@
         },
         "attack:jailbreak": {
           "n": 542,
-          "blocked": 447,
-          "rate": 0.8247232472324724
+          "blocked": 448,
+          "rate": 0.8265682656826568
         }
       }
     },
@@ -919,7 +919,7 @@
       "fp": 3,
       "recall": 1,
       "fpr": 0.03,
-      "p50Ms": 41,
+      "p50Ms": 40,
       "perClass": {
         "attack:Harassment/Discrimination": {
           "n": 10,
@@ -1034,7 +1034,7 @@
       "fp": 0,
       "recall": 0.9784394250513347,
       "fpr": null,
-      "p50Ms": 51,
+      "p50Ms": 53,
       "perClass": {
         "attack:multilingual-injection": {
           "n": 974,
@@ -1054,7 +1054,7 @@
       "fp": 237,
       "recall": 0,
       "fpr": 0.1185,
-      "p50Ms": 58,
+      "p50Ms": 114,
       "perClass": {
         "benign:en-follow-up": {
           "n": 729,
@@ -1083,13 +1083,13 @@
       "threat": "injection",
       "revision": "a3a877d608f37b7d20d9945671902df895ecdb46",
       "n": 2060,
-      "tp": 602,
-      "fn": 48,
+      "tp": 608,
+      "fn": 42,
       "tn": 1408,
       "fp": 2,
-      "recall": 0.9261538461538461,
+      "recall": 0.9353846153846154,
       "fpr": 0.0014184397163120568,
-      "p50Ms": 69,
+      "p50Ms": 55,
       "perClass": {
         "benign:?": {
           "n": 1410,
@@ -1098,8 +1098,8 @@
         },
         "attack:?": {
           "n": 650,
-          "blocked": 602,
-          "rate": 0.9261538461538461
+          "blocked": 608,
+          "rate": 0.9353846153846154
         }
       }
     }
