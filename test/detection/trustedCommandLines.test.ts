@@ -5,9 +5,9 @@ import { trustedReadPath } from '../../src/detection/trustedPaths.js'
 // lines, not one plain `cat`. Claude Code sent `cd /c/dev/private/llm-fw &&
 // sed -n 520,585p src/cli/start.ts | cut -c1-170; echo ---; sed -n 100,125p
 // src/cli/doctor.ts | cut -c1-200`, and the docs and CLI source it printed
-// were withheld, although the folder was a trusted root. Of the 40,684 Claude
+// were withheld, although the folder was a trusted root. Of the 40,847 Claude
 // Code Bash calls in 30 days of local transcripts, as the requests carried
-// them, the one-read grammar trusted 20; this one trusts 1,639, and none the
+// them, the one-read grammar trusted 20; this one trusts 1,634, and none the
 // old one trusted is lost.
 const ROOT = '/home/dev/projects'
 const ROOTS = [ROOT, 'C:\\dev\\private']
@@ -39,7 +39,7 @@ describe('trustedReadPath on POSIX command lines', () => {
 
   it('resolves names after a cd, within its && list, and past a ; only when the cd went into a root itself', () => {
     expect(bash(`cd ${A} && sed -n 1,30p src/x.ts | cut -c1-160`)).toBe(`${A}/src/x.ts`)
-    expect(bash(`cd ${A} && cat src/x.ts && cd src && cat y.ts`)).toBe(`${A}/src/x.ts`)
+    expect(bash(`cd ${A} && cat src/x.ts && cd ./src && cat y.ts`)).toBe(`${A}/src/x.ts`)
     // A cd into a configured root holds after `;`: it fails only if the operator listed a folder that is not there.
     expect(bash(`cd ${ROOT} && cat a/x.ts; echo ---; grep -n key a/y.ts | head -5`)).toBe(`${A}/x.ts`)
     // A cd into a folder under a root may name one that is not there; then what follows `;` runs where the
@@ -49,6 +49,46 @@ describe('trustedReadPath on POSIX command lines', () => {
     expect(bash(`cd ${ROOT} && cd a && cat x.ts; cat y.ts`)).toBeNull()
     // Absolute names after the `;` do not depend on it.
     expect(bash(`cd ${A} && cat x.ts; cat ${A}/y.ts`)).toBe(`${A}/x.ts`)
+  })
+
+  it('does not carry a cd past a ; when something before it in its && list may have skipped it (security review)', () => {
+    // If the grep finds nothing, the cd never runs, and `cat a/y.ts` reads wherever the shell was.
+    expect(bash(`grep -q x ${A}/x.ts && cd ${ROOT}; cat a/y.ts`)).toBeNull()
+    expect(bash(`cat ${A}/x.ts && cd ${ROOT}; cat a/y.ts`)).toBeNull()
+    expect(bash(`cd ${ROOT} && cat a/x.ts; cat a/y.ts`)).toBe(`${A}/x.ts`)
+  })
+
+  it('does not trust a bare relative cd, which CDPATH may send elsewhere', () => {
+    expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cd src && cat x.ts'], workdir: A }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cd ./src && cat x.ts'], workdir: A }, ROOTS)).toBe(`${A}/src/x.ts`)
+    expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cd .. && cat a/x.ts'], workdir: A }, ROOTS)).toBe(`${A}/x.ts`)
+  })
+
+  it('does not trust an echo a shell could turn into other text (security review)', () => {
+    expect(bash(`echo -e '\\x41'; cat ${A}/x.ts`)).toBeNull()
+    expect(bash(`echo 'a\\nb'; cat ${A}/x.ts`)).toBeNull()
+    expect(bash(`echo -n x; cat ${A}/x.ts`)).toBeNull()
+    expect(bash(`echo -nE x; cat ${A}/x.ts`)).toBeNull()
+    expect(bash(`echo x -e; cat ${A}/x.ts`)).toBeNull()
+    expect(bash(`echo == x ==; cat ${A}/x.ts`)).toBeNull()
+    // Quoted, zsh expands no `=`.
+    expect(bash(`echo "== x =="; cat ${A}/x.ts`)).toBe(`${A}/x.ts`)
+    // No echo takes `---` or `--` as an option: they print as written.
+    expect(bash(`echo ---; cat ${A}/x.ts`)).toBe(`${A}/x.ts`)
+    expect(bash(`echo x -- y; cat ${A}/x.ts`)).toBe(`${A}/x.ts`)
+  })
+
+  it("does not read zsh's or fish's grammar as POSIX, and refuses zsh's =command anywhere (security review)", () => {
+    expect(trustedReadPath('shell', { command: ['zsh', '-lc', 'cat src/x.ts | head'], workdir: A }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell', { command: ['fish', '-c', 'cat src/x.ts | head'], workdir: A }, ROOTS)).toBeNull()
+    // The one-read grammar still takes a plain read under them.
+    expect(trustedReadPath('shell', { command: ['zsh', '-lc', 'cat src/x.ts'], workdir: A }, ROOTS)).toBe(`${A}/src/x.ts`)
+    for (const command of [['zsh', '-lc', 'cat =ls'], ['bash', '-lc', 'cat =ls']]) {
+      expect(trustedReadPath('shell', { command, workdir: A }, ROOTS), command.join(' ')).toBeNull()
+    }
+    expect(trustedReadPath('exec_command', { command: 'cat =ls', workdir: A }, ROOTS)).toBeNull()
+    expect(bash(`cd ${A} && cat =ls`)).toBeNull()
+    expect(bash(`cd ${A} && grep -n x =ls`)).toBeNull()
   })
 
   it('does not trust a cd out of the root, into a third-party folder, or to where a relative name climbs out', () => {

@@ -185,6 +185,8 @@ function underTrustedRoot(raw: string, roots: readonly string[], rootItself = fa
 const SHELL_META = /[|;&<>$`(){}*?[\]~#@^!%\n\r]/
 
 const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell'])
+/** Wrappers whose script the POSIX command-line grammar reads as they do. */
+const POSIX_SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'ksh'])
 /** Wrappers that read a backslash as a path separator. `cmd` is not a wrapper here: its quoting and expansion rules are its own. */
 const WINDOWS_SHELLS: ReadonlySet<string> = new Set(['pwsh', 'powershell'])
 const SHELL_SCRIPT_FLAGS: ReadonlySet<string> = new Set(['-c', '-lc', '-command'])
@@ -254,9 +256,13 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
     const exe = path.posix.basename(argv[0]!.replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase()
     if (SHELLS.has(exe)) {
       if (argv.length !== 3 || !SHELL_SCRIPT_FLAGS.has(argv[1]!.toLowerCase())) return null
-      if (!WINDOWS_SHELLS.has(exe)) return posixReadPath(argv[2]!, workdir, roots, false)
+      // The command-line grammar models POSIX sh. zsh and fish quote and
+      // expand differently (zsh's `=cmd`, fish's escapes inside single
+      // quotes), so they keep the one-read grammar (security review).
+      if (POSIX_SHELLS.has(exe)) return posixReadPath(argv[2]!, workdir, roots, false)
       if (SHELL_META.test(argv[2]!)) return null
-      powershell = true
+      if (WINDOWS_SHELLS.has(exe)) powershell = true
+      else posix = true
       backslash = argv[2]!.includes('\\')
       tokens = tokenise(argv[2]!)
     } else {
@@ -268,6 +274,9 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
     return null
   }
   if (!tokens || tokens.length < 2) return null
+  // zsh, which Codex and Claude Code use where it is the login shell, reads a
+  // word starting with `=` as the path of a program (`=ls` is /bin/ls).
+  if (tokens.some(t => t.startsWith('='))) return null
 
   // Own keys only: `constructor` or `__proto__` would otherwise find Object.prototype and throw.
   const verb = own(ALIASES, tokens[0]!.toLowerCase())
@@ -458,6 +467,9 @@ function lexPosix(script: string): PosixToken[] | null {
     }
     if (c === ';') { end(); out.push({ op: ';' }); i++; continue }
     if (POSIX_SPECIAL.test(c)) return null
+    // zsh, the login shell Claude Code's Bash runs on macOS, reads a word starting with an
+    // unquoted `=` as the path of a program (`=ls` is /bin/ls).
+    if (c === '=' && text === null) return null
     if (c === '*' || c === '?') glob = true
     text = (text ?? '') + c
     i++
@@ -588,13 +600,15 @@ function posixPath(word: PosixWord, cwd: string | undefined): string | null {
 
 /**
  * When a `cd` in one `&&` list still holds after the `;` that ends it. When
- * the `cd` fails, the shell runs what follows in the directory it was in
- * before, which a Bash call does not name. A `cd` into a configured root
- * fails only when the operator listed a directory that does not exist, so it
- * holds; a `cd` into a directory under one could name one that is not there,
- * so after the `;` relative names are not trusted. Measured on the 40,684
- * Claude Code Bash calls of 30 days of one developer's transcripts, as the
- * requests carried them: `never` trusted 832 reads, `root` 1,639, `any` 1,663.
+ * the `cd` fails or is skipped, the shell runs what follows in the directory
+ * it was in before, which a Bash call does not name. A `cd` that opens its
+ * list and goes into a configured root fails only when the operator listed a
+ * directory that does not exist, so it holds; one into a directory under a
+ * root could name one that is not there, and one after another pipeline is
+ * skipped when that pipeline fails, so after the `;` relative names are not
+ * trusted. Measured on the 40,847 Claude Code Bash calls of 30 days of one
+ * developer's transcripts, as the requests carried them: `never` trusted 833
+ * reads, `root` 1,634, `any` 1,658.
  */
 const CD_OUTLIVES_SEMICOLON: 'never' | 'root' | 'any' = 'root'
 
@@ -636,22 +650,30 @@ function posixReadPath(script: string, workdir: string | undefined, roots: reado
   for (const list of lists) {
     const before = cwd
     let cds = 0
-    for (const pipeline of list) {
+    // Whether the list opens with its cd: a pipeline before it that fails skips the cd (security review).
+    let opensWithCd = false
+    for (const [index, pipeline] of list.entries()) {
       if (pipeline.some(command => command.length === 0)) return null
       const head = pipeline[0]!
       if (head[0]!.text === 'cd') {
         if (pipeline.length !== 1 || head.length !== 2 || head[1]!.glob) return null
+        // A bare relative name is looked up through CDPATH, which the user's profile may set.
+        const target = head[1]!.text
+        if (!target.startsWith('/') && !DRIVE_RE.test(target) && !/^\.\.?(?:\/|$)/.test(target)) return null
         const dir = posixPath(head[1]!, cwd)
         if (dir === null) return null
         cwd = dir
         cds++
+        if (index === 0) opensWithCd = true
         continue
       }
       for (let i = 0; i < pipeline.length; i++) {
         const [verb, ...args] = pipeline[i]!
-        // echo writes its words, which the command line already shows.
+        // echo writes its words, which the command line already shows; not an option
+        // (`-e`, `-nE`) or a backslash, which dash and zsh turn into other characters
+        // (security review). `---` is no option to any echo, and prints as it reads.
         if (verb!.text === 'echo') {
-          if (i > 0 || args.some(a => a.glob)) return null
+          if (i > 0 || args.some(a => a.glob || a.escaped || /^-[A-Za-z]+$/.test(a.text))) return null
           continue
         }
         const spec = POSIX_VERBS.get(verb!.text)
@@ -668,7 +690,7 @@ function posixReadPath(script: string, workdir: string | undefined, roots: reado
       }
     }
     if (cwd !== before) {
-      const holds = CD_OUTLIVES_SEMICOLON === 'any' || (CD_OUTLIVES_SEMICOLON === 'root' && cds === 1 && cwd !== undefined && isRoot(cwd))
+      const holds = CD_OUTLIVES_SEMICOLON === 'any' || (CD_OUTLIVES_SEMICOLON === 'root' && cds === 1 && opensWithCd && cwd !== undefined && isRoot(cwd))
       if (!holds) cwd = undefined
     }
   }
