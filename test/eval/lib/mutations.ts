@@ -128,17 +128,22 @@ export interface ResilienceCount { kept: number; total: number }
  * joined the seeds, 92 to
  * 99. Every mutation of the seven still blocks; synonyms is 97 of 99, the
  * same two English misses as before.
+ *
+ * Re-pinned on ruleset 2026.11.58 (#533): six corpus attacks (dropped text
+ * with a hijack, a written-off test before replacement orders, a German
+ * port, an unrestricted alter ego) joined the seeds, 99 to 105. Every
+ * mutation of the six still blocks; synonyms is 103 of 105, the same two.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 86, total: 87 },
-  leetspeak: { kept: 86, total: 87 },
-  'zero-width': { kept: 86, total: 87 },
-  casing: { kept: 86, total: 87 },
-  'markdown-fence': { kept: 98, total: 99 },
-  blockquote: { kept: 98, total: 99 },
-  'polite-prefix': { kept: 98, total: 99 },
-  synonyms: { kept: 96, total: 99 },
-  'no-punctuation': { kept: 86, total: 87 },
+  homoglyph: { kept: 92, total: 93 },
+  leetspeak: { kept: 92, total: 93 },
+  'zero-width': { kept: 92, total: 93 },
+  casing: { kept: 92, total: 93 },
+  'markdown-fence': { kept: 104, total: 105 },
+  blockquote: { kept: 104, total: 105 },
+  'polite-prefix': { kept: 104, total: 105 },
+  synonyms: { kept: 102, total: 105 },
+  'no-punctuation': { kept: 92, total: 93 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {
