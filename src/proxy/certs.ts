@@ -14,6 +14,7 @@ import {
   X509Certificate,
 } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { systemTool } from '../systemTool.js';
 
 // Resolved per call, like every other getLlmFwDir() consumer. Captured at module
 // load they ignored an LLM_FW_DIR set afterwards, so the unit tests that set it
@@ -83,7 +84,7 @@ export function restrictDirPermissions(dir: string): void {
   // /inheritance:r  → drop inherited ACEs
   // /grant:r        → replace, granting full control to the named principals only
   execFileSync(
-    'icacls',
+    systemTool('icacls', 'win32'),
     [dir, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)F`, '/grant:r', 'SYSTEM:(OI)(CI)F'],
     { stdio: 'ignore' }
   );

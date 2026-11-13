@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { systemTool } from '../../src/systemTool.js'
 
 // Hoisted so the (also-hoisted) vi.mock factories can close over them. Every
 // OS-touching call service.ts makes — fs writes/reads/deletes and
@@ -244,7 +245,9 @@ describe('installService (executor — all side effects mocked)', () => {
     expect([...written.subarray(0, 2)]).toEqual([0xff, 0xfe])
     expect(written.toString('utf16le')).toContain('<LogonTrigger>')
     expect(execFileSync).toHaveBeenCalledTimes(1)
-    expect(execFileSync.mock.calls[0][0]).toBe('schtasks')
+    // By absolute path: a bare name is looked up in the working directory first by a shell.
+    expect(execFileSync.mock.calls[0][0]).toBe(systemTool('schtasks', 'win32'))
+    expect(execFileSync.mock.calls[0][0]).toMatch(/\\System32\\schtasks\.exe$/)
     expect(execFileSync.mock.calls[0][1]).toEqual(['/Create', '/TN', TASK_NAME, '/XML', xmlPath, '/F'])
     expect(unlinkSync).toHaveBeenCalledWith(xmlPath)
   })
@@ -327,7 +330,7 @@ describe('uninstallService (executor — all side effects mocked)', () => {
     }
 
     expect(execFileSync).toHaveBeenCalledTimes(1)
-    expect(execFileSync.mock.calls[0]).toEqual(['schtasks', ['/Delete', '/TN', TASK_NAME, '/F'], expect.anything()])
+    expect(execFileSync.mock.calls[0]).toEqual([systemTool('schtasks', 'win32'), ['/Delete', '/TN', TASK_NAME, '/F'], expect.anything()])
     expect(unlinkSync).not.toHaveBeenCalled()
   })
 

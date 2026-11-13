@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { dirname, posix, win32 } from 'node:path'
 import { homedir, platform, tmpdir, userInfo } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { systemTool } from '../systemTool.js'
 
 /**
  * `llm-fw install-service` / `llm-fw uninstall-service` — register/remove an
@@ -312,9 +313,9 @@ function elevationHint(os: OS): string {
 // ── executor (impure — only reached from install()/uninstall() below) ───────
 
 /** Runs one planned command. Never throws — failures are reported to the caller as a result value. */
-function execCommand(spec: CommandSpec): { ok: boolean; error?: string } {
+function execCommand(spec: CommandSpec, os: OS): { ok: boolean; error?: string } {
   try {
-    execFileSync(spec.cmd, spec.args, { stdio: 'pipe' })
+    execFileSync(systemTool(spec.cmd, os), spec.args, { stdio: 'pipe' })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -355,7 +356,7 @@ export function installService(_args: string[] = []): void {
       if (!plan.cleanup?.includes(file.path)) console.log(`  Wrote ${file.path}`)
     }
     for (const cmd of plan.commands) {
-      const result = execCommand(cmd)
+      const result = execCommand(cmd, os)
       if (!result.ok) throw new Error(`${cmd.cmd} ${cmd.args.join(' ')} failed: ${result.error}`)
     }
   } catch (err) {
@@ -390,7 +391,7 @@ export function uninstallService(_args: string[] = []): void {
 
   let anyFailed = false
   for (const cmd of plan.commands) {
-    const result = execCommand(cmd)
+    const result = execCommand(cmd, os)
     if (!result.ok) {
       anyFailed = true
       console.warn(`  (skip) ${cmd.cmd} ${cmd.args.join(' ')}: ${result.error}`)

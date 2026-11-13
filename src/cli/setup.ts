@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
+import { systemTool } from '../systemTool.js';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -17,7 +18,7 @@ export function isElevated(): boolean {
   if (platform() === 'win32') {
     try {
       // `net session` succeeds only for an elevated (admin) token.
-      execSync('net session', { stdio: 'ignore' });
+      execFileSync(systemTool('net'), ['session'], { stdio: 'ignore' });
       return true;
     } catch {
       return false;
@@ -301,7 +302,7 @@ export function readRegEnv(key: string): EnvSnapshot {
   const snap: EnvSnapshot = {};
   for (const name of LLMFW_USER_ENV) {
     try {
-      const out = execFileSync('reg', ['query', key, '/v', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const out = execFileSync(systemTool('reg'), ['query', key, '/v', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
       snap[name] = parseRegQueryValue(out, name);
     } catch {
       // reg exits non-zero when the value does not exist.
@@ -361,9 +362,9 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
       // setx writes HKCU\Environment and broadcasts WM_SETTINGCHANGE, so new
       // terminals inherit the values (the current one must be reopened). Store
       // the resolved CA path — setx creates REG_SZ, which does not expand %VARS%.
-      execFileSync('setx', ['HTTPS_PROXY', proxyUrl], { stdio: 'ignore' });
-      execFileSync('setx', ['NO_PROXY', DEFAULT_NO_PROXY], { stdio: 'ignore' });
-      execFileSync('setx', ['NODE_EXTRA_CA_CERTS', caCertPath], { stdio: 'ignore' });
+      execFileSync(systemTool('setx'), ['HTTPS_PROXY', proxyUrl], { stdio: 'ignore' });
+      execFileSync(systemTool('setx'), ['NO_PROXY', DEFAULT_NO_PROXY], { stdio: 'ignore' });
+      execFileSync(systemTool('setx'), ['NODE_EXTRA_CA_CERTS', caCertPath], { stdio: 'ignore' });
       console.log('  ✓ Set HTTPS_PROXY + NO_PROXY + NODE_EXTRA_CA_CERTS in your user environment (open a new terminal to load them).');
       const kept = LLMFW_USER_ENV.filter(n => typeof prior[n] === 'string');
       if (kept.length) console.log(`    Previous values of ${kept.join(', ')} are saved in ${join(dir, PRIOR_ENV_FILE)}; uninstall restores them.`);
@@ -442,7 +443,7 @@ export async function run(args: string[]): Promise<void> {
   try {
     const os = platform();
     if (os === 'win32') {
-      execSync('certutil -addstore -f Root "' + caCertPath + '"');
+      execFileSync(systemTool('certutil'), ['-addstore', '-f', 'Root', caCertPath]);
     } else if (os === 'darwin') {
       execSync('security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "' + caCertPath + '"');
     } else {
@@ -494,18 +495,18 @@ export async function run(args: string[]): Promise<void> {
     if (os === 'win32') {
       try {
         // The IP Helper service is required for portproxy to function.
-        execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
-        execSync('net start iphlpsvc', { stdio: 'ignore' });
+        execFileSync(systemTool('sc'), ['config', 'iphlpsvc', 'start=', 'auto'], { stdio: 'ignore' });
+        execFileSync(systemTool('net'), ['start', 'iphlpsvc'], { stdio: 'ignore' });
       } catch {
         // Ignore if already running or if we lack permissions, though we should be elevated here.
       }
       try {
-        execFileSync('netsh', [
+        execFileSync(systemTool('netsh'), [
           'interface', 'portproxy', 'add', 'v4tov4',
           'listenport=443', 'listenaddress=127.0.0.1',
           `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
         ], { stdio: 'ignore' });
-        execFileSync('netsh', [
+        execFileSync(systemTool('netsh'), [
           'interface', 'portproxy', 'add', 'v6tov4',
           'listenport=443', 'listenaddress=::1',
           `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',

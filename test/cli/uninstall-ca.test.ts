@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Every command uninstall would run against the real trust store is mocked.
-const { execSync } = vi.hoisted(() => ({ execSync: vi.fn() }))
-vi.mock('node:child_process', () => ({ execSync, execFileSync: vi.fn() }))
+const { execSync, execFileSync } = vi.hoisted(() => ({ execSync: vi.fn(), execFileSync: vi.fn() }))
+vi.mock('node:child_process', () => ({ execSync, execFileSync }))
 
 import { removeCaFromTrustStore } from '../../src/cli/uninstall.js'
+import { systemTool } from '../../src/systemTool.js'
 
 /**
  * A non-elevated Windows setup cannot install the CA, so the matching
@@ -18,17 +19,18 @@ describe('removeCaFromTrustStore', () => {
 
   beforeEach(() => {
     execSync.mockReset()
+    execFileSync.mockReset()
     log = vi.spyOn(console, 'log').mockImplementation(() => {})
     warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
   afterEach(() => vi.restoreAllMocks())
 
   const output = () => [...log.mock.calls, ...warn.mock.calls].map(c => String(c[0])).join('\n')
-  const deleteCalls = () => execSync.mock.calls.filter(c => String(c[0]).includes('-delstore'))
+  const deleteCalls = () => execFileSync.mock.calls.filter(c => (c[1] as string[]).includes('-delstore'))
 
   it('reports nothing to remove, and warns about nothing, when the CA was never installed', () => {
-    execSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('-store Root')) throw new Error('CRYPT_E_NOT_FOUND')
+    execFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('-store')) throw new Error('CRYPT_E_NOT_FOUND')
     })
     removeCaFromTrustStore('win32')
     expect(deleteCalls()).toHaveLength(0)
@@ -42,9 +44,16 @@ describe('removeCaFromTrustStore', () => {
     expect(output()).toContain('CA removed from OS trust store')
   })
 
+  it('runs certutil by its absolute path and without a shell, for the lookup and the delete', () => {
+    removeCaFromTrustStore('win32')
+    expect(execSync).not.toHaveBeenCalled()
+    expect(execFileSync.mock.calls.map(c => c[0])).toEqual([systemTool('certutil', 'win32'), systemTool('certutil', 'win32')])
+    expect(execFileSync.mock.calls.map(c => c[1])).toEqual([['-store', 'Root', 'llm-fw Local CA'], ['-delstore', '-f', 'Root', 'llm-fw Local CA']])
+  })
+
   it('still warns when an installed CA cannot be removed', () => {
-    execSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('-delstore')) throw new Error('access denied')
+    execFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('-delstore')) throw new Error('access denied')
     })
     removeCaFromTrustStore('win32')
     expect(warn.mock.calls.map(c => String(c[0])).join('\n')).toContain('certutil -delstore -f Root "llm-fw Local CA"')
