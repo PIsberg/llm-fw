@@ -129,8 +129,8 @@ and tool definitions skip the embedding check. Tool output, documents and
 memory are third-party. Every scanned surface blocks by default. Two opt-ins trade
 recall for fewer false positives: `detection.surfaces.prompt.wordingAction:
 "warn"` warns on a wording-only match in the user's own prompt below a
-high-confidence tier, and `trustedPaths` downgrade plain file reads under a
-named root to warn.
+high-confidence tier, and `trustedPaths` downgrade file reads under a named
+root to warn, shell command lines that can only print files there included.
 
 ## Host and files
 

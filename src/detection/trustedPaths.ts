@@ -1,26 +1,32 @@
 import path from 'node:path'
 
 // Trusted paths (detection.surfaces.tool_result.trustedPaths, issues #391,
-// #349, #405, #437). A file the agent read from the developer's own project is
-// demoted from block to warn when only a wording stage objects to it: game
-// code about rogue AIs, a security tool's docs quoting attacks, a README that
-// tells a person what to do. Everything else a tool returns stays untrusted.
+// #349, #405, #437, #776). A file the agent read from the developer's own
+// project is demoted from block to warn when only a wording stage objects to
+// it: game code about rogue AIs, a security tool's docs quoting attacks, a
+// README that tells a person what to do. Everything else a tool returns stays
+// untrusted.
 //
 // Deliberately narrow, because a trusted read is exactly where a planted
 // injection would hide:
 // - file-read tools, matched by their full name, and shell tools whose command
-//   is one plain read of one file (`cat`, `head`, `tail`, `sed -n N,Mp`,
-//   `Get-Content`) with nothing a shell could expand or chain: no pipe,
-//   redirection, substitution, separator, glob or variable. Fetches, search
-//   results and every other command keep their output untrusted, since it may
-//   come from anywhere. An MCP tool counts only on a server known to read
-//   local files: a `read_file` on any other server may be serving fetched
-//   content;
+//   can only print files: under a POSIX shell, reads (`cat`, `head`, `tail`,
+//   `sed -n N,Mp`, `grep` without recursion) piped through filters that cut
+//   the output down (`cut`, `head`, `tail`, `grep`, `wc`), joined by `&&` or
+//   `;`, with `echo` of literal words and `cd`; under any other shell, one
+//   plain read of one file (`Get-Content`, `type`). Nothing a shell could
+//   expand or redirect: no substitution, variable, glob other than in the
+//   last part of a file name after a literal folder, or redirection other
+//   than of error messages. Fetches, search results and every other command
+//   keep their output untrusted, since it may come from anywhere. An MCP tool
+//   counts only on a server known to read local files: a `read_file` on any
+//   other server may be serving fetched content;
 // - every path argument the call carries, not just the first one found,
 //   since which one the tool honours is the tool's business;
 // - only absolute paths, or a relative one when the call itself names the
-//   working directory it is relative to (Codex sends `workdir`); otherwise the
-//   proxy cannot know what the path means;
+//   working directory it is relative to (Codex sends `workdir`, a command
+//   line's own `cd` counts); otherwise the proxy cannot know what the path
+//   means;
 // - never third-party code vendored inside a trusted root.
 
 /**
@@ -101,6 +107,10 @@ export function trustedRootProblem(root: string): string | null {
   return null
 }
 
+/** `o[k]` when `k` is `o`'s own key, so a word such as `constructor` never finds Object.prototype. */
+const own = <T>(o: Readonly<Record<string, T>> | undefined, k: string): T | undefined =>
+  o && Object.hasOwn(o, k) ? o[k] : undefined
+
 function readArgs(input: unknown): Record<string, unknown> | null {
   if (typeof input === 'string') {
     try { input = JSON.parse(input) } catch { return null }
@@ -120,7 +130,7 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
   if (SHELL_TOOLS.has(toolName)) {
     // Claude Code's Bash runs in a directory the call does not name and is a
     // POSIX shell on every platform, so a `workdir` field on it is not honoured
-    // and only an absolute path counts.
+    // and only an absolute path, or one below a `cd` the command makes, counts.
     const bash = toolName === 'Bash'
     return shellReadPath(args.command, !bash && typeof args.workdir === 'string' ? args.workdir : undefined, bash, roots)
   }
@@ -134,10 +144,11 @@ export function trustedReadPath(toolName: string | undefined, input: unknown, ro
   return paths[0] as string
 }
 
-// A Git Bash path such as /c/dev/x is not read as C:\dev\x (#439): Claude
+// A Git Bash path such as /c/dev/x is not read as C:\dev\x here (#439): Claude
 // Code translates it, but Node's own fs on Windows resolves it to C:\c\dev\x,
 // so what it names depends on the client. It stays the POSIX path it reads
-// as, which no drive root matches.
+// as, which no drive root matches. A command line run by Claude Code's Bash
+// is the exception, read in `msysDrive` below: there the shell is Git Bash.
 function underTrustedRoot(raw: string, roots: readonly string[], rootItself = false): boolean {
   const file = normalise(raw)
   if (!file) return false
@@ -174,6 +185,8 @@ function underTrustedRoot(raw: string, roots: readonly string[], rootItself = fa
 const SHELL_META = /[|;&<>$`(){}*?[\]~#@^!%\n\r]/
 
 const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell'])
+/** Wrappers whose script the POSIX command-line grammar reads as they do. */
+const POSIX_SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'ksh'])
 /** Wrappers that read a backslash as a path separator. `cmd` is not a wrapper here: its quoting and expansion rules are its own. */
 const WINDOWS_SHELLS: ReadonlySet<string> = new Set(['pwsh', 'powershell'])
 const SHELL_SCRIPT_FLAGS: ReadonlySet<string> = new Set(['-c', '-lc', '-command'])
@@ -232,6 +245,9 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
   let backslash: boolean
   let powershell = false
   if (typeof command === 'string') {
+    // Only Claude Code's Bash sends a string it is sure a POSIX shell runs:
+    // Git Bash on Windows, so its /c/... paths name drives.
+    if (posix) return posixReadPath(command, workdir, roots, true)
     if (SHELL_META.test(command)) return null
     backslash = command.includes('\\')
     tokens = tokenise(command)
@@ -239,7 +255,12 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
     const argv: string[] = command
     const exe = path.posix.basename(argv[0]!.replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase()
     if (SHELLS.has(exe)) {
-      if (argv.length !== 3 || !SHELL_SCRIPT_FLAGS.has(argv[1]!.toLowerCase()) || SHELL_META.test(argv[2]!)) return null
+      if (argv.length !== 3 || !SHELL_SCRIPT_FLAGS.has(argv[1]!.toLowerCase())) return null
+      // The command-line grammar models POSIX sh. zsh and fish quote and
+      // expand differently (zsh's `=cmd`, fish's escapes inside single
+      // quotes), so they keep the one-read grammar (security review).
+      if (POSIX_SHELLS.has(exe)) return posixReadPath(argv[2]!, workdir, roots, false)
+      if (SHELL_META.test(argv[2]!)) return null
       if (WINDOWS_SHELLS.has(exe)) powershell = true
       else posix = true
       backslash = argv[2]!.includes('\\')
@@ -253,8 +274,12 @@ function shellReadPath(command: unknown, workdir: string | undefined, posix: boo
     return null
   }
   if (!tokens || tokens.length < 2) return null
+  // zsh, which Codex and Claude Code use where it is the login shell, reads a
+  // word starting with `=` as the path of a program (`=ls` is /bin/ls).
+  if (tokens.some(t => t.startsWith('='))) return null
 
-  const verb = ALIASES[tokens[0]!.toLowerCase()]
+  // Own keys only: `constructor` or `__proto__` would otherwise find Object.prototype and throw.
+  const verb = own(ALIASES, tokens[0]!.toLowerCase())
   if (!verb) return null
   const options = OPTIONS[verb]!
   let file: string | null = null
@@ -322,4 +347,352 @@ function resolveRead(file: string, workdir: string | undefined): string | null {
   if (!base) return null
   const joined = path.posix.join(base, file)
   return normalise(joined) ? joined : null
+}
+
+// ── POSIX command lines (#776) ──────────────────────────────────────────────
+//
+// An agent reading its own repository rarely sends one plain `cat`. Claude
+// Code writes `cd /c/dev/proj && sed -n 40,80p src/a.ts | cut -c1-160; grep
+// -n key src/b.ts`, and every such read of a trusted root was withheld. A
+// command line a POSIX shell runs is trusted when nothing in it can make the
+// output come from anywhere but files under a root: a list of pipelines,
+// joined by `&&` or `;`, where each pipeline starts with a read of files (or
+// an `echo` of literal words) and continues through filters that only cut
+// the stream down. Every file any of them names must be under a root, and a
+// `cd` only moves where relative names are looked up.
+
+/**
+ * Unquoted characters a POSIX shell expands, redirects, globs or reads as
+ * syntax. `|`, `&&` and `;` are taken as operators, and `*` and `?` mark a
+ * glob (see `posixPath`); a lone `&`, `||` and these make the line untrusted.
+ * `#` starts a comment, `!` history, `~` a home directory, `%` a job, `@` and
+ * `^` an extended glob or an old pipe, `[` a bracket glob. A backslash is an
+ * escape in a POSIX shell, so it is not allowed unquoted.
+ */
+const POSIX_SPECIAL = /[<>$`(){}[\]~#@^!%\\]/
+
+/**
+ * A word with its quotes removed; `escaped` when it holds a literal
+ * backslash, which a path must not; `glob` when an unquoted `*` or `?` makes
+ * the shell expand it into file names.
+ */
+interface PosixWord { readonly text: string; readonly escaped: boolean; readonly glob: boolean }
+type PosixToken = { readonly op: '|' | '&&' | ';' } | PosixWord
+
+/**
+ * Redirections that only move error messages, which a read prints about the
+ * names the command line already shows. Taken as whole words only.
+ */
+const STDERR_ONLY = ['2>&1', '2>/dev/null'] as const
+
+/**
+ * The text of the double-quoted part that starts at `start` (just after its
+ * `"`), as bash reads it, and the index of its closing quote; null when the
+ * shell would expand something in it, or it holds a line break or is left
+ * open. `escaped` when the text keeps a literal backslash.
+ */
+function doubleQuoted(script: string, start: number): { part: string; escaped: boolean; close: number } | null {
+  let part = ''
+  let escaped = false
+  let k = start
+  while (k < script.length && script[k] !== '"') {
+    const d = script[k]!
+    if (d === '$' || d === '`' || d === '!' || d === '\n') return null
+    const next = script[k + 1]
+    if (d === '\\' && next !== undefined && '$`"\\'.includes(next)) {
+      part += next
+      if (next === '\\') escaped = true
+      k += 2
+      continue
+    }
+    if (d === '\\') escaped = true
+    part += d
+    k++
+  }
+  return k < script.length ? { part, escaped, close: k } : null
+}
+
+/**
+ * Split a POSIX command line into words and the three operators, an unquoted
+ * line break counting as `;`. Single quotes keep everything; double quotes
+ * keep everything but an escape bash honours there (`\$`, `` \` ``, `\"`,
+ * `\\`), and make the line untrusted at a `$`, a backtick or `!`, which a
+ * shell would expand. Null for anything else a shell would act on, a quote
+ * left open, a carriage return, or a line break inside quotes.
+ */
+function lexPosix(script: string): PosixToken[] | null {
+  if (script.includes('\r')) return null
+  const out: PosixToken[] = []
+  let text: string | null = null
+  let escaped = false
+  let glob = false
+  const end = () => {
+    if (text !== null) out.push({ text, escaped, glob })
+    text = null
+    escaped = false
+    glob = false
+  }
+  let i = 0
+  while (i < script.length) {
+    const c = script[i]!
+    if (c === ' ' || c === '\t') { end(); i++; continue }
+    if (c === '\n') { end(); out.push({ op: ';' }); i++; continue }
+    if (c === "'") {
+      const close = script.indexOf("'", i + 1)
+      if (close < 0) return null
+      const part = script.slice(i + 1, close)
+      if (part.includes('\n')) return null
+      if (part.includes('\\')) escaped = true
+      text = (text ?? '') + part
+      i = close + 1
+      continue
+    }
+    if (c === '"') {
+      const quoted = doubleQuoted(script, i + 1)
+      if (!quoted) return null
+      if (quoted.escaped) escaped = true
+      text = (text ?? '') + quoted.part
+      i = quoted.close + 1
+      continue
+    }
+    const redirection = text === null ? STDERR_ONLY.find(r => script.startsWith(r, i) && /^[\s|;&]?$/.test(script[i + r.length] ?? '')) : undefined
+    if (redirection) { i += redirection.length; continue }
+    if (c === '|') {
+      if (script[i + 1] === '|') return null
+      end(); out.push({ op: '|' }); i++; continue
+    }
+    if (c === '&') {
+      if (script[i + 1] !== '&') return null
+      end(); out.push({ op: '&&' }); i += 2; continue
+    }
+    if (c === ';') { end(); out.push({ op: ';' }); i++; continue }
+    if (POSIX_SPECIAL.test(c)) return null
+    // zsh, the login shell Claude Code's Bash runs on macOS, reads a word starting with an
+    // unquoted `=` as the path of a program (`=ls` is /bin/ls).
+    if (c === '=' && text === null) return null
+    if (c === '*' || c === '?') glob = true
+    text = (text ?? '') + c
+    i++
+  }
+  end()
+  return out
+}
+
+/** How a command takes its arguments. Anything not listed makes the line untrusted. */
+interface VerbSpec {
+  /** Short flags that stand alone, as one string: `nE` for `-n` and `-E`. */
+  readonly flags: string
+  /** Short flags that take a value, attached (`-c1-80`) or as the next word, and the value's shape. */
+  readonly values?: Readonly<Record<string, RegExp>>
+  /** Long options: `true` stands alone, a pattern takes `=value`. */
+  readonly long?: Readonly<Record<string, true | RegExp>>
+  /** `head -20`, `tail -5`. */
+  readonly count?: boolean
+  /** The first operand is not a file: grep's pattern, sed's script; unless `-e` gave it. */
+  readonly lead?: 'pattern' | 'script'
+}
+
+const ANY = /^[\s\S]*$/
+const SIGNED_COUNT = /^\+?\d+$/
+/** A cut list: `5`, `1-80`, `3-`, `-4`, comma-separated. */
+const CUT_LIST = /^(?:\d+(?:-\d*)?|-\d+)(?:,(?:\d+(?:-\d*)?|-\d+))*$/
+const ONE_CHAR = /^[\s\S]$/u
+const COLOR = /^(?:never|always|auto)$/
+
+/**
+ * The commands a trusted line may run. Each reads only the files it names,
+ * or its input, and writes only to its output: no option that recurses into
+ * a directory (`grep -r`, which also walks node_modules), reads patterns from
+ * a file (`grep -f`), edits in place (`sed -i`), runs anything (`sed`'s `e`
+ * and `w`, so only a line range), or follows a file (`tail -f`).
+ */
+const POSIX_VERBS: ReadonlyMap<string, VerbSpec> = new Map<string, VerbSpec>([
+  ['cat', { flags: 'nbsaetvAET' }],
+  ['head', { flags: 'qv', values: { n: COUNT, c: COUNT }, count: true }],
+  ['tail', { flags: 'qv', values: { n: SIGNED_COUNT, c: SIGNED_COUNT }, count: true }],
+  ['sed', { flags: 'n', values: { e: SED_RANGE }, long: { quiet: true, silent: true }, lead: 'script' }],
+  ['grep', { flags: 'abcEFGHhIiLlnoPqsUvwxZz', values: { m: COUNT, A: COUNT, B: COUNT, C: COUNT, e: ANY }, long: { color: COLOR, colour: COLOR }, lead: 'pattern' }],
+  ['cut', { flags: 'sz', values: { b: CUT_LIST, c: CUT_LIST, f: CUT_LIST, d: ONE_CHAR }, long: { complement: true } }],
+  ['wc', { flags: 'lwcmL' }],
+])
+
+/**
+ * The file operands of one command, or null when an argument is not one
+ * `spec` allows. A glob may only be a file operand: expanded into a pattern,
+ * an option or its value, it would shift what every later word means.
+ */
+function posixFiles(args: readonly PosixWord[], spec: VerbSpec): PosixWord[] | null {
+  const operands: PosixWord[] = []
+  let leads = 0
+  let options = true
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i]!.text
+    if (!options || w === '-' || !w.startsWith('-')) { operands.push(args[i]!); continue }
+    if (args[i]!.glob) return null
+    if (w === '--') { options = false; continue }
+    if (w.startsWith('--')) {
+      const eq = w.indexOf('=')
+      const kind = own(spec.long, w.slice(2, eq < 0 ? w.length : eq))
+      if (kind === undefined || (kind === true ? eq >= 0 : eq < 0 || !kind.test(w.slice(eq + 1)))) return null
+      continue
+    }
+    if (spec.count && COUNT.test(w.slice(1))) continue
+    for (let j = 1; j < w.length; j++) {
+      const flag = w[j]!
+      if (spec.flags.includes(flag)) continue
+      const shape = own(spec.values, flag)
+      if (!shape) return null
+      const next = j + 1 < w.length ? null : args[++i]
+      if (next?.glob) return null
+      const value = next === null ? w.slice(j + 1) : next?.text
+      if (value === undefined || !shape.test(value)) return null
+      if (flag === 'e') leads++
+      break
+    }
+  }
+  if (spec.lead === 'script') {
+    // One script, from -e or as the first operand, and only a line range.
+    if (leads === 0) {
+      const script = operands.shift()
+      if (!script || script.glob || !SED_RANGE.test(script.text)) return null
+    } else if (leads > 1) return null
+  } else if (spec.lead === 'pattern' && leads === 0) {
+    const pattern = operands.shift()
+    if (!pattern || pattern.glob) return null
+  }
+  return operands
+}
+
+/**
+ * `p` read as Git Bash reads it, when it names a drive: `/c/dev/x` is
+ * `c:/dev/x`. Only a command line Claude Code's Bash runs is read this way;
+ * a file tool's path stays POSIX (#439).
+ */
+function msysDrive(p: string): string | null {
+  const m = /^\/([a-z])(\/.*)?$/i.exec(p)
+  return m ? `${m[1]}:${m[2] ?? '/'}` : null
+}
+
+/**
+ * A path word made absolute against `cwd`, `..` resolved and its spelling
+ * kept; null when it holds a backslash, is stdin or nothing, is relative with
+ * no `cwd`, or is a spelling `normalise` fails closed on.
+ *
+ * A glob (`docs/guides/*.md`) is taken only in its last segment, after a
+ * literal directory: the shell then expands it to entries directly in that
+ * directory, each spelt `dir/name`, so none can turn into an option, and the
+ * directory itself is checked like any other path, third-party folders
+ * included. `**` is refused, since `globstar` makes it walk every folder below
+ * (node_modules too), and so is a glob with no directory, whose expansions
+ * could start with `-`. An expansion that is a directory prints an error, not
+ * what is in it: no command here recurses.
+ */
+function posixPath(word: PosixWord, cwd: string | undefined): string | null {
+  const p = word.text
+  if (word.escaped || p === '' || p === '-') return null
+  if (word.glob) {
+    const slash = p.lastIndexOf('/')
+    if (slash < 0 || p.includes('**') || /[*?]/.test(p.slice(0, slash))) return null
+  }
+  const abs = p.startsWith('/') || DRIVE_RE.test(p) ? p : cwd === undefined ? null : path.posix.join(cwd, p)
+  return abs !== null && normalise(abs) !== null ? path.posix.normalize(abs) : null
+}
+
+/**
+ * When a `cd` in one `&&` list still holds after the `;` that ends it. When
+ * the `cd` fails or is skipped, the shell runs what follows in the directory
+ * it was in before, which a Bash call does not name. A `cd` that opens its
+ * list and goes into a configured root fails only when the operator listed a
+ * directory that does not exist, so it holds; one into a directory under a
+ * root could name one that is not there, and one after another pipeline is
+ * skipped when that pipeline fails, so after the `;` relative names are not
+ * trusted. Measured on the 40,847 Claude Code Bash calls of 30 days of one
+ * developer's transcripts, as the requests carried them: `never` trusted 833
+ * reads, `root` 1,634, `any` 1,658.
+ */
+const CD_OUTLIVES_SEMICOLON: 'never' | 'root' | 'any' = 'root'
+
+/**
+ * The first file a POSIX command line reads under one of `roots`, when every
+ * file it reads is under one and nothing in it can add output from anywhere
+ * else; null otherwise. `msys` when Git Bash may run it (Claude Code's Bash).
+ */
+function posixReadPath(script: string, workdir: string | undefined, roots: readonly string[], msys: boolean): string | null {
+  const tokens = lexPosix(script)
+  if (!tokens) return null
+  // `a | b && c ; d` is [[[a, b], [c]], [[d]]]: lists of `&&` lists of pipelines of commands.
+  const lists: PosixWord[][][][] = [[[[]]]]
+  for (const t of tokens) {
+    const list = lists.at(-1)!
+    const pipeline = list.at(-1)!
+    const command = pipeline.at(-1)!
+    if (!('op' in t)) { command.push(t); continue }
+    if (command.length === 0) return null
+    if (t.op === '|') pipeline.push([])
+    else if (t.op === '&&') list.push([[]])
+    else lists.push([[[]]])
+  }
+  // A trailing `;` leaves an empty list behind; a trailing `|` or `&&` an empty command.
+  const last = lists.at(-1)!
+  if (lists.length > 1 && last.length === 1 && last[0]!.length === 1 && last[0]![0]!.length === 0) lists.pop()
+
+  const isRoot = (dir: string) => {
+    const here = normalise(dir)
+    const mapped = msys ? msysDrive(dir) : null
+    const drive = mapped === null ? null : normalise(mapped)
+    return roots.some(r => {
+      const root = normalise(r)
+      return root !== null && (root === here || root === drive)
+    })
+  }
+  let cwd = workdir === undefined || normalise(workdir) === null ? undefined : path.posix.normalize(workdir.replace(/\\/g, '/'))
+  let first: string | null = null
+  for (const list of lists) {
+    const before = cwd
+    let cds = 0
+    // Whether the list opens with its cd: a pipeline before it that fails skips the cd (security review).
+    let opensWithCd = false
+    for (const [index, pipeline] of list.entries()) {
+      if (pipeline.some(command => command.length === 0)) return null
+      const head = pipeline[0]!
+      if (head[0]!.text === 'cd') {
+        if (pipeline.length !== 1 || head.length !== 2 || head[1]!.glob) return null
+        // A bare relative name is looked up through CDPATH, which the user's profile may set.
+        const target = head[1]!.text
+        if (!target.startsWith('/') && !DRIVE_RE.test(target) && !/^\.\.?(?:\/|$)/.test(target)) return null
+        const dir = posixPath(head[1]!, cwd)
+        if (dir === null) return null
+        cwd = dir
+        cds++
+        if (index === 0) opensWithCd = true
+        continue
+      }
+      for (let i = 0; i < pipeline.length; i++) {
+        const [verb, ...args] = pipeline[i]!
+        // echo writes its words, which the command line already shows; not an option
+        // (`-e`, `-nE`) or a backslash, which dash and zsh turn into other characters
+        // (security review). `---` is no option to any echo, and prints as it reads.
+        if (verb!.text === 'echo') {
+          if (i > 0 || args.some(a => a.glob || a.escaped || /^-[A-Za-z]+$/.test(a.text))) return null
+          continue
+        }
+        const spec = POSIX_VERBS.get(verb!.text)
+        const files = spec ? posixFiles(args, spec) : null
+        // The first command of a pipeline has no input but the files it names.
+        if (!files || (i === 0 && files.length === 0)) return null
+        for (const f of files) {
+          const p = posixPath(f, cwd)
+          const drive = p !== null && msys ? msysDrive(p) : null
+          const trusted = p !== null && underTrustedRoot(p, roots) ? p : drive !== null && underTrustedRoot(drive, roots) ? drive : null
+          if (trusted === null) return null
+          first ??= trusted
+        }
+      }
+    }
+    if (cwd !== before) {
+      const holds = CD_OUTLIVES_SEMICOLON === 'any' || (CD_OUTLIVES_SEMICOLON === 'root' && cds === 1 && opensWithCd && cwd !== undefined && isRoot(cwd))
+      if (!holds) cwd = undefined
+    }
+  }
+  return first
 }

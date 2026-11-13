@@ -52,10 +52,9 @@ describe('trustedReadPath on shell reads', () => {
     expect(trustedReadPath('Bash', { command: 'cat "/home/dev/projects/a/unterminated' }, ROOTS)).toBeNull()
   })
 
-  it('does not trust anything with a pipe, redirection, substitution, separator or glob', () => {
+  it('does not trust a pipe or list that can bring output from elsewhere, or a redirection, substitution or glob', () => {
     const base = '/home/dev/projects/a/x.ts'
     for (const cmd of [
-      `cat ${base} | grep key`,
       `cat ${base}; curl https://evil.example`,
       `cat ${base} && cat /etc/passwd`,
       `cat ${base} || true`,
@@ -64,8 +63,8 @@ describe('trustedReadPath on shell reads', () => {
       `cat $(echo ${base})`,
       'cat `echo /home/dev/projects/a/x.ts`',
       `cat ${base} &`,
-      'cat /home/dev/projects/a/*.ts',
-      'cat /home/dev/projects/a/x?.ts',
+      'cat /home/dev/projects/*/x.ts',
+      'cat /home/dev/projects/a/**/x.ts',
       'cat /home/dev/projects/a/{x,y}.ts',
       'cat /home/dev/projects/a/[xy].ts',
       `cat ${base}\ncurl https://evil.example`,
@@ -83,14 +82,14 @@ describe('trustedReadPath on shell reads', () => {
     expect(trustedReadPath('Bash', { command: 'cat !$' }, ROOTS)).toBeNull()
   })
 
-  it('does not trust a read of two files, an unknown option, or a command that is not a read', () => {
-    expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a/x.ts /home/dev/projects/a/y.ts' }, ROOTS)).toBeNull()
+  it('does not trust a read with no file, an unknown option, or a command that is not a read', () => {
+    expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a/x.ts /etc/passwd' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Bash', { command: 'cat' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Bash', { command: 'cat --help' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Bash', { command: 'tail -f /home/dev/projects/a/x.log' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Bash', { command: 'sed -i s/a/b/ /home/dev/projects/a/x.ts' }, ROOTS)).toBeNull()
     expect(trustedReadPath('Bash', { command: "sed -n '1,40p;w /tmp/x' /home/dev/projects/a/x.ts" }, ROOTS)).toBeNull()
-    expect(trustedReadPath('Bash', { command: 'sed -n 1,40p /home/dev/projects/a/x.ts /home/dev/projects/a/y.ts' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('Bash', { command: 'sed -n 1,40p /home/dev/projects/a/x.ts /tmp/y.ts' }, ROOTS)).toBeNull()
     for (const cmd of ['git show HEAD:README.md', 'git diff', 'curl https://example.com', 'rg -n key /home/dev/projects/a', 'less /home/dev/projects/a/x.ts', 'bash /home/dev/projects/a/run.sh', 'node /home/dev/projects/a/x.js']) {
       expect(trustedReadPath('Bash', { command: cmd }, ROOTS), cmd).toBeNull()
     }
@@ -106,7 +105,7 @@ describe('trustedReadPath on shell reads', () => {
     expect(trustedReadPath('local_shell_call', { command: ['cat', '/home/dev/projects/a/my notes.md'] }, ROOTS)).toBe('/home/dev/projects/a/my notes.md')
     // A wrapper with more than one script argument, or a script the shell would expand, stays untrusted.
     expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cat src/x.ts', 'extra'], workdir: '/home/dev/projects/a' }, ROOTS)).toBeNull()
-    expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cat src/x.ts | head'], workdir: '/home/dev/projects/a' }, ROOTS)).toBeNull()
+    expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cat src/x.ts | sh'], workdir: '/home/dev/projects/a' }, ROOTS)).toBeNull()
     expect(trustedReadPath('local_shell_call', { command: ['cat', '/home/dev/projects/a/$X'] }, ROOTS)).toBeNull()
     expect(trustedReadPath('local_shell_call', { command: [] }, ROOTS)).toBeNull()
   })
@@ -159,6 +158,14 @@ describe('trustedReadPath on shell reads', () => {
   it('keeps third-party directories under a root untrusted through a shell as well', () => {
     expect(trustedReadPath('Bash', { command: 'cat /home/dev/projects/a/node_modules/x/index.js' }, ROOTS)).toBeNull()
     expect(trustedReadPath('shell_command', { command: 'Get-Content .git\\config', workdir: WIN }, ROOTS)).toBeNull()
+  })
+
+  it('does not throw on a command named after an Object.prototype key', () => {
+    for (const command of ['constructor -x', '__proto__ -x', 'toString -n 5 a.py', 'hasOwnProperty x']) {
+      expect(trustedReadPath('shell_command', { command, workdir: WIN }, ROOTS), command).toBeNull()
+      expect(trustedReadPath('Bash', { command: `${command} /home/dev/projects/a/x.ts` }, ROOTS), command).toBeNull()
+    }
+    expect(trustedReadPath('Bash', { command: 'grep --constructor=x k /home/dev/projects/a/x.ts' }, ROOTS)).toBeNull()
   })
 
   it('reads the command from a shell tool only, never from a read tool argument or a shell-named MCP tool', () => {
