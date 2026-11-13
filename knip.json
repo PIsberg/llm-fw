@@ -11,17 +11,9 @@
   ],
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": [
-    "net",
-    "setx",
     "update-ca-certificates",
-    "sc",
-    "netsh",
     "pfctl",
     "iptables",
-    "netstat",
-    "certutil",
-    "reg",
-    "icacls",
     "snyk",
     "socket",
     "njsscan"
