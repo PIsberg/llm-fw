@@ -1262,7 +1262,11 @@ export class Pipeline {
         // block, and still decide warn-vs-pass below; they just no longer get to
         // suppress the judge on a zero-signal prompt.
         const isSuspicious = h.score >= 20 || (eSim >= embeddingWarnThreshold && eMargin >= embeddingMarginThreshold)
-        if (isSuspicious) corroborated = true
+        // On a trusted read these wording matches are demoted to warns, so
+        // they are no evidence for a held classifier block either (#776):
+        // counted, they made every classifier hit on a file under a trusted
+        // root a block, which is what the demotion is there to stop.
+        if (isSuspicious && !trustedPath) corroborated = true
         const reachesJudge = escalated || (this.config.detection.judgeUnlessBenign
           ? !this.isConfidentlyBenign(h.score, eSim, candidate.text)
           : isSuspicious)
@@ -1330,7 +1334,7 @@ export class Pipeline {
           this.emit(classifierPending.result, meta, classifierPending.line, source, prompt)
           return classifierPending.result
         }
-        if (!pendingWarn) pendingWarn = { result: { ...classifierPending.result, action: 'warn' }, prompt: classifierPending.warnLine, source, scanned: prompt }
+        if (!pendingWarn) pendingWarn = { result: { ...classifierPending.result, action: 'warn' }, prompt: demotedLine(classifierPending.warnLine), source, scanned: prompt }
       }
 
       if (!pendingWarn) pendingWarn = nearWarn

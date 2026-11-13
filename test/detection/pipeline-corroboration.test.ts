@@ -103,6 +103,52 @@ describe('classifier corroboration', () => {
     expect((await run(true, toolResult('FLAG weak output'))).r.action).toBe('block')
   })
 
+  // #776-#778: a file the agent read from a trusted root was still withheld by
+  // the classifier. The heuristic hit the trusted read had demoted to a warn
+  // still counted as corroboration, so the held classifier block went
+  // through. The classifier is not one of the demoted wording stages: with
+  // corroboration off it still blocks a trusted read, as documented.
+  describe('on a file read from a trusted root', () => {
+    const ROOT = '/home/dev/proj'
+    const read = (file: string, text: string) => JSON.stringify({
+      model: 'claude-x',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'read it' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: file } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: text }] },
+      ],
+    })
+    async function runTrusted(requireCorroboration: boolean, body: string) {
+      const c = config(requireCorroboration)
+      c.detection.surfaces = { ...c.detection.surfaces, tool_result: { ...c.detection.surfaces?.tool_result, trustedPaths: [ROOT] } }
+      const events: Omit<BlockEvent, 'id' | 'timestamp'>[] = []
+      const p = new Pipeline(c, e => { events.push(e) })
+      await p.init()
+      return { r: await p.run('/v1/messages', body, META), events }
+    }
+    beforeEach(() => {
+      fakeClassify.mockImplementation(async (t: string) => t.includes('FLAG') ? [{ label: 'INJECTION', score: 0.9995 }] : [{ label: 'SAFE', score: 0.99 }])
+    })
+
+    it('warns, and says why, when the only corroboration is a wording match the trusted read demoted', async () => {
+      const { r, events } = await runTrusted(true, read(`${ROOT}/src/x.ts`, 'FLAG weak output'))
+      expect(r.action).toBe('warn')
+      expect(r.stage).toBe('classifier')
+      expect(events.map(e => e.payload_preview)).toEqual(['[tool-result] [trusted-path] /home/dev/proj/src/x.ts: [classifier: injection 100.0% — uncorroborated] FLAG weak output'])
+    })
+
+    it('still blocks a trusted read on the classifier alone when corroboration is off', async () => {
+      expect((await runTrusted(false, read(`${ROOT}/src/x.ts`, 'FLAG output'))).r.action).toBe('block')
+    })
+
+    it('still blocks the same text read from outside the root, or from a third-party folder under it', async () => {
+      expect((await runTrusted(true, read('/home/dev/other/x.ts', 'FLAG weak output'))).r.action).toBe('block')
+      expect((await runTrusted(true, read(`${ROOT}/node_modules/x/index.js`, 'FLAG weak output'))).r.action).toBe('block')
+      // An uncorroborated hit outside the root warns, as it does on any surface.
+      expect((await runTrusted(true, read('/home/dev/other/x.ts', 'FLAG output'))).r.action).toBe('warn')
+    })
+  })
+
   it('blocks on the classifier alone when corroboration is off', async () => {
     expect((await run(false, prompt('merge FLAG and switch back to main'))).r.action).toBe('block')
   })
