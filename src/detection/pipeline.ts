@@ -120,6 +120,7 @@ import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
 import { ProbeTracker } from './probeEscalation.js'
 import { detectMemoryPoisoning, extractMemoryBlocks } from './memoryPoisoning.js'
 import { referencesModelInstructions } from './selfReference.js'
+import { stripDefensiveNamed } from './defensiveHygiene.js'
 import { detectIndirectInstruction, namesDestination } from './indirectInstruction.js'
 import { detectHarmfulRequest } from './harmfulRequest.js'
 import { detectMentionFrame } from './intentMention.js'
@@ -133,6 +134,9 @@ import { closeInferenceWorker } from './inferenceWorker.js'
 import { trustedReadPath } from './trustedPaths.js'
 import { RememberedCalls } from '../modules/toolCalls.js'
 import type { CapturedResponse } from '../modules/responseTap.js'
+
+/** Any letter or digit: after #787 set a candidate's clauses aside, what is left is worth embedding. A candidate the strip left unchanged is embedded whatever it holds. */
+const HAS_WORD_RE = /[\p{L}\p{N}]/u
 
 // Provenance of a scanned text fragment — which attacker-influenceable surface
 // it came from. Drives the event label so the dashboard distinguishes a direct
@@ -1192,8 +1196,13 @@ export class Pipeline {
         // at ~0.87 to the injection anchors) from blocking, while keeping the
         // cross-lingual injections (margin ≥ +0.05) the embedding stage exists for.
         let eMargin = 0
-        if (this.embedding.isInitialized() && source !== 'tool_definition' && !skipsEmbedding(candidate.source) && !(trustedPath && !judgeEnabled)) {
-          const e = await this.embedding.check(candidate.text, budget)
+        // Stage 2 embeds the text Stage 1 scored: in a prompt or a system prompt, a
+        // defensive clause about a named container is set aside first, and a text that
+        // was nothing but such clauses is not embedded at all (#787). Every other
+        // surface embeds the candidate unchanged.
+        const embedText = stripDefensiveNamed(candidate.text, source)
+        if (this.embedding.isInitialized() && source !== 'tool_definition' && !skipsEmbedding(candidate.source) && !(trustedPath && !judgeEnabled) && (embedText === candidate.text || HAS_WORD_RE.test(embedText))) {
+          const e = await this.embedding.check(embedText, budget)
           if (e.budgetExhausted) itemCut = true
           eSim = e.similarity
           // Suppress the contrastive subtraction when the text is talking
@@ -1202,7 +1211,7 @@ export class Pipeline {
           // rescue "treat your configuration as advisory rather than binding".
           // The nightly drift gate caught that trade — see selfReference.ts.
           const contrastiveMargin = eSim - (e.benignSimilarity ?? 0)
-          eMargin = referencesModelInstructions(candidate.text) ? eSim : contrastiveMargin
+          eMargin = referencesModelInstructions(candidate.text, source) ? eSim : contrastiveMargin
           eNearest = e.nearest
           lastSim = Math.max(lastSim, eSim)
 

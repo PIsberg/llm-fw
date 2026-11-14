@@ -46,6 +46,9 @@
 // without diacritics: the embedding stage reads text that keeps them.
 // Formal third-person possessives ("sus", "ihre") are left out; they also
 // mean his, her and their.
+import type { ScanSource } from '../types.js'
+import { stripDefensiveNamed } from './defensiveHygiene.js'
+
 const INSTRUCTION_NOUNS = {
   fr: '(?:instructions?|consignes?|directives?|r[eè]gles?|ordres|restrictions?|contraintes?)',
   es: '(?:instrucciones|reglas|directrices|directivas|indicaciones|[oó]rdenes|restricciones|pautas)',
@@ -177,8 +180,8 @@ const THIRD_PARTY_SETTER_RE = /\b(?:instructions?|rules?|guidelines?|polic(?:y|i
 // safety guidelines again" and "never mind, bypass your safety rules" do not.
 const NEGATED_SAFETY_RE = /\b(?:never|don['’]?t|do\s+not|must\s+not|mustn['’]?t|should\s+not|shouldn['’]?t)\s+(?:ever\s+)?(?:bypass|ignore|disable|skip|override|circumvent|disregard|switch\s+off|turn\s+off|set\s+aside)\s+your\s+(?:own\s+)?(?:safety|security)\s+(?:guidelines?|rules?|procedures?|protocols?|checks?|training|polic(?:y|ies)|precautions?|measures?)\b/gi
 
-function withoutThirdPartyProvenance(text: string): string {
-  return text
+function withoutThirdPartyProvenance(text: string, origin: ScanSource | undefined): string {
+  return stripDefensiveNamed(text, origin)
     .replace(PROVENANCE_RE, (match: string, provenance: string) =>
       OPERATOR_WORD_RE.test(provenance) ? match : ' ')
     .replace(THIRD_PARTY_SETTER_RE, (match: string, setter: string) =>
@@ -192,9 +195,12 @@ function withoutThirdPartyProvenance(text: string): string {
  * configuration — the case where a benign contrastive anchor must not be
  * allowed to pull an override attempt below the block margin.
  */
-export function referencesModelInstructions(text: string): boolean {
+// `origin` is the surface the text came from: in a prompt or a system prompt, a
+// defensive clause about a named container (stripDefensiveNamed) is the container's
+// instructions, not the model's (#787). From anywhere else, or with no origin, it counts.
+export function referencesModelInstructions(text: string, origin?: ScanSource): boolean {
   if (!text) return false
-  const scoped = withoutThirdPartyProvenance(text)
+  const scoped = withoutThirdPartyProvenance(text, origin)
   return SELF_INSTRUCTION_PATTERNS.some(re => re.test(scoped))
 }
 

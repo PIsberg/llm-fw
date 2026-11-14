@@ -264,8 +264,9 @@ export class EmbeddingChecker {
     // take new instructions from an email, and "Ignore the directions
     // printed on the packaging and use the manual" moved one held-out
     // multilingual attack from margin 0.0218 to 0.0183, under the gate. Not
-    // freed: "do not follow ... written in", which selfReference.ts reads as
-    // the model's own rules, and rows Stage 1 blocks first (#781).
+    // freed: "do not follow ... written in", which selfReference.ts read as
+    // the model's own rules until #787 set a named container's clause aside
+    // in a prompt or a system prompt, and rows Stage 1 blocked first (#781).
     //
     // Family 1 also carries one extraction-from-provided-text anchor (#256):
     // "extract all the accessories provided with the Advanced Video System"
