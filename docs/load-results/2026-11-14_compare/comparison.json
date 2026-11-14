@@ -1,0 +1,4885 @@
+{
+  "kind": "llm-fw-load-comparison",
+  "schema": 1,
+  "versions": [
+    {
+      "label": "0.9.4",
+      "version": "0.9.4",
+      "ruleset": "2026.11.1",
+      "commit": "dad5805",
+      "dirty": false,
+      "runs": 2,
+      "timestamps": [
+        "2026-11-14T19:06:55.746Z",
+        "2026-11-14T19:34:35.591Z"
+      ],
+      "node": "v26.13.0",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-1260P",
+      "cores": 16,
+      "override": "",
+      "warnings": [
+        "2026-11-14T19:06:55.746Z: other processes used 10% or more of the machine in 2 of 18 levels (worst 13.46%, chat at 2)",
+        "2026-11-14T19:06:55.746Z: the CPU speed probe varied by 21.85% over the run (18.3 ms before chat, 15.1 ms before agent, 15.4 ms before attack, 18.4 ms end): the machine slowed down"
+      ]
+    },
+    {
+      "label": "0.9.6",
+      "version": "0.9.6",
+      "ruleset": "2026.11.45",
+      "commit": "8b80a06",
+      "dirty": false,
+      "runs": 2,
+      "timestamps": [
+        "2026-11-14T19:12:36.888Z",
+        "2026-11-14T19:29:34.884Z"
+      ],
+      "node": "v26.13.0",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-1260P",
+      "cores": 16,
+      "override": "",
+      "warnings": [
+        "2026-11-14T19:12:36.888Z: other processes used 10% or more of the machine in 6 of 18 levels (worst 27.94%, attack at 4)",
+        "2026-11-14T19:12:36.888Z: the CPU speed probe varied by 27.44% over the run (20.9 ms before chat, 17.7 ms before agent, 16.4 ms before attack, 19.6 ms end): the machine slowed down",
+        "2026-11-14T19:29:34.884Z: the CPU speed probe varied by 34.73% over the run (16.7 ms before chat, 19.6 ms before agent, 22.5 ms before attack, 18.6 ms end): the machine slowed down"
+      ]
+    },
+    {
+      "label": "main",
+      "version": "0.9.6",
+      "ruleset": "2026.11.69",
+      "commit": "de95876",
+      "dirty": false,
+      "runs": 2,
+      "timestamps": [
+        "2026-11-14T19:19:42.400Z",
+        "2026-11-14T19:24:43.662Z"
+      ],
+      "node": "v26.13.0",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-1260P",
+      "cores": 16,
+      "override": "",
+      "warnings": [
+        "2026-11-14T19:19:42.400Z: other processes used 10% or more of the machine in 5 of 18 levels (worst 20.91%, chat at 4)",
+        "2026-11-14T19:24:43.662Z: the CPU speed probe varied by 36.71% over the run (20 ms before chat, 21.6 ms before agent, 20.4 ms before attack, 15.8 ms end): the machine slowed down"
+      ]
+    },
+    {
+      "label": "main, embedding.spinWait=true",
+      "version": "0.9.6",
+      "ruleset": "2026.11.69",
+      "commit": "de95876",
+      "dirty": true,
+      "runs": 2,
+      "timestamps": [
+        "2026-11-14T19:39:49.520Z",
+        "2026-11-14T19:44:49.344Z"
+      ],
+      "node": "v26.13.0",
+      "cpu": "12th Gen Intel(R) Core(TM) i7-1260P",
+      "cores": 16,
+      "runtime": {
+        "@huggingface/transformers": "4.3.2",
+        "onnxruntime-node": "1.30.0"
+      },
+      "override": "embedding.spinWait=true",
+      "warnings": [
+        "2026-11-14T19:39:49.520Z: other processes used 10% or more of the machine in 1 of 18 levels (worst 11.1%, chat at 4)",
+        "2026-11-14T19:39:49.520Z: the CPU speed probe varied by 20.67% over the run (21.6 ms before chat, 20.5 ms before agent, 19.6 ms before attack, 17.9 ms end): the machine slowed down",
+        "2026-11-14T19:44:49.344Z: the CPU speed probe varied by 24.59% over the run (22.8 ms before chat, 20 ms before agent, 18.3 ms before attack, 18.8 ms end): the machine slowed down"
+      ]
+    }
+  ],
+  "config": {
+    "workloads": [
+      "chat",
+      "agent",
+      "attack"
+    ],
+    "concurrency": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+    ],
+    "stepS": 10,
+    "warmupS": 2,
+    "agentKb": 64,
+    "sampleMs": 500
+  },
+  "steps": {
+    "chat": {
+      "1": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 61.09,
+            "min": 56.53,
+            "max": 65.65,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 15.87,
+            "min": 14.7,
+            "max": 17.04,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 20.18,
+            "min": 18.23,
+            "max": 22.13,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 26.11,
+            "min": 23.21,
+            "max": 29,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1176.59,
+            "min": 1175.51,
+            "max": 1177.66,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 193.68,
+            "min": 179.39,
+            "max": 207.96,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 513,
+            "min": 512.7,
+            "max": 513.3,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 22.38,
+            "min": 21.46,
+            "max": 23.3,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 54.41,
+            "min": 40.76,
+            "max": 68.07,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 19.23,
+            "min": 14.37,
+            "max": 24.09,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 22.29,
+            "min": 17.32,
+            "max": 27.25,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 30.97,
+            "min": 22.9,
+            "max": 39.03,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 233.37,
+            "min": 205.29,
+            "max": 261.44,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 44.39,
+            "min": 38.41,
+            "max": 50.36,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 602.95,
+            "min": 549.8,
+            "max": 656.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 20.99,
+            "min": 18.32,
+            "max": 23.66,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 39.76,
+            "min": 39.6,
+            "max": 39.92,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 24.5,
+            "min": 24.35,
+            "max": 24.64,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 28.98,
+            "min": 28.35,
+            "max": 29.6,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 40.34,
+            "min": 39.58,
+            "max": 41.09,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 203.61,
+            "min": 200.37,
+            "max": 206.85,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 51.22,
+            "min": 50.19,
+            "max": 52.24,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 551.45,
+            "min": 547.4,
+            "max": 555.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 24.35,
+            "min": 24.31,
+            "max": 24.38,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 66.68,
+            "min": 66.17,
+            "max": 67.18,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 14.53,
+            "min": 14.43,
+            "max": 14.63,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 18.71,
+            "min": 18.56,
+            "max": 18.86,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 23.22,
+            "min": 22.56,
+            "max": 23.87,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1176.94,
+            "min": 1174.03,
+            "max": 1179.84,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 176.52,
+            "min": 174.76,
+            "max": 178.29,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 570.05,
+            "min": 560.9,
+            "max": 579.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 18.83,
+            "min": 18.6,
+            "max": 19.05,
+            "n": 2
+          }
+        }
+      },
+      "2": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 70.19,
+            "min": 65.67,
+            "max": 74.71,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 27.7,
+            "min": 26.1,
+            "max": 29.29,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 35.38,
+            "min": 33.36,
+            "max": 37.4,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 40.33,
+            "min": 37.83,
+            "max": 42.83,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1186.63,
+            "min": 1186.38,
+            "max": 1186.87,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 169.76,
+            "min": 158.86,
+            "max": 180.66,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 509.65,
+            "min": 508.6,
+            "max": 510.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 21.28,
+            "min": 20.82,
+            "max": 21.74,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 100.19,
+            "min": 74.93,
+            "max": 125.44,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 20.49,
+            "min": 15.4,
+            "max": 25.58,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 27.07,
+            "min": 19.82,
+            "max": 34.32,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 42.81,
+            "min": 32.11,
+            "max": 53.5,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 447.96,
+            "min": 407.02,
+            "max": 488.89,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 46.65,
+            "min": 38.98,
+            "max": 54.32,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 480.7,
+            "min": 389.7,
+            "max": 571.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 14.11,
+            "min": 12.89,
+            "max": 15.33,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 75.39,
+            "min": 74.16,
+            "max": 76.62,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 25.56,
+            "min": 25.48,
+            "max": 25.64,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 31.46,
+            "min": 28.67,
+            "max": 34.24,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 52.76,
+            "min": 52.66,
+            "max": 52.85,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 405.37,
+            "min": 400.79,
+            "max": 409.95,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 53.78,
+            "min": 53.51,
+            "max": 54.04,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 438.35,
+            "min": 419.9,
+            "max": 456.8,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 15.2,
+            "min": 14.57,
+            "max": 15.82,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 120.3,
+            "min": 119.48,
+            "max": 121.11,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 16.27,
+            "min": 16.21,
+            "max": 16.32,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 20.24,
+            "min": 20.07,
+            "max": 20.4,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 26.35,
+            "min": 26.22,
+            "max": 26.48,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1241.51,
+            "min": 1237.83,
+            "max": 1245.2,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 103.21,
+            "min": 102.82,
+            "max": 103.6,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 450.9,
+            "min": 440.3,
+            "max": 461.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 13.68,
+            "min": 13.66,
+            "max": 13.7,
+            "n": 2
+          }
+        }
+      },
+      "4": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 77.54,
+            "min": 71.9,
+            "max": 83.18,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 50.67,
+            "min": 46.91,
+            "max": 54.42,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 65.68,
+            "min": 60.04,
+            "max": 71.31,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 75.13,
+            "min": 68.55,
+            "max": 81.72,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1196.45,
+            "min": 1196.39,
+            "max": 1196.51,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 155.13,
+            "min": 143.85,
+            "max": 166.4,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 511.35,
+            "min": 510.5,
+            "max": 512.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 26.02,
+            "min": 24.31,
+            "max": 27.72,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 102.72,
+            "min": 76.84,
+            "max": 128.6,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 40.52,
+            "min": 30.37,
+            "max": 50.67,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 48.58,
+            "min": 36.19,
+            "max": 60.97,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 84.61,
+            "min": 63.03,
+            "max": 106.18,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 448.47,
+            "min": 414.77,
+            "max": 482.17,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 45.74,
+            "min": 37.49,
+            "max": 53.98,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 485.5,
+            "min": 401.8,
+            "max": 569.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 14.55,
+            "min": 12.97,
+            "max": 16.12,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 70.8,
+            "min": 63.96,
+            "max": 77.64,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 51.86,
+            "min": 50.52,
+            "max": 53.2,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 82.65,
+            "min": 57.38,
+            "max": 107.91,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 115.79,
+            "min": 105.66,
+            "max": 125.92,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 409.44,
+            "min": 406.26,
+            "max": 412.62,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 58.42,
+            "min": 52.32,
+            "max": 64.51,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 439.1,
+            "min": 417.6,
+            "max": 460.6,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 17.58,
+            "min": 15.56,
+            "max": 19.6,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 142.82,
+            "min": 139.39,
+            "max": 146.25,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 27.44,
+            "min": 26.82,
+            "max": 28.06,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 35.81,
+            "min": 35.12,
+            "max": 36.49,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 46.82,
+            "min": 41.53,
+            "max": 52.11,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1267.14,
+            "min": 1259.26,
+            "max": 1275.02,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 88.76,
+            "min": 87.18,
+            "max": 90.34,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 459.55,
+            "min": 457,
+            "max": 462.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 13.23,
+            "min": 12.8,
+            "max": 13.65,
+            "n": 2
+          }
+        }
+      },
+      "8": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 77.72,
+            "min": 69.44,
+            "max": 86,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 103.91,
+            "min": 92.23,
+            "max": 115.59,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 128.83,
+            "min": 113.59,
+            "max": 144.07,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 147.28,
+            "min": 126.74,
+            "max": 167.82,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1195.83,
+            "min": 1194.42,
+            "max": 1197.24,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 155.61,
+            "min": 139.21,
+            "max": 172.01,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 514.45,
+            "min": 512.9,
+            "max": 516,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 52.86,
+            "min": 49.87,
+            "max": 55.84,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 95.3,
+            "min": 74.5,
+            "max": 116.1,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 82.08,
+            "min": 61.73,
+            "max": 102.42,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 119.13,
+            "min": 104.05,
+            "max": 134.2,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 164.54,
+            "min": 122.64,
+            "max": 206.43,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 434.92,
+            "min": 414.07,
+            "max": 455.78,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 47.42,
+            "min": 39.26,
+            "max": 55.58,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 490.2,
+            "min": 407.8,
+            "max": 572.6,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 16.06,
+            "min": 15.8,
+            "max": 16.31,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 72.83,
+            "min": 67.03,
+            "max": 78.62,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 102.23,
+            "min": 100.25,
+            "max": 104.21,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 153.06,
+            "min": 109.19,
+            "max": 196.92,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 219.72,
+            "min": 204.21,
+            "max": 235.22,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 409.44,
+            "min": 401.64,
+            "max": 417.24,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 56.67,
+            "min": 51.09,
+            "max": 62.25,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 439.5,
+            "min": 416.9,
+            "max": 462.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 17.66,
+            "min": 15.94,
+            "max": 19.37,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 150.28,
+            "min": 147.08,
+            "max": 153.48,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 53.16,
+            "min": 51.92,
+            "max": 54.4,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 65.69,
+            "min": 65.29,
+            "max": 66.1,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 77.65,
+            "min": 76.27,
+            "max": 79.02,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1280.37,
+            "min": 1278.58,
+            "max": 1282.15,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 85.24,
+            "min": 83.54,
+            "max": 86.93,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 462,
+            "min": 461.3,
+            "max": 462.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 16.02,
+            "min": 16.01,
+            "max": 16.04,
+            "n": 2
+          }
+        }
+      },
+      "16": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 79.28,
+            "min": 71.56,
+            "max": 87,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 203.79,
+            "min": 183.04,
+            "max": 224.53,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 250.83,
+            "min": 232.58,
+            "max": 269.08,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 287.13,
+            "min": 259.96,
+            "max": 314.3,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1195.42,
+            "min": 1195.12,
+            "max": 1195.72,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 152.24,
+            "min": 137.45,
+            "max": 167.02,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 519.7,
+            "min": 517.3,
+            "max": 522.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 80.38,
+            "min": 79.3,
+            "max": 81.46,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 77.4,
+            "min": 76.41,
+            "max": 78.39,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 202.16,
+            "min": 199.05,
+            "max": 205.26,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 218.98,
+            "min": 216.57,
+            "max": 221.39,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 407.44,
+            "min": 400.57,
+            "max": 414.3,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 403.75,
+            "min": 399.81,
+            "max": 407.69,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 52.17,
+            "min": 52.01,
+            "max": 52.32,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 500.1,
+            "min": 425.7,
+            "max": 574.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 18.12,
+            "min": 18.1,
+            "max": 18.14,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 76.29,
+            "min": 73.87,
+            "max": 78.7,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 200.93,
+            "min": 199.37,
+            "max": 202.49,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 265.86,
+            "min": 214.16,
+            "max": 317.56,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 406.59,
+            "min": 404.12,
+            "max": 409.05,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 395.66,
+            "min": 389.47,
+            "max": 401.84,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 51.9,
+            "min": 51.06,
+            "max": 52.73,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 450.3,
+            "min": 435.7,
+            "max": 464.9,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 18.9,
+            "min": 17.69,
+            "max": 20.1,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 150.67,
+            "min": 139.48,
+            "max": 161.86,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 105.6,
+            "min": 98.22,
+            "max": 112.99,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 135.96,
+            "min": 124.67,
+            "max": 147.25,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 150.94,
+            "min": 137.77,
+            "max": 164.11,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1283.36,
+            "min": 1279.17,
+            "max": 1287.54,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 85.63,
+            "min": 79.54,
+            "max": 91.71,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 460.05,
+            "min": 445.8,
+            "max": 474.3,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 22.2,
+            "min": 21.68,
+            "max": 22.71,
+            "n": 2
+          }
+        }
+      },
+      "32": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 82.68,
+            "min": 74.78,
+            "max": 90.57,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 381.74,
+            "min": 345.65,
+            "max": 417.82,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 474.82,
+            "min": 424.86,
+            "max": 524.77,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 521.86,
+            "min": 465.54,
+            "max": 578.18,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1197.17,
+            "min": 1194.52,
+            "max": 1199.82,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 146.17,
+            "min": 131.89,
+            "max": 160.44,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 530.75,
+            "min": 528.5,
+            "max": 533,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 135.66,
+            "min": 112.2,
+            "max": 159.12,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 74.03,
+            "min": 71.58,
+            "max": 76.48,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 406.86,
+            "min": 406.58,
+            "max": 407.14,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 542.42,
+            "min": 459.64,
+            "max": 625.19,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 807.63,
+            "min": 802.27,
+            "max": 812.98,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 403.07,
+            "min": 402.49,
+            "max": 403.65,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 54.51,
+            "min": 52.78,
+            "max": 56.23,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 506.3,
+            "min": 431.2,
+            "max": 581.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 19.15,
+            "min": 18.53,
+            "max": 19.76,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 76.53,
+            "min": 75.54,
+            "max": 77.51,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 400.94,
+            "min": 397.37,
+            "max": 404.51,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 517.59,
+            "min": 426.62,
+            "max": 608.55,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 802.14,
+            "min": 796.02,
+            "max": 808.26,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 426.25,
+            "min": 414.61,
+            "max": 437.89,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 55.69,
+            "min": 54.88,
+            "max": 56.5,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 455.3,
+            "min": 434,
+            "max": 476.6,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 19.98,
+            "min": 19.4,
+            "max": 20.56,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 145.63,
+            "min": 135.94,
+            "max": 155.32,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 215.56,
+            "min": 200.35,
+            "max": 230.77,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 267.15,
+            "min": 251.13,
+            "max": 283.17,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 334.94,
+            "min": 297.39,
+            "max": 372.48,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1285.29,
+            "min": 1277.93,
+            "max": 1292.65,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 88.62,
+            "min": 83.23,
+            "max": 94.01,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 477.3,
+            "min": 450.3,
+            "max": 504.3,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 27.2,
+            "min": 24.46,
+            "max": 29.93,
+            "n": 2
+          }
+        }
+      }
+    },
+    "agent": {
+      "1": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 6.3,
+            "min": 6,
+            "max": 6.59,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 158.25,
+            "min": 150.36,
+            "max": 166.14,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 167.48,
+            "min": 159.87,
+            "max": 175.08,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 199.56,
+            "min": 194.33,
+            "max": 204.78,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1196.76,
+            "min": 1195.08,
+            "max": 1198.45,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1906.32,
+            "min": 1814.17,
+            "max": 1998.46,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 614.8,
+            "min": 611.2,
+            "max": 618.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 77.07,
+            "min": 71.37,
+            "max": 82.77,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 4.69,
+            "min": 4.54,
+            "max": 4.84,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 208.9,
+            "min": 205.97,
+            "max": 211.83,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 245.23,
+            "min": 218.68,
+            "max": 271.77,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 256.7,
+            "min": 225.64,
+            "max": 287.75,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 591.73,
+            "min": 583.31,
+            "max": 600.16,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1264.19,
+            "min": 1205.67,
+            "max": 1322.7,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 574.55,
+            "min": 498.9,
+            "max": 650.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 28.21,
+            "min": 27.9,
+            "max": 28.51,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 4.59,
+            "min": 4.46,
+            "max": 4.72,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 215.15,
+            "min": 211.14,
+            "max": 219.17,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 239.62,
+            "min": 221.92,
+            "max": 257.31,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 252.68,
+            "min": 233.24,
+            "max": 272.12,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 573.38,
+            "min": 553.52,
+            "max": 593.23,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1248.89,
+            "min": 1240.62,
+            "max": 1257.15,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 523.5,
+            "min": 504.9,
+            "max": 542.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 30.24,
+            "min": 29.31,
+            "max": 31.18,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 5.47,
+            "min": 5.05,
+            "max": 5.89,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 182.33,
+            "min": 169.53,
+            "max": 195.12,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 200.32,
+            "min": 176.26,
+            "max": 224.37,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 231.08,
+            "min": 187.88,
+            "max": 274.27,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1187.81,
+            "min": 1183.56,
+            "max": 1192.06,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2184.23,
+            "min": 2024.08,
+            "max": 2344.37,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 545.95,
+            "min": 508.4,
+            "max": 583.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 29.69,
+            "min": 28.8,
+            "max": 30.57,
+            "n": 2
+          }
+        }
+      },
+      "2": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 6.11,
+            "min": 5.53,
+            "max": 6.69,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 329.46,
+            "min": 297.32,
+            "max": 361.59,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 381.49,
+            "min": 339.24,
+            "max": 423.74,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 412.12,
+            "min": 358.41,
+            "max": 465.82,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1188.83,
+            "min": 1179.71,
+            "max": 1197.95,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1961.76,
+            "min": 1791.82,
+            "max": 2131.7,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 617.25,
+            "min": 610.1,
+            "max": 624.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 114.23,
+            "min": 109.51,
+            "max": 118.95,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 5.86,
+            "min": 5.85,
+            "max": 5.87,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 332.88,
+            "min": 328.92,
+            "max": 336.84,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 383.96,
+            "min": 372.07,
+            "max": 395.84,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 443.46,
+            "min": 391.41,
+            "max": 495.5,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 726.27,
+            "min": 702.07,
+            "max": 750.47,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1239.86,
+            "min": 1200.53,
+            "max": 1279.18,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 589.95,
+            "min": 529.8,
+            "max": 650.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 29.44,
+            "min": 28.98,
+            "max": 29.9,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 5.92,
+            "min": 5.88,
+            "max": 5.96,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 334.25,
+            "min": 332.12,
+            "max": 336.38,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 358.96,
+            "min": 357.01,
+            "max": 360.9,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 384.02,
+            "min": 380.53,
+            "max": 387.5,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 729.86,
+            "min": 715.87,
+            "max": 743.84,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1233.2,
+            "min": 1200.52,
+            "max": 1265.88,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 521.8,
+            "min": 504.9,
+            "max": 538.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 33.78,
+            "min": 33.08,
+            "max": 34.47,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 6.23,
+            "min": 5.77,
+            "max": 6.68,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 323.04,
+            "min": 301.03,
+            "max": 345.06,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 348.1,
+            "min": 326.97,
+            "max": 369.22,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 366.11,
+            "min": 347.63,
+            "max": 384.58,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1212.11,
+            "min": 1210.15,
+            "max": 1214.06,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1956.94,
+            "min": 1818.24,
+            "max": 2095.64,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 577.25,
+            "min": 512.4,
+            "max": 642.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 33.5,
+            "min": 31.77,
+            "max": 35.23,
+            "n": 2
+          }
+        }
+      },
+      "4": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 6.04,
+            "min": 5.33,
+            "max": 6.75,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 673.47,
+            "min": 589.41,
+            "max": 757.54,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 743.85,
+            "min": 649.27,
+            "max": 838.42,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 746.59,
+            "min": 649.55,
+            "max": 843.63,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1195.12,
+            "min": 1192.61,
+            "max": 1197.63,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2006.52,
+            "min": 1773.9,
+            "max": 2239.13,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 620.25,
+            "min": 617.1,
+            "max": 623.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 252.05,
+            "min": 228.59,
+            "max": 275.51,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 5.39,
+            "min": 5.38,
+            "max": 5.39,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 716.37,
+            "min": 670.71,
+            "max": 762.02,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 885.2,
+            "min": 875.86,
+            "max": 894.54,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 903.78,
+            "min": 882.32,
+            "max": 925.24,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 725.94,
+            "min": 717.04,
+            "max": 734.83,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1347.66,
+            "min": 1330.63,
+            "max": 1364.68,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 523.8,
+            "min": 510.7,
+            "max": 536.9,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 32.58,
+            "min": 30.87,
+            "max": 34.28,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 6.11,
+            "min": 6.1,
+            "max": 6.12,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 648.32,
+            "min": 647.23,
+            "max": 649.4,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 685.12,
+            "min": 680.06,
+            "max": 690.17,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 710.5,
+            "min": 692.01,
+            "max": 728.98,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 752.67,
+            "min": 750.01,
+            "max": 755.33,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1231.57,
+            "min": 1225.33,
+            "max": 1237.8,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 543.95,
+            "min": 541.8,
+            "max": 546.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 35.8,
+            "min": 34.21,
+            "max": 37.39,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 6.4,
+            "min": 5.89,
+            "max": 6.91,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 628.04,
+            "min": 576.31,
+            "max": 679.78,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 653.77,
+            "min": 607.83,
+            "max": 699.71,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 714.13,
+            "min": 657.18,
+            "max": 771.08,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1219.8,
+            "min": 1215.31,
+            "max": 1224.28,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1918.09,
+            "min": 1772.14,
+            "max": 2064.03,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 608.4,
+            "min": 551.8,
+            "max": 665,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 38.16,
+            "min": 37.32,
+            "max": 38.99,
+            "n": 2
+          }
+        }
+      },
+      "8": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 6,
+            "min": 5.25,
+            "max": 6.74,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 1352.15,
+            "min": 1185.73,
+            "max": 1518.56,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 1390.62,
+            "min": 1220.72,
+            "max": 1560.52,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 1415.13,
+            "min": 1268.13,
+            "max": 1562.12,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1202.47,
+            "min": 1202.26,
+            "max": 1202.67,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2037.51,
+            "min": 1784.29,
+            "max": 2290.73,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 629.15,
+            "min": 622.9,
+            "max": 635.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 498.34,
+            "min": 422.58,
+            "max": 574.1,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 5.84,
+            "min": 5.63,
+            "max": 6.04,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 1321.15,
+            "min": 1254.16,
+            "max": 1388.14,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 1622.42,
+            "min": 1591.89,
+            "max": 1652.95,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 1651.43,
+            "min": 1621.57,
+            "max": 1681.29,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 718.09,
+            "min": 714.57,
+            "max": 721.6,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1231.81,
+            "min": 1194.81,
+            "max": 1268.81,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 552.25,
+            "min": 551.4,
+            "max": 553.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 30.62,
+            "min": 29.54,
+            "max": 31.7,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 6,
+            "min": 5.92,
+            "max": 6.08,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 1309.61,
+            "min": 1295.13,
+            "max": 1324.09,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 1409.77,
+            "min": 1368.2,
+            "max": 1451.33,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 1452.77,
+            "min": 1429.27,
+            "max": 1476.27,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 758.58,
+            "min": 752.83,
+            "max": 764.33,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1264.29,
+            "min": 1238.05,
+            "max": 1290.53,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 565.8,
+            "min": 564.8,
+            "max": 566.8,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 38.49,
+            "min": 36.77,
+            "max": 40.21,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 6.33,
+            "min": 5.79,
+            "max": 6.86,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 1256.67,
+            "min": 1165.96,
+            "max": 1347.37,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 1367.53,
+            "min": 1225.1,
+            "max": 1509.95,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 1403.18,
+            "min": 1261.66,
+            "max": 1544.69,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1221.84,
+            "min": 1218.74,
+            "max": 1224.93,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1944.7,
+            "min": 1785.17,
+            "max": 2104.23,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 603.05,
+            "min": 563.8,
+            "max": 642.3,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 42.24,
+            "min": 39.68,
+            "max": 44.79,
+            "n": 2
+          }
+        }
+      },
+      "16": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 6.03,
+            "min": 5.28,
+            "max": 6.78,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 2676.24,
+            "min": 2361.11,
+            "max": 2991.37,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 2815.68,
+            "min": 2372.5,
+            "max": 3258.86,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 2820.01,
+            "min": 2378.6,
+            "max": 3261.41,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1204.57,
+            "min": 1201.85,
+            "max": 1207.28,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2028.64,
+            "min": 1781.64,
+            "max": 2275.63,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 646.8,
+            "min": 637.6,
+            "max": 656,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 1052.24,
+            "min": 885,
+            "max": 1219.49,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 6.4,
+            "min": 5.72,
+            "max": 7.09,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 2538.65,
+            "min": 2311.15,
+            "max": 2766.16,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 2642.61,
+            "min": 2361.77,
+            "max": 2923.45,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 2657.11,
+            "min": 2372.68,
+            "max": 2941.53,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 767.1,
+            "min": 747.82,
+            "max": 786.37,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1208.71,
+            "min": 1109.56,
+            "max": 1307.86,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 570.35,
+            "min": 565.6,
+            "max": 575.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 31.71,
+            "min": 30.26,
+            "max": 33.16,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 5.89,
+            "min": 5.7,
+            "max": 6.08,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 2674.96,
+            "min": 2586.78,
+            "max": 2763.13,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 2824.17,
+            "min": 2697.4,
+            "max": 2950.94,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 2913.43,
+            "min": 2765.89,
+            "max": 3060.97,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 746.36,
+            "min": 745.37,
+            "max": 747.34,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1268.87,
+            "min": 1229.15,
+            "max": 1308.59,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 575.3,
+            "min": 572.2,
+            "max": 578.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 38.53,
+            "min": 36.9,
+            "max": 40.17,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 6.21,
+            "min": 5.73,
+            "max": 6.68,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 2524.51,
+            "min": 2338.34,
+            "max": 2710.67,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 2753.22,
+            "min": 2518.77,
+            "max": 2987.67,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 2783.62,
+            "min": 2571.3,
+            "max": 2995.94,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1221.84,
+            "min": 1219.61,
+            "max": 1224.08,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1979.65,
+            "min": 1831.84,
+            "max": 2127.45,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 595.15,
+            "min": 585.5,
+            "max": 604.8,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 47.16,
+            "min": 43.52,
+            "max": 50.79,
+            "n": 2
+          }
+        }
+      },
+      "32": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 5.96,
+            "min": 5.22,
+            "max": 6.7,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 5310.9,
+            "min": 4740.07,
+            "max": 5881.72,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 5623.17,
+            "min": 4859.26,
+            "max": 6387.07,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 5625.48,
+            "min": 4861.94,
+            "max": 6389.01,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1181.3,
+            "min": 1158.01,
+            "max": 1204.59,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2008.53,
+            "min": 1797.84,
+            "max": 2219.22,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 669.85,
+            "min": 667,
+            "max": 672.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 2161.11,
+            "min": 1944.06,
+            "max": 2378.17,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 6.19,
+            "min": 5.58,
+            "max": 6.79,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 5180.02,
+            "min": 4736.74,
+            "max": 5623.3,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 5371.09,
+            "min": 4805.29,
+            "max": 5936.88,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 5385.62,
+            "min": 4823.93,
+            "max": 5947.3,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 750.05,
+            "min": 719.95,
+            "max": 780.14,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1219.47,
+            "min": 1148.43,
+            "max": 1290.52,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 582.7,
+            "min": 582.7,
+            "max": 582.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 36.32,
+            "min": 31.24,
+            "max": 41.39,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 5.77,
+            "min": 5.69,
+            "max": 5.84,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 5275.5,
+            "min": 5117,
+            "max": 5433.99,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 5689.07,
+            "min": 5489.19,
+            "max": 5888.95,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 5744.43,
+            "min": 5559.67,
+            "max": 5929.19,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 747.67,
+            "min": 733.48,
+            "max": 761.86,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1296.52,
+            "min": 1288.36,
+            "max": 1304.68,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 590.8,
+            "min": 588.9,
+            "max": 592.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 45.84,
+            "min": 44.76,
+            "max": 46.92,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 6.27,
+            "min": 5.82,
+            "max": 6.71,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 4948.27,
+            "min": 4629.37,
+            "max": 5267.17,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 5399.93,
+            "min": 4967.1,
+            "max": 5832.75,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 5446.96,
+            "min": 5059.18,
+            "max": 5834.73,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 1221.06,
+            "min": 1215.11,
+            "max": 1227.01,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 1957.26,
+            "min": 1827.48,
+            "max": 2087.04,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 616.45,
+            "min": 605.3,
+            "max": 627.6,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 85.99,
+            "min": 73.14,
+            "max": 98.83,
+            "n": 2
+          }
+        }
+      }
+    },
+    "attack": {
+      "1": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 229.08,
+            "min": 180.78,
+            "max": 277.39,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 4.09,
+            "min": 3.42,
+            "max": 4.75,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 6.6,
+            "min": 4.31,
+            "max": 8.88,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 8.25,
+            "min": 5.68,
+            "max": 10.82,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 71.23,
+            "min": 69.81,
+            "max": 72.65,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.27,
+            "min": 2.52,
+            "max": 4.02,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 709.6,
+            "min": 704.5,
+            "max": 714.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 12.49,
+            "min": 11.35,
+            "max": 13.62,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 257.17,
+            "min": 227.6,
+            "max": 286.74,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 3.44,
+            "min": 3.12,
+            "max": 3.76,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 6.47,
+            "min": 5.77,
+            "max": 7.17,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 8.21,
+            "min": 7.69,
+            "max": 8.72,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 58.19,
+            "min": 57.02,
+            "max": 59.36,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.29,
+            "min": 2.07,
+            "max": 2.51,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 566.35,
+            "min": 564.8,
+            "max": 567.9,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 12.74,
+            "min": 12.44,
+            "max": 13.03,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 190.54,
+            "min": 190.46,
+            "max": 190.61,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 4.63,
+            "min": 4.57,
+            "max": 4.69,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 8.31,
+            "min": 8.27,
+            "max": 8.34,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 10.43,
+            "min": 10.42,
+            "max": 10.45,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 57.08,
+            "min": 55.72,
+            "max": 58.43,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3,
+            "min": 2.92,
+            "max": 3.07,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 580.95,
+            "min": 577.8,
+            "max": 584.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 13.28,
+            "min": 13.21,
+            "max": 13.34,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 224.71,
+            "min": 224.4,
+            "max": 225.01,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 3.72,
+            "min": 3.7,
+            "max": 3.74,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 7.41,
+            "min": 7.4,
+            "max": 7.42,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 8.87,
+            "min": 8.48,
+            "max": 9.25,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 59.36,
+            "min": 58.28,
+            "max": 60.44,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.65,
+            "min": 2.6,
+            "max": 2.69,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 599,
+            "min": 590.6,
+            "max": 607.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 13.41,
+            "min": 13.2,
+            "max": 13.61,
+            "n": 2
+          }
+        }
+      },
+      "2": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 302.69,
+            "min": 227.49,
+            "max": 377.89,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 6.61,
+            "min": 5.1,
+            "max": 8.11,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 9.92,
+            "min": 6.4,
+            "max": 13.44,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 12.84,
+            "min": 8.71,
+            "max": 16.97,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 94.1,
+            "min": 94.02,
+            "max": 94.19,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.31,
+            "min": 2.49,
+            "max": 4.13,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 720.6,
+            "min": 700.6,
+            "max": 740.6,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 12.63,
+            "min": 11.05,
+            "max": 14.2,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 291.28,
+            "min": 265.29,
+            "max": 317.27,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 6.4,
+            "min": 5.62,
+            "max": 7.18,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 10.52,
+            "min": 9.73,
+            "max": 11.31,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 12.58,
+            "min": 11.46,
+            "max": 13.69,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 78.72,
+            "min": 76.53,
+            "max": 80.91,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.73,
+            "min": 2.41,
+            "max": 3.05,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 564.95,
+            "min": 556.1,
+            "max": 573.8,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 12.49,
+            "min": 12.43,
+            "max": 12.54,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 287.31,
+            "min": 283.84,
+            "max": 290.78,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 6.12,
+            "min": 6,
+            "max": 6.23,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 10.63,
+            "min": 10.56,
+            "max": 10.69,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 12.8,
+            "min": 12.72,
+            "max": 12.88,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 78.34,
+            "min": 76.23,
+            "max": 80.45,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.73,
+            "min": 2.69,
+            "max": 2.77,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 574.25,
+            "min": 567.8,
+            "max": 580.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 12.59,
+            "min": 12.48,
+            "max": 12.7,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 319.27,
+            "min": 303.58,
+            "max": 334.97,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 5.6,
+            "min": 5.35,
+            "max": 5.85,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 9.73,
+            "min": 9.37,
+            "max": 10.08,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 11.17,
+            "min": 10.67,
+            "max": 11.66,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 77.15,
+            "min": 76.51,
+            "max": 77.78,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.42,
+            "min": 2.28,
+            "max": 2.56,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 587.05,
+            "min": 575.5,
+            "max": 598.6,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 12.43,
+            "min": 12.42,
+            "max": 12.44,
+            "n": 2
+          }
+        }
+      },
+      "4": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 313.27,
+            "min": 225.19,
+            "max": 401.36,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 13.42,
+            "min": 9.68,
+            "max": 17.15,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 19.97,
+            "min": 12.54,
+            "max": 27.4,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 23.57,
+            "min": 15.98,
+            "max": 31.15,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 100.57,
+            "min": 98.85,
+            "max": 102.29,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.47,
+            "min": 2.55,
+            "max": 4.39,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 791,
+            "min": 788,
+            "max": 794,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 14.92,
+            "min": 12.77,
+            "max": 17.07,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 273.21,
+            "min": 198.02,
+            "max": 348.39,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 14.27,
+            "min": 10.92,
+            "max": 17.62,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 26.48,
+            "min": 17.24,
+            "max": 35.72,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 31.46,
+            "min": 19.79,
+            "max": 43.13,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 95.57,
+            "min": 95.3,
+            "max": 95.85,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.78,
+            "min": 2.75,
+            "max": 4.81,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 563.75,
+            "min": 555.6,
+            "max": 571.9,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 16.64,
+            "min": 14.6,
+            "max": 18.68,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 298.24,
+            "min": 286.19,
+            "max": 310.28,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 13.85,
+            "min": 13.59,
+            "max": 14.11,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 19.26,
+            "min": 17.88,
+            "max": 20.64,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 23.09,
+            "min": 20.32,
+            "max": 25.86,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 95.78,
+            "min": 95.42,
+            "max": 96.13,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.22,
+            "min": 3.08,
+            "max": 3.36,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 572.35,
+            "min": 568.4,
+            "max": 576.3,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 14.82,
+            "min": 14.25,
+            "max": 15.38,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 349.99,
+            "min": 349.42,
+            "max": 350.55,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 10.66,
+            "min": 10.6,
+            "max": 10.71,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 17.59,
+            "min": 17.39,
+            "max": 17.78,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 20.44,
+            "min": 20.25,
+            "max": 20.62,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 94.53,
+            "min": 93.68,
+            "max": 95.37,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.7,
+            "min": 2.68,
+            "max": 2.72,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 586.15,
+            "min": 575.1,
+            "max": 597.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 14.22,
+            "min": 13.84,
+            "max": 14.6,
+            "n": 2
+          }
+        }
+      },
+      "8": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 323.95,
+            "min": 229.16,
+            "max": 418.74,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 26.49,
+            "min": 18.92,
+            "max": 34.05,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 37.53,
+            "min": 23.68,
+            "max": 51.38,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 45.26,
+            "min": 28.36,
+            "max": 62.15,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 98.98,
+            "min": 97.77,
+            "max": 100.19,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.33,
+            "min": 2.39,
+            "max": 4.27,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 718.95,
+            "min": 695.9,
+            "max": 742,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 21.46,
+            "min": 15.68,
+            "max": 27.23,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 265.14,
+            "min": 185.59,
+            "max": 344.68,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 31.59,
+            "min": 23.03,
+            "max": 40.14,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 51.49,
+            "min": 32.48,
+            "max": 70.5,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 61.44,
+            "min": 37.36,
+            "max": 85.51,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 98.02,
+            "min": 96.82,
+            "max": 99.22,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 4.05,
+            "min": 2.88,
+            "max": 5.22,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 559.6,
+            "min": 556.7,
+            "max": 562.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 23.35,
+            "min": 18.97,
+            "max": 27.74,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 317.48,
+            "min": 299.49,
+            "max": 335.46,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 25.66,
+            "min": 24.07,
+            "max": 27.25,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 34.64,
+            "min": 33.98,
+            "max": 35.3,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 38.99,
+            "min": 37.79,
+            "max": 40.18,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 98.84,
+            "min": 98.73,
+            "max": 98.94,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.13,
+            "min": 2.95,
+            "max": 3.3,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 575.45,
+            "min": 570.4,
+            "max": 580.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 19.3,
+            "min": 19.17,
+            "max": 19.43,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 354.61,
+            "min": 343.34,
+            "max": 365.88,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 22.26,
+            "min": 20.86,
+            "max": 23.65,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 32.46,
+            "min": 32.39,
+            "max": 32.53,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 36.41,
+            "min": 36.11,
+            "max": 36.71,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 98.3,
+            "min": 97.76,
+            "max": 98.84,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.78,
+            "min": 2.7,
+            "max": 2.85,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 586.9,
+            "min": 577.6,
+            "max": 596.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 19.06,
+            "min": 18.89,
+            "max": 19.22,
+            "n": 2
+          }
+        }
+      },
+      "16": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 336.27,
+            "min": 243.43,
+            "max": 429.11,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 50.1,
+            "min": 35.48,
+            "max": 64.72,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 67.84,
+            "min": 45.31,
+            "max": 90.37,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 94.52,
+            "min": 67.27,
+            "max": 121.77,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 101.86,
+            "min": 99.48,
+            "max": 104.23,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.26,
+            "min": 2.43,
+            "max": 4.09,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 739.35,
+            "min": 707.6,
+            "max": 771.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 27.85,
+            "min": 20.61,
+            "max": 35.09,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 295.5,
+            "min": 213.12,
+            "max": 377.87,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 58.43,
+            "min": 41.23,
+            "max": 75.63,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 74.36,
+            "min": 59,
+            "max": 89.72,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 87.23,
+            "min": 67.22,
+            "max": 107.24,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 99.31,
+            "min": 98.76,
+            "max": 99.85,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.65,
+            "min": 2.61,
+            "max": 4.69,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 567.6,
+            "min": 558.7,
+            "max": 576.5,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 29.82,
+            "min": 26.2,
+            "max": 33.44,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 345.1,
+            "min": 341.58,
+            "max": 348.62,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 47.27,
+            "min": 46.87,
+            "max": 47.67,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 62.33,
+            "min": 62.05,
+            "max": 62.61,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 69.04,
+            "min": 68.52,
+            "max": 69.56,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 98.58,
+            "min": 98.45,
+            "max": 98.71,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.86,
+            "min": 2.83,
+            "max": 2.88,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 575.1,
+            "min": 570.5,
+            "max": 579.7,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 26.14,
+            "min": 25.08,
+            "max": 27.2,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 339.48,
+            "min": 323.78,
+            "max": 355.17,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 47.22,
+            "min": 44.7,
+            "max": 49.74,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 63.89,
+            "min": 61.89,
+            "max": 65.88,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 72.51,
+            "min": 69.6,
+            "max": 75.41,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 100.63,
+            "min": 99.88,
+            "max": 101.37,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.97,
+            "min": 2.81,
+            "max": 3.13,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 597.3,
+            "min": 585.4,
+            "max": 609.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 26.15,
+            "min": 25.48,
+            "max": 26.82,
+            "n": 2
+          }
+        }
+      },
+      "32": {
+        "0.9.4": {
+          "throughputRps": {
+            "median": 271.76,
+            "min": 258.04,
+            "max": 285.47,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 99.92,
+            "min": 79.68,
+            "max": 120.15,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 184.55,
+            "min": 161,
+            "max": 208.09,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 232.8,
+            "min": 219.16,
+            "max": 246.44,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 100.51,
+            "min": 100.21,
+            "max": 100.8,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.71,
+            "min": 3.51,
+            "max": 3.91,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 717.75,
+            "min": 685.1,
+            "max": 750.4,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 61.64,
+            "min": 59.47,
+            "max": 63.8,
+            "n": 2
+          }
+        },
+        "0.9.6": {
+          "throughputRps": {
+            "median": 285.3,
+            "min": 197.24,
+            "max": 373.35,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 117.34,
+            "min": 83.96,
+            "max": 150.72,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 180.2,
+            "min": 116.44,
+            "max": 243.95,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 209.3,
+            "min": 140.43,
+            "max": 278.17,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 100.7,
+            "min": 99.91,
+            "max": 101.49,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 3.92,
+            "min": 2.68,
+            "max": 5.15,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 562.85,
+            "min": 552.5,
+            "max": 573.2,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 52.11,
+            "min": 40.04,
+            "max": 64.19,
+            "n": 2
+          }
+        },
+        "main": {
+          "throughputRps": {
+            "median": 460.38,
+            "min": 382.82,
+            "max": 537.94,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 65.9,
+            "min": 51.18,
+            "max": 80.61,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 113.35,
+            "min": 111.28,
+            "max": 115.42,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 128.47,
+            "min": 125.07,
+            "max": 131.87,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 99.19,
+            "min": 98.93,
+            "max": 99.44,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.22,
+            "min": 1.84,
+            "max": 2.6,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 572.8,
+            "min": 569.3,
+            "max": 576.3,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 40.27,
+            "min": 38.63,
+            "max": 41.91,
+            "n": 2
+          }
+        },
+        "main, embedding.spinWait=true": {
+          "throughputRps": {
+            "median": 369.75,
+            "min": 357.68,
+            "max": 381.82,
+            "n": 2
+          },
+          "p50Ms": {
+            "median": 86.4,
+            "min": 82.49,
+            "max": 90.3,
+            "n": 2
+          },
+          "p95Ms": {
+            "median": 116.73,
+            "min": 113.87,
+            "max": 119.59,
+            "n": 2
+          },
+          "p99Ms": {
+            "median": 123.67,
+            "min": 121.38,
+            "max": 125.96,
+            "n": 2
+          },
+          "cpuPct": {
+            "median": 99.77,
+            "min": 96.45,
+            "max": 103.08,
+            "n": 2
+          },
+          "cpuMsPerRequest": {
+            "median": 2.71,
+            "min": 2.53,
+            "max": 2.88,
+            "n": 2
+          },
+          "peakRssMb": {
+            "median": 587.3,
+            "min": 574.5,
+            "max": 600.1,
+            "n": 2
+          },
+          "eventLoopP99Ms": {
+            "median": 39.78,
+            "min": 38.99,
+            "max": 40.57,
+            "n": 2
+          }
+        }
+      }
+    }
+  },
+  "headline": [
+    {
+      "key": "chat.peakRps",
+      "group": "chat",
+      "label": "Peak throughput",
+      "unit": "req/s",
+      "better": "higher",
+      "values": {
+        "0.9.4": {
+          "median": 82.68,
+          "min": 74.78,
+          "max": 90.57,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 103.5,
+          "min": 78.39,
+          "max": 128.6,
+          "n": 2
+        },
+        "main": {
+          "median": 77.12,
+          "min": 75.54,
+          "max": 78.7,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 154.47,
+          "min": 147.08,
+          "max": 161.86,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 25.18,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": -6.72,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 86.83,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "chat.p50At1",
+      "group": "chat",
+      "label": "p50 at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 15.87,
+          "min": 14.7,
+          "max": 17.04,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 19.23,
+          "min": 14.37,
+          "max": 24.09,
+          "n": 2
+        },
+        "main": {
+          "median": 24.5,
+          "min": 24.35,
+          "max": 24.64,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 14.53,
+          "min": 14.43,
+          "max": 14.63,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 21.17,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": 54.38,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -8.44,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "chat.p99At1",
+      "group": "chat",
+      "label": "p99 at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 26.11,
+          "min": 23.21,
+          "max": 29,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 30.97,
+          "min": 22.9,
+          "max": 39.03,
+          "n": 2
+        },
+        "main": {
+          "median": 40.34,
+          "min": 39.58,
+          "max": 41.09,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 23.22,
+          "min": 22.56,
+          "max": 23.87,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 18.61,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": 54.5,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -11.07,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "chat.cpuMsAt1",
+      "group": "chat",
+      "label": "CPU per request at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 193.68,
+          "min": 179.39,
+          "max": 207.96,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 44.39,
+          "min": 38.41,
+          "max": 50.36,
+          "n": 2
+        },
+        "main": {
+          "median": 51.22,
+          "min": 50.19,
+          "max": 52.24,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 176.52,
+          "min": 174.76,
+          "max": 178.29,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -77.08,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -73.55,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -8.86,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "chat.coldMs",
+      "group": "chat",
+      "label": "First request, cold",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 165.5,
+          "min": 156,
+          "max": 175,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 188,
+          "min": 145,
+          "max": 231,
+          "n": 2
+        },
+        "main": {
+          "median": 303.5,
+          "min": 301,
+          "max": 306,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 286.5,
+          "min": 282,
+          "max": 291,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 13.6,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": 83.38,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 73.11,
+          "beyondNoise": true,
+          "improved": false
+        }
+      }
+    },
+    {
+      "key": "chat.worstLoopMs",
+      "group": "chat",
+      "label": "Worst event-loop p99",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 135.66,
+          "min": 112.2,
+          "max": 159.12,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 21.1,
+          "min": 18.53,
+          "max": 23.66,
+          "n": 2
+        },
+        "main": {
+          "median": 24.35,
+          "min": 24.31,
+          "max": 24.38,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 27.2,
+          "min": 24.46,
+          "max": 29.93,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -84.45,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -82.05,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -79.95,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "agent.peakRps",
+      "group": "agent",
+      "label": "Peak throughput",
+      "unit": "req/s",
+      "better": "higher",
+      "values": {
+        "0.9.4": {
+          "median": 6.39,
+          "min": 6,
+          "max": 6.78,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 6.47,
+          "min": 5.85,
+          "max": 7.09,
+          "n": 2
+        },
+        "main": {
+          "median": 6.11,
+          "min": 6.1,
+          "max": 6.12,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 6.4,
+          "min": 5.89,
+          "max": 6.91,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 1.25,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": -4.38,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 0.16,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "agent.p50At1",
+      "group": "agent",
+      "label": "p50 at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 158.25,
+          "min": 150.36,
+          "max": 166.14,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 208.9,
+          "min": 205.97,
+          "max": 211.83,
+          "n": 2
+        },
+        "main": {
+          "median": 215.15,
+          "min": 211.14,
+          "max": 219.17,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 182.33,
+          "min": 169.53,
+          "max": 195.12,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 32.01,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main": {
+          "pct": 35.96,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 15.22,
+          "beyondNoise": true,
+          "improved": false
+        }
+      }
+    },
+    {
+      "key": "agent.p99At1",
+      "group": "agent",
+      "label": "p99 at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 199.56,
+          "min": 194.33,
+          "max": 204.78,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 256.7,
+          "min": 225.64,
+          "max": 287.75,
+          "n": 2
+        },
+        "main": {
+          "median": 252.68,
+          "min": 233.24,
+          "max": 272.12,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 231.08,
+          "min": 187.88,
+          "max": 274.27,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 28.63,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main": {
+          "pct": 26.62,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 15.79,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "agent.cpuMsAt1",
+      "group": "agent",
+      "label": "CPU per request at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 1906.32,
+          "min": 1814.17,
+          "max": 1998.46,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 1264.19,
+          "min": 1205.67,
+          "max": 1322.7,
+          "n": 2
+        },
+        "main": {
+          "median": 1248.89,
+          "min": 1240.62,
+          "max": 1257.15,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 2184.23,
+          "min": 2024.08,
+          "max": 2344.37,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -33.68,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -34.49,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 14.58,
+          "beyondNoise": true,
+          "improved": false
+        }
+      }
+    },
+    {
+      "key": "agent.coldMs",
+      "group": "agent",
+      "label": "First request, cold",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 2514,
+          "min": 2291,
+          "max": 2737,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 3314,
+          "min": 3289,
+          "max": 3339,
+          "n": 2
+        },
+        "main": {
+          "median": 3476,
+          "min": 3443,
+          "max": 3509,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 2653,
+          "min": 2616,
+          "max": 2690,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 31.82,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main": {
+          "pct": 38.27,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 5.53,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "agent.worstLoopMs",
+      "group": "agent",
+      "label": "Worst event-loop p99",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 2161.11,
+          "min": 1944.06,
+          "max": 2378.17,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 36.55,
+          "min": 31.7,
+          "max": 41.39,
+          "n": 2
+        },
+        "main": {
+          "median": 45.84,
+          "min": 44.76,
+          "max": 46.92,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 85.99,
+          "min": 73.14,
+          "max": 98.83,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -98.31,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -97.88,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -96.02,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "attack.peakRps",
+      "group": "attack",
+      "label": "Peak throughput",
+      "unit": "req/s",
+      "better": "higher",
+      "values": {
+        "0.9.4": {
+          "median": 343.58,
+          "min": 258.04,
+          "max": 429.11,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 332.31,
+          "min": 286.74,
+          "max": 377.87,
+          "n": 2
+        },
+        "main": {
+          "median": 460.38,
+          "min": 382.82,
+          "max": 537.94,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 373.85,
+          "min": 365.88,
+          "max": 381.82,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -3.28,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": 33.99,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 8.81,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "attack.p50At1",
+      "group": "attack",
+      "label": "p50 at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 4.09,
+          "min": 3.42,
+          "max": 4.75,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 3.44,
+          "min": 3.12,
+          "max": 3.76,
+          "n": 2
+        },
+        "main": {
+          "median": 4.63,
+          "min": 4.57,
+          "max": 4.69,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 3.72,
+          "min": 3.7,
+          "max": 3.74,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -15.89,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": 13.2,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -9.05,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "attack.p99At1",
+      "group": "attack",
+      "label": "p99 at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 8.25,
+          "min": 5.68,
+          "max": 10.82,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 8.21,
+          "min": 7.69,
+          "max": 8.72,
+          "n": 2
+        },
+        "main": {
+          "median": 10.43,
+          "min": 10.42,
+          "max": 10.45,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 8.87,
+          "min": 8.48,
+          "max": 9.25,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -0.48,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": 26.42,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 7.52,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "attack.cpuMsAt1",
+      "group": "attack",
+      "label": "CPU per request at 1 client",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 3.27,
+          "min": 2.52,
+          "max": 4.02,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 2.29,
+          "min": 2.07,
+          "max": 2.51,
+          "n": 2
+        },
+        "main": {
+          "median": 3,
+          "min": 2.92,
+          "max": 3.07,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 2.65,
+          "min": 2.6,
+          "max": 2.69,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -29.97,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -8.26,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -18.96,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "attack.coldMs",
+      "group": "attack",
+      "label": "First request, cold",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 12.5,
+          "min": 6,
+          "max": 19,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 6,
+          "min": 5,
+          "max": 7,
+          "n": 2
+        },
+        "main": {
+          "median": 6,
+          "min": 5,
+          "max": 7,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 7.5,
+          "min": 6,
+          "max": 9,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -52,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": -52,
+          "beyondNoise": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -40,
+          "beyondNoise": false
+        }
+      }
+    },
+    {
+      "key": "attack.worstLoopMs",
+      "group": "attack",
+      "label": "Worst event-loop p99",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 61.64,
+          "min": 59.47,
+          "max": 63.8,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 52.11,
+          "min": 40.04,
+          "max": 64.19,
+          "n": 2
+        },
+        "main": {
+          "median": 40.27,
+          "min": 38.63,
+          "max": 41.91,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 39.78,
+          "min": 38.99,
+          "max": 40.57,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -15.46,
+          "beyondNoise": false
+        },
+        "main": {
+          "pct": -34.67,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -35.46,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "memory.idleRss",
+      "group": "memory",
+      "label": "RSS idle after start",
+      "unit": "MB",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 587.95,
+          "min": 587.6,
+          "max": 588.3,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 630.6,
+          "min": 630.6,
+          "max": 630.6,
+          "n": 2
+        },
+        "main": {
+          "median": 631.2,
+          "min": 630.8,
+          "max": 631.6,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 642.6,
+          "min": 631.4,
+          "max": 653.8,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 7.25,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main": {
+          "pct": 7.36,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 9.3,
+          "beyondNoise": true,
+          "improved": false
+        }
+      }
+    },
+    {
+      "key": "memory.peakRss",
+      "group": "memory",
+      "label": "Peak RSS under load",
+      "unit": "MB",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 791,
+          "min": 788,
+          "max": 794,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 619.4,
+          "min": 582.7,
+          "max": 656.1,
+          "n": 2
+        },
+        "main": {
+          "median": 590.8,
+          "min": 588.9,
+          "max": 592.7,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 635.15,
+          "min": 605.3,
+          "max": 665,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -21.69,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -25.31,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -19.7,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "memory.idleAfterRss",
+      "group": "memory",
+      "label": "RSS idle after load",
+      "unit": "MB",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 652.45,
+          "min": 640.5,
+          "max": 664.4,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 562.85,
+          "min": 552.5,
+          "max": 573.2,
+          "n": 2
+        },
+        "main": {
+          "median": 571.7,
+          "min": 567.7,
+          "max": 575.7,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 587.3,
+          "min": 574.5,
+          "max": 600.1,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": -13.73,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main": {
+          "pct": -12.38,
+          "beyondNoise": true,
+          "improved": true
+        },
+        "main, embedding.spinWait=true": {
+          "pct": -9.99,
+          "beyondNoise": true,
+          "improved": true
+        }
+      }
+    },
+    {
+      "key": "startup.initMs",
+      "group": "startup",
+      "label": "Model and pipeline init",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 1130.5,
+          "min": 1083,
+          "max": 1178,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 1958,
+          "min": 1576,
+          "max": 2340,
+          "n": 2
+        },
+        "main": {
+          "median": 1664,
+          "min": 1655,
+          "max": 1673,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 1572,
+          "min": 1551,
+          "max": 1593,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 73.2,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main": {
+          "pct": 47.19,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 39.05,
+          "beyondNoise": true,
+          "improved": false
+        }
+      }
+    },
+    {
+      "key": "startup.readyMs",
+      "group": "startup",
+      "label": "Process start to ready",
+      "unit": "ms",
+      "better": "lower",
+      "values": {
+        "0.9.4": {
+          "median": 1884.5,
+          "min": 1868,
+          "max": 1901,
+          "n": 2
+        },
+        "0.9.6": {
+          "median": 2392,
+          "min": 1986,
+          "max": 2798,
+          "n": 2
+        },
+        "main": {
+          "median": 2163.5,
+          "min": 2104,
+          "max": 2223,
+          "n": 2
+        },
+        "main, embedding.spinWait=true": {
+          "median": 2024,
+          "min": 1981,
+          "max": 2067,
+          "n": 2
+        }
+      },
+      "deltas": {
+        "0.9.6": {
+          "pct": 26.93,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main": {
+          "pct": 14.8,
+          "beyondNoise": true,
+          "improved": false
+        },
+        "main, embedding.spinWait=true": {
+          "pct": 7.4,
+          "beyondNoise": true,
+          "improved": false
+        }
+      }
+    }
+  ],
+  "settingsDiff": [],
+  "notes": [
+    "detection settings were recorded by 1 of 4 versions; older runs predate the field"
+  ]
+}
