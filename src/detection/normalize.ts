@@ -470,6 +470,26 @@ function decodeReversedCandidates(text: string): { text: string; source: string 
   return results
 }
 
+// A typographic apostrophe, the right or left single quotation mark. Smart
+// punctuation is the keyboard and word processor default, so text pasted
+// from a document carries one, and the rules spell an ASCII one (#795). The
+// modifier letter apostrophe (U+02BC) is not here: it is a diacritic, so the
+// strip at the top of normalize() already removes it, as it does from the
+// Ukrainian words that use it as a letter.
+const TYPOGRAPHIC_APOSTROPHE_RE = /[\u2018\u2019]/g
+
+/**
+ * Stage 1's view of a normalized text: U+2018 and U+2019 read as an ASCII
+ * apostrophe (#795). Not part of normalize(), because the embedding stage
+ * reads the 'original' candidate normalize() makes, and its gate was
+ * calibrated on text as typed: folding there moved 246 eval similarities and
+ * pushed a benign row over it. Every typographic quote a rule spells sits in
+ * a class beside an ASCII one, so folding adds matches and never removes one.
+ */
+export function foldApostrophes(text: string): string {
+  return text.replace(TYPOGRAPHIC_APOSTROPHE_RE, "'")
+}
+
 // Hangul fillers render blank and are used as word gaps, so they become a
 // space rather than vanishing (which would glue the words together).
 const HANGUL_FILLER_RE = /[ᅟᅠㅤﾠ]/g
