@@ -27,6 +27,7 @@ import { checkForUpdate, shouldCheckForUpdates, startupBanner } from './updateCh
 import { ownsSinkhole } from './sinkholeOwner.js';
 import { RULESET_VERSION } from '../detection/ruleset.js';
 import { execSync, execFileSync } from 'node:child_process';
+import { systemTool } from '../systemTool.js';
 
 /**
  * True when the `start` args request shared-server mode. `--standalone` is the
@@ -103,7 +104,7 @@ async function waitForPortFree(port: number, timeoutMs = 5000): Promise<boolean>
 function killPortOwner(port: number): void {
   try {
     if (platform() === 'win32') {
-      const out = execSync('netstat -ano', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      const out = execFileSync(systemTool('netstat'), ['-ano'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       for (const line of out.split('\n')) {
         if (!line.includes('LISTENING')) continue;
         const m = /:(\d+)\s+\S+\s+LISTENING\s+(\d+)/.exec(line);
@@ -202,21 +203,21 @@ export async function run(args: string[] = []): Promise<void> {
     const os = platform();
     if (os === 'win32') {
       try {
-        execSync('sc config iphlpsvc start= auto', { stdio: 'ignore' });
-        execSync('net start iphlpsvc', { stdio: 'ignore' });
+        execFileSync(systemTool('sc'), ['config', 'iphlpsvc', 'start=', 'auto'], { stdio: 'ignore' });
+        execFileSync(systemTool('net'), ['start', 'iphlpsvc'], { stdio: 'ignore' });
       } catch { /* no admin rights or already running */ }
       try {
-        const existingV4 = execSync('netsh interface portproxy show v4tov4', { encoding: 'utf8' });
+        const existingV4 = execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'show', 'v4tov4'], { encoding: 'utf8' });
         if (!existingV4.includes('443')) {
-          execFileSync('netsh', [
+          execFileSync(systemTool('netsh'), [
             'interface', 'portproxy', 'add', 'v4tov4',
             'listenport=443', 'listenaddress=127.0.0.1',
             `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
           ], { stdio: 'ignore' });
         }
-        const existingV6 = execSync('netsh interface portproxy show v6tov4', { encoding: 'utf8' });
+        const existingV6 = execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'show', 'v6tov4'], { encoding: 'utf8' });
         if (!existingV6.includes('443')) {
-          execFileSync('netsh', [
+          execFileSync(systemTool('netsh'), [
             'interface', 'portproxy', 'add', 'v6tov4',
             'listenport=443', 'listenaddress=::1',
             `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
@@ -250,13 +251,13 @@ export async function run(args: string[] = []): Promise<void> {
       const os = platform();
       if (os === 'win32') {
         try {
-          execFileSync('netsh', [
+          execFileSync(systemTool('netsh'), [
             'interface', 'portproxy', 'delete', 'v4tov4',
             'listenport=443', 'listenaddress=127.0.0.1',
           ], { stdio: 'ignore' });
         } catch { }
         try {
-          execFileSync('netsh', [
+          execFileSync(systemTool('netsh'), [
             'interface', 'portproxy', 'delete', 'v6tov4',
             'listenport=443', 'listenaddress=::1',
           ], { stdio: 'ignore' });
@@ -407,7 +408,7 @@ export async function run(args: string[] = []): Promise<void> {
       cf.generateAndSaveCRL();
       if (platform() === 'win32') {
         try {
-          execSync(`certutil -addstore -f Root "${caCertPath}"`, { stdio: 'ignore' });
+          execFileSync(systemTool('certutil'), ['-addstore', '-f', 'Root', caCertPath], { stdio: 'ignore' });
           console.log('CA cert reinstalled to OS trust store.');
         } catch { console.warn('Could not reinstall CA cert — re-run "llm-fw setup" as admin.'); }
       }

@@ -1448,9 +1448,22 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
   }
 
   // Signal 2: a request/directive marker near a sensitive action verb.
+  // Each marker visits only the verbs within ML_IMPERATIVE_PROXIMITY of it, in
+  // their original order, as Signal 1 does for addresses. Walking every verb
+  // for every marker was quadratic once each nearby pair is excused: 1.6 MB of
+  // "Please check your refund." took 8.3 s on the request thread.
+  const hitsByPos = verbHits.map((h, k) => ({ ...h, k })).sort((a, b) => a.i - b.i)
+  const hitsNear = (mi: number): typeof hitsByPos => {
+    let lo = 0
+    let hi = hitsByPos.length
+    while (lo < hi) { const mid = (lo + hi) >> 1; if ((hitsByPos[mid]?.i ?? 0) < mi - ML_IMPERATIVE_PROXIMITY) lo = mid + 1; else hi = mid }
+    const near: typeof hitsByPos = []
+    for (let j = lo; j < hitsByPos.length && (hitsByPos[j]?.i ?? Infinity) <= mi + ML_IMPERATIVE_PROXIMITY; j++) near.push(hitsByPos[j] as (typeof hitsByPos)[number])
+    return near.sort((a, b) => a.k - b.k)
+  }
   for (const marker of ML_MARKER_SET) {
     for (const mi of mlIndices(hay, marker)) {
-      for (const { i, v } of verbHits) {
+      for (const { i, v } of hitsNear(mi)) {
         if (Math.abs(i - mi) <= ML_IMPERATIVE_PROXIMITY) {
           if (ENGLISH_ML_MARKERS.has(marker) && !ML_ENGLISH_VERB_SET.has(v) && LATIN_WORD_RE.test(v)) continue
           if (ML_ENGLISH_VERB_SET.has(v) && ML_NOUN_POSITION_RE.test(hay.slice(Math.max(0, i - 30), i))) continue

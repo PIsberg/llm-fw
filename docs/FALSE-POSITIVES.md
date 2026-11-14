@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.70
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.54 moved 0 of 28,906 rows. The cut is for a speed fix (GHSA-222q-w3g4-rqw6): the indirect-instruction detector's multilingual pass now visits, for each request marker, only the verbs within its reach. It decides exactly as before.
+
 ## Result, ruleset 2026.11.69
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `npm run verdicts:diff` against 2026.11.68 moved 0 of 28,906 block verdicts. Two held-out rows changed the stage that blocks them and still block: one the Portuguese shape had caught on English text now blocks at Stage 2, and one Stage 2 blocked now meets the widened English rule. A typed request to set aside one's own previous message ("Can you ignore the instructions in the previous message? I pasted the wrong file.") passes now: the Portuguese and Spanish override lexicons took the English "previous" through the stem "prévi*", whose accent normalization drops (#796). Of 342 items in 14 days of local transcripts that hold "ignore ... previous", 4 tool results from this repository moved toward pass, each through that match.

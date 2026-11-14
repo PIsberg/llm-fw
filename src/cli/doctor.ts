@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
-import { join, win32 } from 'node:path'
+import { join } from 'node:path'
 import { homedir, platform } from 'node:os'
 import { getLlmFwDir } from '../config/paths.js'
 import { execFileSync } from 'node:child_process'
+import { systemTool } from '../systemTool.js'
 import { loadConfig } from '../config/config.js'
 import { licenseStatus, type LicenseStatus } from '../license/status.js'
 import { isKeygenConfigured, isOfflineLicenseConfigured } from '../license/account.js'
@@ -388,7 +389,7 @@ function portListening(port: number, host = '127.0.0.1', timeoutMs = 500): Promi
 /** Run a command, returning stdout on success or null if it errors/missing. */
 function safeExec(cmd: string, args: string[]): string | null {
   try {
-    return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return execFileSync(systemTool(cmd), args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
   } catch {
     return null
   }
@@ -530,10 +531,7 @@ export function classifyCaTrust(diskFp: string | null, storeFps: string[] | null
  * cloned repository could supply its own `certutil.exe`.
  */
 export function trustStoreTool(os: OS, env: NodeJS.ProcessEnv = process.env): string | null {
-  if (os === 'win32') {
-    const root = env.SystemRoot
-    return win32.join(root && win32.isAbsolute(root) ? root : 'C:\\Windows', 'System32', 'certutil.exe')
-  }
+  if (os === 'win32') return systemTool('certutil', os, env)
   return os === 'darwin' ? '/usr/bin/security' : null
 }
 

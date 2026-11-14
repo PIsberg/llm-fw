@@ -202,6 +202,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.55 (#767: "please pay" needs a recipient, "by bank transfer" is a payment method;
   // 0 of 28,906 verdicts moved; 7 of 356 benign rows, as before).
+  // Held at ruleset 2026.11.70 (GHSA-222q-w3g4-rqw6: the pooled marker pass visits only nearby verbs; 0 of 28,906
+  // verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.54 (#646: a line vouched for in a mark passes inside another text; acts on marks only,
   // 0 of 13,895 verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.53 (#749: a compliance verb before "the previous instructions" in six languages; 0 of

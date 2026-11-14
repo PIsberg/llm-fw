@@ -21,6 +21,7 @@ vi.mock('node:child_process', () => ({ execFileSync }))
 vi.mock('node:os', () => ({ homedir: () => '/tmp/home', platform: platformMock }))
 
 import { restrictDirPermissions } from '../../src/proxy/certs.js'
+import { systemTool } from '../../src/systemTool.js'
 
 describe('restrictDirPermissions', () => {
   beforeEach(() => {
@@ -49,7 +50,8 @@ describe('restrictDirPermissions', () => {
     expect(execFileSync).toHaveBeenCalledTimes(1)
 
     const [cmd, args] = execFileSync.mock.calls[0]
-    expect(cmd).toBe('icacls')
+    // By absolute path, so no icacls.bat in the working directory runs in its place.
+    expect(cmd).toBe(systemTool('icacls', 'win32'))
     expect(args[0]).toBe(dir)
     // Inheritance removed and access granted to the current user only.
     expect(args).toContain('/inheritance:r')

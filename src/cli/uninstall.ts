@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
+import { systemTool } from '../systemTool.js';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { isElevated, getIdeSettingsPaths, readPriorEnv, readRegEnv, readUserEnv } from './setup.js';
@@ -130,7 +131,7 @@ export function removeCaFromTrustStore(os: NodeJS.Platform = platform()): void {
   try {
     if (os === 'win32') {
       // delstore matches the cert by its common name.
-      execSync('certutil -delstore -f Root "llm-fw Local CA"', { stdio: 'ignore' });
+      execFileSync(systemTool('certutil', os), ['-delstore', '-f', 'Root', 'llm-fw Local CA'], { stdio: 'ignore' });
     } else if (os === 'darwin') {
       execSync('security delete-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain', { stdio: 'ignore' });
     } else {
@@ -151,9 +152,8 @@ export function removeCaFromTrustStore(os: NodeJS.Platform = platform()): void {
 function caInTrustStore(os: NodeJS.Platform): boolean {
   if (os !== 'win32' && os !== 'darwin') return fs.existsSync('/usr/local/share/ca-certificates/llm-fw-ca.crt');
   try {
-    execSync(os === 'win32'
-      ? 'certutil -store Root "llm-fw Local CA"'
-      : 'security find-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain', { stdio: 'ignore' });
+    if (os === 'win32') execFileSync(systemTool('certutil', os), ['-store', 'Root', 'llm-fw Local CA'], { stdio: 'ignore' });
+    else execSync('security find-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain', { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -190,9 +190,9 @@ function removePortRedirect(httpsPort: number): void {
   const os = platform();
   try {
     if (os === 'win32') {
-      execFileSync('netsh', ['interface', 'portproxy', 'delete', 'v4tov4', 'listenport=443', 'listenaddress=127.0.0.1'], { stdio: 'ignore' });
+      execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'delete', 'v4tov4', 'listenport=443', 'listenaddress=127.0.0.1'], { stdio: 'ignore' });
       try {
-        execFileSync('netsh', ['interface', 'portproxy', 'delete', 'v6tov4', 'listenport=443', 'listenaddress=::1'], { stdio: 'ignore' });
+        execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'delete', 'v6tov4', 'listenport=443', 'listenaddress=::1'], { stdio: 'ignore' });
       } catch { /* v6 rule may not exist */ }
       ok('Removed netsh port redirect (127.0.0.1:443)');
     } else if (os === 'darwin') {
@@ -315,12 +315,12 @@ function removeEnvVars(): void {
       for (const name of LLMFW_USER_ENV) {
         const value = plan.set[name];
         if (value === undefined) continue;
-        execFileSync('setx', [name, value], { stdio: 'ignore' });
+        execFileSync(systemTool('setx'), [name, value], { stdio: 'ignore' });
         restored.push(name);
       }
       for (const name of plan.remove) {
         try {
-          execFileSync('reg', ['delete', 'HKCU\\Environment', '/v', name, '/f'], { stdio: 'ignore' });
+          execFileSync(systemTool('reg'), ['delete', 'HKCU\\Environment', '/v', name, '/f'], { stdio: 'ignore' });
         } catch { /* already gone */ }
       }
 
@@ -328,7 +328,7 @@ function removeEnvVars(): void {
       const systemRemove = isElevated() ? planEnvRestore(readRegEnv(SYSTEM_ENV_KEY), {}).remove : [];
       for (const name of systemRemove) {
         try {
-          execFileSync('reg', ['delete', SYSTEM_ENV_KEY, '/v', name, '/f'], { stdio: 'ignore' });
+          execFileSync(systemTool('reg'), ['delete', SYSTEM_ENV_KEY, '/v', name, '/f'], { stdio: 'ignore' });
         } catch { /* already gone */ }
       }
 
