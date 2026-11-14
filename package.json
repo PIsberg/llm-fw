@@ -61,6 +61,7 @@
     "test:load": "npm run test:load:perf && npm run test:load:accuracy",
     "load:charts": "node --import tsx/esm scripts/gen-load-charts.ts",
     "bench:load": "node --import tsx/esm test/load/benchmark.ts",
+    "bench:load:compare": "node --import tsx/esm test/load/compare.ts",
     "scorecard": "node --import tsx/esm scripts/gen-scorecard.ts",
     "ruleset:digest": "node --import tsx/esm scripts/ruleset-digest.ts",
     "fpr": "node --import tsx/esm test/eval/fpr.ts",

@@ -332,6 +332,63 @@ python scripts/load-bench-charts.py reports/load-bench/<run>/results.json
 | `cpu-memory.png` | CPU as a percentage of one core, CPU time per request, peak RSS, and other processes' share of the machine, against concurrency |
 | `timeline.png` | RSS, heap, CPU and event-loop delay over the whole run, measured windows shaded |
 
+### Comparing versions
+
+One run is one sample, and two runs of one commit on this laptop have differed
+by 7 to 31%. A single run per version therefore cannot say whether a version
+got faster. Run each version several times, alternating the order (A, B, B, A)
+so a machine that warms up or throttles over the session does not favour one,
+then pass every `results.json` to the comparison:
+
+```bash
+npm run bench:load:compare -- runs/1-old/results.json runs/2-new/results.json   runs/3-new/results.json runs/4-old/results.json --label dad5805=0.9.4 --out reports/load-bench/compare
+python scripts/load-bench-compare-charts.py reports/load-bench/compare/comparison.json
+```
+
+Each version is a commit, plus whether the tree was dirty and the
+`LOAD_BENCH_DETECTION` override the run used; the first one given is the
+baseline. Every figure is the median of that version's runs with
+the range from the slowest to the fastest, and a difference is called better
+or worse only when the two ranges do not overlap. Anything else reads "within
+noise", and so does every difference while a version has a single run. Runs
+made with different `LOAD_BENCH_*` values are refused, runs from different
+machines or Node versions are flagged, and each run's own noisy-run warnings
+are carried through. To measure an older commit, check it out in a worktree
+and run its own `npm run bench:load`. Between the 2026-11-01 recorded run
+(dad5805) and this command, the harness changed one comment and gained the
+`LOAD_BENCH_DETECTION` hook, so runs of either tree measure the same thing.
+
+Runs also record what besides the code can move the numbers: the effective
+`detection` settings (`settings.detection` in `results.json`) and the
+`@huggingface/transformers` and `onnxruntime-node` versions (`meta.runtime`).
+The comparison lists every detection setting that differs between versions.
+
+A default that moved between versions is a cause of its own. 0.9.4 let
+onnxruntime's intra-op threads spin-wait (it had no switch; spinning was
+turned off by default in ruleset 2026.11.11), and it ran inference on the
+main thread (`detection.workerInference`, on by default since 2026.11.22).
+Compared as shipped, main against 0.9.4 is the code plus both defaults. To
+separate them, run the newer tree a second way with the older default put
+back, for example
+`LOAD_BENCH_DETECTION='{"embedding":{"spinWait":true}}' npm run bench:load`.
+Runs with an override form a version of their own, labelled with it
+("main, embedding.spinWait=true"), so the comparison shows the setting's
+effect (main against main with the override) next to the code's (the old
+version against main with the override). The override replaces whole
+top-level `detection` keys (`Object.assign`), so give every key of an object
+you change.
+
+`npm run bench:load:compare` writes `comparison.json` and `comparison.md` (the
+tables, ready to paste); the chart script writes the following. Versions are shades of
+one blue, oldest lightest; a run with an override is orange, since it is not a
+later version.
+
+| File | Chart |
+|---|---|
+| `compare-overview.png` | Headline figures per version as bars with the run range, and the change from the baseline |
+| `compare-throughput-latency.png` | Throughput, p50 and p99 against concurrency, one line per version, range whiskers |
+| `compare-resources.png` | CPU time per request, peak RSS and event-loop delay p99 against concurrency, per version |
+
 ---
 
 ## The harness (`test/load/lib/harness.ts`)

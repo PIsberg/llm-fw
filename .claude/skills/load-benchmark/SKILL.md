@@ -1,6 +1,6 @@
 ---
 name: load-benchmark
-description: Measure llm-fw's throughput, latency, CPU and memory on the current tree with npm run bench:load, render the PNG charts with scripts/load-bench-charts.py, and report the numbers honestly. Use when asked to load test, benchmark, stress test, profile throughput or latency, measure CPU or memory, or chart the performance of the current version.
+description: Measure llm-fw's throughput, latency, CPU and memory on the current tree with npm run bench:load, render the PNG charts with scripts/load-bench-charts.py, and report the numbers honestly. Use when asked to load test, benchmark, stress test, profile throughput or latency, measure CPU or memory, chart the performance of the current version, or compare it with an earlier version.
 ---
 
 # Load benchmark of the current version
@@ -8,8 +8,9 @@ description: Measure llm-fw's throughput, latency, CPU and memory on the current
 One run answers: how many requests per second does this tree sustain, how
 slow does it get as clients pile up, and what does the firewall process itself
 cost in CPU and memory while it does. It measures one version, the checked-out
-tree, and compares nothing. For the version-over-version trend, the nightly
-`perf-trend.yml` exists (see [docs/LOADTESTS.md](../../../docs/LOADTESTS.md)).
+tree. To compare versions, see [Comparing versions](#comparing-versions) below;
+for the nightly trend of one scenario, `perf-trend.yml` exists (see
+[docs/LOADTESTS.md](../../../docs/LOADTESTS.md)).
 
 ## What runs
 
@@ -118,6 +119,31 @@ it that way if you change the workloads.
 - The mock upstream answers instantly, so latency is the firewall plus the
   client's CONNECT and TLS handshake on loopback. Real provider latency is
   seconds; say so when quoting milliseconds.
+
+## Comparing versions
+
+One run is one sample: runs of one commit have differed by 7 to 31%. To say
+one version is faster than another:
+
+1. One worktree per version (`git worktree add --detach <dir> <commit>`,
+   `npm ci` in each), so no checkout moves under a running benchmark.
+2. Two or more runs per version, alternating the order (A, B, B, A, or
+   A, B, C, C, B, A), one at a time on the quiet machine. Point every run at
+   one `LLM_FW_MODEL_DIR` and give each its own `LOAD_BENCH_OUT`.
+3. `npm run bench:load:compare -- <every results.json> --label <commit>=<name>`
+   with the baseline's runs first, then
+   `python scripts/load-bench-compare-charts.py <out>/comparison.json`.
+   Open every PNG.
+4. Quote only what the comparison calls better or worse; "within noise" is
+   the honest answer when the ranges overlap. Read `settingsDiff` and each
+   version's `runtime` first: a moved default (`embedding.spinWait`) or a new
+   onnxruntime is a cause in its own right, not the code's doing. Runs from
+   before those fields existed have neither, so check the commit's
+   `DEFAULT_CONFIG` and `package-lock.json` by hand. Against 0.9.4 or older,
+   spin-waiting (`embedding.spinWait`) and `workerInference` both differ: add
+   runs of the newer tree with `LOAD_BENCH_DETECTION` putting the old value
+   back, which the comparison keeps as a version of its own, and quote the
+   code's effect from that pair.
 
 ## Reporting
 
