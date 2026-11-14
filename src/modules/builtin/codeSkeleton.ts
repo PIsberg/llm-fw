@@ -299,6 +299,33 @@ function pythonCuts(lines: Line[], min: number): Cut[] {
     }
   }
 
+  // Each line's net bracket depth and whether its code (before a comment)
+  // ends in `:`, scanned once: the signature search below looks ahead up to
+  // 50 lines from every `def`, and rescanning those lines' characters there
+  // cost 50 times the work on a file of unclosed `def f(` lines.
+  const delta: number[] = []
+  const colon: boolean[] = []
+  for (const l of lines) {
+    const s = l.code
+    let d = 0
+    let quote: string | undefined
+    let codeEnd = s.length // where a comment starts
+    for (let k = 0; k < s.length; k++) {
+      const c = s[k]!
+      if (quote !== undefined) {
+        if (c === '\\') k++
+        else if (c === quote) quote = undefined
+        continue
+      }
+      if (c === '#') { codeEnd = k; break }
+      if (c === '"' || c === "'") quote = c
+      else if (c === '(' || c === '[' || c === '{') d++
+      else if (c === ')' || c === ']' || c === '}') d--
+    }
+    delta.push(d)
+    colon.push(s.slice(0, codeEnd).trimEnd().endsWith(':'))
+  }
+
   const cuts: Cut[] = []
   const indent = (i: number) => indentOf(lines[i]!.code).length
   const blank = (i: number) => lines[i]!.code.trim() === ''
@@ -311,22 +338,8 @@ function pythonCuts(lines: Line[], min: number): Cut[] {
     let depth = 0
     let end = -1
     for (let j = i; j < lines.length && j < i + 50 && end < 0; j++) {
-      const s = lines[j]!.code
-      let quote: string | undefined
-      let codeEnd = s.length // where a comment starts
-      for (let k = 0; k < s.length; k++) {
-        const c = s[k]!
-        if (quote !== undefined) {
-          if (c === '\\') k++
-          else if (c === quote) quote = undefined
-          continue
-        }
-        if (c === '#') { codeEnd = k; break }
-        if (c === '"' || c === "'") quote = c
-        else if (c === '(' || c === '[' || c === '{') depth++
-        else if (c === ')' || c === ']' || c === '}') depth--
-      }
-      if (depth <= 0 && s.slice(0, codeEnd).trimEnd().endsWith(':')) end = j
+      depth += delta[j]!
+      if (depth <= 0 && colon[j]) end = j
     }
     if (end < 0) { i++; continue }
     // The body: every following line that is blank, deeper than the def, or inside a string.
