@@ -1153,7 +1153,7 @@ export class Pipeline {
         // Stage 1: heuristic. A whole-text candidate of a large text is the
         // other long synchronous block, so the loop may get a turn first.
         await yieldIfDue()
-        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches)
+        const h = this.heuristic.score(candidate.text, candidate.source, plainMatches, source)
         if (candidate.source === 'original') plainMatches = h.matches
         lastScore = Math.max(lastScore, h.score)
         

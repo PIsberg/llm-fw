@@ -132,7 +132,7 @@ export function ragInjectionScore(prompt: string, scorer: HeuristicScorer): Heur
   let maxBlockScore = 0
   const matches = new Set<string>()
   for (const { block } of blocks) {
-    const h = scorer.scoreRules(block)
+    const h = scorer.scoreRules(block, 'document')
     if (h.score > maxBlockScore) maxBlockScore = h.score
     for (const m of h.matches) matches.add(m)
   }
@@ -142,7 +142,7 @@ export function ragInjectionScore(prompt: string, scorer: HeuristicScorer): Heur
   // Do the same keywords appear OUTSIDE the data blocks? If so it is direct
   // injection, not data-channel poisoning — defer to the standard stage.
   const outside = stripRagContext(prompt)
-  const outsideScore = scorer.score(outside).score
+  const outsideScore = scorer.score(outside, undefined, undefined, 'prompt').score
   if (outsideScore > 0) return { score: 0, matches: [] }
 
   matches.add('rag-boundary-violation')
