@@ -28,7 +28,7 @@ import type { ScanSource } from '../types.js'
 const HYGIENE_MODEL_OWNED = String.raw`(?:system|developer|previous|prior|earlier|above|preceding|before|initial|original|last|your|yours|you|users?|assistant|prompt|rules|hidden|secret|conversation|chat)`
 const HYGIENE_CONTAINER = String.raw`(?:attachments?|articles?|labels?|e-?mails?|letters?|invoices?|comments?|readme|pdfs?|spreadsheets?|tickets?|reviews?|posts?|transcripts?|web ?pages?|websites?|forms?|whiteboards?|boxe?s?|packag(?:e|es|ing)|packets?|manuals?|leaflets?|flyers?|brochures?)`
 const DEFENSIVE_NAMED_RE = new RegExp(
-  String.raw`\b(?:ignore|disregard|discard|do not follow|don't follow|never follow|do not obey|don't obey)\b[^.!?;]{0,40}\binstructions?\b[^.!?;]{0,30}?\b(?:(?:embedded|contained|included|found|present|appearing|hidden|printed|written|listed|given) )?(?:in|inside|within|on) (?:the|any|all|an?|each|every)\s(?:(?:[\w'’-]{1,40}\s){0,2}?${HYGIENE_CONTAINER}|(?:[\w'’-]{1,40}\s){1,2}?messages?)\b`,
+  String.raw`\b(?:ignore|disregard|discard|do not follow|don['‘’]t follow|never follow|do not obey|don['‘’]t obey)\b[^.!?;]{0,40}\binstructions?\b[^.!?;]{0,30}?\b(?:(?:embedded|contained|included|found|present|appearing|hidden|printed|written|listed|given) )?(?:in|inside|within|on) (?:the|any|all|an?|each|every)\s(?:(?:[\w'‘’-]{1,40}\s){0,2}?${HYGIENE_CONTAINER}|(?:[\w'‘’-]{1,40}\s){1,2}?messages?)\b`,
   'gi',
 )
 

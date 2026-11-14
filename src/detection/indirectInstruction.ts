@@ -27,6 +27,8 @@
 // than any verb anywhere. A descriptive review that merely contains the word
 // "send" ("they send great updates") is not an imperative and does not fire.
 
+import { foldApostrophes } from './normalize.js'
+
 /**
  * Whether a text names somewhere an attacker could send something, anywhere in
  * it. The whole text, not the words around the verb: an attacker writes the
@@ -1483,6 +1485,12 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
 // reads as one). Treating `\n` as a boundary in the regex alone was measured
 // and rejected earlier: the escaped quote defeated the guards beside it.
 const JSON_ESCAPE_RE = /\\([nrt"\\])/g
+// A typographic apostrophe as a JSON escape: Python's json.dumps writes U+2019
+// as `\u2019` by default (ensure_ascii), so a tool result holding its output
+// carries the six characters, which decodeJsonEscapes leaves alone (#802).
+// Only these two: decoding every \uXXXX would change what every rule reads.
+const ESCAPED_APOSTROPHE_RE = /\\u201[89]/gi
+
 function decodeJsonEscapes(text: string): string {
   return text.replace(JSON_ESCAPE_RE, (_m, c: string) => (c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c))
 }
@@ -1496,7 +1504,8 @@ function decodeJsonEscapes(text: string): string {
  */
 export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(normalizeObfuscatedAddresses(decodeJsonEscapes(input)))))
+  // A typographic apostrophe reads as an ASCII one (#802), typed or escaped.
+  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(normalizeObfuscatedAddresses(foldApostrophes(decodeJsonEscapes(input)).replace(ESCAPED_APOSTROPHE_RE, "'")))))
   const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
   const text = blankTrustedAddresses(original, trusted)
   const logVerdicts = new Map<number, boolean>()
