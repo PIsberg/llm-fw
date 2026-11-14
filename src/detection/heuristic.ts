@@ -1,5 +1,5 @@
 import { HeuristicResult, type ScanSource } from '../types.js'
-import { stripDefensiveNamed } from './defensiveHygiene.js'
+import { isThirdPartyOrigin, stripDefensiveNamed } from './defensiveHygiene.js'
 import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
 import { overrideLexiconMatcher, jailbreakFrameMatcher } from './overrideLexicon.js'
 import { unwrapCodexEnvelope } from './clientEnvelopes.js'
@@ -80,7 +80,48 @@ function personaConfirmation(text: string): boolean {
     && (PERSONA_BADGE_RE.test(text) || PERSONA_CUE_RE.test(text))
 }
 
-interface WeightedRule { weight: number; label: string; patterns: Array<Pick<RegExp, 'test'>> }
+/** A Stage 1 pattern: a RegExp, or a matcher that also takes the surface the text came from. */
+interface RulePattern { test(text: string, origin?: ScanSource): boolean }
+interface WeightedRule { weight: number; label: string; patterns: RulePattern[] }
+
+// An override aimed at the instructions in a message rather than at "the previous
+// instructions", with a new order after it (#788, #792). Only as an order: at the start
+// of a sentence, a line, a list item or a quote, after "please", "now" or "just", or with
+// the model addressed ("you must", "the assistant should"). "I asked it to ignore ..."
+// and "bots should ignore ..." describe one. Every part is a closed word list and the new
+// order is one connector, so the scan stays linear (timed in messageOverride.test.ts).
+const ORDER_START = String.raw`(?:^|[.!?:;,\n(\["'*>-] ?|\b(?:please|now|just|kindly|simply|immediately|first|you|you must|you should|you need to|you have to|you will|the (?:assistant|ai|model|agent|bot|llm)(?: (?:must|should|will|shall|needs to|has to|is to))?) )`
+const SET_ASIDE = String.raw`(?:ignore|disregard|forget(?: about)?|set aside|put aside|pay no attention to|never mind|skip|drop|discard|scrap|abandon|override|stop following|do not (?:follow|obey)|don['’]t (?:follow|obey))`
+const ORDER_NOUN = String.raw`(?:instructions?|directions|directives?|guidance|guidelines|rules|commands?|orders|requests?|prompts?|tasks?)(?: (?:given|written|laid out|set out|contained|listed|provided|stated|included|found))?`
+// "The" or "all". "Any" only from a third-party surface: "ignore any instructions in
+// ..." is how a developer disarms one, and a user may say it about a pasted message.
+const ORDERS = String.raw`(?:the |all (?:of )?(?:the )?)?${ORDER_NOUN}`
+const ANY_ORDERS = String.raw`(?:the |all (?:of )?(?:the )?|any (?:of )?(?:the )?)?${ORDER_NOUN}`
+const IN = String.raw`(?:in|from|of|within|inside)`
+// A turn may take two nouns ("the chat message above"). A post, like an email, is
+// something the user pasted, not a turn. Normalization keeps a typographic apostrophe,
+// so the possessive takes either.
+const TURN_NOUN = String.raw`(?:message|text|prompt|conversation|chat|turn|reply|response)s?`
+const TURN = String.raw`${TURN_NOUN}(?: ${TURN_NOUN})?`
+const EARLIER = String.raw`(?:previous|prior|earlier|preceding|last|above|former|first)`
+const NEW_ORDER = String.raw`(?=,? (?:and|then|instead|now)\b|[;:]| - |\. (?:instead|now|then|from now on|your new|you (?:will|must|should|are))\b)`
+// #788: an earlier turn, from any surface, as "the previous instructions" always was.
+// "The" only: "ignore the instructions in my message above" is the speaker taking back
+// their own words.
+const EARLIER_TURN = String.raw`the (?:${TURN} (?:above|before|earlier)|${EARLIER} ${TURN})`
+const EARLIER_TURN_OVERRIDE_RE = new RegExp(String.raw`${ORDER_START}${SET_ASIDE} (?:${ORDERS}(?: ${IN} ${EARLIER_TURN}| (?:above|before|earlier))|(?:whatever|what) ${EARLIER_TURN} (?:asked|asks|said|says|told you|requested|wanted|wants)(?: (?:for|you to do|to do))?)\b${NEW_ORDER}`)
+// #792: the user's own message, the speaker's own ("my message above": whoever wrote the
+// page, posing as the user), and "any" of them. The injection only from a surface nobody
+// in the conversation writes. A developer writes the same words in a system prompt to
+// disarm one, and a typed prompt keeps the speaker's correction of their own words.
+const USER_NOUN = String.raw`(?:message|request|prompt|query|question|input|task|turn|chat)s?`
+const USERS_TURN = String.raw`(?:the |this )?user(?:['’]s|s['’]?)? (?:(?:last|latest|original|previous|current|first|actual) )?${USER_NOUN}(?: ${USER_NOUN})?(?: (?:above|below|before|earlier))?`
+const OWN_TURN = String.raw`(?:my|our) (?:${TURN} (?:above|before|earlier)|${EARLIER} ${TURN})`
+const USER_TURN_OVERRIDE_RE = new RegExp(String.raw`${ORDER_START}${SET_ASIDE} (?:${ANY_ORDERS} ${IN} (?:${USERS_TURN}|${OWN_TURN}|${EARLIER_TURN})|(?:whatever|what) the user(?:(?:['’]s|s['’]?) ${USER_NOUN})? (?:asked|asks|requested|requests|wanted|wants|said|says|typed|wrote)(?: (?:for|you to do|to do))?(?: in (?:their|the|his|her) (?:message|request|prompt|query)s?)?)\b${NEW_ORDER}`)
+const USER_TURN_OVERRIDE: RulePattern = { test: (text, origin) => isThirdPartyOrigin(origin) && USER_TURN_OVERRIDE_RE.test(text) }
+// Rule 0 runs both. Exported for their linear-time test, which times them without the
+// rest of the scorer.
+export const MESSAGE_OVERRIDE_PATTERNS: ReadonlyArray<{ test(text: string, origin?: ScanSource): boolean }> = [EARLIER_TURN_OVERRIDE_RE, USER_TURN_OVERRIDE]
 
 // Defensive instruction-hygiene clauses: an override verb whose
 // instructions-object carries a locative into DATA ("disregard any
@@ -243,6 +284,9 @@ export class HeuristicScorer {
           // The object is the USER's task: "drop the original query and
           // rather use the cached result" is a developer changing their mind.
           /\b(?:ignore|disregard|abandon|forget)\b (?:the |your )?user(?:'s)? (?:task|request|question|query|instructions?)\b[^.!?]{0,20}\b(?:and )?(?:instead|rather)\b/,
+          // The instructions in an earlier message, or in the user's (#788, #792); see
+          // MESSAGE_OVERRIDE_PATTERNS above.
+          ...MESSAGE_OVERRIDE_PATTERNS,
           // The object named by what the MODEL was told rather than by a
           // positional adjective (#221): "Ignore all the instructions you got
           // before", the opener of a family of long-form persona jailbreaks,
@@ -1303,7 +1347,7 @@ export class HeuristicScorer {
     let totalScore = 0
     const matches: string[] = []
     for (const rule of this.rules) {
-      if (rule.patterns.some(p => p.test(scanText))) {
+      if (rule.patterns.some(p => p.test(scanText, origin))) {
         totalScore += rule.weight
         matches.push(rule.label)
       }
