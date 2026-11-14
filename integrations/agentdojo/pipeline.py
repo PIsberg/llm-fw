@@ -1,12 +1,19 @@
 """Build AgentDojo pipelines defended by llm-fw (and matching baselines).
 
-Three pipelines make the head-to-head meaningful, all identical except for the
+These pipelines make the head-to-head meaningful, all identical except for the
 defense element inside the tools loop:
 
   * ``undefended``               — no detector; the attack's natural success rate.
-  * ``llm-fw``                   — ``LlmFwDetector`` (this integration).
+  * ``llm-fw``                   — ``LlmFwDetector`` (this integration), aborting
+                                   the agent on a block.
+  * ``llm-fw-withhold``          — the same detector, replacing a blocked tool
+                                   output and letting the agent go on, as the
+                                   proxy's default ``onBlock: 'withhold'`` does
+                                   (#768).
   * ``transformers_pi_detector`` — AgentDojo's built-in ProtectAI-deberta
-                                   detector, for a like-for-like comparison.
+                                   detector, for a like-for-like comparison. It
+                                   replaces a flagged output, as
+                                   ``llm-fw-withhold`` does.
 
 The llm-fw pipeline is assembled by taking AgentDojo's own undefended pipeline
 and inserting ``LlmFwDetector`` immediately after the ``ToolsExecutor`` inside
@@ -87,16 +94,28 @@ def transformers_pi_detector_pipeline(llm: Agent) -> AgentPipeline:
     return pipeline
 
 
-def llm_fw_pipeline(llm: Agent, *, scan_url: str | None = None, block_on_warn: bool = False) -> AgentPipeline:
-    """Undefended pipeline with ``LlmFwDetector`` spliced into the tools loop."""
+def llm_fw_pipeline(
+    llm: Agent, *, scan_url: str | None = None, block_on_warn: bool = False, withhold: bool = False
+) -> AgentPipeline:
+    """Undefended pipeline with ``LlmFwDetector`` spliced into the tools loop.
+
+    By default a block aborts the agent, which is how AgentDojo scores a
+    prevented attack. With ``withhold`` the blocked tool output is replaced by
+    AgentDojo's own ``<Data omitted ...>`` notice, the text
+    ``transformers_pi_detector`` uses, and the agent goes on; AgentDojo's
+    security check then decides whether the attack succeeded.
+    """
     pipeline = _base_pipeline(llm)
     loop = _find_tools_loop(pipeline)
     executor_idx = _find_executor_index(loop)
-    detector = LlmFwDetector(scan_url, block_on_warn=block_on_warn)
+    detector = LlmFwDetector(scan_url, block_on_warn=block_on_warn, raise_on_injection=not withhold)
     # Insert right after the ToolsExecutor, before control returns to the LLM —
     # exactly where transformers_pi_detector sits in AgentDojo's from_config.
     loop.elements.insert(executor_idx + 1, detector)
-    pipeline.name = pipeline_name(llm, "llm-fw")
+    # A name per mode: AgentDojo reuses a cached task result from
+    # <logdir>/<pipeline name>/, so a shared name would report one mode's
+    # results for both.
+    pipeline.name = pipeline_name(llm, "llm-fw-withhold" if withhold else "llm-fw")
     return pipeline
 
 
@@ -111,11 +130,15 @@ def build(
     llm = agent_llm(model, base_url)
     if kind == "undefended":
         return undefended_pipeline(llm)
-    if kind == "llm-fw":
-        return llm_fw_pipeline(llm, scan_url=scan_url, block_on_warn=block_on_warn)
+    if kind in ("llm-fw", "llm-fw-withhold"):
+        return llm_fw_pipeline(
+            llm, scan_url=scan_url, block_on_warn=block_on_warn, withhold=kind == "llm-fw-withhold"
+        )
     if kind == "transformers_pi_detector":
         return transformers_pi_detector_pipeline(llm)
-    raise ValueError(f"unknown pipeline kind '{kind}' — one of: undefended, llm-fw, transformers_pi_detector")
+    raise ValueError(
+        f"unknown pipeline kind '{kind}' — one of: undefended, llm-fw, llm-fw-withhold, transformers_pi_detector"
+    )
 
 
 # --- structural helpers (guarded against AgentDojo internals drift) ----------
