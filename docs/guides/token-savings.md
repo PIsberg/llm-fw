@@ -365,6 +365,7 @@ In pipeline order, which is also the order of the cards:
 | `progress-collapse` | `modules.progressCollapse` | progress-bar frames in tool output and prompts |
 | `repeat-collapse` | `modules.repeatCollapse` | runs of identical lines in tool output |
 | `blob-elide` | `modules.blobElide` | long base64 and hex runs in tool output |
+| `code-skeleton` | `modules.codeSkeleton` | function bodies in whole-file reads of source code (lossy) |
 | `lean-ctx` | `modules.leanCtx` | shell command output, file reads aside, through lean-ctx (lossy) |
 | `token-pruner` | `modules.tokenPruner` | prompt and system text |
 | `tool-result-pruner` | `modules.toolResultPruner` | tool output |
@@ -517,6 +518,72 @@ way every turn; a thread continuation sends each result once. An agent that
 reads a long file through a tool not in `skipTools` and then rewrites the
 whole file would write the marker into it: add that tool, or keep this
 module off for that agent.
+
+### Code skeleton
+
+`modules.codeSkeleton.enabled` (`LLM_FW_CODE_SKELETON_ENABLED`). **Lossy**:
+the model sees a function's signature but not its body until it reads the
+body back. The idea is [contextprune](https://github.com/maniraja5599/contextprune)'s,
+which packs a repository for a prompt with dependency files cut to their
+signatures; this module does it to a file read as it passes.
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `tools` | `Read`, `read_file`, `read_text_file`, `ctx_read` | File-read tools whose results may be shortened, matched like the truncator's `skipTools` (`mcp__lean-ctx__ctx_read` matches `ctx_read`). |
+| `minLines` | `200` | Results with fewer lines stay whole. |
+| `minBodyLines` | `5` | Function bodies with fewer lines stay whole. |
+
+Each body of at least `minBodyLines` lines becomes one line at its
+indentation, `[llm-fw: lines 18-23 elided, read that range for the body]`,
+with the file's own line numbers, so the agent can read back exactly that
+range. Everything else stays byte for byte: signatures, imports, types and
+interfaces (a method in an interface is never treated as a body), comments,
+class headers, module-level code, and the read tool's line numbers. Callbacks
+and control blocks at the top level (`describe(...)`, `if (...)`) stay
+whole, so a test file mostly does.
+
+What it reads, by extension: TypeScript and JavaScript (`.ts`, `.tsx`,
+`.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`), Java, C#, Go, Rust and
+Python (`.py`, `.pyi`). Any other file stays whole. A result also stays whole
+when its call cannot be found (a thread continuation whose response this
+process did not see), when the read was partial (an `offset`, `limit`,
+`head`, `tail`, `start_line`, `end_line` or `view_range` argument, or a
+lean-ctx `mode` other than `full`: the agent chose those lines), or when its
+braces do not balance or a string never closes, which is how the scanner
+says it lost its place. The scanner is hand-written and linear in its input
+(a file read is attacker-controlled text, and the module runs on the thread
+that serves every request); it is timed on 200 KB of hostile shapes in
+`test/modules/codeSkeleton.test.ts`.
+
+What it is worth, modelled on 30 days of one developer's Claude Code
+transcripts (55,738 calls; cache reads at 0.1, one-hour writes at 2, output
+at 5 times input): 1,243 whole reads of code files, against 2,317 partial
+reads that were left alone. At the defaults it shortens 317 of them, from
+1,845,128 to 1,023,664 estimated tokens (45%); the other 926 are under 200
+lines or have no body that long:
+
+| | Share of the bill |
+| --- | --- |
+| Saved by the shorter reads, for the rest of each session | 0.21% |
+| Lost to the 21 reads followed by an edit of the same file before any re-read: the edit needs the body, so the skeleton forces one more read call | 0.12% |
+| **Net** | **0.10%** |
+
+Every read shortened, not only those of 200 lines or more, nets 0.12% and
+forces 38 reads; contextprune's own skeletonizer over the same reads cuts
+51% of their tokens and also nets 0.10%, forcing 67. The model charges each
+forced read the whole prompt read once more and the full file written and
+kept to the end of the session. It does not count re-reads the agent makes
+because it saw a marker, and every billed comparison of a module that cut
+file reads saw those (see [Clearing old tool
+results](#clearing-old-tool-results-measured-removed)): about 30 of them in
+those 30 days would cancel the saving. No billed run of this module has been
+made. Turn it on for agents that mostly read code to understand it, not to
+edit it.
+
+Like the truncator's marker, an agent that rewrites a whole file from a
+shortened read would write the marker into it and lose the bodies. Claude
+Code's `Edit` replaces only the text it names and is safe; a whole-file
+`Write` made from a read the agent never completed is not.
 
 ### lean-ctx shell output compressor
 
