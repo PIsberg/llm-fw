@@ -576,6 +576,19 @@ export interface ToolResultTruncateConfig extends ModuleSwitchConfig {
   skipCommands: string[];
 }
 
+export interface CodeSkeletonConfig extends ModuleSwitchConfig {
+  /**
+   * File-read tools whose whole-file reads of source code are shortened. A
+   * name matches the tool of that name, or one whose name ends in `__` and
+   * that name (`mcp__lean-ctx__ctx_read`).
+   */
+  tools: string[];
+  /** Results with fewer lines stay whole. */
+  minLines: number;
+  /** Function bodies with fewer lines stay whole. */
+  minBodyLines: number;
+}
+
 export interface ToolFilterConfig extends ModuleSwitchConfig {
   /**
    * Tools removed from every request's tool list: an exact name, or a
@@ -687,6 +700,8 @@ export interface ModulesConfig {
   toolResultPruner?: ToolResultPrunerConfig;
   toolResultDedup?: ToolResultDedupConfig;
   toolResultTruncate?: ToolResultTruncateConfig;
+  /** Function bodies out of whole-file reads of source code. Off by default: lossy. */
+  codeSkeleton?: CodeSkeletonConfig;
   toolFilter?: ToolFilterConfig;
   toolDefinitionPruner?: ModuleSwitchConfig;
   /** Records which offered tools get called. On by default: it changes nothing. */

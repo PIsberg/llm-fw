@@ -1,5 +1,5 @@
 import type { GatewayModule, GatewayModuleContext, ModuleResponse, ModuleStats } from './types.js'
-import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig, PromptMonitorConfig } from '../types.js'
+import type { ModuleEvent, Config, ModulesConfig, ModuleSwitchConfig, HistoryWindowConfig, RepeatCollapseConfig, BlobElideConfig, LeanCtxConfig, ToolResultPrunerConfig, ToolResultDedupConfig, ToolResultTruncateConfig, CodeSkeletonConfig, ToolFilterConfig, CacheControlConfig, ResponseCacheConfig, PromptMonitorConfig } from '../types.js'
 import type { CapturedResponse } from './responseTap.js'
 import { HistoryWindowModule } from './builtin/historyWindow.js'
 import { AnsiStripModule } from './builtin/ansiStrip.js'
@@ -11,6 +11,7 @@ import { TokenPrunerModule } from './builtin/tokenPruner.js'
 import { ToolResultPrunerModule } from './builtin/toolResultPruner.js'
 import { ToolResultDedupModule } from './builtin/toolResultDedup.js'
 import { ToolResultTruncateModule } from './builtin/toolResultTruncate.js'
+import { CodeSkeletonModule } from './builtin/codeSkeleton.js'
 import { ToolFilterModule } from './builtin/toolFilter.js'
 import { ToolDefinitionPrunerModule } from './builtin/toolDefinitionPruner.js'
 import { ToolUsageModule } from './builtin/toolUsage.js'
@@ -42,6 +43,7 @@ export const BUILTINS: Array<{ key: BuiltinKey; create: (cfg: ModuleSwitchConfig
   { key: 'repeatCollapse', create: cfg => new RepeatCollapseModule(cfg as RepeatCollapseConfig) },
   { key: 'blobElide', create: cfg => new BlobElideModule(cfg as BlobElideConfig) },
   { key: 'leanCtx', create: cfg => new LeanCtxModule(cfg as LeanCtxConfig) },
+  { key: 'codeSkeleton', create: cfg => new CodeSkeletonModule(cfg as CodeSkeletonConfig) },
   { key: 'tokenPruner', create: cfg => new TokenPrunerModule(cfg) },
   { key: 'toolResultPruner', create: cfg => new ToolResultPrunerModule(cfg as ToolResultPrunerConfig) },
   { key: 'toolResultDedup', create: cfg => new ToolResultDedupModule(cfg as ToolResultDedupConfig) },
@@ -79,6 +81,8 @@ const OPTION_RULES: Record<string, Pick<ModuleOption, 'min' | 'max' | 'values'>>
   'blobElide.minLength': { min: 64, max: 100_000_000 },
   'toolResultDedup.minLength': { min: 1, max: 100_000_000 },
   'toolFilter.shortenTo': { min: 20, max: 100_000 },
+  'codeSkeleton.minLines': { min: 1, max: 1_000_000 },
+  'codeSkeleton.minBodyLines': { min: 1, max: 100_000 },
   'leanCtx.timeoutMs': { min: 1, max: 60_000 },
   'responseCache.ttlSeconds': { min: 1, max: 31_536_000 },
   'responseCache.maxEntries': { min: 1, max: 1_000_000 },

@@ -178,6 +178,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // every recall split byte-identical, injecagent 1054/1054.
   // Held at ruleset 2026.11.65 (#788, #792: Stage 1 blocks an override aimed at an earlier
   // turn, or from third-party text at the user's message; verdicts:diff moved 0 of 28,906).
+  // Held at ruleset 2026.11.65 (Code Skeleton module default in config.ts, no detection
+  // file changed; verdicts:diff moved 0 of 13,895).
   // Held at ruleset 2026.11.64 (#787: Stage 2 sets the same clause aside in a prompt or
   // system prompt; verdicts:diff moved 0 of 28,906, largest similarity drift 0.0000).
   // Held at ruleset 2026.11.63 (#781: Stage 1 sets aside a defensive clause aimed at a named

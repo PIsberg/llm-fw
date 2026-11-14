@@ -453,6 +453,13 @@ export const DEFAULT_CONFIG: Config = {
       // removed, against 9.5% for all other shell output.
       skipCommands: ['cat', 'head', 'tail', 'sed', 'awk', 'nl', 'less', 'more', 'bat', 'tac', 'type', 'gc', 'Get-Content'],
     },
+    codeSkeleton: {
+      enabled: false,
+      // Claude Code, Gemini CLI, the MCP filesystem server, lean-ctx.
+      tools: ['Read', 'read_file', 'read_text_file', 'ctx_read'],
+      minLines: 200,
+      minBodyLines: 5,
+    },
     toolFilter: {
       enabled: false,
       // Which tools a client never uses is the operator's call.
@@ -943,6 +950,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_TOOL_RESULT_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolResultPruner) c.modules.toolResultPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_DEDUP_ENABLED: (c, v) => { if (c.modules?.toolResultDedup) c.modules.toolResultDedup.enabled = v === 'true'; },
   LLM_FW_TOOL_RESULT_TRUNCATE_ENABLED: (c, v) => { if (c.modules?.toolResultTruncate) c.modules.toolResultTruncate.enabled = v === 'true'; },
+  LLM_FW_CODE_SKELETON_ENABLED: (c, v) => { if (c.modules?.codeSkeleton) c.modules.codeSkeleton.enabled = v === 'true'; },
   LLM_FW_TOOL_FILTER_ENABLED: (c, v) => { if (c.modules?.toolFilter) c.modules.toolFilter.enabled = v === 'true'; },
   LLM_FW_TOOL_DEFINITION_PRUNER_ENABLED: (c, v) => { if (c.modules?.toolDefinitionPruner) c.modules.toolDefinitionPruner.enabled = v === 'true'; },
   LLM_FW_TOOL_USAGE_ENABLED: (c, v) => { if (c.modules?.toolUsage) c.modules.toolUsage.enabled = v === 'true'; },
