@@ -48,6 +48,7 @@
 // mean his, her and their.
 import type { ScanSource } from '../types.js'
 import { stripDefensiveNamed } from './defensiveHygiene.js'
+import { foldApostrophes } from './normalize.js'
 
 const INSTRUCTION_NOUNS = {
   fr: '(?:instructions?|consignes?|directives?|r[eè]gles?|ordres|restrictions?|contraintes?)',
@@ -200,7 +201,8 @@ function withoutThirdPartyProvenance(text: string, origin: ScanSource | undefine
 // instructions, not the model's (#787). From anywhere else, or with no origin, it counts.
 export function referencesModelInstructions(text: string, origin?: ScanSource): boolean {
   if (!text) return false
-  const scoped = withoutThirdPartyProvenance(text, origin)
+  // A typographic apostrophe reads as an ASCII one (#802).
+  const scoped = withoutThirdPartyProvenance(foldApostrophes(text), origin)
   return SELF_INSTRUCTION_PATTERNS.some(re => re.test(scoped))
 }
 

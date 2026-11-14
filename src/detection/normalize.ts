@@ -479,8 +479,10 @@ function decodeReversedCandidates(text: string): { text: string; source: string 
 const TYPOGRAPHIC_APOSTROPHE_RE = /[\u2018\u2019]/g
 
 /**
- * Stage 1's view of a normalized text: U+2018 and U+2019 read as an ASCII
- * apostrophe (#795). Not part of normalize(), because the embedding stage
+ * The rules' view of a text: U+2018 and U+2019 read as an ASCII apostrophe.
+ * Stage 1 folds its normalized text (#795); the indirect-instruction,
+ * harmful-request and self-reference checks fold the text they read (#802).
+ * Not part of normalize(), because the embedding stage
  * reads the 'original' candidate normalize() makes, and its gate was
  * calibrated on text as typed: folding there moved 246 eval similarities and
  * pushed a benign row over it. Every typographic quote a rule spells sits in
