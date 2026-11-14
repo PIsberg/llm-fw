@@ -149,7 +149,7 @@ export interface ResilienceCount { kept: number; total: number }
  * [JAILBREAK] answer pair), 112 to 115; every mutation of the three blocks.
  * Synonyms is 113 of 115, the same two.
  *
- * Re-pinned on ruleset 2026.11.65 (#788, #792): nine overrides aimed at an
+ * Re-pinned on ruleset 2026.11.66 (#788, #792): nine overrides aimed at an
  * earlier turn (the message above, the last message, the text above) with a
  * new order after them joined the seeds, 115 to 124; every mutation of the nine
  * blocks. Synonyms is 122 of 124, the same two. A tenth corpus row names no
