@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.65
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `npm run verdicts:diff` against main at 2026.11.64 moved 0 of 13,895 block verdicts, with a largest similarity drift of 0.0000. No detection file changed: the cut adds the default for the opt-in Code Skeleton module to `config.ts`, which the ruleset digest covers.
+
 ## Result, ruleset 2026.11.64
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `npm run verdicts:diff` against 2026.11.63 moved 0 of 28,906 rows, with a largest similarity drift of 0.0000. The embedding stage now sets aside the same named-container clause Stage 1 has set aside since 2026.11.63, under the same veto and only in a prompt or a system prompt: it embeds the rest of the text, does not embed a text that was nothing but such clauses, and does not count the clause as naming the model's own instructions (#787). Of the six typed requests #787 lists, five pass the default pipeline now, among them the forwarded message 2026.11.63 still refused here; the sixth, about a README, says "you" in the same sentence and is still refused at this stage (#793). From a tool result or a retrieved document the clause is embedded with the rest, and the request about packaging is still refused there by the embedding stage alone. Every recall floor holds (pooled 999/1395, multilingual 276/974).
