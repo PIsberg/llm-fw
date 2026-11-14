@@ -1,6 +1,6 @@
 {
   "name": "llm-fw",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Local LLM prompt injection firewall",
   "author": {
     "name": "Peter Isberg",
