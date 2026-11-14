@@ -91,6 +91,7 @@ Release planning: [PLAN-1.0.md](plans/PLAN-1.0.md), the checklist for 1.0.0 GA.
 | [STABILITY.md](STABILITY.md) | What semver covers from 1.0: CLI, config, env vars, library, gateway, metrics, audit record, data directory |
 | [THREAT-MODEL.md](THREAT-MODEL.md) | Assets, attackers, one trust boundary per listener, the detection boundary, accepted risks |
 | [CHANGELOG.md](../CHANGELOG.md) | Release history |
+| [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md) | Release history from 0.1.0 to 0.8.0, moved out so the changelog stays small enough for GitHub to render |
 | [PUBLISHING.md](PUBLISHING.md) | Publishing to npm (maintainers) |
 | [LICENSING.md](LICENSING.md) | How commercial and offline licences are issued (maintainer runbook) |
 | [LICENSE.md](../LICENSE.md) | PolyForm Noncommercial 1.0.0 |
