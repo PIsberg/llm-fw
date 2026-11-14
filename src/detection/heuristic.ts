@@ -92,11 +92,23 @@ interface WeightedRule { weight: number; label: string; patterns: RulePattern[] 
 // order is one connector, so the scan stays linear (timed in messageOverride.test.ts).
 const ORDER_START = String.raw`(?:^|[.!?:;,\n(\["'*>-] ?|\b(?:please|now|just|kindly|simply|immediately|first|you|you must|you should|you need to|you have to|you will|the (?:assistant|ai|model|agent|bot|llm)(?: (?:must|should|will|shall|needs to|has to|is to))?) )`
 const SET_ASIDE = String.raw`(?:ignore|disregard|forget(?: about)?|set aside|put aside|pay no attention to|never mind|skip|drop|discard|scrap|abandon|override|stop following|do not (?:follow|obey)|don['’]t (?:follow|obey))`
-const ORDER_NOUN = String.raw`(?:instructions?|directions|directives?|guidance|guidelines|rules|commands?|orders|requests?|prompts?|tasks?)(?: (?:given|written|laid out|set out|contained|listed|provided|stated|included|found))?`
+const PARTICIPLE = String.raw`(?: (?:given|written|laid out|set out|contained|listed|provided|stated|included|found))?`
+const ORDER_NOUN = String.raw`(?:instructions?|directions|directives?|guidance|guidelines|rules|commands?|orders|requests?|prompts?|tasks?)${PARTICIPLE}`
+// The every-surface form takes only the override verbs and what a message holds for a
+// model to obey. "Skip the tasks above and just run the build", "never mind the commands
+// above; run npm test instead" and "forget the guidance above, then use the simpler
+// approach" are a user talking about the assistant's plan, and blocked, as a typed prompt
+// and as a tool result, while this took every verb and noun the #792 form takes (11 of 16
+// such sentences main passes, #799).
+const OVERRIDE = String.raw`(?:ignore|disregard|forget(?: about)?|set aside|pay no attention to|stop following|do not (?:follow|obey)|don['’]t (?:follow|obey))`
+// What a message holds for a model to obey, in a named turn ("the rules in the message
+// above"). Never bare: "if you use Docker, ignore the instructions above and run docker compose
+// up" is an install guide: counted bare, it blocked 3 of the 4 such sentences main passes (#800).
+const RULE_NOUN = String.raw`(?:instructions?|directions|directives?|guidance|guidelines|rules)${PARTICIPLE}`
 // "The" or "all". "Any" only from a third-party surface: "ignore any instructions in
 // ..." is how a developer disarms one, and a user may say it about a pasted message.
-const ORDERS = String.raw`(?:the |all (?:of )?(?:the )?)?${ORDER_NOUN}`
-const ANY_ORDERS = String.raw`(?:the |all (?:of )?(?:the )?|any (?:of )?(?:the )?)?${ORDER_NOUN}`
+const DET = String.raw`(?:the |all (?:of )?(?:the )?)?`
+const ANY_DET = String.raw`(?:the |all (?:of )?(?:the )?|any (?:of )?(?:the )?)?`
 const IN = String.raw`(?:in|from|of|within|inside)`
 // A turn may take two nouns ("the chat message above"). A post, like an email, is
 // something the user pasted, not a turn. Normalization keeps a typographic apostrophe,
@@ -109,15 +121,18 @@ const NEW_ORDER = String.raw`(?=,? (?:and|then|instead|now)\b|[;:]| - |\. (?:ins
 // "The" only: "ignore the instructions in my message above" is the speaker taking back
 // their own words.
 const EARLIER_TURN = String.raw`the (?:${TURN} (?:above|before|earlier)|${EARLIER} ${TURN})`
-const EARLIER_TURN_OVERRIDE_RE = new RegExp(String.raw`${ORDER_START}${SET_ASIDE} (?:${ORDERS}(?: ${IN} ${EARLIER_TURN}| (?:above|before|earlier))|(?:whatever|what) ${EARLIER_TURN} (?:asked|asks|said|says|told you|requested|wanted|wants)(?: (?:for|you to do|to do))?)\b${NEW_ORDER}`)
-// #792: the user's own message, the speaker's own ("my message above": whoever wrote the
-// page, posing as the user), and "any" of them. The injection only from a surface nobody
-// in the conversation writes. A developer writes the same words in a system prompt to
-// disarm one, and a typed prompt keeps the speaker's correction of their own words.
+const EARLIER_TURN_OVERRIDE_RE = new RegExp(String.raw`${ORDER_START}${OVERRIDE} (?:${DET}${RULE_NOUN} ${IN} ${EARLIER_TURN}|(?:whatever|what) ${EARLIER_TURN} (?:asked|asks|told you|requested|wanted|wants)(?: (?:for|you to do|to do))?)\b${NEW_ORDER}`)
+// #792: the user's own message, and the speaker's own ("my message above": whoever wrote
+// the page, posing as the user), and "any" of them. The injection only from a surface
+// nobody in the conversation writes. A developer writes the same words in a system prompt
+// to disarm one, and a typed prompt keeps the speaker's correction of their own words.
+// Every verb and noun for "the user's" message; for "my message above" and an earlier
+// turn, the every-surface lists, since a review thread an agent reads says "never mind the
+// request in my last message, then" in ordinary use.
 const USER_NOUN = String.raw`(?:message|request|prompt|query|question|input|task|turn|chat)s?`
 const USERS_TURN = String.raw`(?:the |this )?user(?:['’]s|s['’]?)? (?:(?:last|latest|original|previous|current|first|actual) )?${USER_NOUN}(?: ${USER_NOUN})?(?: (?:above|below|before|earlier))?`
 const OWN_TURN = String.raw`(?:my|our) (?:${TURN} (?:above|before|earlier)|${EARLIER} ${TURN})`
-const USER_TURN_OVERRIDE_RE = new RegExp(String.raw`${ORDER_START}${SET_ASIDE} (?:${ANY_ORDERS} ${IN} (?:${USERS_TURN}|${OWN_TURN}|${EARLIER_TURN})|(?:whatever|what) the user(?:(?:['’]s|s['’]?) ${USER_NOUN})? (?:asked|asks|requested|requests|wanted|wants|said|says|typed|wrote)(?: (?:for|you to do|to do))?(?: in (?:their|the|his|her) (?:message|request|prompt|query)s?)?)\b${NEW_ORDER}`)
+const USER_TURN_OVERRIDE_RE = new RegExp(String.raw`${ORDER_START}(?:${SET_ASIDE} (?:${ANY_DET}${ORDER_NOUN} ${IN} ${USERS_TURN}|(?:whatever|what) the user(?:(?:['’]s|s['’]?) ${USER_NOUN})? (?:asked|asks|requested|requests|wanted|wants|said|says|typed|wrote)(?: (?:for|you to do|to do))?(?: in (?:their|the|his|her) (?:message|request|prompt|query)s?)?)|${OVERRIDE} ${ANY_DET}${RULE_NOUN} ${IN} (?:${OWN_TURN}|${EARLIER_TURN}))\b${NEW_ORDER}`)
 const USER_TURN_OVERRIDE: RulePattern = { test: (text, origin) => isThirdPartyOrigin(origin) && USER_TURN_OVERRIDE_RE.test(text) }
 // Rule 0 runs both. Exported for their linear-time test, which times them without the
 // rest of the scorer.
