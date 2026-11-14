@@ -87,6 +87,8 @@ measures nothing: qwen2.5:3b and qwen2.5-coder:7b completed 0 of 2 banking
 tasks, and an agent that cannot follow the user cannot follow an injection
 either. qwen2.5:14b completed 1 of 2 at about 3 minutes per task on a 12-core
 laptop CPU, and the default subset (99 runs over three pipelines) took 4 hours.
+With `llm-fw-withhold` in the default list it is 132 runs, about 5.3 hours at
+that rate.
 Its results are in
 [BENCHMARK-AGENTDOJO.md](../../docs/BENCHMARK-AGENTDOJO.md#local-run-qwen2514b-banking-one-injection-task).
 The 14b model holds about 9.5 GB of memory while it runs.
