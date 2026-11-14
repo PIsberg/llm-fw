@@ -3,23 +3,73 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { systemTool } from '../../src/systemTool.js'
+import { noWorkingDirectoryLookup, systemTool } from '../../src/systemTool.js'
 
 // The CLI runs Windows system tools (certutil, netsh, sc, net, reg, setx,
 // netstat, schtasks, icacls), several of them from `setup` and `uninstall`,
-// which usually run elevated. Run by bare name through a shell, cmd.exe looks
-// in the working directory before PATH (unless NoDefaultCurrentDirectoryInExePath
-// is set), so a `certutil.bat` in the folder the command was started from ran
-// in its place. Every call now names the tool by its absolute path.
+// which usually run elevated, and two programs outside the system folder
+// (ollama, lean-ctx). Windows looks for a bare name in the working directory
+// before PATH, in cmd.exe (`execSync`) and in Node's own lookup
+// (`execFileSync`, `spawn`), unless the calling process sets
+// NoDefaultCurrentDirectoryInExePath. So a `certutil.bat` or a `reg.exe` in the
+// folder a command was started from ran in place of the real one
+// (GHSA-rhc4-5qxh-r96m). Every system tool is now named by its absolute path,
+// and the CLI turns the lookup off for itself before anything else.
 
 const ROOT = path.join(import.meta.dirname, '..', '..', 'src')
 const TOOLS = ['certutil', 'icacls', 'net', 'netsh', 'netstat', 'reg', 'sc', 'schtasks', 'setx']
+const WINDOWS = process.platform === 'win32'
+const LOOKUP = 'NoDefaultCurrentDirectoryInExePath'
 
 function sources(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const p = path.join(dir, e.name)
     return e.isDirectory() ? sources(p) : e.name.endsWith('.ts') ? [p] : []
   })
+}
+
+const SYSTEM32 = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+const WHOAMI = path.join(SYSTEM32, 'whoami.exe')
+
+/** A command line run the way `execSync` runs it on Windows: by cmd.exe. */
+function viaCmd(line: string, cwd: string): string {
+  return execFileSync(path.join(SYSTEM32, 'cmd.exe'), ['/d', '/s', '/c', line], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+/** What a program printed to stdout, whether or not it exited 0. */
+function printed(run: () => string): string {
+  try {
+    return run()
+  } catch (err) {
+    return String((err as { stdout?: string }).stdout ?? '')
+  }
+}
+
+/**
+ * Runs `work` with NoDefaultCurrentDirectoryInExePath removed from this
+ * process, as in an ordinary terminal (Claude Code sets it in its own shells),
+ * and puts it back afterwards. Test files run in their own process, so the
+ * change reaches the lookup, which reads the caller's environment.
+ */
+function withLookupOn<T>(work: () => T): T {
+  const saved = process.env[LOOKUP]
+  delete process.env[LOOKUP]
+  try {
+    return work()
+  } finally {
+    if (saved === undefined) delete process.env[LOOKUP]
+    else process.env[LOOKUP] = saved
+  }
+}
+
+/** A fresh folder for planted files, removed after `work`. */
+function inFolder<T>(work: (dir: string) => T): T {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-fw-systemtool-'))
+  try {
+    return work(dir)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 describe('systemTool', () => {
@@ -60,21 +110,75 @@ describe('systemTool', () => {
     expect(bare).toEqual([])
   })
 
-  it.runIf(process.platform === 'win32')('runs the real tool from a folder that holds one of the same name', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-fw-systemtool-'))
-    try {
+  it.runIf(WINDOWS)('runs the real tool from a folder that holds one of the same name', () => {
+    inFolder(dir => {
+      // Two impostors: a program (a copy of whoami.exe) and a batch file.
+      fs.copyFileSync(WHOAMI, path.join(dir, 'certutil.exe'))
       fs.writeFileSync(path.join(dir, 'certutil.bat'), '@echo PLANTED\r\n')
-      const env = { ...process.env }
-      delete env.NoDefaultCurrentDirectoryInExePath
-      let out = ''
-      try {
-        out = execFileSync(systemTool('certutil'), ['-?'], { cwd: dir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      } catch (err) {
-        out = String((err as { stdout?: string }).stdout ?? '')
-      }
+      const me = execFileSync(WHOAMI, [], { encoding: 'utf8' }).trim()
+      const out = withLookupOn(() =>
+        printed(() => execFileSync(systemTool('certutil'), ['-?'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })),
+      )
+      expect(out).toMatch(/certutil/i)
       expect(out).not.toContain('PLANTED')
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
+      expect(out.trim()).not.toBe(me)
+    })
+  })
+})
+
+describe('noWorkingDirectoryLookup', () => {
+  it('sets NoDefaultCurrentDirectoryInExePath on Windows, and changes nothing elsewhere', () => {
+    const win: NodeJS.ProcessEnv = {}
+    noWorkingDirectoryLookup(win, 'win32')
+    expect(win[LOOKUP]).toBe('1')
+    for (const platform of ['linux', 'darwin'] as const) {
+      const env: NodeJS.ProcessEnv = {}
+      noWorkingDirectoryLookup(env, platform)
+      expect(env).toEqual({})
     }
+  })
+
+  it('is the first thing the CLI does, before any subcommand can start a program', () => {
+    const entry = fs.readFileSync(path.join(ROOT, 'cli', 'index.ts'), 'utf8')
+    const statements = entry
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#!') && !line.startsWith('//') && !line.startsWith('import '))
+    expect(statements[0]).toBe('noWorkingDirectoryLookup();')
+  })
+
+  // ollama and lean-ctx live outside System32, so no absolute path names them:
+  // only turning the lookup off keeps a copy in the working directory from
+  // running. Each case first shows that the copy does run with the lookup on,
+  // so a pass is not a test that never saw a planted program.
+  it.runIf(WINDOWS)("stops Node's own lookup from running a program planted in the working directory", () => {
+    inFolder(dir => {
+      fs.copyFileSync(WHOAMI, path.join(dir, 'reg.exe'))
+      const me = execFileSync(WHOAMI, [], { encoding: 'utf8' }).trim()
+      // A bare name on purpose: its lookup is what is under test.
+      const bareName = 'reg'
+      const reg = () => printed(() => execFileSync(bareName, [], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })).trim()
+      expect(withLookupOn(reg)).toBe(me)
+      expect(
+        withLookupOn(() => {
+          noWorkingDirectoryLookup()
+          return reg()
+        }),
+      ).not.toBe(me)
+    })
+  })
+
+  it.runIf(WINDOWS)('stops cmd.exe from running a batch file planted in the working directory', () => {
+    inFolder(dir => {
+      fs.writeFileSync(path.join(dir, 'net.bat'), '@echo PLANTED\r\n')
+      const net = () => printed(() => viaCmd('net session', dir))
+      expect(withLookupOn(net)).toContain('PLANTED')
+      expect(
+        withLookupOn(() => {
+          noWorkingDirectoryLookup()
+          return net()
+        }),
+      ).not.toContain('PLANTED')
+    })
   })
 })

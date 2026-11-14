@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { noWorkingDirectoryLookup } from '../systemTool.js';
+
+// Before anything can start a program: on Windows, never run one found in the
+// working directory in place of the real one (GHSA-rhc4-5qxh-r96m).
+noWorkingDirectoryLookup();
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
