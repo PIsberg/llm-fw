@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.63
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.62 moved 0 of 28,906 rows. Stage 1 now sets aside a request to leave alone the instructions inside a named thing the user holds (an attachment, the articles, a label), as it already did for search results and pages, unless anything in the same sentence points at the model or at earlier turns (#781). Of the four reported prompts three pass the default pipeline now; the fourth, aimed at a forwarded message, passes Stage 1 and is refused by the embedding stage. Every recall floor holds (pooled 999/1395, multilingual 276/974).
+
 ## Result, ruleset 2026.11.62
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.61 moved 0 of 28,906 rows. Neither change can reach the eval corpora, which hold no file reads: a shell command line that can only print files under a `trustedPaths` root is now a trusted read, and on a trusted read a wording match the read demoted no longer corroborates a classifier block (#776, #777, #778). Measured on real traffic instead: of the 40,847 Claude Code `Bash` calls in 30 days of one developer's transcripts, 1,634 are trusted reads (20 before), and 9 of the 58 live blocks of 2026-11-12 that could be paired with their call are freed; see [the tuning guide](guides/tuning.md#trust-file-reads-from-your-own-projects).
