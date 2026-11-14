@@ -158,18 +158,23 @@ export interface ResilienceCount { kept: number; total: number }
  * blocks. Synonyms is 122 of 124, the same two. A tenth corpus row names no
  * message ("the ... above"), which the cheap pipeline passes on purpose:
  * install guides say it (#800), so it is not a seed.
+ *
+ * Re-pinned on ruleset 2026.11.69 (#796): two English overrides with a
+ * determiner before "previous" ("any previous", "those previous set of")
+ * joined the seeds, 124 to 126 (112 to 114 without the encoded ones); every
+ * mutation of the two blocks. Synonyms is 124 of 126, the same two.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
-  homoglyph: { kept: 111, total: 112 },
-  leetspeak: { kept: 111, total: 112 },
-  'zero-width': { kept: 111, total: 112 },
-  casing: { kept: 111, total: 112 },
-  'markdown-fence': { kept: 123, total: 124 },
-  blockquote: { kept: 123, total: 124 },
-  'polite-prefix': { kept: 123, total: 124 },
-  synonyms: { kept: 121, total: 124 },
-  'no-punctuation': { kept: 111, total: 112 },
-  'curly-apostrophe': { kept: 111, total: 112 },
+  homoglyph: { kept: 113, total: 114 },
+  leetspeak: { kept: 113, total: 114 },
+  'zero-width': { kept: 113, total: 114 },
+  casing: { kept: 113, total: 114 },
+  'markdown-fence': { kept: 125, total: 126 },
+  blockquote: { kept: 125, total: 126 },
+  'polite-prefix': { kept: 125, total: 126 },
+  synonyms: { kept: 123, total: 126 },
+  'no-punctuation': { kept: 113, total: 114 },
+  'curly-apostrophe': { kept: 113, total: 114 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {

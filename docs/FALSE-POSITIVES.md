@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.69
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `npm run verdicts:diff` against 2026.11.68 moved 0 of 28,906 block verdicts. Two held-out rows changed the stage that blocks them and still block: one the Portuguese shape had caught on English text now blocks at Stage 2, and one Stage 2 blocked now meets the widened English rule. A typed request to set aside one's own previous message ("Can you ignore the instructions in the previous message? I pasted the wrong file.") passes now: the Portuguese and Spanish override lexicons took the English "previous" through the stem "prévi*", whose accent normalization drops (#796). Of 342 items in 14 days of local transcripts that hold "ignore ... previous", 4 tool results from this repository moved toward pass, each through that match.
+
 ## Result, ruleset 2026.11.68
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `npm run verdicts:diff` against 2026.11.67 moved 0 of 28,906 block verdicts, with a largest similarity drift of 0.0000. The indirect-instruction, harmful-request and self-reference checks now read the left and right single quotation marks (`U+2018`, `U+2019`) as an ASCII apostrophe, as Stage 1 has since 2026.11.67 (#802). One direction of the old gap was a false positive: a mail log line reporting a failed send ("couldn't send email to ...") kept its exemption only when typed with an ASCII apostrophe, so the same line typed with `U+2019` was an instruction finding on a tool result. Of the 202 items in 14 days of local transcripts that hold a mark, the 199 from other sessions kept their verdicts; the 3 that moved were this change's own test output, and each moved to the verdict its ASCII-typed twin already got on 2026.11.67.

@@ -405,7 +405,9 @@ const SHAPE_SPECS: Record<string, ShapeSpec> = {
     released: ['ya no tienes que obedecer', 'ya no tienes que seguir', 'ya no tienes que respetar', 'ya no tiene que obedecer', 'ya no tiene que seguir', 'ya no debes seguir', 'ya no debes obedecer', 'ya no necesitas seguir', 'ya no estás obligado a seguir', 'ya no estás sujeto a'],
     told: ['te dijeron', 'te han dicho', 'se te dijo', 'se te ha dicho', 'le dijeron', 'te indicaron', 'te ordenaron'],
     before: ['antes', 'anteriormente', 'previamente', 'hasta ahora'],
-    positionals: ['anterior*', 'previ*', 'de arriba', 'precedente*', 'inicial*'],
+    // The forms of "previo" rather than its stem, as in Portuguese: "previ*" took
+    // the English "previous" (#796).
+    positionals: ['anterior*', 'previo', 'previa', 'previos', 'previas', 'de arriba', 'precedente*', 'inicial*'],
     own: ['tus', 'sus', 'tu', 'su'],
     nouns: ['instrucci*', 'reglas', 'directiva*', 'directri*', 'indicaci*', 'pautas', 'órdenes', 'prompt*'],
     instructionNouns: ['instrucci*', 'directiva*', 'directri*', 'indicaci*'],
@@ -419,7 +421,9 @@ const SHAPE_SPECS: Record<string, ShapeSpec> = {
     released: ['você não precisa mais obedecer', 'você não precisa mais seguir', 'você não precisa mais respeitar', 'já não precisas de seguir', 'já não precisas de obedecer', 'você não tem mais que seguir', 'você não tem mais que obedecer', 'você já não precisa seguir', 'não precisa mais seguir', 'não precisa mais obedecer'],
     told: ['lhe disseram', 'te disseram', 'lhe foi dito', 'te foi dito', 'lhe mandaram', 'te mandaram'],
     before: ['antes', 'anteriormente', 'previamente', 'até agora'],
-    positionals: ['anterior*', 'prévi*', 'acima', 'precedente*', 'inicia*'],
+    // The forms of "prévio" rather than its stem: normalization drops the
+    // accent, and "previ*" took the English "previous" (#796).
+    positionals: ['anterior*', 'prévio', 'prévia', 'prévios', 'prévias', 'acima', 'precedente*', 'inicia*'],
     own: ['suas', 'tuas', 'seus', 'teus', 'sua', 'tua'],
     nouns: ['instruç*', 'instruc*', 'regras', 'diretriz*', 'diretiva*', 'orientaç*', 'orientac*', 'ordens', 'comandos', 'prompt*'],
     instructionNouns: ['instruç*', 'instruc*', 'diretriz*', 'diretiva*', 'orientaç*', 'orientac*'],
