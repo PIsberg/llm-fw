@@ -19,7 +19,8 @@ workspace), injects attacker instructions into tool outputs, and reports:
 
 `LlmFwDetector` drops into the **exact pipeline slot** AgentDojo uses for its
 built-in `transformers_pi_detector` defense, so `undefended` vs `llm-fw` vs
-`transformers_pi_detector` is a genuine head-to-head on identical tasks/attacks.
+`llm-fw-withhold` vs `transformers_pi_detector` is a genuine head-to-head on
+identical tasks/attacks.
 
 ## Architecture
 
@@ -35,8 +36,14 @@ AgentDojo (Python)                         llm-fw (Node/TS)
 ```
 
 The detector scans each tool output on the **`tool_result` surface** — the same
-indirect-injection surface llm-fw's InjecAgent benchmark uses — and aborts the
-agent (`AbortAgentError`) when llm-fw returns `action: "block"`.
+indirect-injection surface llm-fw's InjecAgent benchmark uses. When llm-fw
+returns `action: "block"`, the `llm-fw` pipeline aborts the agent
+(`AbortAgentError`), which is how AgentDojo scores a prevented attack, and
+`llm-fw-withhold` replaces that tool output with AgentDojo's own `<Data omitted
+because a prompt injection was detected>` notice and lets the agent go on. The
+second is what the proxy does by default (`detection.surfaces.tool_result.onBlock:
+'withhold'`) and what `transformers_pi_detector` does; there AgentDojo's
+security check alone decides whether the attack succeeded.
 
 ## Run it
 
@@ -74,12 +81,14 @@ bash scripts/run-agentdojo.sh    # repo root; settings are AGENTDOJO_* env vars
 The script starts the scan server on the default configuration (a fresh
 `LLM_FW_DIR`, so your own `~/.llm-fw/config.json` does not tune the defense),
 runs the 16 banking user tasks without an attack and against
-`injection_task_0` through all three pipelines, and stops the server. The
+`injection_task_0` through all four pipelines, and stops the server. The
 variables it reads are listed at its top. A model too small to do the tasks
 measures nothing: qwen2.5:3b and qwen2.5-coder:7b completed 0 of 2 banking
 tasks, and an agent that cannot follow the user cannot follow an injection
 either. qwen2.5:14b completed 1 of 2 at about 3 minutes per task on a 12-core
 laptop CPU, and the default subset (99 runs over three pipelines) took 4 hours.
+With `llm-fw-withhold` in the default list it is 132 runs, about 5.3 hours at
+that rate.
 Its results are in
 [BENCHMARK-AGENTDOJO.md](../../docs/BENCHMARK-AGENTDOJO.md#local-run-qwen2514b-banking-one-injection-task).
 The 14b model holds about 9.5 GB of memory while it runs.
@@ -95,10 +104,10 @@ Output is two markdown tables — ASR (lower is better) and no-attack Utility
 | `--base-url` | OpenAI-compatible server for the agent, e.g. `http://127.0.0.1:11434/v1`. `$AGENT_API_KEY` is sent if it wants one. |
 | `--user-tasks` | Comma list of user task ids (default: all). |
 | `--injection-tasks` | Comma list of injection task ids run under attack (default: all). |
-| `--pipelines` | `undefended`, `llm-fw`, `transformers_pi_detector` (comma list). |
+| `--pipelines` | `undefended`, `llm-fw` (aborts on a block), `llm-fw-withhold` (replaces the blocked output and goes on), `transformers_pi_detector` (comma list). |
 | `--suites` | AgentDojo suites: `banking,slack,travel,workspace`. |
 | `--attack` | AgentDojo attack name (default `important_instructions`). |
-| `--block-on-warn` | Also abort on llm-fw `warn` verdicts (default: only `block`). |
+| `--block-on-warn` | Also act on llm-fw `warn` verdicts, aborting or withholding as the pipeline does (default: only `block`). |
 | `LLM_FW_SCAN_URL` | Bridge URL (default `http://127.0.0.1:8790`); `--scan-url` overrides. |
 | `LLM_FW_*` | Any llm-fw config env var (thresholds, classifier, judge) is honoured by the scan server exactly as by the proxy — tune the defense without touching this code. |
 
@@ -112,10 +121,10 @@ layering as every other entrypoint.
 | File | Role |
 |---|---|
 | `llm_fw_detector.py` | `LlmFwDetector(PromptInjectionDetector)` — calls the scan server. |
-| `pipeline.py` | Builds `undefended` / `llm-fw` / `transformers_pi_detector` pipelines. |
+| `pipeline.py` | Builds `undefended` / `llm-fw` / `llm-fw-withhold` / `transformers_pi_detector` pipelines. |
 | `run_agentdojo.py` | CLI: runs suites, aggregates ASR + utility, prints tables + JSON. |
 | `test_llm_fw_detector.py` | No-keys smoke test of the bridge (needs the scan server). |
-| `test_pipeline.py` | Offline tests: local-model routing, path-safe names, a task subset run with a stub agent. |
+| `test_pipeline.py` | Offline tests: local-model routing, path-safe names, a task subset run with a stub agent, and what each llm-fw pipeline does with a block. |
 | `requirements.txt` | Pinned AgentDojo version this adapter targets. |
 
 The Node side is `scripts/scan-server.ts` (bridge) and `test/api/scan-server.test.ts`;

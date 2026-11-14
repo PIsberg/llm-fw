@@ -37,12 +37,13 @@ surface (`docs/BENCHMARK.md`, indirect-injection group). But corpus recall is a
 The harness lives in [`integrations/agentdojo/`](../integrations/agentdojo/)
 (see its README for setup). llm-fw runs unchanged behind the
 `scripts/scan-server.ts` bridge, so the detection pipeline, config, and
-thresholds are identical to the proxy. Three pipelines are compared:
+thresholds are identical to the proxy. Four pipelines are compared:
 
 | Pipeline | Defense element in the tools loop |
 |---|---|
 | `undefended` | none — the attack's natural success rate |
-| `llm-fw` | `LlmFwDetector` → scan server → real llm-fw pipeline |
+| `llm-fw` | `LlmFwDetector` → scan server → real llm-fw pipeline; a block aborts the agent |
+| `llm-fw-withhold` | the same detector; a block replaces the tool output with AgentDojo's `<Data omitted because a prompt injection was detected>` notice and the agent goes on, as the proxy's default `onBlock: 'withhold'` does |
 | `transformers_pi_detector` | AgentDojo's built-in ProtectAI-deberta detector |
 
 Each is run with no injection (utility floor) and under the
@@ -52,7 +53,7 @@ Each is run with no injection (utility floor) and under the
 npm run scan-server &                       # llm-fw bridge
 cd integrations/agentdojo
 python run_agentdojo.py --model gpt-4o-mini \
-    --pipelines undefended,llm-fw,transformers_pi_detector \
+    --pipelines undefended,llm-fw,llm-fw-withhold,transformers_pi_detector \
     --suites banking,slack,travel,workspace \
     --attack important_instructions --json-out results.json
 ```
@@ -102,8 +103,9 @@ What the numbers do and do not say:
   benign tool output in 10 of the 16 no-attack tasks (mostly transaction
   lists), against llm-fw's 1 abort, and the agent still finished 7 of them. The
   proxy's own default withholds a blocked tool result rather than refusing,
-  which is closer to the DeBERTa behaviour; measuring llm-fw that way is
-  [#768](https://github.com/PIsberg/llm-fw/issues/768).
+  which is closer to the DeBERTa behaviour. The `llm-fw-withhold` pipeline runs
+  llm-fw that way, and has not been measured on this subset yet
+  ([#768](https://github.com/PIsberg/llm-fw/issues/768)).
 
 Not measured: the slack, travel and workspace suites, the other 8 banking
 injection tasks, other attacks, and any hosted model. A four-suite sweep with

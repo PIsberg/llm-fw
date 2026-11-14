@@ -3,8 +3,9 @@
 #
 # Starts the llm-fw scan server on the default configuration (a fresh
 # LLM_FW_DIR, so your own ~/.llm-fw/config.json does not tune the defense),
-# runs a fixed subset of tasks through the undefended, llm-fw and
-# transformers_pi_detector pipelines, and stops the server again.
+# runs a fixed subset of tasks through the undefended, llm-fw (abort on a
+# block), llm-fw-withhold (replace the blocked output and go on, as the proxy
+# does) and transformers_pi_detector pipelines, and stops the server again.
 #
 # Prerequisites: Ollama (or any OpenAI-compatible server) serving the model,
 # and a Python with `pip install -r integrations/agentdojo/requirements.txt`
@@ -13,7 +14,7 @@
 # Every setting is an environment variable:
 #   AGENTDOJO_MODEL            agent model id          (qwen2.5:14b)
 #   AGENTDOJO_BASE_URL         OpenAI-compatible URL   (http://127.0.0.1:11434/v1)
-#   AGENTDOJO_PIPELINES        comma list              (undefended,llm-fw,transformers_pi_detector)
+#   AGENTDOJO_PIPELINES        comma list              (undefended,llm-fw,llm-fw-withhold,transformers_pi_detector)
 #   AGENTDOJO_SUITES           comma list              (banking)
 #   AGENTDOJO_USER_TASKS       comma list, empty = all (empty: all 16 banking tasks)
 #   AGENTDOJO_INJECTION_TASKS  comma list, empty = all (injection_task_0)
@@ -28,7 +29,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 model="${AGENTDOJO_MODEL:-qwen2.5:14b}"
 base_url="${AGENTDOJO_BASE_URL:-http://127.0.0.1:11434/v1}"
-pipelines="${AGENTDOJO_PIPELINES:-undefended,llm-fw,transformers_pi_detector}"
+pipelines="${AGENTDOJO_PIPELINES:-undefended,llm-fw,llm-fw-withhold,transformers_pi_detector}"
 suites="${AGENTDOJO_SUITES:-banking}"
 user_tasks="${AGENTDOJO_USER_TASKS:-}"
 injection_tasks="${AGENTDOJO_INJECTION_TASKS-injection_task_0}"

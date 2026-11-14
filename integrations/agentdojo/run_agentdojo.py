@@ -1,6 +1,7 @@
 """Run the AgentDojo benchmark with llm-fw as the defense and report the numbers.
 
-For each requested pipeline (undefended / llm-fw / transformers_pi_detector) and
+For each requested pipeline (undefended / llm-fw / llm-fw-withhold /
+transformers_pi_detector) and
 each requested suite, this measures the two numbers that matter for a defense:
 
   * Utility (no attack)  — fraction of benign user tasks the agent still
@@ -122,7 +123,9 @@ def main() -> None:
     ap.add_argument("--injection-tasks", default=None,
                     help="Comma list of injection task ids to run under attack (default: every one).")
     ap.add_argument("--pipelines", default="undefended,llm-fw",
-                    help="Comma list: undefended, llm-fw, transformers_pi_detector.")
+                    help="Comma list: undefended, llm-fw (aborts the agent on a block), llm-fw-withhold "
+                         "(replaces the blocked tool output and goes on, as the proxy does), "
+                         "transformers_pi_detector.")
     ap.add_argument("--suites", default="banking,slack,travel,workspace",
                     help="Comma list of AgentDojo suite names (default: all four).")
     ap.add_argument("--attack", default="important_instructions",
