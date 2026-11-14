@@ -45,6 +45,15 @@ const SENTENCE_BODY_RE = /[^.!?]+/g
 const AUTHORED_ORIGINS: ReadonlySet<ScanSource> = new Set<ScanSource>(['prompt', 'system'])
 
 /**
+ * True for a surface nobody in the conversation writes: a tool result, a retrieved
+ * document, a tool description, a memory file. False for a prompt or a system prompt
+ * (AUTHORED_ORIGINS), and for text whose origin the caller did not give.
+ */
+export function isThirdPartyOrigin(origin: ScanSource | undefined): boolean {
+  return origin !== undefined && !AUTHORED_ORIGINS.has(origin)
+}
+
+/**
  * `text` with DEFENSIVE_NAMED_RE stripped from every sentence that names nothing
  * of the model's, when `origin` is a surface the user or the developer writes
  * (AUTHORED_ORIGINS). From any other surface, or none, `text` comes back unchanged.
