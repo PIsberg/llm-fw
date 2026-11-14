@@ -1,6 +1,6 @@
 import { HeuristicResult, type ScanSource } from '../types.js'
 import { isThirdPartyOrigin, stripDefensiveNamed } from './defensiveHygiene.js'
-import { normalize, extractCandidates, calculateEntropy } from './normalize.js'
+import { normalize, extractCandidates, calculateEntropy, foldApostrophes } from './normalize.js'
 import { overrideLexiconMatcher, jailbreakFrameMatcher } from './overrideLexicon.js'
 import { unwrapCodexEnvelope } from './clientEnvelopes.js'
 
@@ -1342,7 +1342,8 @@ export class HeuristicScorer {
       return { score: maxScore, matches: Array.from(allMatches) }
     }
 
-    const normalized = normalize(input)
+    // A typographic apostrophe reads as an ASCII one for the rules (#795).
+    const normalized = foldApostrophes(normalize(input))
     // Defensive instruction-hygiene clauses are stripped before rule matching:
     // an override verb whose instructions-object carries a locative into DATA
     // ("embedded in them", "found in the page content", "inside it") is a

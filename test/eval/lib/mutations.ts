@@ -51,6 +51,9 @@ export const MUTATIONS: Record<string, Mutation> = {
     return w[0] === w[0]!.toUpperCase() ? sub[0]!.toUpperCase() + sub.slice(1) : sub
   }),
   'no-punctuation': t => t.replace(/[.,!?;:]/g, ''),
+  // Every apostrophe typed the way smart punctuation types it: mostly the
+  // right single quotation mark, sometimes the left one (#795).
+  'curly-apostrophe': (t, next) => t.replace(/'/g, () => (next() < 0.5 ? '\u2019' : '\u2018')),
 }
 
 /**
@@ -58,7 +61,7 @@ export const MUTATIONS: Record<string, Mutation> = {
  * is its payload: changing a character of it destroys the instruction, so the
  * variant is no longer an attack and its passing says nothing.
  */
-export const CHARACTER_LEVEL: ReadonlySet<string> = new Set(['homoglyph', 'leetspeak', 'zero-width', 'casing', 'no-punctuation'])
+export const CHARACTER_LEVEL: ReadonlySet<string> = new Set(['homoglyph', 'leetspeak', 'zero-width', 'casing', 'no-punctuation', 'curly-apostrophe'])
 
 /**
  * Every mutation of `text` that keeps it an attack, each from its own seeded
@@ -166,6 +169,7 @@ export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
   'polite-prefix': { kept: 123, total: 124 },
   synonyms: { kept: 121, total: 124 },
   'no-punctuation': { kept: 111, total: 112 },
+  'curly-apostrophe': { kept: 111, total: 112 },
 }
 
 export function evaluateResilience(counts: Record<string, ResilienceCount>, floors: Record<string, ResilienceCount>): { passed: boolean; failures: string[] } {

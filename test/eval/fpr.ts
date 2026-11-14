@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.67 (#795: Stage 1 reads a typographic apostrophe as an ASCII one;
+  // verdicts:diff moved 0 of 28,906 block verdicts, every similarity unchanged).
   // Held at ruleset 2026.11.66 (#788, #792: Stage 1 blocks an override aimed at an earlier
   // turn, or from third-party text at the user's message; verdicts:diff moved 0 of 28,906).
   // Held at ruleset 2026.11.65 (Code Skeleton module default in config.ts, no detection

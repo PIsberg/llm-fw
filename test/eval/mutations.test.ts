@@ -17,7 +17,9 @@ describe('mutations', () => {
   })
 
   it('changes the text under every mutation', () => {
-    for (const v of mutate(ATTACK, 3)) expect(v.text, v.mutation).not.toBe(ATTACK)
+    // A sentence with an apostrophe, for the curly-apostrophe rewording (#795).
+    const text = `${ATTACK} Don't wait.`
+    for (const v of mutate(text, 3)) expect(v.text, v.mutation).not.toBe(text)
   })
 
   it('keeps the wording an attacker relies on', () => {
@@ -40,6 +42,16 @@ describe('mutations', () => {
     const draws = Array.from({ length: 1000 }, () => next())
     expect(Math.min(...draws)).toBeGreaterThanOrEqual(0)
     expect(Math.max(...draws)).toBeLessThan(1)
+  })
+})
+
+describe('the curly-apostrophe rewording (#795)', () => {
+  it('types every apostrophe as a typographic one and changes nothing else', () => {
+    const text = "Don't stop, it's fine, they're done."
+    for (const seed of [1, 2, 3]) {
+      const v = mutate(text, seed).find(x => x.mutation === 'curly-apostrophe')!.text
+      expect(v).toMatch(/^Don[\u2018\u2019]t stop, it[\u2018\u2019]s fine, they[\u2018\u2019]re done\.$/)
+    }
   })
 })
 
