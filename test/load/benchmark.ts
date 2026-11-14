@@ -16,6 +16,9 @@
  *   LOAD_BENCH_AGENT_KB     size of an agent request in KB (default 64)
  *   LOAD_BENCH_OUT          output directory (default reports/load-bench/<timestamp>)
  *
+ * To compare versions, run each several times and pass every results.json to
+ * npm run bench:load:compare (test/load/compare.ts).
+ *
  * Exit code: 0 = ran, 1 = the firewall process died or a level saw over 1% errors.
  */
 import { fork, execFileSync, type ChildProcess } from 'node:child_process'
@@ -92,6 +95,22 @@ interface StepResult {
   latencies: number[]
 }
 
+/**
+ * Versions of the inference runtime, which moves throughput as much as any
+ * detection change: a comparison across commits must say when it moved.
+ */
+function runtimeVersions(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of ['@huggingface/transformers', 'onnxruntime-node']) {
+    try {
+      out[name] = (JSON.parse(readFileSync(join(ROOT, 'node_modules', name, 'package.json'), 'utf8')) as { version: string }).version
+    } catch {
+      out[name] = 'not installed'
+    }
+  }
+  return out
+}
+
 function gitDescribe(): { commit: string; dirty: boolean } {
   try {
     const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
@@ -119,7 +138,7 @@ class Firewall {
     child.on('exit', (code, signal) => { this.exited = `exited with ${signal ?? code}` })
   }
 
-  static async start(upstreamCaPem: string): Promise<{ fw: Firewall; proxyCaPem: string; initMs: number; processReadyMs: number }> {
+  static async start(upstreamCaPem: string): Promise<{ fw: Firewall; proxyCaPem: string; initMs: number; processReadyMs: number; detection: unknown }> {
     const child = fork(join(__dir, 'lib', 'firewallProcess.ts'), [], {
       execArgv: ['--import', 'tsx/esm'],
       env: {
@@ -134,9 +153,9 @@ class Firewall {
       },
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
     })
-    const ready = await new Promise<{ proxyCaPem: string; initMs: number; processReadyMs: number }>((res, rej) => {
+    const ready = await new Promise<{ proxyCaPem: string; initMs: number; processReadyMs: number; detection: unknown }>((res, rej) => {
       const timeout = setTimeout(() => rej(new Error('firewall process not ready after 300 s')), 300_000)
-      child.on('message', (msg: { type: string; proxyCaPem: string; initMs: number; processReadyMs: number }) => {
+      child.on('message', (msg: { type: string; proxyCaPem: string; initMs: number; processReadyMs: number; detection: unknown }) => {
         if (msg.type === 'ready') { clearTimeout(timeout); res(msg) }
       })
       child.once('exit', code => { clearTimeout(timeout); rej(new Error(`firewall process exited with ${code} before it was ready`)) })
@@ -225,7 +244,7 @@ async function main(): Promise<void> {
   console.log('Starting the firewall in its own process (loads the embedding model)...')
 
   const upstream = await startMockUpstream()
-  const { fw, proxyCaPem, initMs, processReadyMs } = await Firewall.start(upstream.caPem)
+  const { fw, proxyCaPem, initMs, processReadyMs, detection } = await Firewall.start(upstream.caPem)
   const send = createSender(PROXY_PORT, upstream.port, proxyCaPem)
   // One request per workload with no practical timeout, before any level:
   // the first agent request scans its whole history cold. A client that gives up
@@ -342,8 +361,10 @@ async function main(): Promise<void> {
         cpu: os.cpus()[0]?.model.trim() ?? 'unknown',
         cores: os.availableParallelism(),
         totalMemGb: Math.round(os.totalmem() / 1024 ** 3),
+        runtime: runtimeVersions(),
       },
       config: { workloads: WORKLOADS, concurrency: LEVELS, stepS: STEP_MS / 1000, warmupS: WARMUP_MS / 1000, agentKb: AGENT_KB, sampleMs: SAMPLE_MS },
+      settings: { detection, detectionOverride: JSON.parse(process.env.LOAD_BENCH_DETECTION ?? '{}') as unknown },
       descriptions: Object.fromEntries(WORKLOADS.map(w => [w, DESCRIPTIONS[w as Workload]])),
       startup: { initMs, processReadyMs, idle, idleAfter },
       speedProbes,

@@ -332,6 +332,63 @@ python scripts/load-bench-charts.py reports/load-bench/<run>/results.json
 | `cpu-memory.png` | CPU as a percentage of one core, CPU time per request, peak RSS, and other processes' share of the machine, against concurrency |
 | `timeline.png` | RSS, heap, CPU and event-loop delay over the whole run, measured windows shaded |
 
+### Comparing versions
+
+One run is one sample, and two runs of one commit on this laptop have differed
+by 7 to 31%. A single run per version therefore cannot say whether a version
+got faster. Run each version several times, alternating the order (A, B, B, A)
+so a machine that warms up or throttles over the session does not favour one,
+then pass every `results.json` to the comparison:
+
+```bash
+npm run bench:load:compare -- runs/1-old/results.json runs/2-new/results.json   runs/3-new/results.json runs/4-old/results.json --label dad5805=0.9.4 --out reports/load-bench/compare
+python scripts/load-bench-compare-charts.py reports/load-bench/compare/comparison.json
+```
+
+Each version is a commit, plus whether the tree was dirty and the
+`LOAD_BENCH_DETECTION` override the run used; the first one given is the
+baseline. Every figure is the median of that version's runs with
+the range from the slowest to the fastest, and a difference is called better
+or worse only when the two ranges do not overlap. Anything else reads "within
+noise", and so does every difference while a version has a single run. Runs
+made with different `LOAD_BENCH_*` values are refused, runs from different
+machines or Node versions are flagged, and each run's own noisy-run warnings
+are carried through. To measure an older commit, check it out in a worktree
+and run its own `npm run bench:load`. Between the 2026-11-01 recorded run
+(dad5805) and this command, the harness changed one comment and gained the
+`LOAD_BENCH_DETECTION` hook, so runs of either tree measure the same thing.
+
+Runs also record what besides the code can move the numbers: the effective
+`detection` settings (`settings.detection` in `results.json`) and the
+`@huggingface/transformers` and `onnxruntime-node` versions (`meta.runtime`).
+The comparison lists every detection setting that differs between versions.
+
+A default that moved between versions is a cause of its own. 0.9.4 let
+onnxruntime's intra-op threads spin-wait (it had no switch; spinning was
+turned off by default in ruleset 2026.11.11), and it ran inference on the
+main thread (`detection.workerInference`, on by default since 2026.11.22).
+Compared as shipped, main against 0.9.4 is the code plus both defaults. To
+separate them, run the newer tree a second way with the older default put
+back, for example
+`LOAD_BENCH_DETECTION='{"embedding":{"spinWait":true}}' npm run bench:load`.
+Runs with an override form a version of their own, labelled with it
+("main, embedding.spinWait=true"), so the comparison shows the setting's
+effect (main against main with the override) next to the code's (the old
+version against main with the override). The override replaces whole
+top-level `detection` keys (`Object.assign`), so give every key of an object
+you change.
+
+`npm run bench:load:compare` writes `comparison.json` and `comparison.md` (the
+tables, ready to paste); the chart script writes the following. Versions are shades of
+one blue, oldest lightest; a run with an override is orange, since it is not a
+later version.
+
+| File | Chart |
+|---|---|
+| `compare-overview.png` | Headline figures per version as bars with the run range, and the change from the baseline |
+| `compare-throughput-latency.png` | Throughput, p50 and p99 against concurrency, one line per version, range whiskers |
+| `compare-resources.png` | CPU time per request, peak RSS and event-loop delay p99 against concurrency, per version |
+
 ---
 
 ## The harness (`test/load/lib/harness.ts`)
@@ -474,6 +531,75 @@ The `load-test` job runs in `.github/workflows/ci.yml` after `build-and-test` su
 The HuggingFace model is cached across runs with `actions/cache` keyed on `package-lock.json`, so model download only occurs on dependency changes.
 
 ---
+
+## Recorded results: 0.9.4, 0.9.6 and main compared, 2026-11-14
+
+Two runs each of 0.9.4 (dad5805), 0.9.6 (8b80a06) and main (de95876), in the
+order 0.9.4, 0.9.6, main, main, 0.9.6, 0.9.4, then two runs of main with
+`LOAD_BENCH_DETECTION='{"embedding":{"spinWait":true}}'`. Same laptop as
+below (i7-1260P, 16 threads, Node 26.13.0, on mains power), default knobs,
+each run started once the machine had stayed under 10% CPU for three
+10-second samples. Full tables: [comparison.md](load-results/2026-11-14_compare/comparison.md).
+
+![Comparison overview](load-results/2026-11-14_compare/compare-overview.png)
+
+| | 0.9.4 | 0.9.6 | main | main, spinWait on |
+|---|---|---|---|---|
+| Chat, peak throughput | 82.7 req/s | 104 req/s (noise) | 77.1 req/s (noise) | 154 req/s, +87% |
+| Chat, p50 at 1 client | 16 ms | 19 ms (noise) | 25 ms, +54% | 15 ms, -8% |
+| Chat, CPU per request at 1 client | 194 ms | 44 ms, -77% | 51 ms, -74% | 177 ms, -9% |
+| Agent, peak throughput | 6.4 req/s | 6.5 req/s (noise) | 6.1 req/s (noise) | 6.4 req/s (noise) |
+| Agent, p50 at 1 client | 158 ms | 209 ms, +32% | 215 ms, +36% | 182 ms, +15% |
+| Agent, first request (cold) | 2.51 s | 3.31 s, +32% | 3.48 s, +38% | 2.65 s (noise) |
+| Agent, worst event-loop p99 | 2.16 s | 37 ms, -98% | 46 ms, -98% | 86 ms, -96% |
+| Attack, peak throughput | 344 req/s | 332 req/s (noise) | 460 req/s (noise) | 374 req/s (noise) |
+| Peak RSS under load | 791 MB | 619 MB, -22% | 591 MB, -25% | 635 MB, -20% |
+| Model and pipeline init | 1.13 s | 1.96 s, +73% | 1.66 s, +47% | 1.57 s, +39% |
+
+Medians of two runs; the change is from 0.9.4, and "(noise)" means the two
+versions' run ranges overlap. Two runs is the least that gives a range at
+all, so a change marked here is the two runs of one version both landing
+outside both runs of the other, not a significance test.
+
+- **Main as shipped is not slower than 0.9.4 at throughput, and costs a
+  quarter of the CPU.** Chat peak 77.1 against 82.7 req/s is within noise;
+  CPU per chat request fell from 194 to 51 ms. What did get slower is
+  latency at one client: chat p50 16 to 25 ms, agent p50 158 to 215 ms, and
+  the first, cold agent request 2.51 to 3.48 s.
+- **Most of that is one default, not the code.** 0.9.4 let onnxruntime's
+  threads spin-wait; main does not (`embedding.spinWait: false` since ruleset
+  2026.11.11). Main with spinning put back has chat p50 at 15 ms, a cold agent
+  request at 2.65 s (within noise of 0.9.4), and twice the chat throughput of
+  main as shipped (154 against 77.1 req/s), for 3.5 times the CPU per chat
+  request (177 against 51 ms). Spinning keeps every intra-op thread busy
+  whenever the embedding stage runs, 1,200 to 1,280% of one core on this
+  machine, which is the reason it is off on a developer's laptop.
+- **Against 0.9.4 with the spin setting matched, main is faster or level
+  everywhere but one-client agent latency and startup.** Chat peak +87%,
+  agent and attack throughput level, peak RSS -20%. Agent p50 at one client
+  is still 15% slower (158 against 182 ms) and model init 39% slower (1.13
+  against 1.57 s); neither is explained by a setting this comparison varied.
+  `detection.workerInference` also differs (off in 0.9.4, on since ruleset
+  2026.11.22), and no run here isolated it.
+- **The worker thread is the change that matters to other requests.** The
+  worst event-loop p99 of any agent level went from 2.16 s on 0.9.4 (at 32
+  clients) to 46 ms on main: every request reaching the process waited up to two seconds
+  before; now it waits under 50 ms.
+- **The same commit measured 19 to 44% apart on two days.** 0.9.4's chat
+  peak was 62.9 req/s on 2026-11-01 (below) and 74.8 and 90.6 req/s in these
+  two runs.
+  Compare versions within one session, never against a number recorded on
+  another day.
+- **Noisy runs:** 7 of the 8 runs carried at least one warning, the CPU
+  speed probe drifting 21 to 37% in six of them (thermal throttling), and
+  other processes using 10% or more of the machine in 1 to 6 of 18 levels in
+  four. They are listed in comparison.md. The runs of main with spinning on
+  came from a worktree with this harness change and the same `src/`
+  (verified: zero lines of `git diff` under `src/`), so they show as dirty.
+
+![Throughput and latency per version](load-results/2026-11-14_compare/compare-throughput-latency.png)
+
+![Resources per version](load-results/2026-11-14_compare/compare-resources.png)
 
 ## Recorded results: load benchmark, 2026-11-01
 

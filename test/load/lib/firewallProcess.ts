@@ -9,7 +9,7 @@
  * LOAD_BENCH_DETECTION (JSON merged over config.detection, to compare settings).
  *
  * IPC, child to parent:
- *   { type: 'ready', proxyCaPem, initMs, processReadyMs }
+ *   { type: 'ready', proxyCaPem, initMs, processReadyMs, detection }
  *   { type: 'sample', ...Probe }          every LOAD_SAMPLE_MS
  *   { type: 'snap', id, ...Probe }        in answer to { type: 'snap', id }
  * Parent to child: { type: 'snap', id, reset? } and { type: 'stop' }.
@@ -105,7 +105,9 @@ async function main(): Promise<void> {
     }
   })
 
-  send({ type: 'ready', proxyCaPem, initMs, processReadyMs: Math.round(performance.now()) })
+  // The effective detection settings, so a comparison across versions can say
+  // which defaults moved between them (spinWait, workerInference, ...).
+  send({ type: 'ready', proxyCaPem, initMs, processReadyMs: Math.round(performance.now()), detection: config.detection })
 }
 
 main().catch(err => {
