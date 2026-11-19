@@ -23,6 +23,18 @@ Commands:
     [--out <file>]      file for npm run fpr. They are your own traffic: the
                         default path, in a checkout, is gitignored; elsewhere
                         --out is required. Moves no threshold.
+  fp [list] [--all]     Triage false positives on the running firewall without
+    [--limit <n>]       printing the blocked text: list blocked events (id,
+    [--json]            rule, surface, length, marked/recorded), --all adds
+                        warned ones.
+  fp check <id>         Compare a blocked text with its likely source: how many
+    [--in <path>]...    of its lines a file or directory holds, and whether it
+    [--contains <s>]... contains a string you expect. Prints counts only.
+  fp record <id>        Record it in whitelist.json (changes no verdict)
+    --reason <text>
+  fp unblock <id>       Record it, then mark it so the same text, and near
+    --reason <text>     copies, warn instead of blocking. Prints the undo hash.
+  fp undo <hash>        Remove a mark
   uninstall [--yes]     Reverse setup: remove the CA from the OS trust store,
     [--keep-model]      restore the hosts file, delete the :443 port redirect,
     [--purge]           and delete the CA from ~/.llm-fw. Your settings,

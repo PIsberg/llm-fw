@@ -9,6 +9,10 @@ Releases 0.1.0 to 0.8.0 are in [docs/CHANGELOG-ARCHIVE.md](docs/CHANGELOG-ARCHIV
 
 ## [Unreleased]
 
+### Added
+
+- **`llm-fw fp`: triage a false positive from a terminal without printing the blocked text (#811).** The documented triage step read `GET /api/events` and printed `payload_preview`, which starts with the text that was blocked, so an agent working behind the firewall had that output withheld on the very step meant to decide whether the block was wrong (three times in one session on 2026-11-14). `llm-fw fp` lists blocked events by id, rule, surface, length and state (marked, recorded, withheld); `fp check <id> --in <path> --contains <text>` reports how many of the text's lines a file or directory holds and whether it contains a string you expect, as counts and yes or no; `fp record` and `fp unblock` record it in `whitelist.json` and mark it, and both require `--reason`; `fp undo <hash>` removes a mark. The listing comes from a new `GET /api/events/triage`, whose rows carry no payload field. Rule ids there are written with underscores (`heuristic:system_override`) because the hyphenated label `system-override` is itself blocked by the heuristic stage. Verified by tests that run every heuristic rule id and the command's whole output through the heuristic and indirect-instruction detectors. See [Triage from the command line](docs/guides/tuning.md#triage-from-the-command-line).
+
 ## [0.9.7] - 2026-11-14
 
 ### Upgrade notes

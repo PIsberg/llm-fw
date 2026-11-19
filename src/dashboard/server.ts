@@ -4,6 +4,7 @@ import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config, PipelineResult } from '../types.js'
 import { deepMerge, effectiveClassifierBlockThreshold } from '../config/config.js'
+import { triageRow } from './triage.js'
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
 import { Pipeline } from '../detection/pipeline.js'
@@ -3053,6 +3054,26 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       const events = eventBus.getRecent(limit, page)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(events))
+      return
+    }
+
+    // #811: the events as the false-positive triage step needs them, with none
+    // of the blocked text (triage.ts). Blocked events only unless ?all=1.
+    if (req.method === 'GET' && path === '/api/events/triage') {
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') ?? '100', 10) || 100, 1), 500)
+      const all = url.searchParams.get('all') === '1'
+      const recorded = eventBus.readWhitelist()
+      const recordedIds = new Set(recorded.map(e => e.id))
+      const recordedTexts = new Set(recorded.map(e => e.payload))
+      const rows = eventBus.getAll()
+        .filter(e => all || e.action === 'blocked')
+        .slice(0, limit)
+        .map(e => triageRow(e, {
+          marked: e.suppressionKey !== undefined && suppressionStore.has(e.suppressionKey),
+          recorded: recordedIds.has(e.id) || (e.payload_full !== '' && recordedTexts.has(e.payload_full)),
+        }))
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(rows))
       return
     }
 
