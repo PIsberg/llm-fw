@@ -91,6 +91,18 @@ A suppression is scoped to the surface it was marked on. `tool_result` and `docu
 
 `GET /api/suppressions` lists current entries; `DELETE /api/suppressions` removes one — both behind the existing dashboard auth-token middleware.
 
+### Triage from the command line
+
+`llm-fw fp` does the same steps from a terminal, against the running process's dashboard API. It is written for a coding agent working behind the firewall as much as for a person: nothing it prints holds the blocked text, so its own output is never withheld for repeating what it is about (#811). Printing an event's `payload_preview` did exactly that, since the preview starts with the blocked text.
+
+1. **Find the event.** `llm-fw fp` (or `llm-fw fp list`) prints one line per blocked event the process holds, newest first: id, time (UTC), rule, surface, length, and whether it is `withheld`, `marked`, `recorded`, `observed` (an observe-mode verdict) or `not-markable` (DLP, URL-filter and other blocks the list does not cover). `--all` adds warned events, `--limit <n>` caps the list, `--json` prints the rows as JSON. The rule is the stage and the rule that fired, written with underscores (`heuristic:system_override`, `indirect_instruction:exfil_target`): the hyphenated label `system-override` is itself text the heuristic stage blocks.
+2. **Check where the text came from.** `llm-fw fp check <id> --in <file or directory>` reports how many of the blocked text's lines (trimmed, blank lines skipped) the file holds, and for a directory which file holds the most. `--contains <text>` answers yes or no for a string you expect, such as a line of the command's output; it is how to tell your own event from another session's, since every client of the firewall shares the list. Both may be repeated. Only counts are printed.
+3. **Decide.** A false positive is text from a source you trust that asks the agent to do nothing. Third-party content (a web page, an issue, an email, a dependency's file) carrying an instruction, a destination or a request for secrets is the firewall doing its job: leave it blocked.
+4. **Record it**, every false positive, even one you leave blocked: `llm-fw fp record <id> --reason "<file, lines or command, and why it is benign>"`. This is "Record as false positive": it writes `whitelist.json`, which `llm-fw feedback-export` and `npm run fpr` read, and changes no verdict. A reason is required.
+5. **Unblock it**, only a confirmed false positive: `llm-fw fp unblock <id> --reason "..."` records it and then marks it ("Mark false positive"), so the same text on the same surface, and near copies, warn instead. Rerun the identical command: a changed line range or width is a different text. It prints `llm-fw fp undo <hash>`, which removes the mark.
+
+`GET /api/events/triage` is the listing behind step 1, for scripts: the same rows as JSON, blocked events only unless `?all=1`, up to `?limit=` (default 100, at most 500). Each row has `id`, `timestamp`, `action`, `stage`, `rule`, `surface`, `score`, `similarity`, `length`, `target`, `client`, `markable`, `marked`, `recorded`, `withheld` and `enforced`, and no payload field. The command reads the dashboard port from your configuration and connects on loopback, where no token is needed; with `dashboard.bindHost` set to one non-loopback address it connects there and sends `dashboard.authToken`.
+
 ### Configuration
 
 ```json

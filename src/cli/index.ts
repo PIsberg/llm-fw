@@ -73,6 +73,11 @@ switch (command) {
     run(args);
     break;
   }
+  case 'fp': {
+    const { run } = await import('./fp.js');
+    await run(args);
+    break;
+  }
   case 'license': {
     const { run } = await import('./license.js');
     await run(args);

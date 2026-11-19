@@ -8,11 +8,12 @@
  * has to stop the command, not quietly pick the strict default or the loose
  * one.
  *
- * `flags` stand alone; `valued` take the next argument as their value. Keep
+ * `flags` stand alone; `valued` take the next argument as their value;
+ * `positional` is how many bare arguments it takes (`fp unblock <id>`). Keep
  * this in step with what each subcommand reads: `test/cli/options.test.ts`
  * checks every entry is documented in `USAGE`.
  */
-export const KNOWN_OPTIONS: Record<string, { flags: string[]; valued: string[] }> = {
+export const KNOWN_OPTIONS: Record<string, { flags: string[]; valued: string[]; positional?: number }> = {
   setup: { flags: ['--proxy-only', '--sinkhole', '--judge', '--no-judge'], valued: [] },
   'setup-judge': { flags: [], valued: [] },
   uninstall: { flags: ['--yes', '-y', '--keep-model', '--purge'], valued: [] },
@@ -22,6 +23,7 @@ export const KNOWN_OPTIONS: Record<string, { flags: string[]; valued: string[] }
   doctor: { flags: ['--json'], valued: [] },
   '--doctor': { flags: ['--json'], valued: [] },
   'feedback-export': { flags: [], valued: ['--out'] },
+  fp: { flags: ['--all', '--json'], valued: ['--limit', '--in', '--contains', '--reason'], positional: 2 },
   'install-service': { flags: [], valued: [] },
   'uninstall-service': { flags: [], valued: [] },
   license: {
@@ -44,6 +46,7 @@ export function checkOptions(command: string, args: string[]): string | undefine
   const known = KNOWN_OPTIONS[command];
   if (!known) return undefined;
   let valueNext = false;
+  let bare = 0;
   for (const arg of args) {
     if (valueNext) {
       valueNext = false;
@@ -54,6 +57,10 @@ export function checkOptions(command: string, args: string[]): string | undefine
       continue;
     }
     if (known.flags.includes(arg)) continue;
+    if (!arg.startsWith('-') && bare < (known.positional ?? 0)) {
+      bare++;
+      continue;
+    }
     const kind = arg.startsWith('-') ? 'unknown option' : 'unexpected argument';
     const guess = nearest(arg.startsWith('-') ? arg : `--${arg}`, [...known.flags, ...known.valued]);
     const hint = guess ? ` (did you mean ${guess}?)` : '';

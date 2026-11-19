@@ -8,6 +8,7 @@ vi.mock('../../src/detection/classifier.js', () => ({ InjectionClassifier: vi.fn
 import { Pipeline } from '../../src/detection/pipeline.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { getParser } from '../../src/detection/parsers.js'
+import { eventRule } from '../../src/dashboard/triage.js'
 import { HeuristicScorer } from '../../src/detection/heuristic.js'
 import { EmbeddingChecker } from '../../src/detection/embedding.js'
 import { JudgeClient } from '../../src/detection/judge.js'
@@ -70,6 +71,14 @@ describe('Pipeline.inspect: a blocked tool result is withheld, not the whole req
     expect(only).toContain('llm-fw withheld')
     expect(JSON.parse(body).messages[0].content).toBe('What do the notes say?')
     expect(events[0]).toMatchObject({ stage: 'indirect-instruction', action: 'blocked', withheld: true })
+  })
+
+  it('records the event so the triage view names its rule without the verb (#811)', async () => {
+    const events: Record<string, unknown>[] = []
+    const pipeline = new Pipeline(config(), (e) => { events.push(e as never); return { ...e, id: 'ev-1', timestamp: '' } as never })
+    await pipeline.inspect('/v1/messages', session([BAD]), META)
+    const rule = eventRule({ ...events[0], id: 'ev-1', timestamp: '' } as never)
+    expect(rule).toMatch(/^indirect_instruction:(imperative|exfil_target)$/)
   })
 
   it('forwards the same bytes and reports once when the agent resends the history', async () => {
