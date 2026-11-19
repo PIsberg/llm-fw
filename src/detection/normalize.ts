@@ -350,6 +350,67 @@ function decodePigLatin(text: string): string[] {
   return Array.from(new Set(candidates))
 }
 
+// #808: Python's json.dumps escapes every non-ASCII character by default
+// (ensure_ascii=True), so a tool returning fetched text as JSON hands the model
+// an attack in a non-Latin script as a run of backslash-u escapes, which the
+// model reads as the characters and every rule read as ASCII. Decode them into
+// a candidate of their own, never in 'original': only escapes of non-ASCII
+// characters (and well-formed surrogate pairs), never one after an escaped
+// backslash, and only when there are enough of them to be text rather than a
+// source line naming a quote mark or an arrow.
+//
+// The candidate holds the escaped runs alone, not the JSON around them: with a
+// Latin key such as "result" beside it, normalize() reads Cyrillic or Greek
+// letters as homoglyphs and folds them to Latin, and the Ukrainian attack in
+// the tests passed that way. A run is escapes with the spaces, digits and
+// punctuation between them; a letter or a backslash ends it. The JSON quotes,
+// braces and separators at either end are trimmed: they moved Stage 2 enough
+// to turn a block into a warn. Sentence punctuation stays, for the same reason.
+const ESCAPED_RUN_RE = /(?:(?<!\\)\\u[0-9a-fA-F]{4}|[^\\\p{L}])+/gu
+const UNICODE_ESCAPE_RE = /(?<!\\)\\u([dD][89abAB][0-9a-fA-F]{2})\\u([dD][c-fC-F][0-9a-fA-F]{2})|(?<!\\)\\u([0-9a-fA-F]{4})/g
+const MIN_ESCAPED_CHARACTERS = 6
+
+function decodeUnicodeEscapes(run: string): { text: string; count: number } {
+  let count = 0
+  const text = run.replace(UNICODE_ESCAPE_RE, (match, high: string | undefined, low: string | undefined, single: string | undefined) => {
+    if (high !== undefined && low !== undefined) {
+      count++
+      return String.fromCharCode(parseInt(high, 16), parseInt(low, 16))
+    }
+    const code = parseInt(single ?? '', 16)
+    // ASCII stays escaped (an attack needs no escape for it) and so does a lone surrogate.
+    if (code < 0x80 || (code >= 0xd800 && code <= 0xdfff)) return match
+    count++
+    return String.fromCharCode(code)
+  })
+  return { text, count }
+}
+
+const JSON_STRUCTURE = new Set([' ', '\t', '\n', '\r', '"', '{', '}', '[', ']', ':', ','])
+
+/** Strip JSON structure from both ends, by index: a regex anchored at the end would be quadratic. */
+function trimJsonStructure(s: string): string {
+  let start = 0
+  let end = s.length
+  while (start < end && JSON_STRUCTURE.has(s[start]!)) start++
+  while (end > start && JSON_STRUCTURE.has(s[end - 1]!)) end--
+  return s.slice(start, end)
+}
+
+function decodeJsonUnicodeCandidates(text: string): { text: string; source: string }[] {
+  if (!text.includes('\\u')) return []
+  const runs: string[] = []
+  let total = 0
+  for (const m of text.matchAll(ESCAPED_RUN_RE)) {
+    if (!m[0].includes('\\u')) continue
+    const { text: decoded, count } = decodeUnicodeEscapes(m[0])
+    if (count === 0) continue
+    runs.push(trimJsonStructure(decoded))
+    total += count
+  }
+  return total >= MIN_ESCAPED_CHARACTERS ? [{ text: runs.join('\n'), source: 'json-unicode' }] : []
+}
+
 function decodeUrlCandidates(text: string): { text: string; source: string }[] {
   if (!/%[0-9a-fA-F]{2}/.test(text)) return []
   try {
@@ -655,6 +716,19 @@ function* candidateSteps(text: string): Generator<void, { text: string; source: 
     } catch {}
     yield
   }
+
+  // #808: decoded escapes in both forms the plain text gets. The
+  // diacritic-stripped form alone left an escaped Greek or Chinese attack that
+  // blocks as plain text at a Stage 2 warn: the plain text blocks on its
+  // 'semantic' candidate.
+  for (const item of decodeJsonUnicodeCandidates(text)) {
+    const norm = normalize(item.text)
+    if (norm.length < 4) continue
+    candidates.push({ text: norm, source: item.source })
+    const semanticForm = normalizeSemantic(item.text)
+    if (semanticForm !== norm) candidates.push({ text: semanticForm, source: `${item.source}-semantic` })
+  }
+  yield
 
   try {
     const rot = decodeROT13(text)

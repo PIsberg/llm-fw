@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.71 (#808: JSON unicode escapes decoded into a candidate of their own;
+  // verdicts:diff moved 0 of 28,906; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.69 (#796: the Portuguese and Spanish "previous" no longer takes
   // the English word; 0 of 28,906 verdicts moved).
   // Held at ruleset 2026.11.68 (#802: the indirect-instruction, harmful-request and

@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.71
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.70 moved 0 of 28,906 rows. The cut adds a `json-unicode` candidate (#808): backslash-u escapes of non-ASCII characters, as Python's `json.dumps` writes them by default, are decoded so an attack in a non-Latin script is read as text. Of 75,866 tool results in 1,892 local Claude Code transcripts, 31 hold 6 or more such escapes, the threshold for the candidate. All 31 get the same verdict as on 2026.11.70: 24 pass, 4 warn and 3 block, as before.
+
 ## Result, ruleset 2026.11.70
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.54 moved 0 of 28,906 rows. The cut is for a speed fix (GHSA-222q-w3g4-rqw6): the indirect-instruction detector's multilingual pass now visits, for each request marker, only the verbs within its reach. It decides exactly as before.
