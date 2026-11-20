@@ -17,18 +17,27 @@ function translateHomoglyphs(text: string): string {
   // between two Latin words: "і" (U+0456) for the pronoun in "і will destroy"
   // has no Latin letter of its own (#557). In Cyrillic text the neighbours are
   // Cyrillic, so "на", "о" and "с" stay Russian.
-  const tokens = text.split(/(\s+)/)
-  const latin = (i: number): boolean => /[a-zA-Z]/.test(tokens[i] ?? '')
-  const fold = (token: string): string => token.split('').map(char => homoglyphs[char] || char).join('')
-  return tokens.map((token, i) => {
-    if (/[a-zA-Z]/.test(token)) return fold(token)
-    const letters = token.match(/\p{L}/gu)
-    if (!letters || !letters.every(c => c in homoglyphs)) return token
-    // tokens alternate word, whitespace, word: the neighbouring words are i ± 2.
-    // At the start or end of the text the one neighbour there is has to be Latin.
-    const before = i - 2 < 0 || latin(i - 2)
-    const after = i + 2 >= tokens.length || latin(i + 2)
-    return before && after && (latin(i - 2) || latin(i + 2)) ? fold(token) : token
+  //
+  // Words are runs of letters, split on anything else, not on whitespace alone
+  // (#821): in `{"result":"Αγνόησε ...` the Greek word touched the Latin key
+  // through punctuation, the whole run counted as one mixed-script token, and
+  // folding it lost the word the override rule needs.
+  const parts = text.split(/(\P{L}+)/u) // even: letter runs ('' only at the ends), odd: separators
+  const latin = (i: number): boolean => i >= 0 && i < parts.length && /[a-zA-Z]/.test(parts[i]!)
+  const fold = (word: string): string => word.split('').map(char => homoglyphs[char] || char).join('')
+  return parts.map((part, i) => {
+    if (i % 2 === 1 || part === '') return part
+    if (/[a-zA-Z]/.test(part)) return fold(part)
+    if (!part.split('').every(c => c in homoglyphs)) return part
+    // The neighbouring words: an all-look-alike word between Latin ones, or at
+    // the start or end of the text beside one, reads as Latin.
+    let b = i - 2
+    while (b >= 0 && parts[b] === '') b -= 2
+    let a = i + 2
+    while (a < parts.length && parts[a] === '') a += 2
+    const before = b < 0 || latin(b)
+    const after = a >= parts.length || latin(a)
+    return before && after && (latin(b) || latin(a)) ? fold(part) : part
   }).join('')
 }
 
@@ -675,9 +684,6 @@ export function normalize(text: string): string {
   // Strips diacritics / accents
   let result = text.normalize('NFD').replace(/\p{Diacritic}/gu, '')
 
-  // Prevents homoglyph substitution
-  result = translateHomoglyphs(result);
-
   result = result.normalize('NFKC');
 
   result = dropInvisibles(result);
@@ -690,6 +696,12 @@ export function normalize(text: string): string {
   // embedding stages. The raw prompt is scanned for these by detectHiddenChars()
   // BEFORE normalization, so removing them here never erases evidence.
   result = result.replace(HIDDEN_CHAR_STRIP_RE, '');
+
+  // Prevents homoglyph substitution. On the text the rules read: after NFKC and
+  // the invisible strips, so neither a zero-width character nor a letter NFKC
+  // turns Latin (a circled t) splits a look-alike word for the fold (security
+  // review of #821).
+  result = translateHomoglyphs(result);
 
   // A markdown bullet (one dash at a line start, then a space) is layout. The
   // flood collapse below turns "---" into "-", after which "- Stop at the
