@@ -376,10 +376,24 @@ function decodePigLatin(text: string): string[] {
 const MIN_ESCAPED_LETTERS = 6
 const HEX4 = /^[0-9a-fA-F]{4}$/
 const LETTER = /\p{L}/u
-// What normalize() strips or folds into the letter before it (zero-width and
-// other format characters, combining marks): it must not separate an escaped
-// letter from its word either (fourth security review).
-const TRANSPARENT = /^[\p{Cf}\p{M}]*$/u
+// Whether normalize() deletes this text. Such a character between an escaped
+// letter and a raw one must not count as separating them, because the word is
+// joined again after the gate ran: zero-width and format characters, combining
+// marks, and the backtick, caret and acute accent normalize() treats as
+// diacritics (fourth and fifth security reviews). Asked of normalize() itself so
+// the two cannot drift apart; whitespace is never transparent. Cached per
+// distinct text, with a cap, since a scan asks once per character.
+const vanishCache = new Map<string, boolean>()
+function vanishes(s: string): boolean {
+  if (s === '') return true
+  if (/\s/.test(s)) return false
+  let v = vanishCache.get(s)
+  if (v === undefined) {
+    v = normalize(s) === ''
+    if (vanishCache.size < 4096) vanishCache.set(s, v)
+  }
+  return v
+}
 // A backslash reads as nothing: written before every escape, it leaves "\И\г\н"
 // for a model to read as the word, and a rule to miss.
 const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', '\\': '', '/': '/', b: ' ', f: ' ', n: '\n', r: '\n', t: ' ' }
@@ -448,7 +462,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
           letters++
           if (last === 'raw-letter') insideWord = true
           last = 'escaped-letter'
-        } else if (!TRANSPARENT.test(decoded)) {
+        } else if (!vanishes(decoded)) {
           last = 'other'
         }
         run += decoded
@@ -461,7 +475,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       if (simple !== undefined) {
         run += simple
         full += simple
-        if (simple !== '') last = 'other'
+        if (!vanishes(simple)) last = 'other'
         i += 2
         continue
       }
@@ -478,7 +492,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       last = 'raw-letter'
       endRun()
     } else {
-      if (!TRANSPARENT.test(chr)) last = 'other'
+      if (!vanishes(chr)) last = 'other'
       run += chr
     }
     i += chr.length
