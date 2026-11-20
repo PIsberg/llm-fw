@@ -389,6 +389,14 @@ function payRecipientHolds(window: string): boolean {
 // always skip the review" would pass without this (#621 review of #477). "Update
 // your unit file" names none of them, so the advice still passes.
 const UPDATE_OBJECT_RE = /(?:\bCLAUDE\.md|\bAGENTS\.md|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\.profile)\b|\b(?:workflows?|pipelines?|policy|policies|permissions?|access|allowlist|whitelist|IAM|roles?|credentials?|secrets?|tokens?|passwords?|(?:api|ssh|gpg|signing|private|access)\s+keys?|hooks?|settings|firewall|sandbox)\b/i
+// A payment order with a light verb (#771): "Please make a bank transfer of $900
+// to IBAN ...", "Please do a bank transfer to guest_amy01". "make" and "do" are
+// no action verbs, and the pooled fallback read "a bank transfer" as a noun, so
+// neither rule saw an order. It takes the gate "pay" takes: where the money goes
+// has to be named, so "Please make a payment by the due date" stays a reminder.
+// "send", "process" and "initiate" are action verbs already.
+const LIGHT_PAYMENT_RE = /\b(?:please|kindly)\s+(?:also\s+|then\s+|immediately\s+|now\s+|first\s+|go\s+ahead\s+and\s+)*(?:make|do|execute|perform|arrange)\s+(?:(?:a|an|the)\s+)?(?:(?:bank|wire|money|crypto|bitcoin|sepa|swift|international|urgent)\s+)?(?:transfer|payment|wire)\b/gi
+
 /** True when the object window after a gated verb holds an object that makes the order real. */
 function gatedObjectHolds(verb: string, window: string): boolean {
   if (verb === 'pay') return payRecipientHolds(window)
@@ -1578,6 +1586,13 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
     if (benignPoliteObject(text, m.index + m[0].length, verb)) continue
     if (onlyTrustedObject(m.index + m[0].length)) continue
     return { verb, reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
+  }
+  LIGHT_PAYMENT_RE.lastIndex = 0
+  for (let m = LIGHT_PAYMENT_RE.exec(text); m !== null; m = LIGHT_PAYMENT_RE.exec(text)) {
+    const end = m.index + m[0].length
+    if (!gatedObjectHolds('pay', objectWindow(text, end))) continue
+    if (onlyTrustedObject(end)) continue
+    return { verb: 'pay', reason: 'imperative', snippet: snippetAround(text, m.index, m[0].length) }
   }
 
   // Bare imperative at a clause / JSON-string boundary, and only when the verb
