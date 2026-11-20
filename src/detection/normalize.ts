@@ -376,6 +376,10 @@ function decodePigLatin(text: string): string[] {
 const MIN_ESCAPED_LETTERS = 6
 const HEX4 = /^[0-9a-fA-F]{4}$/
 const LETTER = /\p{L}/u
+// What normalize() strips or folds into the letter before it (zero-width and
+// other format characters, combining marks): it must not separate an escaped
+// letter from its word either (fourth security review).
+const TRANSPARENT = /^[\p{Cf}\p{M}]*$/u
 // A backslash reads as nothing: written before every escape, it leaves "\И\г\н"
 // for a model to read as the word, and a rule to miss.
 const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', '\\': '', '/': '/', b: ' ', f: ' ', n: '\n', r: '\n', t: ' ' }
@@ -444,7 +448,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
           letters++
           if (last === 'raw-letter') insideWord = true
           last = 'escaped-letter'
-        } else {
+        } else if (!TRANSPARENT.test(decoded)) {
           last = 'other'
         }
         run += decoded
@@ -465,16 +469,19 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       i++
       continue
     }
-    full += ch
-    if (LETTER.test(ch)) {
+    // By code point, so an astral letter (a mathematical bold one, which NFKC
+    // folds to Latin) counts as a letter, not as two surrogate halves.
+    const chr = String.fromCodePoint(text.codePointAt(i)!)
+    full += chr
+    if (LETTER.test(chr)) {
       if (last === 'escaped-letter') insideWord = true
       last = 'raw-letter'
       endRun()
     } else {
-      last = 'other'
-      run += ch
+      if (!TRANSPARENT.test(chr)) last = 'other'
+      run += chr
     }
-    i++
+    i += chr.length
   }
   endRun()
   const out: { text: string; source: string }[] = []
