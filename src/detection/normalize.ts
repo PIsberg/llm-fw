@@ -684,9 +684,6 @@ export function normalize(text: string): string {
   // Strips diacritics / accents
   let result = text.normalize('NFD').replace(/\p{Diacritic}/gu, '')
 
-  // Prevents homoglyph substitution
-  result = translateHomoglyphs(result);
-
   result = result.normalize('NFKC');
 
   result = dropInvisibles(result);
@@ -699,6 +696,12 @@ export function normalize(text: string): string {
   // embedding stages. The raw prompt is scanned for these by detectHiddenChars()
   // BEFORE normalization, so removing them here never erases evidence.
   result = result.replace(HIDDEN_CHAR_STRIP_RE, '');
+
+  // Prevents homoglyph substitution. On the text the rules read: after NFKC and
+  // the invisible strips, so neither a zero-width character nor a letter NFKC
+  // turns Latin (a circled t) splits a look-alike word for the fold (security
+  // review of #821).
+  result = translateHomoglyphs(result);
 
   // A markdown bullet (one dash at a line start, then a space) is layout. The
   // flood collapse below turns "---" into "-", after which "- Stop at the
