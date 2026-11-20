@@ -95,6 +95,26 @@ describe('extractCandidates: JSON unicode escapes (#808)', () => {
   })
 })
 
+describe('Pipeline: a raw JSON tool result (#821)', () => {
+  let pipeline: Pipeline
+  const META = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages' }
+
+  beforeAll(async () => {
+    const config = structuredClone(DEFAULT_CONFIG) as Config
+    config.detection.judgeEnabled = false
+    pipeline = new Pipeline(config)
+    await pipeline.init()
+  }, 120_000)
+
+  // Greek passed: its first word, joined to the key by '":"', was folded to Latin.
+  it.each(Object.entries(ATTACKS))('blocks the %s attack at Stage 1', async (_lang, text) => {
+    const body = anthropicRequestFor({ text: JSON.stringify({ result: text }), label: 1, surface: 'tool_result' } as never, 'toolu_821')
+    const r = await pipeline.run('/v1/messages', body, META)
+    expect(r.action).toBe('block')
+    expect(r.stage).toBe('heuristic')
+  })
+})
+
 describe('Pipeline: a separator normalize() deletes does not split a word (#808 review)', () => {
   let pipeline: Pipeline
   const META = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages' }

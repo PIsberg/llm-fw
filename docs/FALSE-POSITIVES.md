@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.72
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.71 moved 0 of 28,906 rows. The cut changes how Cyrillic and Greek look-alikes are folded to Latin (#821): word by word, split on punctuation as well as whitespace, so a Greek or Cyrillic word joined to a Latin JSON key is no longer folded with it. Of 77,805 tool results in local Claude Code transcripts, 88 contain Greek or Cyrillic. 1 moves from pass to block: output from a 2026-10-25 llm-fw development session whose Russian text the override rule now reads.
+
 ## Result, ruleset 2026.11.71
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.70 moved 0 of 28,906 rows. The cut adds a `json-unicode` candidate (#808): JSON string escapes, as Python's `json.dumps` writes every non-ASCII character by default, are decoded so an attack in a non-Latin script is read as text. Of 77,735 tool results in local Claude Code transcripts, 1,122 contain a backslash-u and 10 produce the candidates. 3 move from pass to block, and all three are reads of this repository's `test/detection/fixtures/corpus.json`, whose attacks are written with escapes: decoded, they are attacks. `trustedPaths` covers reads of a repository you trust.
