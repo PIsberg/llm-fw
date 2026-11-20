@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.74 (#804: English words end the French override shape's object; 0 of 28,906
+  // verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.73 (#810: trustedPaths covers git diff -- <paths> of the working tree; eval rows
   // carry no file paths; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.72 (#821: the homoglyph fold goes word by word, split on punctuation too;

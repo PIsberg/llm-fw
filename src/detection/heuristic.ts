@@ -237,8 +237,9 @@ export class HeuristicScorer {
           /\b(?:ignore|disregard|discard|do not follow|don't follow)\b[^.!?]{0,15}\binstructions?\b[^.!?]{0,25}\b(?:in|from|inside|within) (?:your|the|its) (?:system prompt|configuration|config|setup|programming|initial prompt)/,
           // English
           // Any determiner or quantifier, and "set of": the Portuguese "prévi*" shape covered
-          // these by accident until #796 spelled it out.
-          /ig[a-z]{1,3}(?:re|er|r)\b ((?:(?:all|any|each|every|both)(?: and all| of| one of)? )?(?:(?:the|your|my|our|its|his|her|their|these|those|such) )?)(previous|prior|above|old) (?:set of )?(instructions?|rules?|prompts?|commands?)/,
+          // these by accident until #796 spelled it out. "initial" likewise: the French shape
+          // took "Ignore the initial instructions ..." until #804 kept it to French text.
+          /ig[a-z]{1,3}(?:re|er|r)\b ((?:(?:all|any|each|every|both)(?: and all| of| one of)? )?(?:(?:the|your|my|our|its|his|her|their|these|those|such) )?)(previous|prior|above|old|initial) (?:set of )?(instructions?|rules?|prompts?|commands?)/,
           /ig[a-z]{1,3}(?:re|er|r)\b (your |the )?(evaluation |screening )?criteria/,
           /you have no restrictions/,
           // A wipe of the earlier conversation, then a new persona with a task
