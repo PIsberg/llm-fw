@@ -370,7 +370,9 @@ function decodePigLatin(text: string): string[] {
 // braces and separators at either end are trimmed: they moved Stage 2 enough
 // to turn a block into a warn. Sentence punctuation stays, for the same reason.
 // It takes 6 escaped letters, so a source line naming a quote mark or an arrow
-// is not decoded.
+// is not decoded. A second candidate decodes the whole text in place, for an
+// attack that escapes only some letters of each word: it is made then, or
+// whenever an escaped letter touches a raw one.
 const MIN_ESCAPED_LETTERS = 6
 const HEX4 = /^[0-9a-fA-F]{4}$/
 const LETTER = /\p{L}/u
@@ -401,6 +403,12 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
   let letters = 0
   let run = ''
   let escapesInRun = 0
+  // The whole text with every escape decoded in place, raw letters kept.
+  let full = ''
+  // An escaped letter beside a raw one: half of a word escaped, which no JSON
+  // encoder writes and which leaves no run of escapes long enough to read.
+  let insideWord = false
+  let prevRawLetter = false
   const endRun = (): void => {
     if (escapesInRun > 0) {
       const trimmed = trimJsonStructure(run)
@@ -428,8 +436,13 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
           // A control character reads as a space.
           decoded = unit < 0x20 ? ' ' : String.fromCharCode(unit)
         }
-        if (decoded.length <= 2 && LETTER.test(decoded)) letters++
+        if (decoded.length <= 2 && LETTER.test(decoded)) {
+          letters++
+          if (prevRawLetter || LETTER.test(text[i + length] ?? '')) insideWord = true
+        }
         run += decoded
+        full += decoded
+        prevRawLetter = false
         escapesInRun++
         i += length
         continue
@@ -437,19 +450,29 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       const simple = SIMPLE_ESCAPES[text[i + 1] ?? '']
       if (simple !== undefined) {
         run += simple
+        full += simple
+        prevRawLetter = false
         i += 2
         continue
       }
       // A stray backslash, dropped for the same reason.
       i++
+      prevRawLetter = false
       continue
     }
-    if (LETTER.test(ch)) endRun()
+    full += ch
+    prevRawLetter = LETTER.test(ch)
+    if (prevRawLetter) endRun()
     else run += ch
     i++
   }
   endRun()
-  return letters >= MIN_ESCAPED_LETTERS ? [{ text: runs.join('\n'), source: 'json-unicode' }] : []
+  const out: { text: string; source: string }[] = []
+  if (letters >= MIN_ESCAPED_LETTERS) out.push({ text: runs.join('\n'), source: 'json-unicode' })
+  // In place as well, when the escapes split words (second security review):
+  // an attack escaping one letter per word left only fragments in the runs.
+  if (insideWord || letters >= MIN_ESCAPED_LETTERS) out.push({ text: full, source: 'json-unicode-inline' })
+  return out
 }
 
 function decodeUrlCandidates(text: string): { text: string; source: string }[] {
