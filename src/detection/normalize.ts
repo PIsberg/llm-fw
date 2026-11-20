@@ -353,39 +353,30 @@ function decodePigLatin(text: string): string[] {
 // #808: Python's json.dumps escapes every non-ASCII character by default
 // (ensure_ascii=True), so a tool returning fetched text as JSON hands the model
 // an attack in a non-Latin script as a run of backslash-u escapes, which the
-// model reads as the characters and every rule read as ASCII. Decode them into
-// a candidate of their own, never in 'original': only escapes of non-ASCII
-// characters (and well-formed surrogate pairs), never one after an escaped
-// backslash, and only when there are enough of them to be text rather than a
-// source line naming a quote mark or an arrow.
+// model reads as the characters and every rule read as ASCII. Decode JSON
+// string escapes into a candidate of their own, never in 'original'.
+//
+// One left-to-right scan, as a JSON parser reads them: "\\" is one backslash,
+// so an escape after an escaped backslash is still an escape, and an attacker
+// who writes a backslash before every escape gains nothing. ASCII escapes are
+// decoded too: an attacker picks the encoding, and a fully escaped English
+// sentence reads as English to the model (security review of the first cut).
 //
 // The candidate holds the escaped runs alone, not the JSON around them: with a
 // Latin key such as "result" beside it, normalize() reads Cyrillic or Greek
 // letters as homoglyphs and folds them to Latin, and the Ukrainian attack in
 // the tests passed that way. A run is escapes with the spaces, digits and
-// punctuation between them; a letter or a backslash ends it. The JSON quotes,
+// punctuation between them; an unescaped letter ends it. The JSON quotes,
 // braces and separators at either end are trimmed: they moved Stage 2 enough
 // to turn a block into a warn. Sentence punctuation stays, for the same reason.
-const ESCAPED_RUN_RE = /(?:(?<!\\)\\u[0-9a-fA-F]{4}|[^\\\p{L}])+/gu
-const UNICODE_ESCAPE_RE = /(?<!\\)\\u([dD][89abAB][0-9a-fA-F]{2})\\u([dD][c-fC-F][0-9a-fA-F]{2})|(?<!\\)\\u([0-9a-fA-F]{4})/g
-const MIN_ESCAPED_CHARACTERS = 6
-
-function decodeUnicodeEscapes(run: string): { text: string; count: number } {
-  let count = 0
-  const text = run.replace(UNICODE_ESCAPE_RE, (match, high: string | undefined, low: string | undefined, single: string | undefined) => {
-    if (high !== undefined && low !== undefined) {
-      count++
-      return String.fromCharCode(parseInt(high, 16), parseInt(low, 16))
-    }
-    const code = parseInt(single ?? '', 16)
-    // ASCII stays escaped (an attack needs no escape for it) and so does a lone surrogate.
-    if (code < 0x80 || (code >= 0xd800 && code <= 0xdfff)) return match
-    count++
-    return String.fromCharCode(code)
-  })
-  return { text, count }
-}
-
+// It takes 6 escaped letters, so a source line naming a quote mark or an arrow
+// is not decoded.
+const MIN_ESCAPED_LETTERS = 6
+const HEX4 = /^[0-9a-fA-F]{4}$/
+const LETTER = /\p{L}/u
+// A backslash reads as nothing: written before every escape, it leaves "\И\г\н"
+// for a model to read as the word, and a rule to miss.
+const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', '\\': '', '/': '/', b: ' ', f: ' ', n: '\n', r: '\n', t: ' ' }
 const JSON_STRUCTURE = new Set([' ', '\t', '\n', '\r', '"', '{', '}', '[', ']', ':', ','])
 
 /** Strip JSON structure from both ends, by index: a regex anchored at the end would be quadratic. */
@@ -397,18 +388,68 @@ function trimJsonStructure(s: string): string {
   return s.slice(start, end)
 }
 
+/** The code unit of the backslash-u escape at i, or -1 when there is none. */
+function unicodeEscapeAt(text: string, i: number): number {
+  if (text[i] !== '\\' || text[i + 1] !== 'u') return -1
+  const hex = text.slice(i + 2, i + 6)
+  return HEX4.test(hex) ? parseInt(hex, 16) : -1
+}
+
 function decodeJsonUnicodeCandidates(text: string): { text: string; source: string }[] {
   if (!text.includes('\\u')) return []
   const runs: string[] = []
-  let total = 0
-  for (const m of text.matchAll(ESCAPED_RUN_RE)) {
-    if (!m[0].includes('\\u')) continue
-    const { text: decoded, count } = decodeUnicodeEscapes(m[0])
-    if (count === 0) continue
-    runs.push(trimJsonStructure(decoded))
-    total += count
+  let letters = 0
+  let run = ''
+  let escapesInRun = 0
+  const endRun = (): void => {
+    if (escapesInRun > 0) {
+      const trimmed = trimJsonStructure(run)
+      if (trimmed !== '') runs.push(trimmed)
+    }
+    run = ''
+    escapesInRun = 0
   }
-  return total >= MIN_ESCAPED_CHARACTERS ? [{ text: runs.join('\n'), source: 'json-unicode' }] : []
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]!
+    if (ch === '\\') {
+      const unit = unicodeEscapeAt(text, i)
+      if (unit !== -1) {
+        let decoded: string
+        let length = 6
+        const low = unit >= 0xd800 && unit <= 0xdbff ? unicodeEscapeAt(text, i + 6) : -1
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          decoded = String.fromCharCode(unit, low)
+          length = 12
+        } else if (unit >= 0xd800 && unit <= 0xdfff) {
+          // A lone surrogate stays as written.
+          decoded = text.slice(i, i + 6)
+        } else {
+          // A control character reads as a space.
+          decoded = unit < 0x20 ? ' ' : String.fromCharCode(unit)
+        }
+        if (decoded.length <= 2 && LETTER.test(decoded)) letters++
+        run += decoded
+        escapesInRun++
+        i += length
+        continue
+      }
+      const simple = SIMPLE_ESCAPES[text[i + 1] ?? '']
+      if (simple !== undefined) {
+        run += simple
+        i += 2
+        continue
+      }
+      // A stray backslash, dropped for the same reason.
+      i++
+      continue
+    }
+    if (LETTER.test(ch)) endRun()
+    else run += ch
+    i++
+  }
+  endRun()
+  return letters >= MIN_ESCAPED_LETTERS ? [{ text: runs.join('\n'), source: 'json-unicode' }] : []
 }
 
 function decodeUrlCandidates(text: string): { text: string; source: string }[] {
