@@ -408,7 +408,11 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
   // An escaped letter beside a raw one: half of a word escaped, which no JSON
   // encoder writes and which leaves no run of escapes long enough to read.
   let insideWord = false
-  let prevRawLetter = false
+  // What the last character appended to `full` was. Decoded on the output, not
+  // read from the input: an escaped backslash decodes to nothing, so wrapping
+  // the escaped letter in them must not hide that it shares a word (third
+  // security review).
+  let last: 'raw-letter' | 'escaped-letter' | 'other' = 'other'
   const endRun = (): void => {
     if (escapesInRun > 0) {
       const trimmed = trimJsonStructure(run)
@@ -438,11 +442,13 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
         }
         if (decoded.length <= 2 && LETTER.test(decoded)) {
           letters++
-          if (prevRawLetter || LETTER.test(text[i + length] ?? '')) insideWord = true
+          if (last === 'raw-letter') insideWord = true
+          last = 'escaped-letter'
+        } else {
+          last = 'other'
         }
         run += decoded
         full += decoded
-        prevRawLetter = false
         escapesInRun++
         i += length
         continue
@@ -451,19 +457,23 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       if (simple !== undefined) {
         run += simple
         full += simple
-        prevRawLetter = false
+        if (simple !== '') last = 'other'
         i += 2
         continue
       }
       // A stray backslash, dropped for the same reason.
       i++
-      prevRawLetter = false
       continue
     }
     full += ch
-    prevRawLetter = LETTER.test(ch)
-    if (prevRawLetter) endRun()
-    else run += ch
+    if (LETTER.test(ch)) {
+      if (last === 'escaped-letter') insideWord = true
+      last = 'raw-letter'
+      endRun()
+    } else {
+      last = 'other'
+      run += ch
+    }
     i++
   }
   endRun()
