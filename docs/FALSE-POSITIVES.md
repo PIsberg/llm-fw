@@ -75,7 +75,7 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.11.71
 
-**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.70 moved 0 of 28,906 rows. The cut adds a `json-unicode` candidate (#808): JSON string escapes, as Python's `json.dumps` writes every non-ASCII character by default, are decoded so an attack in a non-Latin script is read as text. Of 77,666 tool results in local Claude Code transcripts, 1,119 contain a backslash-u and 10 produce the candidates. 3 move from pass to block, and all three are reads of this repository's `test/detection/fixtures/corpus.json`, whose attacks are written with escapes: decoded, they are attacks. `trustedPaths` covers reads of a repository you trust.
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.70 moved 0 of 28,906 rows. The cut adds a `json-unicode` candidate (#808): JSON string escapes, as Python's `json.dumps` writes every non-ASCII character by default, are decoded so an attack in a non-Latin script is read as text. Of 77,735 tool results in local Claude Code transcripts, 1,122 contain a backslash-u and 10 produce the candidates. 3 move from pass to block, and all three are reads of this repository's `test/detection/fixtures/corpus.json`, whose attacks are written with escapes: decoded, they are attacks. `trustedPaths` covers reads of a repository you trust.
 
 ## Result, ruleset 2026.11.70
 

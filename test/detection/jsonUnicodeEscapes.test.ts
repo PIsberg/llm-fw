@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { extractCandidates, normalize } from '../../src/detection/normalize.js'
+import { extractCandidates, normalize, vanishesInNormalize } from '../../src/detection/normalize.js'
 import { Pipeline } from '../../src/detection/pipeline.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { anthropicRequestFor } from '../eval/lib/surfaces.js'
@@ -84,6 +84,8 @@ describe('extractCandidates: JSON unicode escapes (#808)', () => {
     ['valid escapes', esc(0x418).repeat(33_000)],
     ['escaped backslashes', (BS + BS + 'u0418').repeat(28_000)],
     ['JSON quotes around an escape', esc(0x418).repeat(6) + '"'.repeat(200_000) + esc(0x418)],
+    // Sixth review: distinct symbols between escaped letters, none of which normalize() deletes.
+    ['distinct symbols beside escaped letters', Array.from({ length: 30_000 }, (_, i) => esc(0x418) + String.fromCodePoint(0x2600 + (i % 3000)) + String.fromCodePoint(0x1f300 + (i % 700))).join('').slice(0, 200_000)],
   ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
     const small = text.slice(0, text.length / 8)
     const tSmall = fastestMs(() => extractCandidates(small))
@@ -107,6 +109,20 @@ describe('Pipeline: a separator normalize() deletes does not split a word (#808 
   // Fifth review: anything normalize() deletes joins the word again after the
   // gate ran, so the gate has to treat exactly those characters as nothing.
   const SEPARATORS = [0x2065, 0xfff0, 0xb4, 0x5e, 0x60, 0x200b, 0x301]
+  // Sixth review: the gate asks normalize() only about characters in a fixed
+  // class, so a text of distinct symbols cannot make it call normalize() per
+  // character. Every code point normalize() deletes has to be in that class.
+  it('knows every code point normalize() deletes, and only those', { timeout: 60_000 }, () => {
+    const wrong: string[] = []
+    for (let cp = 0; cp <= 0x10ffff; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue
+      const s = String.fromCodePoint(cp)
+      const deleted = normalize('a' + s + 'b') === 'ab'
+      if (vanishesInNormalize(s) !== deleted) wrong.push(cp.toString(16))
+    }
+    expect(wrong).toEqual([])
+  })
+
   it('uses separators normalize() deletes', () => {
     for (const code of SEPARATORS) expect(normalize('a' + String.fromCharCode(code) + 'b'), code.toString(16)).toBe('ab')
   })

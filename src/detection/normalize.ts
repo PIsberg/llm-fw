@@ -376,21 +376,25 @@ function decodePigLatin(text: string): string[] {
 const MIN_ESCAPED_LETTERS = 6
 const HEX4 = /^[0-9a-fA-F]{4}$/
 const LETTER = /\p{L}/u
-// Whether normalize() deletes this text. Such a character between an escaped
-// letter and a raw one must not count as separating them, because the word is
-// joined again after the gate ran: zero-width and format characters, combining
-// marks, and the backtick, caret and acute accent normalize() treats as
-// diacritics (fourth and fifth security reviews). Asked of normalize() itself so
-// the two cannot drift apart; whitespace is never transparent. Cached per
-// distinct text, with a cap, since a scan asks once per character.
+// Whether normalize() deletes this character. Such a character between an
+// escaped letter and a raw one must not count as separating them, because the
+// word is joined again after the gate ran: zero-width and format characters,
+// combining marks, and the backtick, caret and acute accent normalize() treats
+// as diacritics (fourth and fifth security reviews). Asked of normalize() itself
+// so the two cannot drift apart, but only for a character in VANISH_CANDIDATE:
+// every code point normalize() deletes is in it (measured over all of them, and
+// pinned by a test that walks them), and it is a few thousand characters, so
+// the cache is bounded by the class rather than by a cap a text of distinct
+// symbols could fill (sixth review). Whitespace never vanishes here.
+const VANISH_CANDIDATE = /^[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Diacritic}\xb7\u{387}]$/u
 const vanishCache = new Map<string, boolean>()
-function vanishes(s: string): boolean {
+export function vanishesInNormalize(s: string): boolean {
   if (s === '') return true
-  if (/\s/.test(s)) return false
+  if (!VANISH_CANDIDATE.test(s)) return false
   let v = vanishCache.get(s)
   if (v === undefined) {
-    v = normalize(s) === ''
-    if (vanishCache.size < 4096) vanishCache.set(s, v)
+    v = normalize('a' + s + 'b') === 'ab'
+    vanishCache.set(s, v)
   }
   return v
 }
@@ -462,7 +466,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
           letters++
           if (last === 'raw-letter') insideWord = true
           last = 'escaped-letter'
-        } else if (!vanishes(decoded)) {
+        } else if (!vanishesInNormalize(decoded)) {
           last = 'other'
         }
         run += decoded
@@ -475,7 +479,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       if (simple !== undefined) {
         run += simple
         full += simple
-        if (!vanishes(simple)) last = 'other'
+        if (!vanishesInNormalize(simple)) last = 'other'
         i += 2
         continue
       }
@@ -492,7 +496,7 @@ function decodeJsonUnicodeCandidates(text: string): { text: string; source: stri
       last = 'raw-letter'
       endRun()
     } else {
-      if (!vanishes(chr)) last = 'other'
+      if (!vanishesInNormalize(chr)) last = 'other'
       run += chr
     }
     i += chr.length
