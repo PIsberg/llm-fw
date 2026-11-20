@@ -88,8 +88,8 @@ describe('extractCandidates: JSON unicode escapes (#808)', () => {
     ['distinct symbols beside escaped letters', Array.from({ length: 30_000 }, (_, i) => esc(0x418) + String.fromCodePoint(0x2600 + (i % 3000)) + String.fromCodePoint(0x1f300 + (i % 700))).join('').slice(0, 200_000)],
   ])('stays linear on 200 KB of %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
     const small = text.slice(0, text.length / 8)
-    const tSmall = fastestMs(() => extractCandidates(small))
-    const tBig = fastestMs(() => extractCandidates(text))
+    const tSmall = fastestMs(() => extractCandidates(small), 10)
+    const tBig = fastestMs(() => extractCandidates(text), 10)
     // 8x the input: linear is about 8x the time, quadratic about 64x.
     expect(tBig).toBeLessThan(Math.max(tSmall, 1) * 24)
   })

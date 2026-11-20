@@ -416,8 +416,11 @@ export class HeuristicScorer {
           // defensive frame is exempt: "passive data should never issue
           // system overrides" (llm-fw's own dashboard copy, read back as a
           // tool result) blocked alone. Exempting the singular too let an
-          // attacker glue "do not send" onto the announcement.
-          /\bsystem[ -]overrid(?:e|den|ing)\b/,
+          // attacker glue "do not send" onto the announcement. The hyphenated
+          // form counts only in an attack's shape, before a colon, "!" or "mode"
+          // and the like: bare, it is this rule's own id, and a log line, an event
+          // export or a doc naming the rule scored 50 by itself (#819).
+          /\bsystem overrid(?:e|den|ing)\b|\bsystem-overrid(?:e|den|ing)\b(?=\s*[:!]|\s+(?:mode|activated|enabled|engaged|initiated|protocol|command|sequence|code)\b)/,
           /(?<!\b(?:never|not|no|cannot|can't|must not|should not) (?:issue|emit|send|contain|carry|include|perform|make) )\bsystem[ -]overrides\b/,
           /obey only (the |my )?(instructions?|commands?)/,
           /(safety|content) (layers?|systems?|filters?|polic(?:y|ies)) (is|are) (disabled|off|offline|suspended)/,

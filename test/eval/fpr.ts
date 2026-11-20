@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.78 (#819: the hyphenated system-override counts only in an attack's shape; 0 of
+  // 28,906 verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.77 (#654: a plain bullet that names an account counts; 0 of 28,906 verdicts
   // moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.76 (#771: a polite light-verb payment order with a named destination is an

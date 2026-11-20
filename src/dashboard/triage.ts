@@ -52,9 +52,10 @@ function ident(value: string | undefined): string | undefined {
 /**
  * The stage and the rule that fired, as one identifier with underscores for
  * hyphens: `heuristic:system_override`. Underscores because the hyphenated
- * label is itself text the heuristic stage blocks ("system-override" scores 50,
- * the block threshold), so a listing that printed it was withheld like the
- * payload it described.
+ * label was itself text the heuristic stage blocked ("system-override" scored 50,
+ * the block threshold, until ruleset 2026.11.78, #819), so a listing that printed
+ * it was withheld like the payload it described, and a firewall on an older
+ * ruleset still does.
  */
 export function eventRule(event: BlockEvent): string {
   return ruleOf(event).replace(/-/g, '_')

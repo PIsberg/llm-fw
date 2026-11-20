@@ -37,8 +37,8 @@ describe('detectIndirectInstruction: a light-verb payment order (#771)', () => {
   it('stays linear on 200 KB of a polite light verb with no noun', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const small = 'please make '.repeat(2_000)
     const big = 'please make '.repeat(16_000)
-    const tSmall = fastestMs(() => detectIndirectInstruction(small))
-    const tBig = fastestMs(() => detectIndirectInstruction(big))
+    const tSmall = fastestMs(() => detectIndirectInstruction(small), 10)
+    const tBig = fastestMs(() => detectIndirectInstruction(big), 10)
     expect(tBig).toBeLessThan(Math.max(tSmall, 1) * 24)
   })
 })
