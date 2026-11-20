@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.76 (#771: a polite light-verb payment order with a named destination is an
+  // instruction; 0 of 28,906 verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.75 (#789: the named-container strip takes a container with no determiner; 0 of
   // 28,906 verdicts moved; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.74 (#804: English words end the French override shape's object; 0 of 28,906
