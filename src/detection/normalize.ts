@@ -350,6 +350,166 @@ function decodePigLatin(text: string): string[] {
   return Array.from(new Set(candidates))
 }
 
+// #808: Python's json.dumps escapes every non-ASCII character by default
+// (ensure_ascii=True), so a tool returning fetched text as JSON hands the model
+// an attack in a non-Latin script as a run of backslash-u escapes, which the
+// model reads as the characters and every rule read as ASCII. Decode JSON
+// string escapes into a candidate of their own, never in 'original'.
+//
+// One left-to-right scan, as a JSON parser reads them: "\\" is one backslash,
+// so an escape after an escaped backslash is still an escape, and an attacker
+// who writes a backslash before every escape gains nothing. ASCII escapes are
+// decoded too: an attacker picks the encoding, and a fully escaped English
+// sentence reads as English to the model (security review of the first cut).
+//
+// The candidate holds the escaped runs alone, not the JSON around them: with a
+// Latin key such as "result" beside it, normalize() reads Cyrillic or Greek
+// letters as homoglyphs and folds them to Latin, and the Ukrainian attack in
+// the tests passed that way. A run is escapes with the spaces, digits and
+// punctuation between them; an unescaped letter ends it. The JSON quotes,
+// braces and separators at either end are trimmed: they moved Stage 2 enough
+// to turn a block into a warn. Sentence punctuation stays, for the same reason.
+// It takes 6 escaped letters, so a source line naming a quote mark or an arrow
+// is not decoded. A second candidate decodes the whole text in place, for an
+// attack that escapes only some letters of each word: it is made then, or
+// whenever an escaped letter touches a raw one.
+const MIN_ESCAPED_LETTERS = 6
+const HEX4 = /^[0-9a-fA-F]{4}$/
+const LETTER = /\p{L}/u
+// Whether normalize() deletes this character. Such a character between an
+// escaped letter and a raw one must not count as separating them, because the
+// word is joined again after the gate ran: zero-width and format characters,
+// combining marks, and the backtick, caret and acute accent normalize() treats
+// as diacritics (fourth and fifth security reviews). Asked of normalize() itself
+// so the two cannot drift apart, but only for a character in VANISH_CANDIDATE:
+// every code point normalize() deletes is in it (measured over all of them, and
+// pinned by a test that walks them), and it is a few thousand characters, so
+// the cache is bounded by the class rather than by a cap a text of distinct
+// symbols could fill (sixth review). Whitespace never vanishes here.
+const VANISH_CANDIDATE = /^[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Diacritic}\xb7\u{387}]$/u
+const vanishCache = new Map<string, boolean>()
+export function vanishesInNormalize(s: string): boolean {
+  if (s === '') return true
+  if (!VANISH_CANDIDATE.test(s)) return false
+  let v = vanishCache.get(s)
+  if (v === undefined) {
+    v = normalize('a' + s + 'b') === 'ab'
+    vanishCache.set(s, v)
+  }
+  return v
+}
+// A backslash reads as nothing: written before every escape, it leaves "\И\г\н"
+// for a model to read as the word, and a rule to miss.
+const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', '\\': '', '/': '/', b: ' ', f: ' ', n: '\n', r: '\n', t: ' ' }
+const JSON_STRUCTURE = new Set([' ', '\t', '\n', '\r', '"', '{', '}', '[', ']', ':', ','])
+
+/** Strip JSON structure from both ends, by index: a regex anchored at the end would be quadratic. */
+function trimJsonStructure(s: string): string {
+  let start = 0
+  let end = s.length
+  while (start < end && JSON_STRUCTURE.has(s[start]!)) start++
+  while (end > start && JSON_STRUCTURE.has(s[end - 1]!)) end--
+  return s.slice(start, end)
+}
+
+/** The code unit of the backslash-u escape at i, or -1 when there is none. */
+function unicodeEscapeAt(text: string, i: number): number {
+  if (text[i] !== '\\' || text[i + 1] !== 'u') return -1
+  const hex = text.slice(i + 2, i + 6)
+  return HEX4.test(hex) ? parseInt(hex, 16) : -1
+}
+
+function decodeJsonUnicodeCandidates(text: string): { text: string; source: string }[] {
+  if (!text.includes('\\u')) return []
+  const runs: string[] = []
+  let letters = 0
+  let run = ''
+  let escapesInRun = 0
+  // The whole text with every escape decoded in place, raw letters kept.
+  let full = ''
+  // An escaped letter beside a raw one: half of a word escaped, which no JSON
+  // encoder writes and which leaves no run of escapes long enough to read.
+  let insideWord = false
+  // What the last character appended to `full` was. Decoded on the output, not
+  // read from the input: an escaped backslash decodes to nothing, so wrapping
+  // the escaped letter in them must not hide that it shares a word (third
+  // security review).
+  let last: 'raw-letter' | 'escaped-letter' | 'other' = 'other'
+  const endRun = (): void => {
+    if (escapesInRun > 0) {
+      const trimmed = trimJsonStructure(run)
+      if (trimmed !== '') runs.push(trimmed)
+    }
+    run = ''
+    escapesInRun = 0
+  }
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]!
+    if (ch === '\\') {
+      const unit = unicodeEscapeAt(text, i)
+      if (unit !== -1) {
+        let decoded: string
+        let length = 6
+        const low = unit >= 0xd800 && unit <= 0xdbff ? unicodeEscapeAt(text, i + 6) : -1
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          decoded = String.fromCharCode(unit, low)
+          length = 12
+        } else if (unit >= 0xd800 && unit <= 0xdfff) {
+          // A lone surrogate stays as written.
+          decoded = text.slice(i, i + 6)
+        } else {
+          // A control character reads as a space.
+          decoded = unit < 0x20 ? ' ' : String.fromCharCode(unit)
+        }
+        if (decoded.length <= 2 && LETTER.test(decoded)) {
+          letters++
+          if (last === 'raw-letter') insideWord = true
+          last = 'escaped-letter'
+        } else if (!vanishesInNormalize(decoded)) {
+          last = 'other'
+        }
+        run += decoded
+        full += decoded
+        escapesInRun++
+        i += length
+        continue
+      }
+      const simple = SIMPLE_ESCAPES[text[i + 1] ?? '']
+      if (simple !== undefined) {
+        run += simple
+        full += simple
+        if (!vanishesInNormalize(simple)) last = 'other'
+        i += 2
+        continue
+      }
+      // A stray backslash, dropped for the same reason.
+      i++
+      continue
+    }
+    // By code point, so an astral letter (a mathematical bold one, which NFKC
+    // folds to Latin) counts as a letter, not as two surrogate halves.
+    const chr = String.fromCodePoint(text.codePointAt(i)!)
+    full += chr
+    if (LETTER.test(chr)) {
+      if (last === 'escaped-letter') insideWord = true
+      last = 'raw-letter'
+      endRun()
+    } else {
+      if (!vanishesInNormalize(chr)) last = 'other'
+      run += chr
+    }
+    i += chr.length
+  }
+  endRun()
+  const out: { text: string; source: string }[] = []
+  if (letters >= MIN_ESCAPED_LETTERS) out.push({ text: runs.join('\n'), source: 'json-unicode' })
+  // In place as well, when the escapes split words (second security review):
+  // an attack escaping one letter per word left only fragments in the runs.
+  if (insideWord || letters >= MIN_ESCAPED_LETTERS) out.push({ text: full, source: 'json-unicode-inline' })
+  return out
+}
+
 function decodeUrlCandidates(text: string): { text: string; source: string }[] {
   if (!/%[0-9a-fA-F]{2}/.test(text)) return []
   try {
@@ -655,6 +815,19 @@ function* candidateSteps(text: string): Generator<void, { text: string; source: 
     } catch {}
     yield
   }
+
+  // #808: decoded escapes in both forms the plain text gets. The
+  // diacritic-stripped form alone left an escaped Greek or Chinese attack that
+  // blocks as plain text at a Stage 2 warn: the plain text blocks on its
+  // 'semantic' candidate.
+  for (const item of decodeJsonUnicodeCandidates(text)) {
+    const norm = normalize(item.text)
+    if (norm.length < 4) continue
+    candidates.push({ text: norm, source: item.source })
+    const semanticForm = normalizeSemantic(item.text)
+    if (semanticForm !== norm) candidates.push({ text: semanticForm, source: `${item.source}-semantic` })
+  }
+  yield
 
   try {
     const rot = decodeROT13(text)
