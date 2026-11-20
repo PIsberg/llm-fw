@@ -111,6 +111,10 @@ Then:
    today's real date, and open a fresh empty `## [Unreleased]` above it. Write
    what changed for a *user*, not what changed in the tree: the failure a fix
    prevents, the flag that is now available, the default that moved.
+   If `test/ci/changelogSize.test.ts` fails, `CHANGELOG.md` has outgrown what
+   GitHub renders (it stopped somewhere above 209 KB; the test's ceiling is
+   350 KB): move the oldest minor series to `docs/CHANGELOG-ARCHIVE.md` first,
+   newest first there too, as #816 did (#817).
 3. **Docs the release makes wrong.** Grep for the outgoing version and for any
    claim the change invalidates:
    ```bash
