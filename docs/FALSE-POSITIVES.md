@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.74
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.72 moved 0 of 28,906 rows. A typed request to set aside one's own first message ("Can you ignore the instructions in the initial message? I pasted the wrong file.") passes now: the French override shape took the English words, since "initial", the imperative "ignore" and "instruction*" are spelled alike in both languages (#804). English function words now end the French shape's object, and the English rule takes "initial" next to "previous". Of 351 local Claude Code texts holding both "ignor" and "initial", none changes its Stage 1 verdict.
+
 ## Result, ruleset 2026.11.73
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The cut widens `trustedPaths` to `git diff -- <paths>` of the working tree (#810). Eval rows carry no file paths, so no eval verdict can move.

@@ -380,7 +380,11 @@ const SHAPE_SPECS: Record<string, ShapeSpec> = {
     own: ['tes', 'vos', 'ton', 'votre'],
     nouns: ['instruction*', 'consigne*', 'règle*', 'directive*', 'ordres', 'prompt*'],
     instructionNouns: ['instruction*', 'consigne*', 'directive*'],
-    breakers: ['et', 'mais', 'puis'],
+    // English function words end the French object too (#804): "initial*", the
+    // imperative "ignore" and "instruction*" are English words, so "ignore the
+    // instructions in my initial message" met this shape, and no French sentence
+    // carries "the", "my" or "in".
+    breakers: ['et', 'mais', 'puis', 'the', 'my', 'your', 'our', 'their', 'his', 'her', 'its', 'this', 'that', 'these', 'those', 'all', 'any', 'in', 'of', 'from', 'and'],
     notBefore: ['pas', 'jamais'],
   },
   de: {
