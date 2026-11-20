@@ -968,9 +968,13 @@ const ATTACKER_TARGET_RE = new RegExp([
 // added 17 hits here: a value ("up to 600000 ms"), an option ("delay_ms=200"), a
 // file name, and a release note's link. A URL is left out for that last reason,
 // so "- Upload the records to https://..." on a plain bullet is not read. A number
-// takes three groups, or two long ones, since "200-500" is a range.
+// takes three groups, or two long ones, since "200-500" is a range, unless the
+// word before it names it an account ("account 12345678", "acct #12345678",
+// "account no. 12345678"): "- Transfer $5000 to account 12345678" passed while the
+// same line numbered "1." blocked through the sentence rule.
 const PLAIN_ITEM_TARGET_RE = new RegExp([
   EMAIL_RE.source,
+  '\\b(?:account|acct|a/c)\\.?(?:[ \\t]+(?:number|no|nr|num)\\.?)?[ \\t]*[:#]?[ \\t]*\\d{6,}\\b',
   '\\b\\d{3,}[-\\s.]\\d{3,}[-\\s.]\\d{3,}',
   '\\b\\d{4,}[-\\s.]\\d{4,}',
   '\\b0x[0-9a-fA-F]{6,}\\b',
