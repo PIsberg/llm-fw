@@ -222,3 +222,42 @@ describe('trustedReadPath on POSIX command lines', () => {
     expect(trustedReadPath('shell', { command: ['bash', '-lc', 'cd src && cat x.ts; cat y.ts'], workdir: A }, ROOTS)).toBeNull()
   })
 })
+
+// #810: an agent reading its own uncommitted change with `git diff -- <files>`
+// had the output withheld while `cat` of the same files was trusted. A
+// working-tree diff with no revision prints the files' current lines (+) and
+// what the index held (-), so it is trusted only in exactly that shape.
+describe('trustedReadPath on git diff of the working tree', () => {
+  it('trusts git diff, staged or not, of paths under a root named after --', () => {
+    expect(bash(`cd ${A} && git diff -- src/x.ts test/x.test.ts`)).toBe(`${A}/src/x.ts`)
+    expect(bash(`cd ${A} && git diff --cached -- src/x.ts`)).toBe(`${A}/src/x.ts`)
+    expect(bash(`cd ${A} && git --no-pager diff --staged --stat -- src/x.ts`)).toBe(`${A}/src/x.ts`)
+    expect(bash(`cd ${A} && git diff -U0 -- src/x.ts | grep -n key | head -20`)).toBe(`${A}/src/x.ts`)
+    expect(bash(`git diff --unified=3 --no-color -w -- ${A}/src/x.ts`)).toBe(`${A}/src/x.ts`)
+    // A folder, or the root itself, as a Grep of it is trusted.
+    expect(bash(`cd ${A} && git diff -- src docs`)).toBe(`${A}/src`)
+    expect(bash(`cd ${ROOT} && git diff -- .`)).toBe(ROOT)
+  })
+
+  it('does not trust a diff against history, another tree, or with no paths (guard: an attack in each slot)', () => {
+    for (const line of [
+      `cd ${A} && git diff`, // the whole repository, which may reach past the root
+      `cd ${A} && git diff HEAD~1 -- src/x.ts`, // a revision: history, other people's text
+      `cd ${A} && git diff src/x.ts`, // without --, git reads a word that names a revision as one
+      `cd ${A} && git diff main..topic -- src/x.ts`,
+      `cd ${A} && git diff --no-index -- src/x.ts /tmp/evil.txt`,
+      `cd ${A} && git diff --output=/tmp/x -- src/x.ts`,
+      `cd ${A} && git -C /tmp/evil diff -- src/x.ts`,
+      `cd ${A} && git --git-dir=/tmp/evil/.git diff -- src/x.ts`,
+      `cd ${A} && git -c diff.external=/tmp/evil diff -- src/x.ts`,
+      `cd ${A} && git log -p -- src/x.ts`,
+      `cd ${A} && git show -- src/x.ts`,
+      `cd ${A} && git diff -- src/x.ts /tmp/evil.txt`, // a path outside every root
+      `cd ${A} && git diff -- node_modules/pkg/index.js`, // third-party code inside the root
+      `cd ${A} && git diff -- ':(top)src'`, // pathspec magic
+      `cd ${A} && git diff -- '*.md'`, // a pathspec glob git expands across the tree
+      `cd ${A} && git diff -- src/x.ts | cat /tmp/evil.txt`,
+      `git diff -- src/x.ts`, // relative, and the call names no working directory
+    ]) expect(bash(line), line).toBeNull()
+  })
+})

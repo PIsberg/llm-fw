@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.73
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The cut widens `trustedPaths` to `git diff -- <paths>` of the working tree (#810). Eval rows carry no file paths, so no eval verdict can move.
+
 ## Result, ruleset 2026.11.72
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.71 moved 0 of 28,906 rows. The cut changes how Cyrillic and Greek look-alikes are folded to Latin (#821): word by word, split on punctuation as well as whitespace, so a Greek or Cyrillic word joined to a Latin JSON key is no longer folded with it. Of 77,805 tool results in local Claude Code transcripts, 88 contain Greek or Cyrillic. 1 moves from pass to block: output from a 2026-10-25 llm-fw development session whose Russian text the override rule now reads.

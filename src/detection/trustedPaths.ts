@@ -517,6 +517,49 @@ const POSIX_VERBS: ReadonlyMap<string, VerbSpec> = new Map<string, VerbSpec>([
 ])
 
 /**
+ * Options a trusted `git diff` may carry (#810): ones that change only how the
+ * diff is printed. Anything else is refused, among them `--no-index` (two
+ * arbitrary files), `--output` (writes a file), and every global option
+ * before `diff` but `--no-pager` (`-C`, `-c`, `--git-dir`, `--work-tree`).
+ */
+const GIT_DIFF_OPTIONS: ReadonlySet<string> = new Set([
+  '--cached', '--staged', '--stat', '--numstat', '--shortstat', '--name-only', '--name-status',
+  '--no-color', '--no-ext-diff', '--no-textconv', '-w', '-b', '--ignore-all-space',
+  '--ignore-space-change', '--minimal', '-p', '--patch', '--no-renames',
+])
+const GIT_DIFF_VALUED = /^(?:-U\d+|--unified=\d+|--color=(?:never|always|auto))$/
+
+/**
+ * The paths of `git [--no-pager] diff [--cached] [options] -- <paths>`, or null
+ * for any other git command line (#810). A diff of the working tree against
+ * the index, or of the index against HEAD, prints lines of the files named:
+ * their content now (+) and what the index or HEAD held (-), which a read of
+ * the same files already shows or showed. A revision brings in history,
+ * other people's text, so it is refused, and since git reads a word before
+ * `--` as a revision when one has that name, every path has to follow `--`.
+ * At least one path: `git diff` alone covers the whole repository, which may
+ * reach past the root. Pathspec magic (`:(top)`) and pathspec globs, which git
+ * itself expands across the tree, are refused. `diff.external` and textconv
+ * drivers come from git config, which no cloned repository can set, so they
+ * are not refused here.
+ */
+function gitDiffPaths(args: readonly PosixWord[]): PosixWord[] | null {
+  let i = args[0]?.text === '--no-pager' ? 1 : 0
+  if (args[i]?.text !== 'diff') return null
+  for (i++; i < args.length; i++) {
+    const w = args[i]!
+    if (w.glob || w.escaped) return null
+    if (w.text === '--') {
+      const paths = args.slice(i + 1)
+      if (paths.length === 0 || paths.some(p => p.glob || p.escaped || p.text.startsWith(':') || /[*?[\]\\]/.test(p.text))) return null
+      return paths
+    }
+    if (!GIT_DIFF_OPTIONS.has(w.text) && !GIT_DIFF_VALUED.test(w.text)) return null
+  }
+  return null
+}
+
+/**
  * The file operands of one command, or null when an argument is not one
  * `spec` allows. A glob may only be a file operand: expanded into a pattern,
  * an option or its value, it would shift what every later word means.
@@ -676,14 +719,17 @@ function posixReadPath(script: string, workdir: string | undefined, roots: reado
           if (i > 0 || args.some(a => a.glob || a.escaped || /^-[A-Za-z]+$/.test(a.text))) return null
           continue
         }
+        // git diff prints only at the head of a pipeline; a folder or the root
+        // itself may be named, as a Grep of it may (#810).
+        const gitDiff = verb!.text === 'git' && i === 0
         const spec = POSIX_VERBS.get(verb!.text)
-        const files = spec ? posixFiles(args, spec) : null
+        const files = gitDiff ? gitDiffPaths(args) : spec ? posixFiles(args, spec) : null
         // The first command of a pipeline has no input but the files it names.
         if (!files || (i === 0 && files.length === 0)) return null
         for (const f of files) {
           const p = posixPath(f, cwd)
           const drive = p !== null && msys ? msysDrive(p) : null
-          const trusted = p !== null && underTrustedRoot(p, roots) ? p : drive !== null && underTrustedRoot(drive, roots) ? drive : null
+          const trusted = p !== null && underTrustedRoot(p, roots, gitDiff) ? p : drive !== null && underTrustedRoot(drive, roots, gitDiff) ? drive : null
           if (trusted === null) return null
           first ??= trusted
         }
