@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { underMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { env } from '@huggingface/transformers'
@@ -27,10 +27,8 @@ describe('embedding tokenizer: dense text stays linear', { timeout: 300_000 }, (
     expect(underMs(1500, () => { for (let i = 0; i < 10; i++) tokenizer.encode(chunk) })).toBeLessThan(1500)
   })
 
-  it('tokenizes 100 KB of base64 in seconds, not the 35 s of the quadratic version', () => {
+  it('tokenizes 100 KB of base64 in seconds, not the 35 s of the quadratic version', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const text = Buffer.from(Array.from({ length: 75_000 }, (_, i) => (i * 37 + (i >> 3)) % 256)).toString('base64')
-    const t0 = performance.now()
-    tokenizer.encode(text)
-    expect(performance.now() - t0).toBeLessThan(5000)
+    expect(underMs(5000, () => tokenizer.encode(text))).toBeLessThan(5000)
   })
 })

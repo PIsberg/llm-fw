@@ -81,7 +81,8 @@ def describe(d: dict | None) -> str:
     sign = "+" if d["pct"] > 0 else ""
     if not d["beyondNoise"]:
         return f"{sign}{d['pct']:.0f}%, within noise"
-    return f"{sign}{d['pct']:.0f}%, {'better' if d['improved'] else 'worse'}"
+    odds = f", 1 in {round(1 / d['chance'])}" if d.get("chance") else ""
+    return f"{sign}{d['pct']:.0f}%, {'better' if d['improved'] else 'worse'}{odds}"
 
 
 def footer(fig, data: dict) -> None:

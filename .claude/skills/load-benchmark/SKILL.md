@@ -127,9 +127,11 @@ one version is faster than another:
 
 1. One worktree per version (`git worktree add --detach <dir> <commit>`,
    `npm ci` in each), so no checkout moves under a running benchmark.
-2. Two or more runs per version, alternating the order (A, B, B, A, or
-   A, B, C, C, B, A), one at a time on the quiet machine. Point every run at
-   one `LLM_FW_MODEL_DIR` and give each its own `LOAD_BENCH_OUT`.
+2. Three or more runs per version, alternating the order (A, B, B, A, A, B,
+   or A, B, C, C, B, A, A, B, C), one at a time on the quiet machine. With
+   two each, versions that do not differ still have disjoint ranges 1 time
+   in 3; with three, 1 in 10 (#813). Point every run at one
+   `LLM_FW_MODEL_DIR` and give each its own `LOAD_BENCH_OUT`.
 3. `npm run bench:load:compare -- <every results.json> --label <commit>=<name>`
    with the baseline's runs first, then
    `python scripts/load-bench-compare-charts.py <out>/comparison.json`.

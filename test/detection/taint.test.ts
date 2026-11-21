@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { TaintTracker, extractTaintTokens, maskToken } from '../../src/detection/taint.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 const NOW = 1_000_000
 const TTL_MS = 30 * 60 * 1000
@@ -130,10 +131,8 @@ describe('TaintTracker.firstReport', () => {
 })
 
 describe('extractTaintTokens: linear time on dash-separated runs', () => {
-  it('scans 200 KB of "1-" in under 1.5 s', () => {
-    const t0 = performance.now()
-    extractTaintTokens('1-'.repeat(100 * 1024))
-    expect(performance.now() - t0).toBeLessThan(1500)
+  it('scans 200 KB of "1-" in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, () => {
+    expect(underMs(1500, () => extractTaintTokens('1-'.repeat(100 * 1024)))).toBeLessThan(1500)
   })
 
   it('extracts the same domains around dashes', () => {

@@ -21,6 +21,7 @@ function makeScanner(detectors: string[] = ALL_DETECTORS, mode: DLPConfig['mode'
 
 // Real, well-formed sample values (synthetic — not live secrets).
 import { SYNTHETIC_AWS_KEY, SYNTHETIC_AWS_STS_KEY, SYNTHETIC_AWS_SECRET, SYNTHETIC_AWS_KEY_EXAMPLE_MIDDLE } from '../../fixtures/syntheticSecrets.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../../linearTime.js'
 const AWS_KEY = SYNTHETIC_AWS_KEY
 const GH_TOKEN = 'ghp_' + 'a'.repeat(36)
 const GHO_TOKEN = 'gho_' + 'b'.repeat(36)
@@ -765,11 +766,9 @@ describe('DlpScanner.redact — the whole private key block', () => {
       ['one header then a run of backslashes', () => begin('PRIVATE KEY') + ' ' + fill('\\')],
       ['one header then one long escape', () => begin('PRIVATE KEY') + ' ' + fill('\\').slice(1) + 't'],
       ['headers then long backslash runs', () => fill(begin('PRIVATE KEY') + ' ' + '\\'.repeat(5000) + 'n')],
-    ])('scans and redacts 200 KB of %s in under 1.5 s', (_label, make) => {
+    ])('scans and redacts 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
       const text = make()
-      const t0 = performance.now()
-      scanner.redact(text, scanner.scan(text))
-      expect(performance.now() - t0).toBeLessThan(1500)
+      expect(underMs(1500, () => scanner.redact(text, scanner.scan(text)))).toBeLessThan(1500)
     })
   })
 })
