@@ -93,6 +93,33 @@ instruction-override):
 - **advbench** — AdvBench `harmful_behaviors`, full (n=520, attacks-only,
   rev `098262edf85f`).
 
+**Multi-turn conversations** (#540: the whole conversation in one request, the
+way a client resends it each turn, user turns only with the same short assistant
+reply between them, so attack and benign rows reach the pipeline alike). All
+three are held out: nobody has read their rows.
+
+- **safemt-attack-600**: `SafeMTData/SafeMTData` `Attack_600.json` (rev
+  `04af7bd0b6b6`, MIT), the ActorAttack paper's (arXiv 2410.10700) 600
+  conversations of four or five turns that approach a harmful goal through
+  questions about a related person or thing. Attacks only, recall-only.
+- **multiturn-cipher**: `tom-gibbs/multi-turn_jailbreak_attack_datasets` (rev
+  `e3b30257c4d6`, MIT), conversations that spread a word-substitution cipher
+  over six to thirteen turns before the request, one per goal of the eight the
+  dataset holds per goal: n=817, 517 harmful / 300 benign controls built the
+  same way (150 with benign words, 150 with harmful words for a benign goal).
+- **oasst1-multiturn**: 1,000 `OpenAssistant/oasst1` threads (rev
+  `fdf72ae0827c`, Apache 2.0) of three or more user turns, one per message
+  tree, stratified by language group. Benign only, FPR-only.
+
+Measured 2026-11-21, ruleset 2026.11.78, cheap pipeline: safemt-attack-600
+blocks 73 of 600 (12.2%), multiturn-cipher 45 of 517 (8.7%) and 17 of its 300
+benign controls (15 of them semi-benign), oasst1-multiturn 1 of 1,000. **Every
+one of those blocks came from a per-turn stage** (harmful-request on 117
+attacks, embedding on 1); the crescendo detector, on by default, blocked none,
+since its signature (a final turn that demands the full or working answer,
+after harmful vocabulary) is not how either attack ends. `npm run
+recall:floor` gates all three.
+
 **PINT** (Lakera): not included — the repo publishes the harness but the
 4,314-input dataset is part-proprietary and available only on request to
 Lakera, so it cannot be fetched reproducibly.

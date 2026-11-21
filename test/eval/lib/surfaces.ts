@@ -20,7 +20,22 @@ export interface EvalRow {
   label: number;
   class?: string;
   surface?: EvalSurface;
+  /**
+   * A conversation's user turns, oldest first (the multi-turn splits, #540).
+   * Delivered as one request holding the whole conversation, the way an LLM
+   * API client resends it each turn, with ASSISTANT_PLACEHOLDER between the
+   * turns. `text` is then the turns joined, for tools that print or hash a row.
+   */
+  turns?: string[];
 }
+
+/**
+ * The reply put between the user turns of a multi-turn row. The datasets hold
+ * no replies (tom-gibbs stores None, SafeMTData only the queries), and real
+ * oasst1 replies would reach the benign rows only, so every row gets the same
+ * short one.
+ */
+export const ASSISTANT_PLACEHOLDER = 'OK.';
 
 /** Anthropic Messages request placing `row.text` on its declared surface. */
 export function anthropicRequestFor(row: EvalRow, toolUseId = 'toolu_eval'): string {
@@ -43,6 +58,13 @@ export function anthropicRequestFor(row: EvalRow, toolUseId = 'toolu_eval'): str
     case 'tool_result':
       return JSON.stringify({ ...base, messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: row.text }] }] });
     default:
+      if (row.turns && row.turns.length > 0) {
+        const messages = row.turns.flatMap((content, i) => [
+          ...(i > 0 ? [{ role: 'assistant', content: ASSISTANT_PLACEHOLDER }] : []),
+          { role: 'user', content },
+        ]);
+        return JSON.stringify({ ...base, messages });
+      }
       return JSON.stringify({ ...base, messages: [{ role: 'user', content: row.text }] });
   }
 }

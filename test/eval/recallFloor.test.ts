@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateRecallFloor, DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, MULTILINGUAL_RECALL_FLOORS, countUnseen } from './lib/recallFloor.js'
+import { evaluateRecallFloor, DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, MULTILINGUAL_RECALL_FLOORS, MULTI_TURN_RECALL_FLOORS, countUnseen } from './lib/recallFloor.js'
 
 /**
  * The direct-injection recall floor exists because a slow loss passed every
@@ -140,5 +140,39 @@ describe('the multilingual floor (#536)', () => {
 
   it('is kept out of the pooled direct total, whose meaning is quoted elsewhere', () => {
     expect(Object.keys(DIRECT_RECALL_FLOORS)).not.toContain('multilingual-injections')
+  })
+})
+
+// #540: the first splits that deliver whole conversations. The crescendo
+// detector blocked none of their attacks when they were added, so the floor is
+// what keeps the per-turn stages from losing the few they do catch, and the
+// benign conversations (the cipher set's controls, natural oasst1 threads)
+// from blocking more.
+describe('the multi-turn floors (#540)', () => {
+  it('gates both attack splits and both benign sides', () => {
+    expect(Object.keys(MULTI_TURN_RECALL_FLOORS).sort()).toEqual(['multiturn-cipher', 'oasst1-multiturn', 'safemt-attack-600'])
+    expect(MULTI_TURN_RECALL_FLOORS['multiturn-cipher']!.benign).toBeDefined()
+    expect(MULTI_TURN_RECALL_FLOORS['oasst1-multiturn']!.benign).toBeDefined()
+  })
+
+  it('fails when a benign conversation more than the ceiling is blocked', () => {
+    const f = MULTI_TURN_RECALL_FLOORS['oasst1-multiturn']!
+    const at = (benignBlocked: number) => evaluateRecallFloor(
+      { 'oasst1-multiturn': { blocked: 0, attacks: 0, benignBlocked, benign: f.benign!.rows } },
+      { 'oasst1-multiturn': f },
+    )
+    expect(at(f.benign!.maxBlocked).passed).toBe(true)
+    expect(at(f.benign!.maxBlocked + 1).passed).toBe(false)
+  })
+
+  it('fails one attack under a floor', () => {
+    const f = MULTI_TURN_RECALL_FLOORS['safemt-attack-600']!
+    const at = (blocked: number) => evaluateRecallFloor({ 'safemt-attack-600': { blocked, attacks: f.attacks } }, { 'safemt-attack-600': f })
+    expect(at(f.minBlocked).passed).toBe(true)
+    expect(at(f.minBlocked - 1).passed).toBe(false)
+  })
+
+  it('is kept out of the pooled direct total', () => {
+    for (const name of Object.keys(MULTI_TURN_RECALL_FLOORS)) expect(Object.keys(DIRECT_RECALL_FLOORS)).not.toContain(name)
   })
 })
