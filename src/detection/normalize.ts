@@ -634,9 +634,11 @@ function runTogetherPhrases(run: string): string[] {
     let i = end
     while (parts.length < words[end]!) {
       const s = from[i]!
-      parts.unshift(run.slice(s, i))
+      parts.push(run.slice(s, i))
       i = s
     }
+    // Walked from the end; one reverse keeps the rebuild linear in the words.
+    parts.reverse()
     phrases.push(parts.join(' '))
   }
   return phrases

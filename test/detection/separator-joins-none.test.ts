@@ -94,6 +94,7 @@ describe('the run-together candidate', () => {
       ['the verb and a word, repeated', fill('ignoreall')],
       ['a whole override, repeated', fill('ignoreallpreviousinstructions')],
       ['vocabulary that never ends', `ignore${fill('allthe')}`],
+      ['one split of two-letter words', `ignore${fill('to')}`],
       ['many short runs', fill('ignoreallpreviousinstructions ')],
     ])('reads 200 KB of %s in linear time', (_name, text) => {
       expect(underMs(500, () => extractCandidates(text))).toBeLessThan(500)
