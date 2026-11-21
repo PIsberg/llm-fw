@@ -11,8 +11,9 @@
 // A pair counts only in a user turn that holds nothing but pairs (and short
 // "Label:" lines), so a glossary pasted into a question is not a cipher, and
 // it takes MIN_PAIRS of them. Every scan is linear: lines are parsed only up to
-// MAX_PAIR_LINE characters, and decoding is one pass over the last turn's
-// words with a map lookup per word, whatever the number of pairs.
+// MAX_PAIR_LINE characters, decoding is one pass over the last turn's words
+// with a map lookup per word, whatever the number of pairs, and it adds at most
+// MAX_DECODE_GROWTH characters.
 
 import type { ConversationTurn } from '../types.js'
 
@@ -21,6 +22,13 @@ export const MIN_PAIRS = 3
 
 /** A pair line is short; anything longer is prose and is not parsed. */
 const MAX_PAIR_LINE = 100
+
+/**
+ * The most decoding may add to the last turn, in characters. A one-letter code
+ * word can stand for a side of 60, so without a bound a long last turn decodes
+ * into many times its size, which the harmful-request scan then reads.
+ */
+export const MAX_DECODE_GROWTH = 65_536
 
 /** A side of a pair is at most this many words. */
 const MAX_SIDE_WORDS = 4
@@ -68,12 +76,15 @@ const key = (ws: readonly string[]): string => ws.join(' ').toLowerCase()
 /**
  * Replace every whole-word run of a map key in `text`, longest key first at
  * each word, keys of up to MAX_SIDE_WORDS words separated by whitespace only.
+ * Once the replacements have added MAX_DECODE_GROWTH characters, the rest is
+ * copied as it is.
  */
 function substitute(text: string, map: ReadonlyMap<string, string>): string {
   const spans: Array<{ word: string; start: number; end: number }> = []
   for (const m of text.matchAll(WORD)) spans.push({ word: m[0], start: m.index, end: m.index + m[0].length })
   let out = ''
   let pos = 0
+  let growth = 0
   for (let i = 0; i < spans.length;) {
     let hit: { n: number; to: string } | null = null
     for (let n = Math.min(MAX_SIDE_WORDS, spans.length - i); n >= 1 && !hit; n--) {
@@ -85,7 +96,9 @@ function substitute(text: string, map: ReadonlyMap<string, string>): string {
       const to = map.get(key(spans.slice(i, i + n).map(s => s.word)))
       if (to !== undefined) hit = { n, to }
     }
-    if (hit) {
+    const added = hit ? hit.to.length - (spans[i + hit.n - 1]!.end - spans[i]!.start) : 0
+    if (hit && growth + added <= MAX_DECODE_GROWTH) {
+      growth += added
       out += text.slice(pos, spans[i]!.start) + hit.to
       pos = spans[i + hit.n - 1]!.end
       i += hit.n
