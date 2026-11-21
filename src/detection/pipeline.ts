@@ -117,6 +117,7 @@ function skipsEmbedding(source: string): boolean {
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
+import { decodeSubstitutionCipher } from './substitutionCipher.js'
 import { ProbeTracker } from './probeEscalation.js'
 import { detectMemoryPoisoning, extractMemoryBlocks } from './memoryPoisoning.js'
 import { referencesModelInstructions } from './selfReference.js'
@@ -497,10 +498,20 @@ export class Pipeline {
         this.crescendoMemory.record(meta.sessionKey, conversation)
       }
 
-      if (cr.severity === 'block' || cr.severity === 'warn') {
+      // A word-substitution cipher spread over turns (#833): the earlier user
+      // turns define pairs, the last asks in code words. Decoded, the last
+      // turn is read by the harmful-request detector, so a cipher counts as a
+      // crescendo only when what it hides is a request that blocks plain.
+      const cipher = cr.severity === 'none' ? decodeSubstitutionCipher(conversation) : null
+      const cipherHit = cipher?.decoded.some(t => detectHarmfulRequest(t) !== null) === true
+      const severity = cipherHit ? (this.config.crescendo.mode === 'block' ? 'block' : 'warn') : cr.severity
+
+      if (severity === 'block' || severity === 'warn') {
         const finalText = conversation.filter(t => t.role === 'user').pop()?.text ?? ''
-        const line = `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`
-        if (cr.severity === 'block') {
+        const line = cipherHit
+          ? `[crescendo: ${cipher?.pairs ?? 0} substitution pairs decode to a harmful request] ${finalText.slice(0, 80)}`
+          : `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`
+        if (severity === 'block') {
           const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }
           if (this.isSuppressed(finalText, 'prompt')) {
             pendingWarn = { result: { ...result, action: 'warn' }, prompt: `[suppressed-fp] ${line}`, source: 'prompt' }

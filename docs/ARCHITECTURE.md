@@ -445,6 +445,7 @@ llm-fw/
 │   │   ├── asciiSmuggling.ts# invisible-char (Unicode-tag/bidi) smuggling detector
 │   │   ├── manyShot.ts      # many-shot jailbreak (fabricated-dialogue conditioning) detector
 │   │   ├── crescendo.ts     # multi-turn escalation detector (intra-request)
+│   │   ├── substitutionCipher.ts # decodes a word-substitution cipher spread over turns (crescendo stage)
 │   │   ├── responseExfil.ts # response-side markdown/HTML exfil-URL detector
 │   │   ├── responseHarm.ts  # response-side harmful-compliance scan (audit-only)
 │   │   ├── parsers.ts       # Anthropic/OpenAI/Cohere/Gemini/Bedrock payload extractors
