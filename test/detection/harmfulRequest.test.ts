@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { detectHarmfulRequest } from '../../src/detection/harmfulRequest.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 describe('detectHarmfulRequest', () => {
   it('flags operational weapon/drug synthesis how-tos', () => {
@@ -200,13 +201,11 @@ describe('detectHarmfulRequest: benign trivia from Dolly-15k (#246)', () => {
     })
   }
 
-  it('stays linear on a long prompt dense with object words', () => {
+  it('stays linear on a long prompt dense with object words', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // Every object match is tried, so per-match work must not rescan the
     // whole text; a quadratic loop turns one large request into a stall.
     const text = 'Write about ' + 'bleach and ammonia, '.repeat(20_000)
-    const t0 = performance.now()
-    detectHarmfulRequest(text)
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => detectHarmfulRequest(text))).toBeLessThan(1500)
   })
 })
 
@@ -354,11 +353,9 @@ describe('detectHarmfulRequest: vulnerability disclosure and defenders (#274)', 
 // position of a long whitespace run rescanned the rest of it, quadratic on the
 // event loop (200 ms at 20 KB, seconds at 100 KB).
 describe('detectHarmfulRequest: linear time on whitespace runs', () => {
-  it.each([[' '], ['\n'], [' \n\t']])('scans 200 KB of %j in under 1.5 s', (unit) => {
+  it.each([[' '], ['\n'], [' \n\t']])('scans 200 KB of %j in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (unit) => {
     const text = unit.repeat(Math.ceil(200 * 1024 / unit.length))
-    const t0 = performance.now()
-    detectHarmfulRequest(text)
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => detectHarmfulRequest(text))).toBeLessThan(1500)
   })
 
   it('still strips a threat tail after a comma', () => {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { estimateTokens } from '../../src/modules/tokens.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 describe('estimateTokens — whitespace is not text', () => {
   it('charges a run of spaces the same however long it is', () => {
@@ -64,10 +65,8 @@ describe('estimateTokens — against measured tokenizer counts', () => {
     })
   }
 
-  it('estimates a megabyte in well under the time a request takes', () => {
+  it('estimates a megabyte in well under the time a request takes', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const big = JSON.stringify(MEASURED).repeat(1200)
-    const t0 = performance.now()
-    estimateTokens(big)
-    expect(performance.now() - t0).toBeLessThan(500)
+    expect(underMs(500, () => estimateTokens(big))).toBeLessThan(500)
   })
 })

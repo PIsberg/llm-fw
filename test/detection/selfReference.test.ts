@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { referencesModelInstructions } from '../../src/detection/selfReference.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 /**
  * The guard that keeps the benign contrastive anchors from rescuing override
@@ -135,11 +136,9 @@ describe('document-located instructions: linear time on large input', () => {
     ['repeated previous instructions in', () => fill('previous instructions in the ')],
     ['repeated previous words', () => fill('previous earlier prior ')],
     ['a dash-separated run', () => fill('1-')],
-  ])('scans 200 KB of %s in under 1.5 s', (_label, make) => {
+  ])('scans 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
     const text = make()
-    const t0 = performance.now()
-    referencesModelInstructions(text)
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => referencesModelInstructions(text))).toBeLessThan(1500)
   })
 })
 
@@ -224,11 +223,9 @@ describe('rules a third party set, and negated safety rules, are not the model o
     ['base64url', () => fill('aB3_-Zx9')],
     ['rules your setters', () => fill('the rules your old ')],
     ['negated safety', () => fill('never bypass your safety ')],
-  ])('scans 200 KB of %s in under 1.5 s', (_label, make) => {
+  ])('scans 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
     const text = make()
-    const t0 = performance.now()
-    referencesModelInstructions(text)
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => referencesModelInstructions(text))).toBeLessThan(1500)
   })
 })
 
