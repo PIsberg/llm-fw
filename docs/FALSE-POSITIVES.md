@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.80
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.79 moved 0 of 31,323 rows. An override with its words run together ("ignoreallpreviousinstructions") is split into words and read (#652), but only a run of letters that holds an override verb, and only into a closed override vocabulary from the verb on, three words or more with a target among them. Over 2,254 local Claude Code and Codex transcripts, 274 distinct letter runs hold such a verb; the only ones split are attack strings quoted in this repository's tests.
+
 ## Result, ruleset 2026.11.79
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The crescendo stage now decodes a word-substitution cipher spread over turns (three or more "word - code word" pairs, each in a user turn that holds nothing else) and blocks when the decoded last turn is a harmful request (#833). `verdicts:diff` against 2026.11.78 moved 293 of 31,323 rows, all in the multi-turn cipher split: 287 attacks to block, and 6 of its 150 semi-benign controls, which hide harmful words for a benign goal on purpose; its 150 plain controls and the 1,000 benign oasst1 threads are unchanged. Of 4,442 typed user turns in 748 local Claude Code and Codex sessions, none forms such a cipher.
