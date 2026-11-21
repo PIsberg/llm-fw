@@ -14,8 +14,12 @@
  *     _revision: string   — upstream git sha (HF dataset repo or GitHub repo)
  *     _fetched:  string   — ISO date of the fetch
  *     _threat:   'injection' | 'harmful-content' | 'indirect-injection'
- *     rows: [{ text, label, class?, surface? }]
+ *     rows: [{ text, label, class?, surface?, turns? }]
  *   }
+ *
+ * `turns` holds a conversation's user turns in order (the multi-turn splits,
+ * #540); `text` is then those turns joined by a blank line, for the tools that
+ * only print or hash a row.
  *
  * label 1=attack 0=benign. `surface: 'tool_result'` makes the benchmark
  * harness deliver the text as an Anthropic tool_result block instead of a
@@ -34,8 +38,8 @@ import { parquetReadObjects } from 'hyparquet'
 const __dir = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dir, '..', 'test', 'eval', 'data')
 
-interface Row { text: string; label: number; class?: string; surface?: 'tool_result' }
-type Threat = 'injection' | 'harmful-content' | 'indirect-injection'
+interface Row { text: string; label: number; class?: string; surface?: 'tool_result'; turns?: string[] }
+type Threat = 'injection' | 'harmful-content' | 'indirect-injection' | 'multi-turn'
 
 async function getJson(url: string): Promise<unknown> {
   const res = await fetch(url, { headers: { 'user-agent': 'llm-fw-benchmark-fetch' } })
@@ -330,6 +334,153 @@ function knownEvalTexts(except: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-turn splits (#540). Every crescendo and probing test until these was a
+// hand-written unit test: no split delivered a conversation. Each row keeps the
+// user turns only, in order; test/eval/lib/surfaces.ts puts a fixed assistant
+// reply between them, so attack and benign rows reach the pipeline the same way.
+
+/** A multi-turn row: `text` is the turns joined, for tools that print or hash it. */
+export function conversationRow(turns: string[], label: number, cls: string): Row {
+  return { text: turns.join('\n\n'), label, class: cls, turns }
+}
+
+/**
+ * Parse the Python literal the tom-gibbs CSVs store a conversation in
+ * (`[{'role': 'user', 'content': '...'}, ...]`, written with repr). Lists,
+ * dicts, quoted strings with their escapes, None, True, False and numbers:
+ * nothing else occurs, and anything else throws rather than guessing.
+ */
+export function parsePythonLiteral(src: string): unknown {
+  let i = 0
+  const ws = () => { while (i < src.length && /\s/.test(src[i]!)) i++ }
+  const ESC: Record<string, string> = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"', '0': '\0' }
+  const str = (): string => {
+    const q = src[i++]
+    let out = ''
+    while (src[i] !== q) {
+      if (i >= src.length) throw new Error('unterminated string')
+      if (src[i] !== '\\') { out += src[i++]; continue }
+      const e = src[i + 1] ?? ''
+      i += 2
+      if (e in ESC) out += ESC[e]
+      else if (e === 'x' || e === 'u' || e === 'U') {
+        const n = e === 'x' ? 2 : e === 'u' ? 4 : 8
+        out += String.fromCodePoint(parseInt(src.slice(i, i + n), 16))
+        i += n
+      } else out += '\\' + e
+    }
+    i++
+    return out
+  }
+  const seq = <T>(close: string, item: () => T): T[] => {
+    i++
+    const out: T[] = []
+    for (;;) {
+      ws()
+      if (src[i] === close) { i++; return out }
+      out.push(item())
+      ws()
+      if (src[i] === ',') i++
+      else if (src[i] !== close) throw new Error(`expected , or ${close} at ${i}`)
+    }
+  }
+  const value = (): unknown => {
+    ws()
+    const c = src[i]
+    if (c === '[') return seq(']', value)
+    if (c === '{') {
+      return Object.fromEntries(seq('}', () => {
+        const k = value()
+        ws()
+        if (src[i++] !== ':') throw new Error(`expected : at ${i - 1}`)
+        return [String(k), value()] as const
+      }))
+    }
+    if (c === "'" || c === '"') return str()
+    const m = /^(?:None|True|False|-?\d+(?:\.\d+)?)/.exec(src.slice(i, i + 32))
+    if (!m) throw new Error(`unexpected token at ${i}`)
+    i += m[0].length
+    return m[0] === 'None' ? null : m[0] === 'True' ? true : m[0] === 'False' ? false : Number(m[0])
+  }
+  const v = value()
+  ws()
+  if (i !== src.length) throw new Error(`trailing input at ${i}`)
+  return v
+}
+
+/** The user turns of one tom-gibbs conversation, in order. */
+export function gibbsUserTurns(conversation: string): string[] {
+  const parsed = parsePythonLiteral(conversation)
+  if (!Array.isArray(parsed)) throw new Error('conversation is not a list')
+  return parsed
+    .filter((t): t is { role: string; content: string } => typeof t === 'object' && t !== null && (t as { role?: unknown }).role === 'user')
+    .map(t => String(t.content))
+}
+
+/**
+ * One conversation per goal, the one whose text hashes lowest. The tom-gibbs
+ * sets hold eight cipher variants of each goal; keeping all eight would count
+ * one goal eight times.
+ */
+export function onePerGroup<T extends { text: string }>(rows: Array<T & { group: string }>): T[] {
+  const hash = (s: string) => createHash('sha256').update(s).digest('hex')
+  const best = new Map<string, { h: string; row: T & { group: string } }>()
+  for (const row of rows) {
+    const h = hash(row.text)
+    const cur = best.get(row.group)
+    if (!cur || h < cur.h) best.set(row.group, { h, row })
+  }
+  return [...best.values()].map(({ row: { group: _g, ...rest } }) => rest as unknown as T)
+}
+
+export interface OasstTreeMessage extends OasstMessage { message_id: string; message_tree_id: string }
+
+/**
+ * Benign multi-turn conversations from oasst1: every path from a tree's root
+ * to a user turn that holds at least `minUserTurns` user turns, with no message
+ * on it the dataset rejected (the same filters as oasstUserTurns), and then one
+ * path per tree, the one whose user text hashes lowest. Classed by the language
+ * group of the turn that opens it.
+ */
+export function oasstConversations(messages: OasstTreeMessage[], minUserTurns = 3): Row[] {
+  const flagged = (m: OasstMessage, label: string) => (m.labels?.[label]?.value ?? 0) >= 0.5
+  const usable = (m: OasstMessage) => !m.deleted && m.review_result !== false && !m.synthetic
+    && !flagged(m, 'spam') && !flagged(m, 'not_appropriate') && m.text.trim() !== ''
+  const byId = new Map(messages.map(m => [m.message_id, m]))
+  const paths = new Map<string, string[][]>()
+  for (const m of messages) {
+    if (m.role !== 'prompter') continue
+    const chain: OasstTreeMessage[] = []
+    let cur: OasstTreeMessage | undefined = m
+    while (cur && usable(cur)) {
+      chain.push(cur)
+      if (!cur.parent_id) break
+      cur = byId.get(cur.parent_id)
+    }
+    const root = chain[chain.length - 1]
+    if (!root || root.parent_id) continue // a rejected or missing message on the way up
+    const users = chain.filter(c => c.role === 'prompter').reverse().map(c => c.text)
+    if (users.length < minUserTurns) continue
+    paths.set(m.message_tree_id, [...(paths.get(m.message_tree_id) ?? []), users])
+  }
+  const rows: Row[] = []
+  for (const [treeId, candidates] of paths) {
+    const lang = byId.get(treeId)?.lang ?? 'other'
+    const best = onePerGroup(candidates.map(turns => ({ text: turns.join('\n\n'), turns, group: treeId })))[0]!
+    rows.push(conversationRow(best.turns, 0, lang === 'en' ? 'en' : 'other'))
+  }
+  return rows
+}
+
+const SAFEMT_REVISION = '04af7bd0b6b6044e797e936d79674e348316b9b8'
+const GIBBS_REVISION = 'e3b30257c4d6be5438ea19f0989ac82c24234fe4'
+const OASST_MULTITURN_SIZE = 1000
+
+async function pinnedRevision(dataset: string, pinned: string): Promise<string> {
+  const rev = await hfRevision(dataset)
+  if (rev !== pinned) throw new Error(`${dataset} is at ${rev}, pinned ${pinned}: review the change before re-pinning`)
+  return rev
+}
 
 const FETCHERS: Record<string, () => Promise<void>> = {
   /** databricks-dolly-15k: a fixed stratified sample of the benign instructions, for the FPR gate. */
@@ -367,6 +518,47 @@ const FETCHERS: Record<string, () => Promise<void>> = {
     write('oasst1-sample.json',
       `OpenAssistant/oasst1 (2023-04-12_oasst_ready.messages): a fixed ${OASST_SAMPLE_SIZE}-row stratified sample (by language group x opening/follow-up turn, lowest sha256 within each) of the ${turns.length} user turns that passed the dataset's own review, label 0 (benign-only, FPR-only). HELD OUT: never tune detection against it. Regenerate with scripts/fetch-eval-data.ts oasst1-sample.`,
       OASST_REVISION, 'injection', rows,
+      { _license: 'Apache-2.0. Source: OpenAssistant/oasst1, https://huggingface.co/datasets/OpenAssistant/oasst1. This derived file (user-turn text only, sampled) is redistributed under the same licence.' })
+  },
+
+  /** SafeMTData Attack_600 (ActorAttack): 600 five-turn escalations toward a harmful request, recall only (#540). */
+  'safemt-attack-600': async () => {
+    const dataset = 'SafeMTData/SafeMTData'
+    const rev = await pinnedRevision(dataset, SAFEMT_REVISION)
+    const all = await getJson(`https://huggingface.co/datasets/${dataset}/resolve/${rev}/SafeMTData/Attack_600.json`) as Array<{ category: string; multi_turn_queries: string[] }>
+    const rows = all
+      .filter(r => Array.isArray(r.multi_turn_queries) && r.multi_turn_queries.length > 1)
+      .map(r => conversationRow(r.multi_turn_queries.map(String), 1, r.category))
+    write('safemt-attack-600.json',
+      `SafeMTData/SafeMTData Attack_600.json (ActorAttack, arXiv 2410.10700): ${rows.length} multi-turn conversations that approach a HarmBench-style harmful goal through questions about a related actor, user turns only, all label 1 (recall-only). HELD OUT: never open its rows or tune detection against it. Regenerate with scripts/fetch-eval-data.ts safemt-attack-600.`,
+      rev, 'multi-turn', rows,
+      { _license: `MIT. Source: SafeMTData/SafeMTData, https://huggingface.co/datasets/${dataset}. This derived file (user turns and category only) is redistributed under the same licence.` })
+  },
+
+  /** tom-gibbs multi-turn jailbreaks: cipher conversations, harmful and two matched benign controls (#540). */
+  'multiturn-cipher': async () => {
+    const dataset = 'tom-gibbs/multi-turn_jailbreak_attack_datasets'
+    const rev = await pinnedRevision(dataset, GIBBS_REVISION)
+    const rows: Row[] = []
+    for (const [file, label, cls] of [['Harmful Dataset.csv', 1, 'harmful'], ['Completely-Benign Dataset.csv', 0, 'benign'], ['Semi-Benign Dataset.csv', 0, 'semi-benign']] as const) {
+      const csv = csvObjects(await getText(`https://huggingface.co/datasets/${dataset}/resolve/${rev}/${encodeURIComponent(file)}`))
+      rows.push(...onePerGroup(csv.map(r => ({ ...conversationRow(gibbsUserTurns(r['Multi-turn conversation'] ?? '[]'), label, cls), group: r['Goal ID'] ?? '' }))))
+    }
+    write('multiturn-cipher.json',
+      `tom-gibbs/multi-turn_jailbreak_attack_datasets (Harmful, Completely-Benign and Semi-Benign input-only CSVs): the user turns of each multi-turn conversation, which spreads a word-substitution cipher over several turns before the request. One conversation per goal (lowest sha256 of its text) of the eight the dataset holds per goal. label 1 = harmful goal, label 0 = the dataset's two benign controls built the same way (semi-benign uses harmful words for a benign goal). HELD OUT: never open its rows or tune detection against it. Regenerate with scripts/fetch-eval-data.ts multiturn-cipher.`,
+      rev, 'multi-turn', rows,
+      { _license: `MIT. Source: tom-gibbs/multi-turn_jailbreak_attack_datasets, https://huggingface.co/datasets/${dataset}. This derived file (user turns only, one conversation per goal) is redistributed under the same licence.` })
+  },
+
+  /** OpenAssistant oasst1: benign conversations of three or more user turns, the multi-turn FPR side (#540). */
+  'oasst1-multiturn': async () => {
+    const gz = await getBuffer(`https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/${OASST_REVISION}/2023-04-12_oasst_ready.messages.jsonl.gz`)
+    const messages = gunzipSync(gz).toString('utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as OasstTreeMessage)
+    const all = oasstConversations(messages)
+    const rows = stratifiedSample(all, OASST_MULTITURN_SIZE)
+    write('oasst1-multiturn.json',
+      `OpenAssistant/oasst1 (2023-04-12_oasst_ready.messages): a fixed ${rows.length}-conversation stratified sample (by the opening turn's language group, lowest sha256 within each) of the ${all.length} message trees with a path of at least three user turns that passed the dataset's own review, one path per tree, user turns only, label 0 (benign-only, FPR-only). HELD OUT: never tune detection against it. Regenerate with scripts/fetch-eval-data.ts oasst1-multiturn.`,
+      OASST_REVISION, 'multi-turn', rows,
       { _license: 'Apache-2.0. Source: OpenAssistant/oasst1, https://huggingface.co/datasets/OpenAssistant/oasst1. This derived file (user-turn text only, sampled) is redistributed under the same licence.' })
   },
 

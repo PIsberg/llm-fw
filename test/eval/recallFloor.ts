@@ -2,8 +2,9 @@
  * Direct-injection recall floor gate.
  *
  * Runs the direct-injection splits (gandalf, safeguard, deepset, heldout,
- * jailbreak-classification) and the identifier-free indirect-injection probe
- * (#535) through the cheap pipeline, the default config with the judge and the
+ * jailbreak-classification), the identifier-free indirect-injection probe
+ * (#535), the multilingual split (#536) and the multi-turn splits (#540)
+ * through the cheap pipeline, the default config with the judge and the
  * classifier off, and fails when any split blocks fewer attacks than its floor
  * in lib/recallFloor.ts. The accuracy gate cannot see this: it runs its own
  * co-tuned corpus. The nightly drift gate compares with a moving median, so a
@@ -20,7 +21,7 @@ import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { RULESET_VERSION } from '../../src/detection/ruleset.js'
 import { loadAll } from '../../scripts/run-benchmark.js'
 import { anthropicRequestFor } from './lib/surfaces.js'
-import { DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, MULTILINGUAL_RECALL_FLOORS, evaluateRecallFloor, countUnseen, type SplitCount, type RecallFloor } from './lib/recallFloor.js'
+import { DIRECT_RECALL_FLOORS, INDIRECT_RECALL_FLOORS, MULTILINGUAL_RECALL_FLOORS, MULTI_TURN_RECALL_FLOORS, evaluateRecallFloor, countUnseen, type SplitCount, type RecallFloor } from './lib/recallFloor.js'
 import { SEEN_ROWS } from './lib/seenRows.js'
 
 async function main(): Promise<void> {
@@ -32,7 +33,7 @@ async function main(): Promise<void> {
 
   const counts: Record<string, SplitCount> = {}
   const unseen: Record<string, SplitCount> = {}
-  const floors: Record<string, RecallFloor> = { ...DIRECT_RECALL_FLOORS, ...INDIRECT_RECALL_FLOORS, ...MULTILINGUAL_RECALL_FLOORS }
+  const floors: Record<string, RecallFloor> = { ...DIRECT_RECALL_FLOORS, ...INDIRECT_RECALL_FLOORS, ...MULTILINGUAL_RECALL_FLOORS, ...MULTI_TURN_RECALL_FLOORS }
   for (const dataset of loadAll().filter(d => d.name in floors)) {
     const attackRows = dataset.rows.flatMap((r, i) => (r.label === 1 ? [i] : []))
     const blocked = new Set<number>()
@@ -84,16 +85,25 @@ async function main(): Promise<void> {
     console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})`)
   }
 
+  console.log('Multi-turn recall floor (whole conversations, #540)')
+  for (const [name, floor] of Object.entries(MULTI_TURN_RECALL_FLOORS)) {
+    const c = counts[name]
+    const benign = floor.benign && c ? `  benign blocked ${c.benignBlocked ?? 0}/${c.benign ?? 0} (ceiling ${floor.benign.maxBlocked})` : ''
+    console.log(`  ${name.padEnd(30)} ${c ? `${c.blocked}/${c.attacks}` : 'not run'}  (floor ${floor.minBlocked})${benign}`)
+  }
+
   const direct = evaluateRecallFloor(counts, DIRECT_RECALL_FLOORS)
   const indirect = evaluateRecallFloor(counts, INDIRECT_RECALL_FLOORS)
   const multilingual = evaluateRecallFloor(counts, MULTILINGUAL_RECALL_FLOORS)
-  for (const name of [...direct.improved, ...indirect.improved, ...multilingual.improved]) {
+  const multiTurn = evaluateRecallFloor(counts, MULTI_TURN_RECALL_FLOORS)
+  for (const name of [...direct.improved, ...indirect.improved, ...multilingual.improved, ...multiTurn.improved]) {
     console.log(`::notice::${name} clears its floor or ceiling by more than the margin: tighten it in test/eval/lib/recallFloor.ts`)
   }
-  if (!direct.passed || !indirect.passed || !multilingual.passed) {
+  if (!direct.passed || !indirect.passed || !multilingual.passed || !multiTurn.passed) {
     for (const f of direct.failures) console.log(`::error::direct-injection recall below floor: ${f}`)
     for (const f of indirect.failures) console.log(`::error::indirect-injection recall below floor: ${f}`)
     for (const f of multilingual.failures) console.log(`::error::multilingual recall below floor: ${f}`)
+    for (const f of multiTurn.failures) console.log(`::error::multi-turn recall below floor: ${f}`)
     console.log('Find the rows that moved: npm run verdicts:dump on the base and the branch, then npm run verdicts:diff.')
     process.exit(1)
   }

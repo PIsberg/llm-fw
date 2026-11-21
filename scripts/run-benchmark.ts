@@ -51,7 +51,7 @@ const __dir = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dir, '..', 'test', 'eval', 'data')
 
 export type Row = EvalRow
-export type Threat = 'injection' | 'harmful-content' | 'indirect-injection'
+export type Threat = 'injection' | 'harmful-content' | 'indirect-injection' | 'multi-turn'
 export interface Dataset { name: string; threat: Threat; revision?: string; rows: Row[] }
 
 /** Load every *.json in the eval data dir that has a labelled `rows` array, so
@@ -181,11 +181,12 @@ async function evalDataset(pipeline: Pipeline, ds: Dataset): Promise<DsResult> {
   return { tp, fn, tn, fp, recall, fpr, p50, missed, falsePos, perClass }
 }
 
-const THREAT_ORDER: Threat[] = ['injection', 'indirect-injection', 'harmful-content']
+const THREAT_ORDER: Threat[] = ['injection', 'indirect-injection', 'harmful-content', 'multi-turn']
 const THREAT_LABEL: Record<Threat, string> = {
   'injection': 'PROMPT INJECTION (user-prompt surface)',
   'indirect-injection': 'INDIRECT INJECTION (tool_result surface)',
   'harmful-content': 'HARMFUL CONTENT / JAILBREAK REQUESTS (different threat model — do not average with injection)',
+  'multi-turn': 'MULTI-TURN CONVERSATIONS (whole conversation in one request, #540)',
 }
 
 /** One split's result in the `--json` shape, which an isolated child also prints. */
