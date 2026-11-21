@@ -58,4 +58,12 @@ export const SEEN_ROWS: Readonly<Record<string, ReadonlyArray<readonly [number, 
     // with the maintainer's approval to write a stage 1 rule of their shape.
     [0, '#511'], [2, '#511'],
   ],
+  'multiturn-cipher': [
+    // #833: the turn layout (one "word - word" pair per turn, then the
+    // request) read off these two rows and the first benign control (517,
+    // which this list cannot hold) with every word masked to "x". No word of
+    // them was read; the decoder was written from that layout and tested on
+    // fresh pairs.
+    [0, '#833, layout only'], [7, '#833, layout only'],
+  ],
 }

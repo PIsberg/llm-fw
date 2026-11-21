@@ -25,7 +25,7 @@ describe('seen held-out rows', () => {
 
   it('lists only held-out splits', () => {
     for (const split of Object.keys(SEEN_ROWS)) {
-      expect(['gandalf-ignore-instructions', 'safeguard-prompt-injection', 'deepset-prompt-injections', 'heldout', 'injecagent']).toContain(split)
+      expect(['gandalf-ignore-instructions', 'safeguard-prompt-injection', 'deepset-prompt-injections', 'heldout', 'injecagent', 'multiturn-cipher']).toContain(split)
     }
   })
 })

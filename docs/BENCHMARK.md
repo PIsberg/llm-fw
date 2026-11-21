@@ -96,7 +96,9 @@ instruction-override):
 **Multi-turn conversations** (#540: the whole conversation in one request, the
 way a client resends it each turn, user turns only with the same short assistant
 reply between them, so attack and benign rows reach the pipeline alike). All
-three are held out: nobody has read their rows.
+three are held out: nobody has read their rows, except the turn layout of two
+multiturn-cipher attacks with every word masked, for #833
+(`test/eval/lib/seenRows.ts`).
 
 - **safemt-attack-600**: `SafeMTData/SafeMTData` `Attack_600.json` (rev
   `04af7bd0b6b6`, MIT), the ActorAttack paper's (arXiv 2410.10700) 600
@@ -119,6 +121,13 @@ attacks, embedding on 1); the crescendo detector, on by default, blocked none,
 since its signature (a final turn that demands the full or working answer,
 after harmful vocabulary) is not how either attack ends. `npm run
 recall:floor` gates all three.
+
+Ruleset 2026.11.79 (#833) decodes a word-substitution cipher spread over turns
+and reads the decoded request: multiturn-cipher 45 to 332 of 517 (64.2%), its
+benign controls 17 to 23 of 300 (the 6 new ones semi-benign), the other two
+splits unchanged. The decoder was written from the cipher's turn layout, read
+off two masked rows, so this split measures it less independently than the
+other two.
 
 **PINT** (Lakera): not included — the repo publishes the harness but the
 4,314-input dataset is part-proprietary and available only on request to

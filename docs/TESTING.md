@@ -26,7 +26,7 @@ A fifth split, `jailbreak-classification` (`jackhhao/jailbreak-classification`, 
 
 `multilingual-injections` (`yanismiraoui/prompt_injections`, added 2026-11-03, #536) has a floor of its own: 974 attacks in seven languages, 255 blocked on Windows. It is attacks only, kept out of the pooled direct total, and its rows are unread.
 
-The three multi-turn splits (#540, see [BENCHMARK.md](BENCHMARK.md)) have floors of their own too: `safemt-attack-600` (73 of 600 blocked), `multiturn-cipher` (45 of 517, and a ceiling on its 300 benign controls, 17 blocked) and `oasst1-multiturn` (a ceiling on 1,000 benign threads, 1 blocked). A row with a `turns` field is sent as one request holding the whole conversation (`anthropicRequestFor` in `test/eval/lib/surfaces.ts`), so every tool that runs eval rows sends it the same way. Their rows are unread.
+The three multi-turn splits (#540, see [BENCHMARK.md](BENCHMARK.md)) have floors of their own too: `safemt-attack-600` (73 of 600 blocked), `multiturn-cipher` (332 of 517 since ruleset 2026.11.79, and a ceiling on its 300 benign controls, 23 blocked) and `oasst1-multiturn` (a ceiling on 1,000 benign threads, 1 blocked). A row with a `turns` field is sent as one request holding the whole conversation (`anthropicRequestFor` in `test/eval/lib/surfaces.ts`), so every tool that runs eval rows sends it the same way. Their rows are unread.
 
 `npm run fpr` also reads `test/eval/data/local/operator-feedback.json` when it exists (`llm-fw feedback-export`, #542): your own recorded false positives, report-only and never in CI.
 
