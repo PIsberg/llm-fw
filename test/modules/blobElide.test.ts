@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import crypto from 'node:crypto'
 import { BlobElideModule, elideBlobs } from '../../src/modules/builtin/blobElide.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
 const b64 = (chars: number, seed = 1) => crypto.createHash('sha512').update(String(seed)).digest().toString('base64').replace(/=/g, '').repeat(Math.ceil(chars / 86)).slice(0, chars)
@@ -40,13 +41,11 @@ describe('elideBlobs', () => {
     expect(elideBlobs(word, 2048)).toBe(word)
   })
 
-  it('stays linear on runs just shorter than the minimum', () => {
+  it('stays linear on runs just shorter than the minimum', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // With the length inside the pattern, a 2,047-character run was rescanned
     // from every start position: quadratic per run.
     const text = (b64(2047) + ' ').repeat(250)
-    const t0 = performance.now()
-    expect(elideBlobs(text, 2048)).toBe(text)
-    expect(performance.now() - t0).toBeLessThan(500)
+    expect(underMs(500, () => { expect(elideBlobs(text, 2048)).toBe(text) })).toBeLessThan(500)
   })
 })
 

@@ -4,6 +4,7 @@
 // this rule; none comes from a held-out split.
 import { describe, it, expect } from 'vitest'
 import { detectSecretFileExfil } from '../../src/detection/secretFileExfil.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 describe('detectSecretFileExfil: covert credential-file tasks', () => {
   const attacks: [string, string][] = [
@@ -89,10 +90,8 @@ describe('detectSecretFileExfil: linear time', () => {
     ['repeated paths and verbs, no destination', 'post ~/.ssh/id_rsa and '.repeat(8_000)],
   ]
   for (const [name, text] of inputs) {
-    it(`scans 200 KB of ${name} in under 200 ms`, () => {
-      const t0 = performance.now()
-      detectSecretFileExfil(text)
-      expect(performance.now() - t0).toBeLessThan(200)
+    it(`scans 200 KB of ${name} in under 200 ms`, { timeout: LINEAR_TIME_TIMEOUT }, () => {
+      expect(underMs(200, () => detectSecretFileExfil(text))).toBeLessThan(200)
     })
   }
 })

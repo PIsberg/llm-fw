@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { detectMemoryPoisoning, extractMemoryBlocks } from '../../src/detection/memoryPoisoning.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 /**
  * Memory poisoning is injection with a lifecycle: written once, replayed as
@@ -235,10 +236,8 @@ describe('stays linear on long input', () => {
     ['secret nouns', () => 'key '.repeat(KB200 / 4)],
     ['negations without redact', () => "never don't ".repeat(KB200 / 12)],
     ['negated redacts with no object', () => 'never redact '.repeat(KB200 / 13)],
-  ])('scans 200 KB of %s in under 1.5 s', (_label, make) => {
+  ])('scans 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
     const text = make()
-    const start = performance.now()
-    detectMemoryPoisoning(text)
-    expect(performance.now() - start).toBeLessThan(1500)
+    expect(underMs(1500, () => detectMemoryPoisoning(text))).toBeLessThan(1500)
   })
 })

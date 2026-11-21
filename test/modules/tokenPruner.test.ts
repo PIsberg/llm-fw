@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { TokenPrunerModule, pruneText, estimateTokens } from '../../src/modules/builtin/tokenPruner.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 describe('pruneText — natural language prose', () => {
   it('collapses multiple horizontal spaces and tabs into a single space', () => {
@@ -255,23 +256,19 @@ describe('pruneText — leading indentation outside code fences', () => {
 })
 
 describe('pruneText — bounded cost on adversarial input', () => {
-  it('handles many unclosed brace lines without quadratic rescans', () => {
+  it('handles many unclosed brace lines without quadratic rescans', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // 80k lines that each open a JSON candidate. The first cut's lazy regex
     // rescanned to the end of the text from every one of them: measured 92,
     // 363 and 1440 ms at 40, 80 and 160 KB, all on the event loop.
     const input = '{\n'.repeat(80_000) + 'tail'
-    const t0 = performance.now()
-    pruneText(input)
-    expect(performance.now() - t0).toBeLessThan(300)
+    expect(underMs(300, () => pruneText(input))).toBeLessThan(300)
   })
 
-  it('trims fenced code lines without rescanning an interior run of spaces', () => {
+  it('trims fenced code lines without rescanning an interior run of spaces', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // /[^\S\r\n]+$/ restarted at every space of a run that does not reach
     // the end of the line: 1,109 ms for one 40,000-space run.
     const input = '```\nx' + ' '.repeat(40_000) + 'y  \n```'
-    const t0 = performance.now()
-    expect(pruneText(input)).toBe('```\nx' + ' '.repeat(40_000) + 'y\n```')
-    expect(performance.now() - t0).toBeLessThan(500)
+    expect(underMs(500, () => { expect(pruneText(input)).toBe('```\nx' + ' '.repeat(40_000) + 'y\n```') })).toBeLessThan(500)
   })
 })
 

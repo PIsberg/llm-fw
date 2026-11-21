@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { ToolFilterModule } from '../../src/modules/builtin/toolFilter.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
 
@@ -45,12 +46,11 @@ describe('ToolFilterModule', () => {
 
   // dropTools is turned into a matcher, so a pattern with many stars must not
   // backtrack on a long name that almost matches.
-  it('stays linear on a many-star pattern against a long near-miss name', () => {
+  it('stays linear on a many-star pattern against a long near-miss name', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const long = 'a'.repeat(4000)
     const body = JSON.stringify({ tools: [tool(long), tool('Keep')], messages: [{ role: 'user', content: 'hi' }] })
-    const started = performance.now()
+    expect(underMs(250, () => filter(['a*a*a*a*a*a*a*a*a*a*b']).transformRequest(body, ctx))).toBeLessThan(250)
     const res = filter(['a*a*a*a*a*a*a*a*a*a*b']).transformRequest(body, ctx)
-    expect(performance.now() - started).toBeLessThan(250)
     expect(res.modified).toBe(false)
   })
 
@@ -286,15 +286,14 @@ describe('ToolFilterModule shortenTools', () => {
   // with 4,000 parameter descriptions: about 1 MB of definitions. A cut that
   // rescanned the text per position, or a walk that revisited nodes, takes
   // far longer than the second this allows.
-  it('stays linear on a huge description and a deep, wide schema', () => {
+  it('stays linear on a huge description and a deep, wide schema', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const wordy = (lead: string) => `${lead}\n\n${'x'.repeat(200)}`
     let schema: Record<string, unknown> = { type: 'string', description: wordy('Leaf.') }
     for (let i = 0; i < 200; i++) schema = { type: 'object', properties: { p: schema, ...Object.fromEntries(Array.from({ length: 20 }, (_, n) => [`q${n}`, { type: 'string', description: wordy('Wide.') }])) } }
     const body = JSON.stringify({ tools: [small('Bash'), { name: 'Deep', description: `${' \n'.repeat(100_000)}x`, input_schema: schema }], messages: [{ role: 'user', content: 'hi' }] })
     const mod = shortener(['Deep'])
-    const started = performance.now()
+    expect(underMs(1000, () => mod.transformRequest(body, ctx))).toBeLessThan(1000)
     const res = mod.transformRequest(body, ctx)
-    expect(performance.now() - started).toBeLessThan(1000)
     expect(res.modified).toBe(true)
     const deep = JSON.parse(res.body).tools[1]
     expect(deep.description).toBe('x [llm-fw: description shortened]')
@@ -452,15 +451,14 @@ describe('ToolFilterModule dropSkills', () => {
   })
 
   // 200 KB of entries, of continuation lines, and of header copies: one pass each.
-  it('stays linear on a huge listing and on repeated headers', () => {
+  it('stays linear on a huge listing and on repeated headers', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const many = Array.from({ length: 4000 }, (_, i) => `- skill-${i}: ${'does a thing. '.repeat(3)}`)
     const longEntry = `- wordy: start\n${'more\n'.repeat(40_000)}- last: end`
     const headers = `${header}\n`.repeat(3000)
     const body = request([typed, systemMessage(listing(many)), systemMessage(`${header}\n\n${longEntry}\n\nend`), systemMessage(headers)])
     const mod = skills(['skill-1*', 'wordy'])
-    const started = performance.now()
+    expect(underMs(1000, () => mod.transformRequest(body, ctx))).toBeLessThan(1000)
     const res = mod.transformRequest(body, ctx)
-    expect(performance.now() - started).toBeLessThan(1000)
     expect(textOf(res.body, 2)).toBe(`${header}\n\n- last: end\n\nend`)
     expect(textOf(res.body)).not.toContain('- skill-1:')
     expect(textOf(res.body)).toContain('- skill-2:')

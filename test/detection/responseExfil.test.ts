@@ -141,11 +141,14 @@ describe('scanResponseExfil', () => {
             const text = filler.repeat(Math.ceil((kb * 1024) / filler.length))
             return wrap === 'raw' ? text : JSON.stringify({ text })
           }
-          const best = (text: string) => Math.min(timed(text), timed(text), timed(text))
-          const small = best(at(100))
-          const large = best(at(400))
-          // Twice the room a linear scan needs, and a floor for timer noise.
-          expect(large, `${filler}: ${small} ms at 100 KB, ${large} ms at 400 KB`).toBeLessThan(small * 4 * 2 + 150)
+          const small = Math.min(timed(at(100)), timed(at(100)), timed(at(100)))
+          // Twice the room a linear scan needs, and a floor for timer noise. The
+          // larger size retries up to ten times (#754): a load burst during three
+          // runs failed it, and a quadratic scan is over the ceiling on every run.
+          const ceiling = small * 4 * 2 + 150
+          const text400 = at(400)
+          const large = underMs(ceiling, () => scanResponseExfil(text400, isExfil))
+          expect(large, `${filler}: ${small} ms at 100 KB, ${large} ms at 400 KB`).toBeLessThan(ceiling)
           // These shapes hold 50,000 destinations to parse, so the ceiling has to
           // leave room for a loaded machine. The old code took 18 s at 200 KB.
           expect(large, filler).toBeLessThan(10_000)

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { unwrapClaudeCodeEnvelope, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from '../../src/detection/clientEnvelopes.js'
 import { AnthropicParser } from '../../src/detection/parsers.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 // The envelopes are matched on attacker-reachable text (any user turn can
 // start with the same tags), on the thread that serves every request, so each
@@ -29,11 +30,9 @@ describe('client envelopes: linear time on long unclosed shapes', () => {
     ['blank lines before a notification end', () => `<task-notification>\n<task-id>a</task-id>${fill('\n \t')}\n</task-notification>`],
     ['repeated Monitor trailers', () => `<task-notification>\n<task-id>a</task-id>${fill("\nIf this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.")}x\n</task-notification>`],
     ['a long Monitor summary', () => `<task-notification>\n<summary>Monitor "${fill('"a')}" stream ended</summary>\n</task-notification>`],
-  ])('unwraps 200 KB of %s in under 1.5 s', (_label, make) => {
+  ])('unwraps 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
     const text = make()
-    const t0 = performance.now()
-    unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), 'claude-code')
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => unwrapClaudeCodeEnvelope(unwrapCodexEnvironment(unwrapCodexEnvelope(text)), 'claude-code'))).toBeLessThan(1500)
   })
 })
 
@@ -46,19 +45,15 @@ describe("Claude Code's tool-result frames: linear time on attacker-shaped outpu
     ['worktree lines', () => `x\nagentId: a1 (use SendMessage with to: 'a1', summary: '<5-10 word recap>' to continue this agent)\nworktreePath: ${fill('a')}`],
     ['blank lines before a trailer', () => `${fill('  \n')}\n${TRAILER}`],
     ['a long tools line', () => `<tools-used-before-summary>${fill('Read, ')}</tools-used-before-summary>\n${TRAILER}`],
-  ])('unwraps 200 KB of %s in under 1.5 s', (_label, make) => {
+  ])('unwraps 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
     const text = make()
-    const t0 = performance.now()
-    unwrapClaudeCodeToolResult(text, 'Agent')
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => unwrapClaudeCodeToolResult(text, 'Agent'))).toBeLessThan(1500)
   })
 
-  it('checks a 2 MB base64 "image" in under 1.5 s', () => {
+  it('checks a 2 MB base64 "image" in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const data = Buffer.alloc(1_500_000, 0x41).toString('base64')
     const body = JSON.stringify({ messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: `${data}!` } }] }] }] })
-    const t0 = performance.now()
-    new AnthropicParser().extractToolResults(body)
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => new AnthropicParser().extractToolResults(body))).toBeLessThan(1500)
   })
 })
 

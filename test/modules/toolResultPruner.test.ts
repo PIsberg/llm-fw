@@ -3,6 +3,7 @@ import { ToolResultPrunerModule, collapseLibraryStackFrames, groupFileMatches } 
 import { minifyJsonText } from '../../src/modules/json.js'
 import type { GatewayModuleContext } from '../../src/modules/types.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
 const on = (extra: Record<string, boolean> = {}) => ({ enabled: true, minifyJson: true, trimTrailing: true, collapseSpaceRuns: false, collapseStackFrames: false, ...extra })
@@ -51,13 +52,11 @@ describe('ToolResultPrunerModule', () => {
       .toBe('NAME STATUS AGE\nweb-1 Running 3d\n  indented line')
   })
 
-  it('trims in one pass, however long an interior run of spaces is', () => {
+  it('trims in one pass, however long an interior run of spaces is', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // [ \t]+(?=\r?\n|$) restarted at every space of a run that does not end
     // the line: 3,052 ms for one 40,000-space run.
     const line = 'x' + ' '.repeat(40_000) + 'y'
-    const t0 = performance.now()
-    expect(run(new ToolResultPrunerModule(on({ minifyJson: false })), line + ' \r\n' + line).result).toBe(line + '\r\n' + line)
-    expect(performance.now() - t0).toBeLessThan(500)
+    expect(underMs(500, () => { expect(run(new ToolResultPrunerModule(on({ minifyJson: false })), line + ' \r\n' + line).result).toBe(line + '\r\n' + line) })).toBeLessThan(500)
   })
 
   it('applies each technique only when its option is on', () => {

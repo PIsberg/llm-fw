@@ -93,7 +93,10 @@ against a fixed ceiling takes up to ten runs and stops at the first under it (`u
 in `test/linearTime.ts`): fastest of three still let one run reach 560 ms against 500
 under the full suite. A load burst rarely spans ten runs, and a quadratic scan is over
 the ceiling on every one. A test whose ceiling is a ratio to a small input takes the
-fastest of three (`fastestMs`). Both set
+fastest of three (`fastestMs`) at the small size, and retries the large size with
+`underMs` against the ceiling that sets. Every timing test under `test/` goes through
+one of the two; the only `performance.now()` pairs left bound a hang or an async
+pipeline run, not a scan. Both set
 `{ timeout: LINEAR_TIME_TIMEOUT }` so the budget bounds a hang rather than measuring speed.
 
 The default run skips nothing. The OCR (`image-attacks.test.ts`) and speech

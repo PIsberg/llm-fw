@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { duplicateKey } from '../../src/detection/jsonStrict.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 // JSON.parse keeps the LAST value of a repeated key. A provider whose parser
 // keeps the first would act on text the pipeline never scanned, so a body
@@ -37,12 +38,10 @@ describe('duplicateKey', () => {
     expect(duplicateKey('{"a\\"b":1,"a":2,"b":"\\"a\\":3"}')).toBeNull()
   })
 
-  it('reads a multi-megabyte body in linear time', () => {
+  it('reads a multi-megabyte body in linear time', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const messages = Array.from({ length: 20_000 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `turn ${i} `.repeat(30) }))
     const body = JSON.stringify({ model: 'm', messages })
     expect(body.length).toBeGreaterThan(5_000_000)
-    const t0 = performance.now()
-    expect(duplicateKey(body)).toBeNull()
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => { expect(duplicateKey(body)).toBeNull() })).toBeLessThan(1500)
   })
 })
