@@ -47,6 +47,38 @@ describe('ChunkedDecoder', () => {
     expect(dec.finished).toBe(true)
   })
 
+  // #670: a kept-alive upstream connection is handed to the next request only
+  // once the whole message is read, the CRLF after the trailers included; a
+  // byte left over would open the next response.
+  it('is complete only once the trailer section has ended, however the bytes arrive', () => {
+    const dec = new ChunkedDecoder()
+    dec.push(Buffer.from('3\r\nabc\r\n0\r\n'))
+    expect(dec.finished).toBe(true)
+    expect(dec.complete).toBe(false)
+    dec.push(Buffer.from('X-Tr'))
+    dec.push(Buffer.from('ailer: junk\r\n'))
+    expect(dec.complete).toBe(false)
+    dec.push(Buffer.from('\r\n'))
+    expect(dec.complete).toBe(true)
+    expect(dec.excess).toBe(0)
+  })
+
+  it('counts bytes after the end of the message as excess', () => {
+    const dec = new ChunkedDecoder()
+    expect(dec.push(Buffer.from('2\r\nhi\r\n0\r\n\r\nHTTP')).toString('utf8')).toBe('hi')
+    expect(dec.complete).toBe(true)
+    expect(dec.excess).toBe(4)
+    dec.push(Buffer.from('/1.1'))
+    expect(dec.excess).toBe(8)
+  })
+
+  it('never calls a message with a malformed size line complete', () => {
+    const dec = new ChunkedDecoder()
+    dec.push(Buffer.from('zz\r\n\r\n\r\n'))
+    expect(dec.finished).toBe(true)
+    expect(dec.complete).toBe(false)
+  })
+
   it('returns empty buffer when no complete chunk is available yet', () => {
     const dec = new ChunkedDecoder()
     expect(dec.push(Buffer.from('5\r\nhel')).toString('utf8')).toBe('hel')

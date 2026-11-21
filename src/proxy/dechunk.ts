@@ -15,10 +15,25 @@ export class ChunkedDecoder {
   private buf: Buffer = Buffer.alloc(0)
   private need = 0          // bytes left in the current chunk's data
   private afterData = false // expecting the CRLF that terminates chunk data
+  /** The zero-length chunk has been read: the payload is all here. */
   finished = false
+  /**
+   * The trailer section after it has ended too, so the whole message is read
+   * and a kept-alive connection could carry the next one (#670).
+   */
+  complete = false
+  /** Bytes received after the message ended; a connection with any is not reused. */
+  excess = 0
+  /** A size line that was not hex: never complete, so the connection is not reused. */
+  private malformed = false
 
   push(raw: Buffer): Buffer {
+    if (this.complete) { this.excess += raw.length; return Buffer.alloc(0) }
     this.buf = this.buf.length ? Buffer.concat([this.buf, raw]) : raw
+    if (this.finished) {
+      if (!this.malformed) this.readTrailers()
+      return Buffer.alloc(0)
+    }
     const out: Buffer[] = []
     for (;;) {
       if (this.afterData) {
@@ -42,9 +57,25 @@ export class ChunkedDecoder {
       const sizeHex = (this.buf.subarray(0, idx).toString('ascii').split(';')[0] ?? '').trim()
       const size = parseInt(sizeHex, 16)
       this.buf = this.buf.subarray(idx + 2)
-      if (Number.isNaN(size) || size === 0) { this.finished = true; break }
+      if (Number.isNaN(size)) { this.finished = true; this.malformed = true; break }
+      if (size === 0) { this.finished = true; this.readTrailers(); break }
       this.need = size
     }
     return out.length ? Buffer.concat(out) : Buffer.alloc(0)
+  }
+
+  /** Skip trailer lines up to the empty line that ends the message. */
+  private readTrailers(): void {
+    for (;;) {
+      const idx = this.buf.indexOf('\r\n')
+      if (idx === -1) return
+      this.buf = this.buf.subarray(idx + 2)
+      if (idx === 0) {
+        this.complete = true
+        this.excess = this.buf.length
+        this.buf = Buffer.alloc(0)
+        return
+      }
+    }
   }
 }
