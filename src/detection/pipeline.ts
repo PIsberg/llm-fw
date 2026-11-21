@@ -503,13 +503,13 @@ export class Pipeline {
       // turn is read by the harmful-request detector, so a cipher counts as a
       // crescendo only when what it hides is a request that blocks plain.
       const cipher = cr.severity === 'none' ? decodeSubstitutionCipher(conversation) : null
-      const cipherHit = cipher?.decoded.some(t => detectHarmfulRequest(t) !== null) === true
+      const cipherHit = cipher !== null && (cipher.overflow || cipher.decoded.some(t => detectHarmfulRequest(t) !== null))
       const severity = cipherHit ? (this.config.crescendo.mode === 'block' ? 'block' : 'warn') : cr.severity
 
       if (severity === 'block' || severity === 'warn') {
         const finalText = conversation.filter(t => t.role === 'user').pop()?.text ?? ''
         const line = cipherHit
-          ? `[crescendo: ${cipher?.pairs ?? 0} substitution pairs decode to a harmful request] ${finalText.slice(0, 80)}`
+          ? `[crescendo: ${cipher?.pairs ?? 0} substitution pairs ${cipher?.overflow ? 'decode past the growth bound' : 'decode to a harmful request'}] ${finalText.slice(0, 80)}`
           : `[crescendo: ${cr.userTurns} turns escalating to harmful] ${finalText.slice(0, 80)}`
         if (severity === 'block') {
           const result: PipelineResult = { action: 'block', stage: 'crescendo', score: 100, similarity: 0, prompt: finalText }

@@ -13,7 +13,8 @@
 // it takes MIN_PAIRS of them. Every scan is linear: lines are parsed only up to
 // MAX_PAIR_LINE characters, decoding is one pass over the last turn's words
 // with a map lookup per word, whatever the number of pairs, and it adds at most
-// MAX_DECODE_GROWTH characters.
+// MAX_DECODE_GROWTH characters; past that it reports an overflow rather than
+// leave the rest undecoded and call it clean.
 
 import type { ConversationTurn } from '../types.js'
 
@@ -43,6 +44,12 @@ export interface SubstitutionDecode {
   pairs: number
   /** The last user turn decoded each way round, where that changed it. */
   decoded: string[]
+  /**
+   * Decoding would have added more than MAX_DECODE_GROWTH characters, so part
+   * of the last turn is undecoded. No ordinary conversation gets here; treat it
+   * as the attack it looks like rather than read the rest as clean.
+   */
+  overflow: boolean
 }
 
 const words = (s: string): string[] => s.match(WORD) ?? []
@@ -76,10 +83,11 @@ const key = (ws: readonly string[]): string => ws.join(' ').toLowerCase()
 /**
  * Replace every whole-word run of a map key in `text`, longest key first at
  * each word, keys of up to MAX_SIDE_WORDS words separated by whitespace only.
- * Once the replacements have added MAX_DECODE_GROWTH characters, the rest is
- * copied as it is.
+ * Once a replacement would take the growth past MAX_DECODE_GROWTH it stops and
+ * reports an overflow: the rest is not decoded, so the caller must not read
+ * the text as clean.
  */
-function substitute(text: string, map: ReadonlyMap<string, string>): string {
+function substitute(text: string, map: ReadonlyMap<string, string>): { text: string; overflow: boolean } {
   const spans: Array<{ word: string; start: number; end: number }> = []
   for (const m of text.matchAll(WORD)) spans.push({ word: m[0], start: m.index, end: m.index + m[0].length })
   let out = ''
@@ -97,7 +105,8 @@ function substitute(text: string, map: ReadonlyMap<string, string>): string {
       if (to !== undefined) hit = { n, to }
     }
     const added = hit ? hit.to.length - (spans[i + hit.n - 1]!.end - spans[i]!.start) : 0
-    if (hit && growth + added <= MAX_DECODE_GROWTH) {
+    if (hit && growth + added > MAX_DECODE_GROWTH) return { text: out + text.slice(pos), overflow: true }
+    if (hit) {
       growth += added
       out += text.slice(pos, spans[i]!.start) + hit.to
       pos = spans[i + hit.n - 1]!.end
@@ -106,7 +115,7 @@ function substitute(text: string, map: ReadonlyMap<string, string>): string {
       i++
     }
   }
-  return out + text.slice(pos)
+  return { text: out + text.slice(pos), overflow: false }
 }
 
 /**
@@ -122,11 +131,13 @@ export function decodeSubstitutionCipher(conversation: readonly ConversationTurn
   for (const turn of user.slice(0, -1)) pairs.push(...(pairTurn(turn.text) ?? []))
   if (pairs.length < MIN_PAIRS) return null
   const decoded: string[] = []
+  let overflow = false
   for (const [from, to] of [[1, 0], [0, 1]] as const) {
     const map = new Map<string, string>()
     for (const p of pairs) map.set(key(p[from]), p[to].join(' '))
-    const text = substitute(last.text, map)
-    if (text !== last.text) decoded.push(text)
+    const out = substitute(last.text, map)
+    overflow ||= out.overflow
+    if (out.text !== last.text) decoded.push(out.text)
   }
-  return decoded.length > 0 ? { pairs: pairs.length, decoded } : null
+  return decoded.length > 0 || overflow ? { pairs: pairs.length, decoded, overflow } : null
 }
