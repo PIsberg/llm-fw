@@ -8,7 +8,17 @@
  * same commit are grouped, every metric is reported as the median with the
  * min-max range, and a difference only counts as a change when the two ranges
  * do not overlap. With one run per version nothing can be called a change.
+ *
+ * That rule is an exact permutation test (#813). If two versions do not
+ * differ, every ordering of their pooled runs is equally likely, and their
+ * ranges miss each other only when all of one version's runs come first:
+ * 2 n! m! / (n + m)! of the orderings. Two runs each gives 1 in 3, three
+ * give 1 in 10, four 1 in 35. Each change carries that figure, and a version
+ * with fewer than MIN_RUNS runs is named in the caveats.
  */
+
+/** The fewest runs per version at which a disjoint range is a 1-in-10 chance or rarer. */
+export const MIN_RUNS = 3
 
 export interface BenchStep {
   workload: string
@@ -66,6 +76,23 @@ export interface Delta {
   beyondNoise: boolean
   /** Whether the change goes the way `better` wants. Undefined while it is within noise. */
   improved?: boolean
+  /**
+   * How often two versions that do not differ, with these run counts, still
+   * have disjoint ranges (`chanceOfNoOverlap`). Set with `beyondNoise`.
+   */
+  chance?: number
+}
+
+const factorial = (k: number): number => { let f = 1; for (let i = 2; i <= k; i++) f *= i; return f }
+
+/**
+ * The chance that `n` runs of one version and `m` of another, all drawn from
+ * one distribution, have ranges that do not overlap: 2 n! m! / (n + m)!. A side
+ * with a single run has no range, so the answer is 1.
+ */
+export function chanceOfNoOverlap(n: number, m: number): number {
+  if (n < 2 || m < 2) return 1
+  return (2 * factorial(n) * factorial(m)) / factorial(n + m)
 }
 
 /**
@@ -78,7 +105,10 @@ export function delta(base: Spread, next: Spread, better: Better): Delta {
   const pct = base.median === 0 ? 0 : round2(((next.median - base.median) / base.median) * 100)
   const beyondNoise = base.n >= 2 && next.n >= 2 && (next.min > base.max || next.max < base.min)
   if (!beyondNoise) return { pct, beyondNoise }
-  return { pct, beyondNoise, improved: better === 'higher' ? next.median > base.median : next.median < base.median }
+  return {
+    pct, beyondNoise, improved: better === 'higher' ? next.median > base.median : next.median < base.median,
+    chance: chanceOfNoOverlap(base.n, next.n),
+  }
 }
 
 export interface Version {
@@ -218,6 +248,10 @@ export function compareRuns(runs: readonly BenchResult[], opts: CompareOptions =
       warnings: rs.flatMap(r => (r.warnings ?? []).map(w => `${r.meta.timestamp}: ${w}`)),
     })
     if (rs.length < 2) notes.push(`${label} has one run, so no difference from or to it can be told from noise; run it again`)
+    else if (rs.length < MIN_RUNS) {
+      notes.push(`${label} has two runs: two versions that do not differ still have disjoint ranges 1 time in 3 with two runs each, ` +
+        `and 1 in 10 with three; run it again before quoting a change`)
+    }
   }
 
   const steps: Comparison['steps'] = {}
@@ -302,11 +336,12 @@ function fmtSpread(s: Spread, unit: string): string {
   return s.n < 2 || s.min === s.max ? fmtValue(s.median, unit) : `${fmtValue(s.median, unit)} (${fmtValue(s.min, unit)}-${fmtValue(s.max, unit)})`
 }
 
-/** "+12.5%, better", "-3.0%, within noise". */
+/** "+12.5%, better (1 in 10 by chance)", "-3.0%, within noise". */
 export function describeDelta(d: Delta): string {
   const sign = d.pct > 0 ? '+' : ''
   if (!d.beyondNoise) return `${sign}${d.pct.toFixed(1)}%, within noise`
-  return `${sign}${d.pct.toFixed(1)}%, ${d.improved ? 'better' : 'worse'}`
+  const odds = d.chance === undefined ? '' : ` (1 in ${Math.round(1 / d.chance)} by chance)`
+  return `${sign}${d.pct.toFixed(1)}%, ${d.improved ? 'better' : 'worse'}${odds}`
 }
 
 const GROUP_TITLE: Record<string, string> = {
@@ -318,7 +353,8 @@ export function comparisonMarkdown(c: Comparison): string {
   const out: string[] = []
   const base = c.versions[0]!
   out.push(`Baseline: ${base.label}. Each cell is the median of the runs, with the range in brackets; ` +
-    'a change counts only when the ranges do not overlap.', '')
+    'a change counts only when the ranges do not overlap, and names how often two versions that do not differ ' +
+    'would still look that far apart with these run counts.', '')
   out.push('|Version|Ruleset|Commit|Runs|Node|Runtime|', '|---|---|---|---|---|---|')
   for (const v of c.versions) {
     const rt = v.runtime ? Object.entries(v.runtime).map(([k, x]) => `${k} ${x}`).join(', ') : 'not recorded'

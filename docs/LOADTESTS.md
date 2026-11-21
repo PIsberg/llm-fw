@@ -336,9 +336,9 @@ python scripts/load-bench-charts.py reports/load-bench/<run>/results.json
 
 One run is one sample, and two runs of one commit on this laptop have differed
 by 7 to 31%. A single run per version therefore cannot say whether a version
-got faster. Run each version several times, alternating the order (A, B, B, A)
-so a machine that warms up or throttles over the session does not favour one,
-then pass every `results.json` to the comparison:
+got faster. Run each version three or more times, alternating the order
+(A, B, B, A, A, B) so a machine that warms up or throttles over the session
+does not favour one, then pass every `results.json` to the comparison:
 
 ```bash
 npm run bench:load:compare -- runs/1-old/results.json runs/2-new/results.json   runs/3-new/results.json runs/4-old/results.json --label dad5805=0.9.4 --out reports/load-bench/compare
@@ -350,7 +350,15 @@ Each version is a commit, plus whether the tree was dirty and the
 baseline. Every figure is the median of that version's runs with
 the range from the slowest to the fastest, and a difference is called better
 or worse only when the two ranges do not overlap. Anything else reads "within
-noise", and so does every difference while a version has a single run. Runs
+noise", and so does every difference while a version has a single run.
+
+The range rule is an exact permutation test. When two versions do not differ,
+every ordering of their pooled runs is equally likely, and the ranges miss each
+other only when all runs of one come first: 2 n! m! / (n + m)! of the orderings
+for n and m runs. That is 1 in 3 with two runs each, 1 in 10 with three and
+1 in 35 with four, and every change in `comparison.md` names it ("+24%, better
+(1 in 3 by chance)", `chance` in `comparison.json`). A version with two runs is
+named in the caveats; take three or more before quoting a change. Runs
 made with different `LOAD_BENCH_*` values are refused, runs from different
 machines or Node versions are flagged, and each run's own noisy-run warnings
 are carried through. To measure an older commit, check it out in a worktree
@@ -559,7 +567,8 @@ each run started once the machine had stayed under 10% CPU for three
 Medians of two runs; the change is from 0.9.4, and "(noise)" means the two
 versions' run ranges overlap. Two runs is the least that gives a range at
 all, so a change marked here is the two runs of one version both landing
-outside both runs of the other, not a significance test.
+outside both runs of the other, which two versions that do not differ also
+produce 1 time in 3 (see [Comparing versions](#comparing-versions)).
 
 - **Main as shipped is not slower than 0.9.4 at throughput, and costs a
   quarter of the CPU.** Chat peak 77.1 against 82.7 req/s is within noise;

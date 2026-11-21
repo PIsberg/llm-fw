@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { spread, delta, compareRuns, comparisonMarkdown, type BenchResult, type BenchStep } from './lib/benchCompare.js'
+import { spread, delta, chanceOfNoOverlap, compareRuns, comparisonMarkdown, type BenchResult, type BenchStep } from './lib/benchCompare.js'
 
 // npm run bench:load:compare puts several benchmark runs per version side by
 // side. Two runs of one commit have differed by up to 31%, so these pin the
@@ -37,11 +37,46 @@ describe('spread', () => {
   })
 })
 
+// The range rule is a permutation test in disguise (#813): when two versions do
+// not differ, every ordering of their pooled runs is equally likely, and the
+// ranges miss each other only when one version's runs all come first.
+describe('chanceOfNoOverlap', () => {
+  it('is 2 n! m! / (n + m)!: 1 in 3 for two runs each, 1 in 10 for three', () => {
+    expect(chanceOfNoOverlap(2, 2)).toBeCloseTo(1 / 3, 10)
+    expect(chanceOfNoOverlap(3, 3)).toBeCloseTo(1 / 10, 10)
+    expect(chanceOfNoOverlap(2, 3)).toBeCloseTo(1 / 5, 10)
+    expect(chanceOfNoOverlap(4, 4)).toBeCloseTo(1 / 35, 10)
+  })
+
+  it('agrees with drawing both versions from one distribution', () => {
+    // A fixed-seed generator, so the test is deterministic.
+    let seed = 12345
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return seed / 2147483648
+    }
+    for (const [n, m] of [[2, 2], [3, 3], [2, 4]] as const) {
+      let disjoint = 0
+      const trials = 40_000
+      for (let t = 0; t < trials; t++) {
+        const a = spread(Array.from({ length: n }, rand))
+        const b = spread(Array.from({ length: m }, rand))
+        if (a.max < b.min || b.max < a.min) disjoint++
+      }
+      expect(Math.abs(disjoint / trials - chanceOfNoOverlap(n, m)), `${n} and ${m} runs`).toBeLessThan(0.01)
+    }
+  })
+
+  it('is 1 when either side has a single run: one sample says nothing', () => {
+    expect(chanceOfNoOverlap(1, 5)).toBe(1)
+  })
+})
+
 describe('delta', () => {
-  it('calls disjoint ranges a change, in the direction the metric wants', () => {
-    expect(delta(spread([40, 42]), spread([50, 52]), 'higher')).toEqual({ pct: 24.39, beyondNoise: true, improved: true })
+  it('calls disjoint ranges a change, in the direction the metric wants, with the chance of that by noise alone', () => {
+    expect(delta(spread([40, 42]), spread([50, 52]), 'higher')).toEqual({ pct: 24.39, beyondNoise: true, improved: true, chance: 1 / 3 })
     // Latency going up is a change for the worse.
-    expect(delta(spread([10, 11]), spread([20, 21]), 'lower')).toEqual({ pct: 95.24, beyondNoise: true, improved: false })
+    expect(delta(spread([10, 11, 12]), spread([20, 21, 22]), 'lower')).toEqual({ pct: 90.91, beyondNoise: true, improved: false, chance: 1 / 10 })
   })
 
   it('calls overlapping ranges noise, however far apart the medians are', () => {
@@ -69,10 +104,18 @@ describe('compareRuns', () => {
   })
 
   it('reports a faster version as better only when its runs clear the baseline\'s range', () => {
-    const c = compareRuns([run('aaa', 'old', 40, 40), run('aaa', 'old', 42, 42), run('bbb', 'new', 50, 50), run('bbb', 'new', 52, 52)])
+    const c = compareRuns([
+      run('aaa', 'old', 40, 40), run('aaa', 'old', 42, 42), run('aaa', 'old', 41, 41),
+      run('bbb', 'new', 50, 50), run('bbb', 'new', 52, 52), run('bbb', 'new', 51, 51),
+    ])
     const peak = c.headline.find(h => h.key === 'chat.peakRps')!
     expect(peak.deltas['new (bbb)']).toMatchObject({ beyondNoise: true, improved: true })
     expect(c.notes).toEqual([])
+  })
+
+  it('says so when a version has two runs: disjoint by chance 1 time in 3', () => {
+    const c = compareRuns([run('aaa', 'old', 40, 40), run('aaa', 'old', 42, 42), run('bbb', 'new', 50, 50), run('bbb', 'new', 52, 52), run('bbb', 'new', 51, 51)])
+    expect(c.notes).toEqual([expect.stringMatching(/old \(aaa\) has two runs.*1 time in 3.*1 in 10 with three/)])
   })
 
   it('says so when a version has one run', () => {
@@ -138,7 +181,7 @@ describe('comparisonMarkdown', () => {
     const md = comparisonMarkdown(compareRuns([
       run('aaa', 'old', 40, 40), run('aaa', 'old', 42, 42), run('bbb', 'new', 50, 50), run('bbb', 'new', 52, 52),
     ]))
-    expect(md).toContain('|Peak throughput|41.0 req/s (40.0 req/s-42.0 req/s)|51.0 req/s (50.0 req/s-52.0 req/s), +24.4%, better|')
+    expect(md).toContain('|Peak throughput|41.0 req/s (40.0 req/s-42.0 req/s)|51.0 req/s (50.0 req/s-52.0 req/s), +24.4%, better (1 in 3 by chance)|')
     // p50 is the same 10 ms in every run: no change, so it reads as noise.
     expect(md).toMatch(/\|p50 at 1 client\|10 ms\|10 ms, 0\.0%, within noise\|/)
   })
