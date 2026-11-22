@@ -1,3 +1,4 @@
+import zlib from 'node:zlib'
 import { MediaBlock } from '../types.js'
 
 /**
@@ -9,9 +10,12 @@ import { MediaBlock } from '../types.js'
  *
  *   • text-bearing mime types (text/*, JSON, XML, CSV, HTML, markdown) that
  *     arrive base64-encoded — decoded and returned as scannable text
- *   • PDFs — scanned for printable-text runs in the raw bytes. This catches
- *     uncompressed text objects, metadata, and payloads appended after %%EOF
- *     (a common smuggling spot); compressed streams stay opaque
+ *   • PDFs — scanned for printable-text runs in the raw bytes (uncompressed
+ *     text objects, metadata, payloads appended after %%EOF), plus the text
+ *     operators of every content stream, inflated when it is FlateDecode.
+ *     A stream it cannot read (an image, another filter, an encrypted file, a
+ *     cap reached) marks the block `partial`, which the pipeline treats as
+ *     opaque (#857)
  *   • everything else (raster images, audio, video) — surfaced as an opaque
  *     MediaBlock so the pipeline can warn (audit) or refuse (block) instead
  *     of silently passing it through
@@ -33,38 +37,234 @@ export function extractPrintableRuns(buf: Buffer): string {
   return runs ? runs.join('\n') : ''
 }
 
+/** What a media payload decoded to: its text, and whether part of it could not be read. */
+export interface DecodedMedia {
+  text: string | null
+  partial: boolean
+}
+
+/** Streams read per PDF before the rest is left unread (and the block marked partial). */
+const MAX_PDF_STREAMS = 4096
+
 /**
  * Decode a base64 media payload into scannable text, or null when the format
  * is opaque (raster image, audio, …). `sizeHint` lets callers skip decoding
  * oversized payloads without allocating.
  */
 export function decodeMediaText(mimeType: string | undefined, base64Data: string, maxBytes = MAX_DECODED_BYTES_DEFAULT): string | null {
+  return decodeMedia(mimeType, base64Data, maxBytes).text
+}
+
+/** decodeMediaText, saying also whether any part of the payload went unread. */
+export function decodeMedia(mimeType: string | undefined, base64Data: string, maxBytes = MAX_DECODED_BYTES_DEFAULT): DecodedMedia {
   // base64 inflates by 4/3 — quick reject before allocating the buffer.
-  if (base64Data.length > (maxBytes / 3) * 4) return null
+  if (base64Data.length > (maxBytes / 3) * 4) return { text: null, partial: false }
   let buf: Buffer
   try {
     buf = Buffer.from(base64Data, 'base64')
   } catch {
-    return null
+    return { text: null, partial: false }
   }
-  if (buf.length === 0) return null
+  if (buf.length === 0) return { text: null, partial: false }
 
   const mime = (mimeType ?? '').split(';')[0]?.trim() ?? ''
   if (TEXT_MIME_RE.test(mime)) {
-    return buf.toString('utf-8')
+    return { text: buf.toString('utf-8'), partial: false }
   }
   if (/^application\/pdf$/i.test(mime) || buf.subarray(0, 5).toString('latin1') === '%PDF-') {
-    const runs = extractPrintableRuns(buf)
-    return runs.length > 0 ? runs : null
+    const pdf = readPdf(buf, maxBytes)
+    return { text: pdf.text.length > 0 ? pdf.text : null, partial: pdf.partial }
   }
-  return null
+  return { text: null, partial: false }
 }
 
-/** Parse a `data:` URL into its mime type and base64 payload (null otherwise). */
+const FONT_DICT = /\/Length[123]\b|\/Subtype\s*\/(?:Type1C|CIDFontType0C|OpenType)\b/
+const PLAIN_DICT = /\/Type\s*\/(?:ObjStm|XRef|Metadata)\b/
+
+/**
+ * The text of a PDF: printable runs of its raw bytes, and the text operators
+ * of each content stream, inflated when it is FlateDecode (bounded by
+ * `maxBytes` in all). `partial` is set when any stream could not be read: an
+ * image, a filter other than FlateDecode, corrupt data, an encrypted file, or
+ * a cap reached. Read only as raw bytes, a PDF counted as inspected from its
+ * uncompressed dictionaries alone, with not one word of its pages read (#857).
+ */
+function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean } {
+  const s = buf.toString('latin1')
+  const texts: string[] = [extractPrintableRuns(buf)]
+  // Every stream of an encrypted file is ciphertext.
+  let partial = s.includes('/Encrypt')
+  let budget = maxBytes
+  let streams = 0
+  let from = 0
+  for (;;) {
+    const at = s.indexOf('stream', from)
+    if (at === -1) break
+    from = at + 6
+    if (s.startsWith('end', at - 3)) continue
+    const eol = s[at + 6] === '\r' && s[at + 7] === '\n' ? 2 : s[at + 6] === '\n' ? 1 : 0
+    if (eol === 0) continue
+    const start = at + 6 + eol
+    const end = s.indexOf('endstream', start)
+    if (end === -1) { partial = true; break }
+    from = end + 9
+    if (++streams > MAX_PDF_STREAMS) { partial = true; break }
+    const head = s.slice(Math.max(0, at - 2048), at)
+    const dict = head.slice(head.lastIndexOf('obj') + 1)
+    let data = buf.subarray(start, end)
+    while (data.length > 0 && (data[data.length - 1] === 0x0a || data[data.length - 1] === 0x0d)) data = data.subarray(0, data.length - 1)
+    const filter = /\/Filter\s*(?:\[([^\]]*)\]|\/([A-Za-z0-9]+))/.exec(dict)
+    const filters = filter ? (filter[1] ?? filter[2] ?? '').split('/').map(f => f.trim()).filter(Boolean) : []
+    if (/\/Subtype\s*\/Image\b/.test(dict)) { partial = true; continue }
+    let decoded: Buffer
+    if (filters.length === 0) {
+      decoded = data
+    } else if (filters.length === 1 && (filters[0] === 'FlateDecode' || filters[0] === 'Fl') && budget > 0) {
+      try {
+        decoded = zlib.inflateSync(data, { maxOutputLength: budget })
+      } catch {
+        partial = true // corrupt, or past what is left of the budget
+        continue
+      }
+      budget -= decoded.length
+    } else {
+      partial = true
+      continue
+    }
+    if (FONT_DICT.test(dict)) continue // glyph programs, no text
+    if (PLAIN_DICT.test(dict)) {
+      const runs = extractPrintableRuns(decoded)
+      if (runs) texts.push(runs)
+      continue
+    }
+    const content = readContentStream(decoded.toString('latin1'))
+    if (content.text) texts.push(content.text)
+    // Text in two-byte glyph codes needs the font's ToUnicode map, which is
+    // not read yet: such a page is not inspected.
+    if (content.unread > 0) partial = true
+  }
+  return { text: texts.filter(Boolean).join('\n'), partial }
+}
+
+// Character tests by code: a regex per character made the tokenizer the
+// cost of reading a PDF.
+const isDigit = (c: number): boolean => c >= 48 && c <= 57
+const isNumberChar = (c: number): boolean => isDigit(c) || c === 46
+const isOperatorStart = (c: number): boolean => (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 39 || c === 34 || c === 42
+
+const PDF_ESCAPES: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' }
+
+/**
+ * The text a PDF content stream shows: the strings of its Tj, TJ, ' and "
+ * operators, a TJ array's pieces joined (a kerning gap of 200 or more is a
+ * space), a positioning operator a space, ET a line break. One pass, linear.
+ */
+export function pdfContentText(src: string): string {
+  return readContentStream(src).text
+}
+
+/**
+ * pdfContentText, counting also the strings it could not read: a hex string
+ * of two-byte glyph codes (what most PDF writers emit for embedded fonts)
+ * means letters only the font's ToUnicode map can recover, so such a page is
+ * not inspected and the caller marks it partial.
+ */
+function readContentStream(src: string): { text: string; unread: number } {
+  let unread = 0
+  const lines: string[] = []
+  let line = ''
+  let pending = ''
+  let inArray = false
+  let i = 0
+  const n = src.length
+  while (i < n) {
+    const c = src[i]!
+    if (c === '(') {
+      let depth = 1
+      let out = ''
+      i++
+      while (i < n && depth > 0) {
+        const d = src[i]!
+        if (d === '\\') {
+          const e = src[i + 1] ?? ''
+          if (/[0-7]/.test(e)) {
+            const oct = /^[0-7]{1,3}/.exec(src.slice(i + 1, i + 4))![0]
+            out += String.fromCharCode(Number.parseInt(oct, 8))
+            i += 1 + oct.length
+          } else {
+            out += PDF_ESCAPES[e] ?? (e === '\n' || e === '\r' ? '' : e)
+            i += 2
+          }
+          continue
+        }
+        if (d === '(') depth++
+        else if (d === ')' && --depth === 0) { i++; break }
+        out += d
+        i++
+      }
+      pending += out
+      continue
+    }
+    if (c === '<' && src[i + 1] !== '<') {
+      const close = src.indexOf('>', i + 1)
+      if (close === -1) break
+      const hex = src.slice(i + 1, close).replace(/[^0-9A-Fa-f]/g, '')
+      const bytes = Buffer.from(hex.length % 2 ? hex + '0' : hex, 'hex').toString('latin1')
+      // Two-byte font codes decode to noise; keep only what reads as text.
+      if (bytes.replace(/[\x20-\x7E]/g, '').length <= bytes.length / 5) pending += bytes
+      else unread++
+      i = close + 1
+      continue
+    }
+    if (c === '%') {
+      while (i < n && src[i] !== '\n' && src[i] !== '\r') i++
+      continue
+    }
+    if (c === '[') { inArray = true; i++; continue }
+    if (c === ']') { inArray = false; i++; continue }
+    if (inArray && (c === '-' || (c >= '0' && c <= '9') || c === '.')) {
+      let j = i + 1
+      while (j < n && isNumberChar(src.charCodeAt(j))) j++
+      if (Number(src.slice(i, j)) <= -200 && pending && !pending.endsWith(' ')) pending += ' '
+      i = j
+      continue
+    }
+    if (isOperatorStart(src.charCodeAt(i))) {
+      let j = i + 1
+      while (j < n && (isOperatorStart(src.charCodeAt(j)) || isDigit(src.charCodeAt(j)))) j++
+      const op = src.slice(i, j)
+      if (op === 'Tj' || op === 'TJ') line += pending
+      else if (op === "'" || op === '"') line += (line ? ' ' : '') + pending
+      else if (op === 'Td' || op === 'TD' || op === 'Tm' || op === 'T*') { if (line && !line.endsWith(' ')) line += ' ' }
+      else if (op === 'ET' && line.trim()) { lines.push(line.trim()); line = '' }
+      pending = ''
+      i = j
+      continue
+    }
+    i++
+  }
+  if (line.trim()) lines.push(line.trim())
+  return { text: lines.join('\n'), unread }
+}
+
+/**
+ * Parse a `data:` URL into its mime type and base64 payload (null otherwise).
+ * RFC 2397: parameters may come before `;base64` (`;charset=utf-8`), a URL
+ * without `;base64` carries percent-encoded text, and the type defaults to
+ * text/plain. Both forms were dropped as unreadable (#857).
+ */
 export function parseDataUrl(url: string): { mimeType: string; data: string } | null {
-  const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(url)
-  if (!m || !m[2]) return null // only base64 data URLs carry binary payloads
-  return { mimeType: m[1] ?? 'application/octet-stream', data: m[3] ?? '' }
+  if (!/^data:/i.test(url)) return null
+  const comma = url.indexOf(',')
+  if (comma === -1) return null
+  const params = url.slice(5, comma).split(';')
+  const base64 = params.length > 1 && params[params.length - 1]!.trim().toLowerCase() === 'base64'
+  const mimeType = params[0]!.trim() || 'text/plain'
+  const payload = url.slice(comma + 1)
+  if (base64) return { mimeType, data: payload }
+  let text: string
+  try { text = decodeURIComponent(payload) } catch { text = payload }
+  return { mimeType, data: Buffer.from(text, 'utf8').toString('base64') }
 }
 
 /** Build a MediaBlock from a base64 payload, decoding text where possible. */
@@ -73,12 +273,14 @@ export function mediaBlockFromBase64(kind: MediaBlock['kind'], mimeType: string 
   // part is rendered by the provider as that medium whatever its bytes say, so
   // sniffing PDF magic in one would mark a clip "inspected" and let a payload
   // that starts with %PDF- past block mode.
-  const text = kind === 'document' || kind === 'file' ? decodeMediaText(mimeType, base64Data) : null
+  const decoded = kind === 'document' || kind === 'file' ? decodeMedia(mimeType, base64Data) : { text: null, partial: false }
+  const text = decoded.text
   return {
     kind,
     mimeType,
     sizeBytes: Math.floor(base64Data.length * 3 / 4),
     ...(text ? { text } : {}),
+    ...(decoded.partial ? { partial: true } : {}),
     // Keep the raw payload for opaque raster images and audio, so the optional
     // OCR and transcription stages can read them. Text-bearing blocks are
     // already decoded; no point retaining their bytes.
