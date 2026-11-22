@@ -25,6 +25,7 @@ import { killPreviousInstance } from './stop.js';
 import { nodeRuntimeAdvisory } from './nodeAdvisory.js';
 import { checkForUpdate, shouldCheckForUpdates, startupBanner } from './updateCheck.js';
 import { ownsSinkhole } from './sinkholeOwner.js';
+import { restoreSinkholeHosts } from './hosts.js';
 import { RULESET_VERSION } from '../detection/ruleset.js';
 import { execSync, execFileSync } from 'node:child_process';
 import { systemTool } from '../systemTool.js';
@@ -232,16 +233,10 @@ export async function run(args: string[] = []): Promise<void> {
   }
 
   function restoreHostsFile(): void {
-    const backup = hostsPath + '.llm-fw.bak';
-    if (fs.existsSync(backup)) {
-      try {
-        const original = fs.readFileSync(backup, 'utf8');
-        fs.writeFileSync(hostsPath, original, 'utf8');
-        fs.unlinkSync(backup);
-        console.log('Hosts file restored.');
-      } catch (err) {
-        console.error('Failed to restore hosts file:', (err as Error).message);
-      }
+    try {
+      if (restoreSinkholeHosts(hostsPath, config.targets)) console.log('Hosts file restored.');
+    } catch (err) {
+      console.error('Failed to restore hosts file:', (err as Error).message);
     }
   }
 

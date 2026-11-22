@@ -1,7 +1,7 @@
 import { CertFactory, crlUrlFor, type CaReplaceReason, type EnsureCaResult } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
 import { loadConfig } from '../config/config.js';
-import { stripSinkholeBlock } from './hosts.js';
+import { installSinkholeHosts } from './hosts.js';
 import { serializeLike } from './jsonFormat.js';
 import { getLlmFwDir } from '../config/paths.js';
 import { LLMFW_USER_ENV, parseRegQueryValue, recordPriorEnv, type EnvSnapshot } from './userEnv.js';
@@ -471,18 +471,7 @@ export async function run(args: string[]): Promise<void> {
       ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
       : '/etc/hosts';
     try {
-      const original = fs.readFileSync(hostsPath, 'utf8');
-      // Strip any previous llm-fw block (and stray loopback target lines) so
-      // re-running setup never stacks duplicate entries — same helper
-      // uninstall uses for the full cleanup.
-      const cleanHosts = stripSinkholeBlock(original, config.targets);
-      if (original !== cleanHosts || !fs.existsSync(hostsPath + '.llm-fw.bak')) {
-        fs.writeFileSync(hostsPath + '.llm-fw.bak', original, 'utf8');
-      }
-      
-      const hostLines = config.targets.map(t => `127.0.0.1 ${t}`).join('\n');
-      const entries = (cleanHosts.endsWith('\n') || cleanHosts === '' ? '' : '\n') + `# llm-fw sinkhole\n${hostLines}\n`;
-      fs.writeFileSync(hostsPath, cleanHosts + entries, 'utf8');
+      installSinkholeHosts(hostsPath, config.targets);
       console.log('Sinkhole entries added to hosts file.');
     } catch (err) {
       console.error('Failed to modify hosts file. Try running with administrator/root privileges.');
