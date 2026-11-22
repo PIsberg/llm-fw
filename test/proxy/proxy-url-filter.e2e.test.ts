@@ -209,6 +209,28 @@ describe('URL Filter E2E', { timeout: 15000 }, () => {
     expect(subject).toBe('api.anthropic.com')
   })
 
+  // #854: a regional Vertex AI host was tunnelled unread.
+  it('intercepts a regional Vertex AI host', async () => {
+    const ca = fs.readFileSync(join(tempDir, 'ca.crt'))
+    const host = 'us-central1-aiplatform.googleapis.com'
+    const subject = await new Promise<string>((resolve, reject) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port: PROXY_PORT })
+      const timer = setTimeout(() => { socket.destroy(); reject(new Error('CONNECT timed out')) }, 5000)
+      socket.once('error', reject)
+      socket.once('connect', () => socket.write(`CONNECT ${host}:443 HTTP/1.1\r\nHost: ${host}:443\r\n\r\n`))
+      socket.once('data', () => {
+        const t = tls.connect({ socket, servername: host, ca, rejectUnauthorized: true }, () => {
+          clearTimeout(timer)
+          const cn = t.getPeerCertificate().subject?.CN
+          t.destroy()
+          resolve(String(cn))
+        })
+        t.once('error', (err) => { clearTimeout(timer); reject(err) })
+      })
+    })
+    expect(subject).toBe(host)
+  })
+
   // ── Pass-through case ─────────────────────────────────────────────────────
 
   it('allows CONNECT to a safe non-LLM domain through the URL filter', async () => {

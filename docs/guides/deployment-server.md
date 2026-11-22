@@ -195,8 +195,11 @@ warns loudly at startup and nothing stops you. Do not do it.
 
 The proxy does not decrypt everything it carries. A host is intercepted only if
 it matches `targets` (the built-in AI-provider host list) or
-`proxy.interceptDomains` (`openai.azure.com` and `aiplatform.googleapis.com` by
-default). Everything else is tunneled through without inspection.
+`proxy.interceptDomains` (by default `openai.azure.com`, `aiplatform.googleapis.com`,
+`*-aiplatform.googleapis.com` for regional Vertex AI and `bedrock-runtime.*.amazonaws.com`
+for every Bedrock region). An entry matches the host and its subdomains; one with a `*`
+matches exactly one label in its place. Everything else is tunneled through without
+inspection.
 
 Two knobs control this fleet-wide, and both are worth knowing before you point a
 hundred machines at the box:

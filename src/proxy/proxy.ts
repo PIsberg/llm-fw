@@ -22,7 +22,7 @@ import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
 import zlib from 'node:zlib'
-import { identifyService, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
+import { identifyService, matchesDomain, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
 import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil, type ExfilFinding } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
@@ -265,7 +265,8 @@ export function isInterceptedHost(name: string, config: Config): boolean {
   const hostname = canonicalHost(name)
   const interceptDomains = config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
   return config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
-    || interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))
+    // A wildcard entry (*-aiplatform.googleapis.com) matches one label (#854).
+    || interceptDomains.some(d => matchesDomain(hostname, canonicalHost(d)))
     || (config.proxy.inspectChatgptBackend === true && hostname === CHATGPT_HOST)
 }
 

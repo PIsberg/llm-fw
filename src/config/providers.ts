@@ -28,8 +28,10 @@ export interface AiProvider {
   /**
    * Domain suffixes whose subdomains are tenant/regional API hosts that cannot
    * be enumerated (e.g. `<resource>.openai.azure.com`). The proxy TLS-intercepts
-   * any subdomain of these. Proxy mode only — a hosts-file sinkhole entry must
-   * be a concrete name, so the sinkhole cannot cover them.
+   * any subdomain of these, and an entry with one `*` matches exactly one
+   * label in its place (`*-aiplatform.googleapis.com`,
+   * `bedrock-runtime.*.amazonaws.com`). Proxy mode only — a hosts-file
+   * sinkhole entry must be a concrete name, so the sinkhole cannot cover them.
    */
   interceptDomains?: string[]
 }
@@ -58,8 +60,10 @@ export const AI_PROVIDERS: AiProvider[] = [
     // filter allowlist, which would otherwise trust every Google property
     // (Docs, Drive, Sites, …) as an exfiltration-safe destination.
     domains: ['googleapis.com'],
-    // Regional Vertex endpoints (us-central1-aiplatform.googleapis.com, …).
-    interceptDomains: ['aiplatform.googleapis.com'],
+    // Regional Vertex endpoints join the region with a hyphen
+    // (us-central1-aiplatform.googleapis.com), so only a wildcard label
+    // covers them: as a dot suffix they were tunnelled unread (#854).
+    interceptDomains: ['aiplatform.googleapis.com', '*-aiplatform.googleapis.com'],
   },
   { name: 'Mistral', hosts: ['api.mistral.ai'], domains: ['mistral.ai'] },
   { name: 'Groq', hosts: ['api.groq.com'], domains: ['groq.com'] },
@@ -89,6 +93,9 @@ export const AI_PROVIDERS: AiProvider[] = [
       'bedrock-runtime.ap-south-1.amazonaws.com',
     ],
     domains: ['bedrock-runtime.*.amazonaws.com'],
+    // Every other region, intercepted in proxy mode; before #854 it was only
+    // labelled, and tunnelled unread.
+    interceptDomains: ['bedrock-runtime.*.amazonaws.com'],
   },
   // router.huggingface.co is the current Inference Providers endpoint
   // (OpenAI-compatible); api-inference.huggingface.co is the deprecated legacy
@@ -132,7 +139,11 @@ export const AI_PROVIDER_DOMAINS: string[] = [
   ...new Set(AI_PROVIDERS.flatMap(p => [...(p.domains ?? []), ...p.hosts])),
 ]
 
-function matchesDomain(hostname: string, domain: string): boolean {
+/**
+ * Whether `hostname` is `domain` or a subdomain of it, or, for a pattern with
+ * one `*`, whether the `*` stands for exactly one non-empty label.
+ */
+export function matchesDomain(hostname: string, domain: string): boolean {
   const star = domain.indexOf('*')
   if (star !== -1) {
     // Single-wildcard pattern (e.g. 'bedrock-runtime.*.amazonaws.com') for

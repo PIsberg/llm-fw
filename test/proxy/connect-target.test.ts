@@ -60,6 +60,32 @@ describe('parseConnectTarget on a bracketed IPv6 literal (#849)', () => {
   })
 })
 
+// #854: a regional Vertex AI host joins its region with a hyphen
+// (us-central1-aiplatform.googleapis.com), so no dot-suffix rule matched it,
+// and a Bedrock region outside the ten listed hosts was only ever labelled.
+describe('isInterceptedHost on regional provider hosts (#854)', () => {
+  it.each([
+    'us-central1-aiplatform.googleapis.com', 'europe-west4-aiplatform.googleapis.com', 'asia-northeast1-aiplatform.googleapis.com',
+    'bedrock-runtime.sa-east-1.amazonaws.com', 'bedrock-runtime.ca-central-1.amazonaws.com',
+  ])('intercepts %s', (host) => {
+    expect(isInterceptedHost(host, DEFAULT_CONFIG)).toBe(true)
+  })
+
+  it.each([
+    'aiplatform.googleapis.com.attacker.example', 'evil.us-central1-aiplatform.googleapis.com.example',
+    'x.us-central1-aiplatform.googleapis.com', '-aiplatform.googleapis.com',
+    'bedrock-runtime.evil.example.amazonaws.com', 'bedrock-runtime..amazonaws.com', 'bedrock.us-east-1.amazonaws.com',
+  ])('still tunnels %s', (host) => {
+    expect(isInterceptedHost(host, DEFAULT_CONFIG)).toBe(false)
+  })
+
+  it('reads a wildcard written in proxy.interceptDomains', () => {
+    const config = { ...DEFAULT_CONFIG, proxy: { ...DEFAULT_CONFIG.proxy, interceptDomains: ['*-llm.corp.example'] } }
+    expect(isInterceptedHost('eu-llm.corp.example', config)).toBe(true)
+    expect(isInterceptedHost('a.b-llm.corp.example', config)).toBe(false)
+  })
+})
+
 describe('isInterceptedHost on a host spelled another way (#848)', () => {
   it('intercepts a provider named in capitals or with a trailing dot', () => {
     for (const host of ['API.OPENAI.COM', 'api.openai.com.', 'Api.Anthropic.Com.', 'MY-RESOURCE.OPENAI.AZURE.COM.']) {

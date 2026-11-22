@@ -176,7 +176,7 @@ The firewall ships with a built-in registry of every major AI provider (`src/con
 
 Any other endpoint that speaks the OpenAI-compatible `/chat/completions` format (self-hosted vLLM, LM Studio, LocalAI, …) is parsed natively — add its host to `extraTargets` in `~/.llm-fw/config.json` (or `LLM_FW_EXTRA_TARGETS=host1,host2`) and it works the same way; `extraTargets` appends to the built-in registry, while overriding `targets` replaces it. Hosts not in the registry still tunnel through the proxy and are screened by the outbound URL filter; only recognised LLM hosts get full payload inspection.
 
-> **Tenant/regional hosts:** hostnames that embed a tenant or region (`<resource>.openai.azure.com`, `<region>-aiplatform.googleapis.com`, `bedrock-runtime.<region>.amazonaws.com`) cannot be enumerated in a hosts file, so **sinkhole mode does not cover them** — they are intercepted in **proxy mode** (Azure OpenAI and regional Vertex via built-in suffix matching; the major Bedrock regions are enumerated as concrete hosts, other regions can be added to `targets`). Tools reaching these services must honour `HTTPS_PROXY`.
+> **Tenant/regional hosts:** hostnames that embed a tenant or region (`<resource>.openai.azure.com`, `<region>-aiplatform.googleapis.com`, `bedrock-runtime.<region>.amazonaws.com`) cannot be enumerated in a hosts file, so **sinkhole mode does not cover them** — they are intercepted in **proxy mode** (Azure OpenAI by built-in suffix matching, regional Vertex and every Bedrock region by built-in wildcard patterns; the major Bedrock regions are also enumerated as concrete hosts, so the sinkhole covers those). Tools reaching these services must honour `HTTPS_PROXY`.
 
 ---
 
