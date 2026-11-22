@@ -599,15 +599,45 @@ export function loadConfig(): Promise<Config> {
   return Promise.resolve().then(() => buildConfig());
 }
 
+/** `<LLM_FW_DIR>/config.json`, resolved per call. */
+export function userConfigPath(): string {
+  return join(getLlmFwDir(), 'config.json');
+}
+
+/**
+ * The settings object in `<LLM_FW_DIR>/config.json`, or {} when there is no
+ * such file. Anything else that stops it being read (invalid JSON, a value
+ * that is not an object, a permission error) throws an error naming the
+ * file. Every reader goes through here: read as {}, a trailing comma started
+ * the firewall on the defaults without a word, and the next dashboard toggle
+ * or `setup` wrote a one-key file over the operator's configuration (#853).
+ */
+export function readUserConfigFile(file = userConfigPath()): Record<string, unknown> {
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw new Error(`llm-fw: cannot read ${file}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`llm-fw: ${file} is not valid JSON (${err instanceof Error ? err.message : String(err)}). Fix or remove it; nothing was changed.`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`llm-fw: ${file} must hold a JSON object of settings. Fix or remove it; nothing was changed.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 function buildConfig(): Config {
   const projectConfig = readProjectConfig();
 
   // ~/.llm-fw/config.json persists settings written by setup (e.g. sinkhole mode).
   // It takes priority over project-level config but is overridden by env vars below.
-  let userConfig: Partial<Config> = {};
-  try {
-    userConfig = JSON.parse(readFileSync(join(getLlmFwDir(), 'config.json'), 'utf8')) as Partial<Config>;
-  } catch { /* not present */ }
+  const userConfig = readUserConfigFile() as Partial<Config>;
 
   // Clone the default before merging: deepMerge only recurses into keys the
   // SOURCE layer actually sets, so a section neither the project file nor

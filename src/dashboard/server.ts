@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config, PipelineResult } from '../types.js'
-import { deepMerge, effectiveClassifierBlockThreshold } from '../config/config.js'
+import { deepMerge, effectiveClassifierBlockThreshold, readUserConfigFile } from '../config/config.js'
 import { triageRow } from './triage.js'
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
@@ -2881,13 +2881,30 @@ function changedLeaves(before: Record<string, unknown>, after: Record<string, un
 // dlp.mode "audit" (and up to four more) to disk and the firewall stayed relaxed
 // after a restart without --observe; LLM_FW_* overrides were copied into the
 // file the same way.
+/**
+ * Run a persist, or answer 500 naming why it could not save. The change is
+ * already live; the reply says it was not written, so a restart would lose
+ * it, and the file the firewall could not parse is left as it was (#853).
+ */
+function persistOrRefuse(res: http.ServerResponse, persist: () => void): boolean {
+  try {
+    persist()
+    return true
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: `applied until restart, not saved: ${err instanceof Error ? err.message : String(err)}` }))
+    return false
+  }
+}
+
 function persistSettings(config: Config, before: Record<string, unknown>): void {
   const changed = changedLeaves(before, toPersistedPartial(config))
   if (!Object.keys(changed).length) return
   const dir = getLlmFwDir()
   const file = join(dir, 'config.json')
-  let existing: Record<string, unknown> = {}
-  try { existing = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown> } catch { /* none */ }
+  // Throws on a file it cannot read, so a toggle never writes a one-key
+  // file over a configuration it could not parse (#853).
+  const existing = readUserConfigFile(file)
   const merged = deepMerge<Record<string, unknown>>(existing, changed)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(file, JSON.stringify(merged, null, 2), 'utf8')
@@ -3145,7 +3162,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             res.end(JSON.stringify({ error: 'no valid settings', errors }))
             return
           }
-          if (applied.length) persistSettings(config, before)
+          if (applied.length && !persistOrRefuse(res, () => persistSettings(config, before))) return
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, applied, errors, settings: readSettings(config) }))
         } catch (err) {
@@ -3230,7 +3247,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           if (hasSwitch) modManager.setModuleEnabled(patch.id, patch.enabled!)
           // A built-in module's switch and options live in config (the module
           // holds a reference to it), so persisting config persists them.
-          persistSettings(config, before)
+          if (!persistOrRefuse(res, () => persistSettings(config, before))) return
           const mod = modManager.getModule(patch.id)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, module: mod ? { ...mod.getStats(), options: modManager.getModuleOptions(patch.id) ?? [] } : undefined, tokenEconomy: modManager.getTokenEconomy() }))

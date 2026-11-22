@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.83
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). `src/config/config.ts` is in the digest; this ruleset only stops `<LLM_FW_DIR>/config.json` errors being read as an empty file (#853). No default changed.
+
 ## Result, ruleset 2026.11.82
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes only the response-side MCP tool gate (`src/detection/mcp/responseGate.ts`, and `extractToolUses` in `parsers.ts`, which only response-side code calls), which no prompt verdict reads (#851).

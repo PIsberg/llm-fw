@@ -1,6 +1,6 @@
 import { CertFactory, crlUrlFor, type CaReplaceReason, type EnsureCaResult } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
-import { loadConfig } from '../config/config.js';
+import { loadConfig, readUserConfigFile } from '../config/config.js';
 import { installSinkholeHosts } from './hosts.js';
 import { serializeLike } from './jsonFormat.js';
 import { getLlmFwDir } from '../config/paths.js';
@@ -392,10 +392,9 @@ function configureEnvVars(proxyUrl: string, caCertPath: string): void {
  */
 function persistProxyMode(llmfwDir: string, mode: 'sinkhole' | 'proxy'): void {
   const configPath = join(llmfwDir, 'config.json');
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
-  } catch { /* absent or corrupt — start fresh */ }
+  // Throws on a file it cannot read: "start fresh" wrote a one-key file over
+  // a configuration with a typo in it (#853).
+  const existing = readUserConfigFile(configPath);
   const proxy = (existing.proxy && typeof existing.proxy === 'object')
     ? existing.proxy as Record<string, unknown>
     : {};

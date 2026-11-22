@@ -59,6 +59,22 @@ describe('dashboard settings persistence writes only what changed', () => {
     fs.rmSync(tempDir, { recursive: true, force: true })
   })
 
+  // #853: a config.json the firewall could not parse was read as {} and the
+  // first toggle wrote a one-key file over it, so the operator's whole
+  // configuration was gone. The toggle now fails and the file stays.
+  it('refuses to overwrite a config.json it cannot parse', async () => {
+    const config = await loadConfig()
+    await serve(config)
+    const broken = '{ "proxy": { "authToken": "keep-me" }, }'
+    fs.writeFileSync(join(tempDir, 'config.json'), broken)
+
+    expect(await post('/api/settings', { tokenPruner: true })).toBe(500)
+    // The refused toggle above still applied live, so turn it back off: a change.
+    expect(await post('/api/modules', { id: 'token-pruner', enabled: false })).toBe(500)
+
+    expect(fs.readFileSync(join(tempDir, 'config.json'), 'utf8')).toBe(broken)
+  })
+
   it('a toggle under --observe does not persist the observe-relaxed modes', async () => {
     fs.writeFileSync(join(tempDir, 'config.json'), JSON.stringify({ dlp: { mode: 'block' }, crescendo: { mode: 'block' } }))
     const config = await loadConfig()
