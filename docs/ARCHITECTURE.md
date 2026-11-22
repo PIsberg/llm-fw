@@ -521,7 +521,7 @@ Mode A (proxy) needs none of these — it relies on the client honouring
 | Setting | What it is | Why it's needed | Reversal |
 | --- | --- | --- | --- |
 | hosts file block | `# llm-fw sinkhole` marker + `127.0.0.1 <host>` for every target provider | Forces DNS for provider domains to loopback so their traffic hits the local TLS server instead of the real API — no client config required. | strip the marker block + any target loopback line (`stripSinkholeBlock`) |
-| `hosts.llm-fw.bak` | Pre-edit copy of the hosts file | Safety net so the original can be restored if anything goes wrong. | delete after the hosts file is cleaned |
+| `hosts.llm-fw.bak` | The hosts file without llm-fw's lines, rewritten on every `setup` | What `stop` restores; llm-fw's lines are stripped again on restore, so a backup an older `setup` took of a sinkholed file still restores cleanly (#852). | delete after the hosts file is cleaned |
 | port redirect | `netsh portproxy 443→httpsPort` (Win) / `pf rdr` (macOS) / `iptables REDIRECT` (Linux) | The sinkhole TLS server runs on an unprivileged port (8443); this forwards loopback `:443` to it so clients reach it on the standard HTTPS port. | delete the rule (`netsh … delete` / `pfctl -F nat` / `iptables -D`) |
 | `iphlpsvc` running | Windows IP Helper service set to auto + started | `netsh portproxy` rules only forward while IP Helper is running. | **left in place** — it's a shared Windows service other software relies on; documented, not reverted |
 
