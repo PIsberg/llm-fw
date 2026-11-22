@@ -686,6 +686,8 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | A plain-HTTP request to the proxy | `501` | closed | `proxy.ts` |
 | A `CONNECT` to a host that is not intercepted | Tunnelled without inspection, by design | open | `proxy.ts` |
 | A `CONNECT` from a non-loopback client into the host's loopback or link-local addresses | `403` | closed | `tunnelGuard.ts` |
+| A `CONNECT` whose port is outside 1 to 65535 | `400` | closed | `proxy.ts` |
+| A `CONNECT` handler fails, or its client connection errors | That connection is closed and logged; the proxy keeps serving | closed | `proxy.ts` |
 | Observe mode, deployment-wide or per tenant | Every refusal is recorded and the request forwarded | open, by configuration | `pipeline.ts` |
 
 The open rows are deliberate trade-offs. Response-side inspection is defence in depth behind the request side. A judge that is down must not take the firewall down with it. A refusal for a spent embedding budget would turn a long session resumed after a restart into an outage while the heuristic stage still reads every byte.

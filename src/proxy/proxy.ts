@@ -431,7 +431,15 @@ export class ProxyServer {
     this.server.on('connect', (req, socket, head) => {
       this.sessions.add(socket)
       socket.once('close', () => this.sessions.delete(socket))
-      void this.handleConnect(req, socket as net.Socket, head)
+      // Node detaches the HTTP server's own error handler from a CONNECT
+      // socket, and an 'error' with no listener is thrown out of the event
+      // loop: a client that reset its connection while a refusal was being
+      // written took the whole proxy down (#850).
+      socket.on('error', () => socket.destroy())
+      this.handleConnect(req, socket as net.Socket, head).catch((err: unknown) => {
+        console.error(`llm-fw: CONNECT ${req.url ?? ''} failed: ${err instanceof Error ? err.message : String(err)}`)
+        socket.destroy()
+      })
     })
     // Plain proxied HTTP is not supported: this listener answers CONNECT only,
     // which is all an LLM provider ever needs. Without a handler here such a
@@ -523,6 +531,18 @@ export class ProxyServer {
         'Connection: close\r\n\r\n' + body
       )
       clientSocket.destroy()
+      return
+    }
+    // A port outside 1..65535 made net.connect throw inside this handler, an
+    // unhandled rejection that ended the process (#850).
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      const body = JSON.stringify({ error: 'invalid CONNECT port', detail: 'the port must be a whole number from 1 to 65535' })
+      clientSocket.end(
+        'HTTP/1.1 400 Bad Request\r\n' +
+        'Content-Type: application/json\r\n' +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+        'Connection: close\r\n\r\n' + body
+      )
       return
     }
     const sb = this.sandbox.detect(req.headers['user-agent'], clientSocket.remoteAddress)
