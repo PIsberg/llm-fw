@@ -775,6 +775,10 @@ export class GatewayServer {
     // after reading it.
     const send = (retried: boolean): Promise<void> => new Promise<void>((resolve) => {
       let answered = false;
+      // Set once this attempt has answered or abandoned the client (a timeout,
+      // the client gone): the 'socket hang up' that destroy() raises after it
+      // must not send the request again.
+      let settled = false;
       const upstream = transport.request(
         {
           host: route.provider.host,
@@ -800,6 +804,7 @@ export class GatewayServer {
       // be written: end its connection so it sees a cut stream, not a hang
       // (#531). json() alone returns silently when headers were sent.
       upstream.on('timeout', () => {
+        settled = true;
         upstream.destroy();
         if (res.headersSent) res.destroy();
         else this.json(res, 504, { error: 'upstream timeout', upstream: route.provider.host });
@@ -807,7 +812,7 @@ export class GatewayServer {
       });
       upstream.on('error', (err) => {
         res.off('close', onClientClose);
-        if (!answered && !retried && upstream.reusedSocket && !res.destroyed) {
+        if (!settled && !answered && !retried && upstream.reusedSocket && !res.headersSent && !res.destroyed) {
           log.warn(`upstream ${route.provider.host} — kept connection failed before answering (${err.message}), sending again`);
           resolve(send(true));
           return;
@@ -819,7 +824,7 @@ export class GatewayServer {
       });
       // The client went away. Nothing can read the rest, and the provider bills
       // for every token it goes on generating.
-      const onClientClose = (): void => { upstream.destroy(); resolve(); };
+      const onClientClose = (): void => { settled = true; upstream.destroy(); resolve(); };
       res.once('close', onClientClose);
       if (body.length) upstream.write(body);
       upstream.end();

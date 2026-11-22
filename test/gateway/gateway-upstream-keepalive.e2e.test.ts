@@ -29,6 +29,7 @@ vi.spyOn(Pipeline.prototype, 'inspect').mockImplementation(async (_path, body) =
 
 const TOKEN = 'keepalive-token'
 const GATEWAY_PORT = 18277
+const UPSTREAM_TIMEOUT_MS = 300
 
 let upstream: http.Server
 let upstreamPort = 0
@@ -45,11 +46,11 @@ function answer(_nth: number, _req: http.IncomingMessage, res: http.ServerRespon
 }
 
 /** Resolves with the status and body the client saw. */
-function request(): Promise<{ status: number; text: string }> {
+function request(agent: http.Agent | false = false): Promise<{ status: number; text: string }> {
   const payload = JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'Summarise the release notes.' }] })
   return new Promise((resolve) => {
     const req = http.request({
-      host: '127.0.0.1', port: GATEWAY_PORT, method: 'POST', path: '/v1/chat/completions', agent: false,
+      host: '127.0.0.1', port: GATEWAY_PORT, method: 'POST', path: '/v1/chat/completions', agent,
       headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)), 'x-llm-fw-key': TOKEN },
     }, (res) => {
       let text = ''
@@ -65,6 +66,7 @@ function request(): Promise<{ status: number; text: string }> {
 function config(): Config {
   return {
     ...DEFAULT_CONFIG,
+    proxy: { ...DEFAULT_CONFIG.proxy, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS },
     dlp: { ...DEFAULT_CONFIG.dlp, enabled: false },
     gateway: {
       enabled: true, port: GATEWAY_PORT, bindHost: '127.0.0.1',
@@ -149,6 +151,26 @@ describe('Gateway upstream keep-alive E2E (#842)', { timeout: 30000 }, () => {
     const res = await request()
     expect(res.status).toBe(502)
     expect(requests).toBe(1)
+  })
+
+  it('does not send it again after a kept connection timed out', async () => {
+    // The provider reads the request on the kept connection and never answers:
+    // the client gets the 504, and the request must not go out a second time.
+    resetUpstream((nth, req, res) => {
+      if (nth === 1) answer(nth, req, res)
+    })
+    // A client that keeps its own connection, as agents do: the gateway's
+    // response to it is ended, not destroyed, when the upstream fails.
+    const client = new http.Agent({ keepAlive: true })
+    try {
+      expect((await request(client)).status).toBe(200)
+      const res = await request(client)
+      expect(res.status).toBe(504)
+      await new Promise(resolve => setTimeout(resolve, UPSTREAM_TIMEOUT_MS * 2))
+      expect(requests).toBe(2)
+    } finally {
+      client.destroy()
+    }
   })
 
   it('does not send it again once the answer has started', async () => {
