@@ -420,6 +420,28 @@ describe('PDF streams (#857)', () => {
     expect(mediaBlockFromBase64('document', 'application/pdf', pdf(streams)).partial).toBe(true)
   })
 
+  // Second review pass on #890.
+  it('marks partial a #-escaped name anywhere in the file', () => {
+    expect(mediaBlockFromBase64('document', 'application/pdf', pdf([['/Fil#74er /FlateDecode', flate('BT (x) Tj ET')]])).partial).toBe(true)
+    expect(mediaBlockFromBase64('document', 'application/pdf', pdf([page('(hello) Tj')], '/Encr#79pt 9 0 R ')).partial).toBe(true)
+  })
+
+  it('marks partial an embedded font named inside a compressed object stream', () => {
+    const withObjStm = (body: string) => pdf([page('(hello) Tj'), ['/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode', flate(body)]])
+    // Control: the same file without the font key is read whole.
+    expect(mediaBlockFromBase64('document', 'application/pdf', withObjStm('9 0 << /Type /FontDescriptor /FontName /X >>')).partial).toBeFalsy()
+    expect(mediaBlockFromBase64('document', 'application/pdf', withObjStm('9 0 << /Type /FontDescriptor /FontFile2 10 0 R >>')).partial).toBe(true)
+  })
+
+  it.each([
+    ['a /Length that does not land on endstream', '/Length 3'],
+    ['an indirect /Length', '/Length 9 0 R'],
+  ])('marks partial %s', (_label, length) => {
+    const data = 'BT (hello) Tj ET'
+    const raw = `%PDF-1.7\n3 0 obj\n<< ${length} >>\nstream\n${data}\nendstream\nendobj\n%%EOF\n`
+    expect(mediaBlockFromBase64('document', 'application/pdf', Buffer.from(raw, 'latin1').toString('base64')).partial).toBe(true)
+  })
+
   it('marks partial a stream keyword followed by something other than a line end', () => {
     const raw = '%PDF-1.7\n3 0 obj\n<< /Length 5 >>\nstream hello\nendstream\nendobj\n%%EOF\n'
     expect(mediaBlockFromBase64('document', 'application/pdf', Buffer.from(raw, 'latin1').toString('base64')).partial).toBe(true)
@@ -494,6 +516,8 @@ describe('PDF reading stays linear (#857)', () => {
   it.each([
     ['nested dictionary openers before stream keywords', '%PDF-1.7\n' + ('<<'.repeat(2000) + '>> stream\nendstream\n').repeat(50)],
     ['dense /Filter arrays', '%PDF-1.7\n' + ('<< /Filter [' + '/A '.repeat(2000) + '] >>stream\nendstream\n').repeat(30)],
+    ['long digit runs after /Length', '%PDF-1.7\n' + ('<< /Length ' + '1 '.repeat(1800) + '>>stream\nendstream\n').repeat(30)],
+    ['name escapes', '%PDF-1.7\n' + '/' + 'a'.repeat(N) + '#'],
   ])('reads a PDF of %s in linear time', { timeout: LINEAR_TIME_TIMEOUT }, (_label, raw) => {
     const data = Buffer.from(raw, 'latin1').toString('base64')
     expect(underMs(500, () => decodeMediaText('application/pdf', data))).toBeLessThan(500)

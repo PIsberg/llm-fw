@@ -85,6 +85,10 @@ const PLAIN_DICT = /\/Type\s*\/(?:ObjStm|XRef|Metadata)\b/
 // embedded font can draw any code as any shape, /Differences remaps codes,
 // a Type3 font draws with its own procedures, and /Encrypt hides everything.
 const UNREADABLE = /\/(?:Encrypt|Differences|Type3|FontFile[23]?)\b/
+// A #xx escape spells a name another way (/Fil#74er is /Filter), so no key
+// check can be trusted in a file that uses one.
+const NAME_ESCAPE = /\/[^\s/<>[\]()%{}]*#[0-9A-Fa-f]{2}/
+const unreadable = (text: string): boolean => UNREADABLE.test(text) || NAME_ESCAPE.test(text)
 // The most a stream dictionary may span, looked for backwards from its stream.
 const MAX_DICT_CHARS = 4096
 
@@ -103,7 +107,7 @@ const MAX_DICT_CHARS = 4096
 function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean } {
   const s = buf.toString('latin1')
   const texts: string[] = [extractPrintableRuns(buf)]
-  let partial = UNREADABLE.test(s)
+  let partial = unreadable(s)
   let budget = maxBytes
   // Backward dictionary scans, bounded in total so dense streams stay linear.
   let scanBudget = 2 * s.length + MAX_DICT_CHARS
@@ -130,6 +134,10 @@ function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolea
     scanBudget -= Math.min(MAX_DICT_CHARS, dictEnd)
     if (dictStart === -1) { partial = true; continue }
     const dict = s.slice(dictStart, dictEnd)
+    // The stream ends where its direct /Length says, at an endstream: a
+    // comment or a string can hold the words stream and endstream, and only
+    // the length tells the stream's own bytes from them.
+    if (!lengthLandsOnEnd(s, dict, start, end)) { partial = true; continue }
     const filters = streamFilters(dict)
     if (filters === null || /\/DecodeParms\b/.test(dict) || /\/Subtype\s*\/Image\b/.test(dict)) { partial = true; continue }
     let data = buf.subarray(start, end)
@@ -149,7 +157,10 @@ function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolea
       partial = true
       continue
     }
-    const content = readContentStream(decoded.toString('latin1'))
+    const latin = decoded.toString('latin1')
+    // Object streams hold font and encoding dictionaries too.
+    if (unreadable(latin)) partial = true
+    const content = readContentStream(latin)
     if (content.text) texts.push(content.text)
     if (content.unread > 0) partial = true
     if (PLAIN_DICT.test(dict)) {
@@ -169,6 +180,39 @@ function hasControlBytes(s: string): boolean {
     if (c < 9 || (c > 13 && c < 32)) return true
   }
   return false
+}
+
+/**
+ * Whether the dictionary's one direct /Length, counted from `start`, ends at
+ * the endstream found at `end` (line ends between allowed). An indirect
+ * length (`/Length 9 0 R`), a repeated key or none at all answers false.
+ */
+function lengthLandsOnEnd(s: string, dict: string, start: number, end: number): boolean {
+  let key = -1
+  for (let k = dict.indexOf('/Length'); k !== -1; k = dict.indexOf('/Length', k + 7)) {
+    if (/[A-Za-z0-9]/.test(dict[k + 7] ?? '')) continue // /Length1, a font key
+    if (key !== -1) return false
+    key = k
+  }
+  if (key === -1) return false
+  let i = key + 7
+  while (i < dict.length && isPdfSpace(dict.charCodeAt(i))) i++
+  const digitsFrom = i
+  while (i < dict.length && isDigit(dict.charCodeAt(i))) i++
+  if (i === digitsFrom || i - digitsFrom > 10) return false
+  const length = Number(dict.slice(digitsFrom, i))
+  // "N G R" is a reference to the length, not the length.
+  let j = i
+  while (j < dict.length && isPdfSpace(dict.charCodeAt(j))) j++
+  const genFrom = j
+  while (j < dict.length && isDigit(dict.charCodeAt(j))) j++
+  if (j > genFrom) {
+    while (j < dict.length && isPdfSpace(dict.charCodeAt(j))) j++
+    if (dict[j] === 'R') return false
+  }
+  let at = start + length
+  while (at < end && (s[at] === '\r' || s[at] === '\n')) at++
+  return at === end
 }
 
 const isPdfSpace = (c: number): boolean => c === 32 || c === 9 || c === 10 || c === 13 || c === 12 || c === 0
@@ -285,7 +329,10 @@ function readContentStream(src: string): { text: string; unread: number } {
       else pending += out
       continue
     }
-    if (c === '<' && src[i + 1] !== '<') {
+    // A dictionary opener is not a hex string: read as one, its second < made
+    // every inline dictionary (marked content, inline images) unreadable text.
+    if (c === '<' && src[i + 1] === '<') { i += 2; continue }
+    if (c === '<') {
       const close = src.indexOf('>', i + 1)
       if (close === -1) break
       const hex = src.slice(i + 1, close).replace(/[^0-9A-Fa-f]/g, '')
