@@ -10,6 +10,7 @@ import {
   createSseGate,
 } from '../../../src/detection/mcp/responseGate.js'
 import type { Config } from '../../../src/types.js'
+import { underMs, LINEAR_TIME_TIMEOUT } from '../../linearTime.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -745,5 +746,266 @@ describe('rewriteBlockedJsonResponse — OpenAI Responses body', () => {
     const out = JSON.parse(rewriteBlockedJsonResponse(body, blockedNames)) as { output: Array<{ type: string }> }
     expect(out.output.map((o) => o.type)).toEqual(['message', 'message'])
     expect(JSON.stringify(out)).not.toContain('reset --hard')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// #851: five ways a blocked tool or a destructive command got through.
+// ---------------------------------------------------------------------------
+
+describe('OpenAiSseToolGate reads streamed arguments as JSON (#851)', () => {
+  // Scanned as the raw JSON text, the command ended in '"}', so a rule that
+  // wants a space, a separator or the end after "/" never matched.
+  it('blocks a bash call whose command ends right before the closing quote', () => {
+    const gate = new OpenAiSseToolGate(makeScanner())
+    const { forward, decisions } = gate.push(openAiBashStream('rm -rf /'))
+    expect(forward + gate.flush()).not.toContain('rm -rf')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'bash', action: 'block' })])
+  })
+
+  it('blocks a bash call whose whole arguments arrive in the name fragment', () => {
+    const json = JSON.stringify({ command: 'rm -rf /' })
+    const stream = [
+      openAiEvent({ choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'c', type: 'function', function: { name: 'bash', arguments: json } }] }, finish_reason: null }] }),
+      openAiEvent({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+      'data: [DONE]\n\n',
+    ].join('')
+    const gate = new OpenAiSseToolGate(makeScanner())
+    const { forward, decisions } = gate.push(stream)
+    expect(forward + gate.flush()).not.toContain('rm -rf')
+    expect(decisions).toEqual([expect.objectContaining({ action: 'block' })])
+  })
+})
+
+describe('rewriteBlockedJsonResponse — Bedrock Converse and Cohere bodies (#851)', () => {
+  const blocked = new Set(['execute_command'])
+
+  it('removes a blocked toolUse from a Bedrock Converse response and ends the turn', () => {
+    const body = JSON.stringify({
+      output: { message: { role: 'assistant', content: [{ text: 'On it.' }, { toolUse: { toolUseId: 't1', name: 'execute_command', input: { cmd: 'x' } } }] } },
+      stopReason: 'tool_use',
+    })
+    const bedrock = getParser('/model/anthropic.claude-3-sonnet/converse')!
+    expect(inspectJsonResponse(body, bedrock, mcp).blockedNames).toEqual(blocked)
+    const out = JSON.parse(rewriteBlockedJsonResponse(body, blocked))
+    expect(JSON.stringify(out)).not.toContain('toolUse')
+    expect(out.output.message.content[0]).toEqual({ text: 'On it.' })
+    expect(out.stopReason).toBe('end_turn')
+  })
+
+  it('removes a blocked call from a Cohere v2 response', () => {
+    const body = JSON.stringify({
+      id: 'r', finish_reason: 'TOOL_CALL',
+      message: { role: 'assistant', tool_plan: 'run it', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'execute_command', arguments: '{"cmd":"x"}' } }] },
+    })
+    const out = JSON.parse(rewriteBlockedJsonResponse(body, blocked))
+    expect(JSON.stringify(out)).not.toContain('execute_command"')
+    expect(out.message.tool_calls).toBeUndefined()
+    expect(out.finish_reason).toBe('COMPLETE')
+  })
+
+  it('removes a blocked call from a Cohere v1 response', () => {
+    const body = JSON.stringify({ text: '', finish_reason: 'COMPLETE', tool_calls: [{ name: 'execute_command', parameters: { cmd: 'x' } }, { name: 'read_file', parameters: {} }] })
+    const out = JSON.parse(rewriteBlockedJsonResponse(body, blocked))
+    expect(out.tool_calls).toEqual([{ name: 'read_file', parameters: {} }])
+  })
+})
+
+/** A Gemini streamGenerateContent?alt=sse chunk, CRLF-framed as Google sends it. */
+function geminiChunk(parts: unknown[], wrap = false): string {
+  const response = { candidates: [{ content: { role: 'model', parts }, index: 0 }] }
+  return `data: ${JSON.stringify(wrap ? { response, traceId: 't' } : response)}\r\n\r\n`
+}
+
+describe('Gemini and Cloud Code SSE streams (#851)', () => {
+  const gemini = getParser('/v1beta/models/gemini-2.5-pro:streamGenerateContent')!
+  const cloudCode = getParser('/v1internal:streamGenerateContent')!
+
+  it.each([
+    ['Gemini', gemini, false],
+    ['Cloud Code (Gemini CLI, Antigravity)', cloudCode, true],
+  ])('drops a blocked functionCall from a %s stream', (_label, parser, wrap) => {
+    const gate = createSseGate(parser, mcp, '/x:streamGenerateContent?alt=sse')
+    const stream = geminiChunk([{ text: 'Running it.' }], wrap) + geminiChunk([{ functionCall: { name: 'execute_command', args: { cmd: 'x' } } }], wrap)
+    const { forward, decisions } = gate.push(stream)
+    const out = forward + gate.flush()
+    expect(out).toContain('Running it.')
+    expect(out).not.toContain('"functionCall"')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'execute_command', action: 'block' })])
+  })
+
+  it('drops a Gemini CLI shell call whose command is destructive', () => {
+    const gate = createSseGate(cloudCode, makeScanner(), '/v1internal:streamGenerateContent?alt=sse')
+    const { forward, decisions } = gate.push(geminiChunk([{ functionCall: { name: 'run_shell_command', args: { command: 'rm -rf /' } } }], true))
+    expect(forward + gate.flush()).not.toContain('rm -rf')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'run_shell_command', action: 'block' })])
+  })
+
+  it('forwards a stream with an allowed call unchanged', () => {
+    const gate = createSseGate(gemini, mcp, '/x:streamGenerateContent?alt=sse')
+    const stream = geminiChunk([{ functionCall: { name: 'read_file', args: { path: 'a' } } }])
+    const { forward, decisions } = gate.push(stream)
+    expect(forward + gate.flush()).toBe(stream)
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'read_file', action: 'pass' })])
+  })
+})
+
+describe('SSE gates on CRLF-framed streams (#851)', () => {
+  const crlf = (s: string): string => s.replace(/\n/g, '\r\n')
+
+  it('blocks an Anthropic tool_use block framed with CRLF', () => {
+    const gate = new SseToolGate(mcp)
+    const { forward, decisions } = gate.push(crlf(buildSseStream('execute_command')))
+    const out = forward + gate.flush()
+    expect(out).not.toContain('execute_command')
+    expect(out).toContain('Hello world')
+    expect(decisions).toEqual([expect.objectContaining({ action: 'block' })])
+  })
+
+  it('blocks an OpenAI tool call framed with CRLF, split mid-separator', () => {
+    const gate = new OpenAiSseToolGate(mcp)
+    const stream = crlf(buildOpenAiToolStream('execute_command'))
+    let out = ''
+    const decisions: unknown[] = []
+    for (let i = 0; i < stream.length; i += 5) {
+      const r = gate.push(stream.slice(i, i + 5))
+      out += r.forward
+      decisions.push(...r.decisions)
+    }
+    out += gate.flush()
+    expect(out).not.toContain('execute_command')
+    expect(decisions).toEqual([expect.objectContaining({ action: 'block' })])
+  })
+
+  it('does not hold an unframed event without bound, and never forwards it unread', () => {
+    const gate = new SseToolGate(mcp)
+    const start = `event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t","name":"execute_command","input":{"pad":"${'a'.repeat(17 * 1024 * 1024)}"}}}`
+    const r = gate.push(start)
+    expect(r.forward).toBe('')
+    expect(r.decisions).toEqual([expect.objectContaining({ action: 'block' })])
+    expect(gate.flush()).not.toContain('execute_command')
+  })
+})
+
+describe('SSE gates on interleaved tool blocks (#851)', () => {
+  it('checks an Anthropic tool block that starts while a Bash block is held', () => {
+    const json = JSON.stringify({ command: 'ls' })
+    const stream = [
+      sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'a', name: 'Bash', input: {} } }),
+      sseEvent('content_block_start', { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'b', name: 'execute_command', input: {} } }),
+      sseEvent('content_block_delta', { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"cmd":"x"}' } }),
+      sseEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: json } }),
+      sseEvent('content_block_stop', { type: 'content_block_stop', index: 1 }),
+      sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 }),
+      sseEvent('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use' } }),
+    ].join('')
+    const gate = new SseToolGate(makeScanner({ enabled: true, blockedTools: ['execute_command'], auditOnly: false }))
+    const { forward, decisions } = gate.push(stream)
+    const out = forward + gate.flush()
+    expect(out).not.toContain('execute_command')
+    expect(out).toContain('"name":"Bash"')
+    expect(decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolName: 'execute_command', action: 'block' }),
+      expect.objectContaining({ toolName: 'Bash', action: 'pass' }),
+    ]))
+  })
+
+  it('checks a Responses API call that starts while an exec call is held', () => {
+    const parser = getParser('/v1/responses')!
+    const gate = createSseGate(parser, makeScanner({ enabled: true, blockedTools: ['execute_command'], auditOnly: false }), '/v1/responses')
+    const exec = { type: 'function_call', id: 'fc_a', call_id: 'ca', name: 'shell', arguments: '' }
+    const bad = { type: 'function_call', id: 'fc_b', call_id: 'cb', name: 'execute_command', arguments: '{}' }
+    const stream = [
+      rEvent('response.output_item.added', { output_index: 0, item: exec }),
+      rEvent('response.output_item.added', { output_index: 1, item: bad }),
+      rEvent('response.output_item.done', { output_index: 1, item: bad }),
+      rEvent('response.function_call_arguments.delta', { item_id: 'fc_a', output_index: 0, delta: '{"command":["ls"]}' }),
+      rEvent('response.output_item.done', { output_index: 0, item: { ...exec, arguments: '{"command":["ls"]}' } }),
+    ].join('')
+    const { forward, decisions } = gate.push(stream)
+    const out = forward + gate.flush()
+    expect(out).not.toContain('execute_command')
+    expect(decisions).toEqual(expect.arrayContaining([expect.objectContaining({ toolName: 'execute_command', action: 'block' })]))
+  })
+})
+
+describe('Anthropic server-side and MCP connector tool blocks (#851)', () => {
+  const scanner = makeScanner({ enabled: true, blockedTools: ['web_fetch'], auditOnly: false })
+
+  it.each(['server_tool_use', 'mcp_tool_use'])('blocks a %s block in a JSON response, with its result', (type) => {
+    const body = JSON.stringify({
+      content: [
+        { type: 'text', text: 'Looking.' },
+        { type, id: 'srv_1', name: 'web_fetch', input: { url: 'https://x.example' }, ...(type === 'mcp_tool_use' ? { server_name: 's' } : {}) },
+        { type: type === 'mcp_tool_use' ? 'mcp_tool_result' : 'web_fetch_tool_result', tool_use_id: 'srv_1', content: [] },
+      ],
+      stop_reason: 'end_turn',
+    })
+    const { blockedNames } = inspectJsonResponse(body, parser!, scanner)
+    expect(blockedNames).toEqual(new Set(['web_fetch']))
+    const out = JSON.parse(rewriteBlockedJsonResponse(body, blockedNames))
+    expect(out.content.map((b: { type: string }) => b.type)).toEqual(['text', 'text'])
+  })
+
+  it('drops a streamed server_tool_use block and its result block', () => {
+    const stream = [
+      sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srv_1', name: 'web_fetch', input: {} } }),
+      sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 }),
+      sseEvent('content_block_start', { type: 'content_block_start', index: 1, content_block: { type: 'web_fetch_tool_result', tool_use_id: 'srv_1', content: [] } }),
+      sseEvent('content_block_stop', { type: 'content_block_stop', index: 1 }),
+      sseEvent('content_block_start', { type: 'content_block_start', index: 2, content_block: { type: 'text', text: 'Done.' } }),
+      sseEvent('content_block_stop', { type: 'content_block_stop', index: 2 }),
+    ].join('')
+    const gate = new SseToolGate(scanner)
+    const { forward, decisions } = gate.push(stream)
+    const out = forward + gate.flush()
+    expect(out).not.toContain('srv_1')
+    expect(out).toContain('Done.')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'web_fetch', action: 'block' })])
+  })
+})
+
+describe('SSE event framing stays linear (#851)', () => {
+  // Every event end is found by one regex over provider-controlled text; a
+  // run of line ends or carriage returns must not make it rescan the buffer.
+  const inputs: Array<[string, string]> = [
+    ['200 KB of carriage returns', '\r'.repeat(200_000)],
+    ['200 KB of LF CR pairs', '\n\r'.repeat(100_000)],
+    ['200 KB of data lines with no blank line', 'data: x\r\n'.repeat(22_000)],
+  ]
+  it.each(inputs)('frames %s in one push and in 1 KB pushes', { timeout: LINEAR_TIME_TIMEOUT }, (_label, text) => {
+    expect(underMs(500, () => {
+      new SseToolGate(mcp).push(text)
+      const g = new SseToolGate(mcp)
+      for (let i = 0; i < text.length; i += 1024) g.push(text.slice(i, i + 1024))
+      g.flush()
+    })).toBeLessThan(500)
+  })
+})
+
+describe('SSE gates at the end of a cut stream with two held blocks (#851)', () => {
+  // Two execution-tool blocks, neither closed: releasing the first at the end
+  // of the stream replays the second, which is held in turn and has to be
+  // decided too, or its events are lost (benign) or never checked.
+  const cut = (second: string): string => [
+    sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'a', name: 'Bash', input: {} } }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'b', name: 'Bash', input: {} } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ command: second }) } }),
+    sseEvent('message_stop', { type: 'message_stop' }),
+  ].join('')
+
+  it('releases both when both pass', () => {
+    const gate = new SseToolGate(makeScanner())
+    const stream = cut('cat big.log')
+    expect(gate.push(stream).forward + gate.flush()).toBe(stream)
+  })
+
+  it('drops the second when its command is destructive', () => {
+    const gate = new SseToolGate(makeScanner())
+    const out = gate.push(cut('rm -rf /')).forward + gate.flush()
+    expect(out).not.toContain('rm -rf')
+    expect(out).toContain('"id":"a"')
+    expect(out).toContain('message_stop')
   })
 })

@@ -265,7 +265,9 @@ class AnthropicParser implements PayloadParser {
       }
 
       for (const block of contentBlocks) {
-        if (block.type === 'tool_use' && typeof block.name === 'string') {
+        // Server tools (server_tool_use) and the MCP connector (mcp_tool_use)
+        // invoke tools too, and a policy naming one must see them (#851).
+        if ((block.type === 'tool_use' || block.type === 'server_tool_use' || block.type === 'mcp_tool_use') && typeof block.name === 'string') {
           results.push({ toolName: block.name, args: block.input })
         }
       }

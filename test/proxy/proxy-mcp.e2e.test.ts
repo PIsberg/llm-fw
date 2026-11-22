@@ -254,6 +254,19 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
           const cmd = scenario === 'responses-untyped-exec' ? 'git reset --hard HEAD' : 'git status --short'
           res.writeHead(200, {})
           res.end(responsesExecStream(cmd))
+        } else if (scenario === 'gemini-sse-crlf') {
+          // #851: Gemini CLI's stream, CRLF-framed as Google sends it, the
+          // call whole inside one Cloud Code envelope.
+          const chunk = (parts: unknown[]) => `data: ${JSON.stringify({ response: { candidates: [{ content: { role: 'model', parts } }] }, traceId: 't' })}\r\n\r\n`
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(chunk([{ text: 'Cleaning.' }]))
+          res.end(chunk([{ functionCall: { name: 'run_shell_command', args: { command: 'rm -rf /' } } }]))
+        } else if (scenario === 'sse-crlf-blocked') {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          const crlf = (s: string) => s.replace(/\n/g, '\r\n')
+          res.write(crlf(sse('content_block_start', { index: 0, content_block: { type: 'tool_use', id: 'toolu_crlf', name: 'execute_command', input: {} } })))
+          res.write(crlf(sse('content_block_stop', { index: 0 })))
+          res.end(crlf(sse('message_delta', { delta: { stop_reason: 'tool_use' } })))
         } else if (scenario === 'untyped-text') {
           res.writeHead(200, {})
           res.end('plain words, not a stream')
@@ -397,6 +410,32 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     expect(res.body).toContain('"stop_reason":"end_turn"')
     expect(res.body).not.toContain('"stop_reason":"tool_use"')
     expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'execute_command')).toBe(true)
+  })
+
+  // #851: a CRLF-framed stream was one endless event to the gate, held whole
+  // and forwarded unread at its end.
+  it('gates a blocked tool_use out of a CRLF-framed SSE response', async () => {
+    const res = await send('/v1/messages', toolRequest('sse-crlf-blocked'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).not.toContain('execute_command')
+    expect(res.body).toContain('"stop_reason":"end_turn"')
+  })
+
+  // #851: Gemini and Cloud Code streams went to the Anthropic gate, which
+  // knows no functionCall, so every call passed.
+  it('gates a destructive Gemini CLI shell call out of a Cloud Code stream', async () => {
+    const body = JSON.stringify({
+      model: 'gemini-2.5-pro', project: 'p', scenario: 'gemini-sse-crlf',
+      request: {
+        contents: [{ role: 'user', parts: [{ text: 'tidy up' }] }],
+        tools: [{ functionDeclarations: [{ name: 'run_shell_command', parameters: { type: 'object', properties: {} } }] }],
+      },
+    })
+    const res = await send('/v1internal:streamGenerateContent?alt=sse', body)
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -rf')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'run_shell_command')).toBe(true)
   })
 
   it('blocks a destructive command that streams after the tool name (#529)', async () => {

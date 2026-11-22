@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.82 (#851: only the response-side MCP tool gate changed, which no prompt verdict
+  // reads; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.81 (#848: only the URL classifier changed, which no prompt verdict reads;
   // 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.80 (#652: an override with its words run together is split into words when it
