@@ -459,7 +459,11 @@ or at once when the provider writes to it or closes it. When a reused
 connection dies before any byte of the answer arrives, the request is sent once
 more on a new connection, so a provider that dropped the request without
 answering receives it twice. Off by default until it has run on live traffic;
-hot-reloaded. The gateway still opens a connection per request.
+hot-reloaded. The gateway does not read this switch: it sends through Node's
+HTTP agent, which has kept connections alive by default since Node 19, so a
+request to a provider goes on the connection the last one used when it has been
+idle under 5 s. A kept connection that dies before any byte of the answer is
+retried once on a new one, as in the proxy (#842).
 
 **Update check.** `llm-fw start` prints its version and ruleset first, and once
 every listener is bound asks the npm registry

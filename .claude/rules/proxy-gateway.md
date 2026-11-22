@@ -76,6 +76,13 @@ Rules that must not regress:
   answer is sent once more on a new one and never shown to the client. Pinned
   by `test/proxy/proxy-upstream-keepalive.e2e.test.ts` and
   `test/proxy/upstreamPool.test.ts`.
+- The gateway does not read that switch. Its `http`/`https.request` goes
+  through Node's global agent, which keeps connections alive by default
+  (Node 19+, 5 s idle), so it reuses them already. A request on a kept
+  connection that fails before any byte of the answer is sent once more with
+  `agent: false`; never resend after the answer started, after a
+  timeout or the client's close (the `socket hang up` that `destroy()`
+  raises), or on a new connection. Pinned by `test/gateway/gateway-upstream-keepalive.e2e.test.ts` (#842).
 - A client that goes silent before its request is in is closed after
   `proxy.upstreamTimeoutMs` (`closeSilentClients`): the inner server only receives
   handed-over connections, so its own header and request timeouts never start. A

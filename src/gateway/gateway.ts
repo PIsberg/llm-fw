@@ -766,7 +766,19 @@ export class GatewayServer {
     const transport = route.provider.protocol === 'http' ? http : https;
     const port = route.provider.port ?? (route.provider.protocol === 'http' ? 80 : 443);
 
-    await new Promise<void>((resolve) => {
+    // Node's global agent keeps upstream connections alive (the default since
+    // Node 19), so a request usually goes on the connection the last one to
+    // this provider used. One the provider closed while it sat idle fails
+    // before any byte of the answer: `retried` sends the request once more,
+    // on a new connection, as the proxy does with proxy.upstreamKeepAlive
+    // (#670, #842). The provider may then see it twice, if it dropped it
+    // after reading it.
+    const send = (retried: boolean): Promise<void> => new Promise<void>((resolve) => {
+      let answered = false;
+      // Set once this attempt has answered or abandoned the client (a timeout,
+      // the client gone): the 'socket hang up' that destroy() raises after it
+      // must not send the request again.
+      let settled = false;
       const upstream = transport.request(
         {
           host: route.provider.host,
@@ -775,8 +787,11 @@ export class GatewayServer {
           path: route.upstreamPath + query,
           headers: outbound,
           timeout: this.config.proxy.upstreamTimeoutMs,
+          // The retry takes no kept connection: another one may be as stale.
+          ...(retried ? { agent: false } : {}),
         },
         (upRes) => {
+          answered = true;
           res.writeHead(upRes.statusCode ?? 502, upRes.headers);
           // Piped, not buffered: a streaming completion must reach the client
           // token by token, exactly as the provider emitted it.
@@ -789,12 +804,19 @@ export class GatewayServer {
       // be written: end its connection so it sees a cut stream, not a hang
       // (#531). json() alone returns silently when headers were sent.
       upstream.on('timeout', () => {
+        settled = true;
         upstream.destroy();
         if (res.headersSent) res.destroy();
         else this.json(res, 504, { error: 'upstream timeout', upstream: route.provider.host });
         resolve();
       });
       upstream.on('error', (err) => {
+        res.off('close', onClientClose);
+        if (!settled && !answered && !retried && upstream.reusedSocket && !res.headersSent && !res.destroyed) {
+          log.warn(`upstream ${route.provider.host} — kept connection failed before answering (${err.message}), sending again`);
+          resolve(send(true));
+          return;
+        }
         log.error(`upstream ${route.provider.host} — ${err.message}`);
         if (res.headersSent) res.destroy();
         else this.json(res, 502, { error: 'upstream request failed', upstream: route.provider.host });
@@ -802,9 +824,11 @@ export class GatewayServer {
       });
       // The client went away. Nothing can read the rest, and the provider bills
       // for every token it goes on generating.
-      res.once('close', () => { upstream.destroy(); resolve(); });
+      const onClientClose = (): void => { settled = true; upstream.destroy(); resolve(); };
+      res.once('close', onClientClose);
       if (body.length) upstream.write(body);
       upstream.end();
     });
+    await send(false);
   }
 }
