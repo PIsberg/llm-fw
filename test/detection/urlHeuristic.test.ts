@@ -239,6 +239,45 @@ describe('isAuthPath', () => {
   })
 })
 
+// #848: a trailing root dot is the same host. Classified raw, it missed the
+// blocklist, made the apex "site." (not a known exfil service) and handed the
+// DGA and entropy checks the TLD instead of the registrable label.
+describe('UrlClassifier on a fully qualified host (#848)', () => {
+  it('blocks a known exfil service, a blocklisted domain and a DGA apex spelled with a trailing dot', () => {
+    expect(c.classify('webhook.site.').reason).toBe('known-exfil-domain')
+    expect(c.classify('WEBHOOK.SITE..').reason).toBe('known-exfil-domain')
+    expect(c.classify('evil.com.').reason).toBe('domain-blocklisted')
+    expect(c.classify('x.attacker.net.').reason).toBe('domain-blocklisted')
+    expect(c.classify('x7f9q2k8z1p3v6w4.com.').reason).toMatch(/^dga-label:/)
+  })
+
+  it('still passes an allowlisted host spelled with a trailing dot', () => {
+    expect(c.classify('api.anthropic.com.').action).toBe('pass')
+  })
+
+  it('normalizes a list entry written with a trailing dot', () => {
+    expect(normalizeDomainEntry('evil.example.')).toBe('evil.example')
+    const listed = new UrlClassifier({ ...cfg, blocklistDomains: ['evil.example.'] })
+    expect(listed.classify('evil.example').reason).toBe('domain-blocklisted')
+  })
+})
+
+// #848: an auth path exempted its query from the exfil check on ANY host, so
+// a model could leak a secret to evil.example/auth/?data=... The exemption is
+// for the providers' own sign-in flows, which are allowlisted.
+describe('UrlClassifier auth-path exemption (#848)', () => {
+  const secret = 'QUtJQUlPU0ZPRE5ON0VYQU1QTEVrZXlzZWNyZXRrZXlzZWNyZXRrZXlzZWNyZXRrZXk'
+  it('does not exempt the query of an auth path on a host nobody allowlisted', () => {
+    expect(c.classifyDetailed('collector.example', '/auth/cb?data=x').reason).toBe('query-exfil-pattern')
+    expect(c.classifyDetailed('collector.example', `/oauth/token?v=${secret}`).reason).toBe('query-exfil-pattern')
+    expect(c.classifyDetailed('collector.example', '/.well-known/x?payload=1').reason).toBe('query-exfil-pattern')
+  })
+
+  it('still passes an auth path on an allowlisted host', () => {
+    expect(c.classifyDetailed('api.anthropic.com', '/v1/oauth/token?token=abc').action).toBe('pass')
+  })
+})
+
 describe('UrlClassifier — clean domains', () => {
   it('passes common trusted domains', () => {
     expect(c.classify('github.com').action).toBe('pass')

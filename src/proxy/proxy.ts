@@ -8,7 +8,7 @@ import { UpstreamResolver } from './upstream.js'
 import { Pipeline } from '../detection/pipeline.js'
 import { SuppressionStore } from '../detection/suppressions.js'
 import { EventBus } from '../dashboard/eventBus.js'
-import { UrlClassifier } from '../detection/urlHeuristic.js'
+import { UrlClassifier, canonicalHost } from '../detection/urlHeuristic.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
 import { locateDlpFindings, locationSummary } from './dlpLocation.js'
 import { QuotaManager } from '../detection/dos/quota.js'
@@ -158,8 +158,10 @@ class UpstreamTimeoutError extends Error {
 export function parseConnectTarget(url: string): { hostname: string; port: number } {
   const colonIdx = url.lastIndexOf(':')
   // No colon, or a lone trailing colon → treat the whole string as the hostname.
-  if (colonIdx === -1) return { hostname: url, port: 443 }
-  const hostname = url.slice(0, colonIdx)
+  if (colonIdx === -1) return { hostname: canonicalHost(url), port: 443 }
+  // Canonical: every decision after this (intercept, URL filter, taint, the
+  // tunnel guard) compares lowercase names without the root dot (#848).
+  const hostname = canonicalHost(url.slice(0, colonIdx))
   const port = parseInt(url.slice(colonIdx + 1), 10) || 443
   return { hostname, port }
 }
@@ -254,7 +256,8 @@ function isCodexBackendPath(path: string): boolean {
 }
 
 /** Whether CONNECTs to `hostname` are TLS-intercepted rather than tunnelled. */
-export function isInterceptedHost(hostname: string, config: Config): boolean {
+export function isInterceptedHost(name: string, config: Config): boolean {
+  const hostname = canonicalHost(name)
   const interceptDomains = config.proxy.interceptDomains ?? AI_PROVIDER_INTERCEPT_DOMAINS
   return config.targets.some(t => hostname === t || hostname.endsWith('.' + t))
     || interceptDomains.some(d => hostname === d || hostname.endsWith('.' + d))

@@ -93,6 +93,19 @@ export function isAuthPath(path: string): boolean {
   return AUTH_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))
 }
 
+/**
+ * The one spelling of a host name every check compares: lowercase, without
+ * the root's trailing dot. `API.OPENAI.COM` and `api.openai.com.` name
+ * api.openai.com, and compared raw both missed every list and intercept
+ * domain (#848). A loop, not `/\.+$/`, which rescans a long run of dots
+ * from every position before it.
+ */
+export function canonicalHost(hostname: string): string {
+  let end = hostname.length
+  while (end > 0 && hostname.charCodeAt(end - 1) === 0x2e) end--
+  return hostname.slice(0, end).toLowerCase()
+}
+
 export class UrlClassifier {
   private allowlist: Set<string>
   private blocklist: Set<string>
@@ -106,7 +119,7 @@ export class UrlClassifier {
 
   classifyDetailed(hostname: string, path?: string): UrlClassifyDetailedResult {
     const checks: CheckDetail[] = []
-    const host = hostname.toLowerCase()
+    const host = canonicalHost(hostname)
 
     if (this.matchesList(host, this.allowlist)) {
       checks.push({ name: 'Allowlist', result: 'pass', reason: 'domain is explicitly allowlisted' })
@@ -168,7 +181,10 @@ export class UrlClassifier {
     }
     checks.push({ name: 'DGA-like domain', result: 'pass', reason: 'registrable label does not look generated' })
 
-    if (path && !isAuthPath(path)) {
+    // No auth-path exemption here: it is for the providers' own sign-in
+    // flows, whose hosts are allowlisted and passed above. On any other host
+    // /auth/?data=... is a query like any other (#848).
+    if (path) {
       for (const pattern of EXFIL_PATH_PATTERNS) {
         if (pattern.test(path)) {
           checks.push({ name: 'Path exfil pattern', result: 'block', reason: 'query string matches data exfiltration pattern' })
@@ -239,7 +255,7 @@ export function normalizeDomainEntry(entry: string): string {
     s = s.replace(/:\d+$/, '')
   }
   s = s.replace(/^\*\./, '').replace(/^\.+/, '') // leading *. or .
-  return s
+  return canonicalHost(s)                        // trailing root dot
 }
 
 function apexDomain(host: string): string {
