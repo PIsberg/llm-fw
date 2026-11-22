@@ -14,8 +14,12 @@ import {
 // styles (`key=value`, `key: value`) for a broad set of credential-ish names.
 // The value stops at a backslash: the scan runs on the raw JSON body, where a
 // quote or newline inside a string is an escape (\" or \n), and a match that
-// took the backslash would leave the redacted body unparseable (#374).
-const SECRET_KEYWORDS = /\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth|authorization|credentials?|key)\s*[:=]\s*["']?([^\s"',}\\]{20,})/gi
+// took the backslash would leave the redacted body unparseable (#374). For
+// the same reason a quote around the key or the value may be escaped: in a
+// prompt that holds `password="..."` or a pasted `{"api_key": "..."}` the
+// body carries \", and requiring a bare quote, or none, missed every
+// double-quoted secret in a JSON request (#856).
+const SECRET_KEYWORDS = /\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth|authorization|credentials?|key)(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?([^\s"',}\\]{20,})/gi
 
 // Bearer tokens appear as `Authorization: Bearer <token>` / `Bearer <token>`
 // with a SPACE separator, which the assignment pattern above does not catch.
@@ -31,9 +35,15 @@ const ENTROPY_THRESHOLD = 4.0
 // so a long random piece still counts (`decode(<secret>)`). No credential
 // format contains `(`, and a quoted value is a string literal, judged whole.
 const CALL_START = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(/
+// A member chain is a reference too (`process.env.OPENAI_PRODUCTION_KEY`),
+// measured as the one such value the escaped-quote form added (#856).
+const MEMBER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/
 function looksSecret(value: string, matched: string): boolean {
   const quoted = /["']$/.test(matched.slice(0, matched.length - value.length))
-  const pieces = !quoted && CALL_START.test(value) ? value.split(/[^\w$.+/=-]+/) : [value]
+  const pieces = quoted ? [value]
+    : CALL_START.test(value) ? value.split(/[^\w$.+/=-]+/)
+    : MEMBER_CHAIN.test(value) ? value.split('.')
+    : [value]
   return pieces.some(p => p.length > 20 && calculateEntropy(p) > ENTROPY_THRESHOLD)
 }
 
@@ -90,7 +100,7 @@ export class DlpScanner {
           match = text.slice(m.index, end)
           rule.regex.lastIndex = end
         }
-        if (!isDocumentedExample(match)) {
+        if (!isDocumentedExample(rule.type, match)) {
           findings.push({ type: rule.type, label: rule.label, match, index: m.index })
         }
         if (m.index === rule.regex.lastIndex) rule.regex.lastIndex++
@@ -233,8 +243,10 @@ export class DlpScanner {
  * fixture, it is exempt by design now. Use a synthetic key assembled at
  * runtime — see test/fixtures/syntheticSecrets.ts for why it cannot be a literal.
  */
-function isDocumentedExample(match: string): boolean {
-  return /EXAMPLE(?:KEY)?$/.test(match)
+function isDocumentedExample(type: string, match: string): boolean {
+  // AWS keys only: every other vendor's rule ends in a greedy run that took a
+  // trailing EXAMPLE in, so any live key with the word appended was exempt (#856).
+  return (type === 'AWS_ACCESS_KEY' || type === 'AWS_SECRET_KEY') && /EXAMPLE(?:KEY)?$/.test(match)
 }
 
 function markerFor(type: string): string {

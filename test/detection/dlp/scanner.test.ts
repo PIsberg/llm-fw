@@ -772,3 +772,41 @@ describe('DlpScanner.redact — the whole private key block', () => {
     })
   })
 })
+
+// #856: three ways a secret got past DLP.
+describe('DLP blind spots (#856)', () => {
+  // High entropy, no vendor prefix: only the generic keyword rule can see it.
+  const SECRET = 'Zq7' + 'Lm2Vx9Rt4Kp8Wn3Hj6Bc1Df5Gs0Ty'
+  const scanner = makeScanner()
+  const generic = (text: string) => scanner.scan(text).filter(f => f.type === 'GENERIC_SECRET')
+
+  it.each([
+    ['a quoted value inside a JSON string', JSON.stringify({ prompt: `set password="${SECRET}" in the env` })],
+    ['a JSON object pasted into a prompt', JSON.stringify({ prompt: JSON.stringify({ api_key: SECRET }) })],
+    ['a field of the request body itself', `{"metadata":{"api_key": "${SECRET}"}}`],
+  ])('finds the generic secret in %s', (_label, body) => {
+    expect(generic(body).map(f => f.match)).toContain(SECRET)
+  })
+
+  it('keeps the redacted body valid JSON', () => {
+    const body = JSON.stringify({ prompt: JSON.stringify({ api_key: SECRET, note: 'x' }) })
+    const out = scanner.redact(body, scanner.scan(body))
+    expect(out).not.toContain(SECRET)
+    expect(() => JSON.parse(JSON.parse(out).prompt)).not.toThrow()
+  })
+
+  it('does not take a reference to an environment variable for a secret', () => {
+    const body = JSON.stringify({ prompt: "headers: { 'X-Api-Key': process.env.OPENAI_PRODUCTION_KEY_VALUE }" })
+    expect(generic(body)).toEqual([])
+  })
+
+  it('still finds a vendor key that ends in EXAMPLE', () => {
+    const live = 'sk-ant-api03-' + 'Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z'.repeat(3) + 'AA'
+    const found = scanner.scan(`key ${live}EXAMPLE`)
+    expect(found.map(f => f.type)).toContain('ANTHROPIC_API_KEY')
+  })
+
+  it("still exempts AWS's own documentation key", () => {
+    expect(scanner.scan('AKIA' + 'IOSFODNN7EXAMPLE').filter(f => f.type === 'AWS_ACCESS_KEY')).toEqual([])
+  })
+})
