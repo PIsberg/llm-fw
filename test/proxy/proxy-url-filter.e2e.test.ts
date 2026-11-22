@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import net from 'node:net'
+import tls from 'node:tls'
 import http from 'node:http'
 import fs from 'node:fs'
 import { join } from 'node:path'
@@ -173,6 +174,39 @@ describe('URL Filter E2E', { timeout: 15000 }, () => {
     expect(r.statusCode).toBe(403)
     const json = JSON.parse(r.body)
     expect(json.reason).toBe('domain-blocklisted')
+  })
+
+  // #848: the CONNECT target is a host name, so capitals and the root's
+  // trailing dot name the same host. Compared raw, both were tunnelled past
+  // the URL filter, and a provider spelled that way was never intercepted.
+  it('blocks a known exfil domain spelled in capitals with a trailing dot', async () => {
+    const r = await sendConnect(PROXY_PORT, 'WEBHOOK.Site.', 443)
+    expect(r.statusCode).toBe(403)
+    expect(JSON.parse(r.body).reason).toBe('known-exfil-domain')
+  })
+
+  it('intercepts a provider spelled in capitals with a trailing dot', async () => {
+    // Intercepted, the proxy itself answers the handshake with a leaf signed
+    // by its CA. Tunnelled, the handshake goes to the real host (or nowhere,
+    // offline) and the proxy CA verifies nothing.
+    const ca = fs.readFileSync(join(tempDir, 'ca.crt'))
+    const subject = await new Promise<string>((resolve, reject) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port: PROXY_PORT })
+      const timer = setTimeout(() => { socket.destroy(); reject(new Error('CONNECT timed out')) }, 5000)
+      socket.once('error', reject)
+      socket.once('connect', () => socket.write('CONNECT API.Anthropic.COM.:443 HTTP/1.1\r\nHost: API.Anthropic.COM.:443\r\n\r\n'))
+      socket.once('data', (chunk) => {
+        expect(chunk.toString('latin1')).toMatch(/^HTTP\/1\.1 200/)
+        const t = tls.connect({ socket, servername: 'api.anthropic.com', ca, rejectUnauthorized: true }, () => {
+          clearTimeout(timer)
+          const cn = t.getPeerCertificate().subject?.CN
+          t.destroy()
+          resolve(String(cn))
+        })
+        t.once('error', (err) => { clearTimeout(timer); reject(err) })
+      })
+    })
+    expect(subject).toBe('api.anthropic.com')
   })
 
   // ── Pass-through case ─────────────────────────────────────────────────────

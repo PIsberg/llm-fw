@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { parseConnectTarget } from '../../src/proxy/proxy.js'
+import { parseConnectTarget, isInterceptedHost } from '../../src/proxy/proxy.js'
+import { DEFAULT_CONFIG } from '../../src/config/config.js'
 
 describe('parseConnectTarget', () => {
   it('parses host:port', () => {
@@ -37,5 +38,27 @@ describe('parseConnectTarget', () => {
       hostname: 'example.com',
       port: 443,
     })
+  })
+
+  // #848: a host name is case-insensitive and may end in the root's dot, so
+  // API.OPENAI.COM and api.openai.com. name the provider too. Matched raw,
+  // either spelling missed every intercept domain and was tunnelled unread.
+  it('lowercases the host and drops trailing root dots', () => {
+    expect(parseConnectTarget('API.OpenAI.COM:443')).toEqual({ hostname: 'api.openai.com', port: 443 })
+    expect(parseConnectTarget('api.anthropic.com.:443')).toEqual({ hostname: 'api.anthropic.com', port: 443 })
+    expect(parseConnectTarget('Api.Anthropic.Com..')).toEqual({ hostname: 'api.anthropic.com', port: 443 })
+  })
+})
+
+describe('isInterceptedHost on a host spelled another way (#848)', () => {
+  it('intercepts a provider named in capitals or with a trailing dot', () => {
+    for (const host of ['API.OPENAI.COM', 'api.openai.com.', 'Api.Anthropic.Com.', 'MY-RESOURCE.OPENAI.AZURE.COM.']) {
+      expect(isInterceptedHost(host, DEFAULT_CONFIG), host).toBe(true)
+    }
+  })
+
+  it('still tunnels a host that only ends with a provider name', () => {
+    expect(isInterceptedHost('evilapi.openai.com.attacker.example.', DEFAULT_CONFIG)).toBe(false)
+    expect(isInterceptedHost('notapi.anthropic.com', DEFAULT_CONFIG)).toBe(false)
   })
 })

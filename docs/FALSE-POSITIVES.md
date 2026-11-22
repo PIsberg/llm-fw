@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.81
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes only the URL classifier (`src/detection/urlHeuristic.ts`), which the request pipeline never calls; the proxy uses it for CONNECT targets, response URLs and tool-call arguments. Host names are compared lowercase without a trailing dot, and the auth-path exemption from the query exfil check now holds only on allowlisted hosts (#848). Of 2,231 local Claude Code and Codex transcripts, 1 distinct URL has an auth path and it does not start blocking.
+
 ## Result, ruleset 2026.11.80
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.79 moved 0 of 31,323 rows. An override with its words run together ("ignoreallpreviousinstructions") is split into words and read (#652), but only a run of letters that holds an override verb, and only into a closed override vocabulary from the verb on, three words or more with a target among them. Over 2,254 local Claude Code and Codex transcripts, 274 distinct letter runs hold such a verb; the only ones split are attack strings quoted in this repository's tests.
