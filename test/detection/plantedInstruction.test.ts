@@ -4,6 +4,7 @@
 // of these commands is someone explaining it.
 import { describe, it, expect } from 'vitest'
 import { detectPlantedInstruction } from '../../src/detection/plantedInstruction.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 describe('detectPlantedInstruction: a command with no ordinary reason to be here blocks on its own', () => {
   it.each([
@@ -148,9 +149,7 @@ describe('detectPlantedInstruction: linear time', () => {
     ['base64url', 'aZ9_-'.repeat(40_000)],
     ['never', 'never '.repeat(33_000)],
     ['disable', 'disable the '.repeat(16_000)],
-  ])('scans 200 KB of %s in under 200 ms', (_name, text) => {
-    const t0 = performance.now()
-    detectPlantedInstruction(text)
-    expect(performance.now() - t0).toBeLessThan(200)
+  ])('scans 200 KB of %s in under 200 ms', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
+    expect(underMs(200, () => detectPlantedInstruction(text))).toBeLessThan(200)
   })
 })

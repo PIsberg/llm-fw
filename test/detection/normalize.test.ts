@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { normalize, extractCandidates, calculateEntropy, maxWindowEntropy } from '../../src/detection/normalize.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 describe('maxWindowEntropy', () => {
   it('returns whole-string entropy when text is shorter than the window', () => {
@@ -184,15 +185,13 @@ describe('extractCandidates — leetspeak gate', () => {
     expect(leet('mail ops@example.com about the builds')).toBeUndefined()
   })
 
-  it('scans one long unbroken string in linear time', () => {
+  it('scans one long unbroken string in linear time', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // The email filter was /\S+@\S+\.[a-z]{2,}/: on a run with no '@' it
     // backtracked from every start position, so its cost grew with the square
     // of the run. One 200 KB prompt with no spaces held the proxy's event loop
     // for 40 s in a full scan, stalling every other client: a denial of
     // service anyone could send. Linear, this is well under a second.
-    const started = performance.now()
-    extractCandidates('Summarise. ' + 'x'.repeat(200_000))
-    expect(performance.now() - started).toBeLessThan(3000)
+    expect(underMs(3000, () => extractCandidates('Summarise. ' + 'x'.repeat(200_000)))).toBeLessThan(3000)
   })
 })
 

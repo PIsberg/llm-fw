@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fastestMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
+import { fastestMs, LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 import { detectIndirectInstruction } from '../../src/detection/indirectInstruction.js'
 
 // Realistic tool-result payloads (JSON) carrying a planted instruction — the
@@ -1001,12 +1001,10 @@ describe('detectIndirectInstruction — a code span is a subject, not a clause s
       ['numbers', '1. '.repeat(70_000)],
       ['numbers and a verb', '1. Send '.repeat(30_000)],
       ['one long item', `- Send ${'1-'.repeat(100_000)}`],
-    ])('reads a plain item in linear time: %s', (_name, text) => {
-      const started = performance.now()
-      detectIndirectInstruction(text)
+    ])('reads a plain item in linear time: %s', { timeout: LINEAR_TIME_TIMEOUT }, (_name, text) => {
       // A square on these sizes takes minutes. The ceiling leaves a loaded CI room.
-      expect(performance.now() - started).toBeLessThan(5000)
-    }, 30_000)
+      expect(underMs(5000, () => detectIndirectInstruction(text))).toBeLessThan(5000)
+    })
 
     // Real spec tasks: each of these shapes came from speckit task lists.
     it.each([
@@ -1270,11 +1268,9 @@ describe('detectIndirectInstruction: linear time on large tool output', () => {
     // #740's feedback and cancellation purposes, unclosed.
     ['unclosed feedback lines', () => fill('. Share your feedback with us at ')],
     ['unclosed cancellation lines', () => fill('. You can cancel your subscription at any time by sending an email to ')],
-  ])('scans 200 KB of %s in under 1.5 s', (_label, make) => {
+  ])('scans 200 KB of %s in under 1.5 s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, make) => {
     const text = make()
-    const t0 = performance.now()
-    detectIndirectInstruction(text)
-    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(underMs(1500, () => detectIndirectInstruction(text))).toBeLessThan(1500)
   })
 
   it('still finds an address and a clause start after the long run', () => {
@@ -1482,7 +1478,7 @@ describe('hidden email address', () => {
     expect(detectIndirectInstruction('Send the Q3 numbers to finance[at]acme[dot]com.', { trustedRecipientDomains: ['acme.com'] })).toBeNull()
   })
 
-  it('stays linear on long runs of near-addresses', () => {
+  it('stays linear on long runs of near-addresses', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const base64url = 'aZ09-_'.repeat(35_000)
     for (const text of [
       'a'.repeat(200_000) + ' at x',
@@ -1495,9 +1491,7 @@ describe('hidden email address', () => {
       base64url + '[at]' + base64url + '[dot]',
       'x@' + base64url + ',',
     ]) {
-      const t0 = performance.now()
-      detectIndirectInstruction(text)
-      expect(performance.now() - t0).toBeLessThan(1000)
+      expect(underMs(1000, () => detectIndirectInstruction(text))).toBeLessThan(1000)
     }
   })
 })

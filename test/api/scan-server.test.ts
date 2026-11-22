@@ -32,11 +32,14 @@ describe('scan-server (AgentDojo HTTP bridge)', () => {
     server = createScanServer(fw)
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  })
+    // The model load, not a timing assertion: 120 s (the config default) ran out
+    // once under a full local run straight after eight load benchmarks (#754).
+  }, 300_000)
 
   afterAll(async () => {
-    await new Promise<void>(r => server.close(() => r()))
-    await fw.close()
+    // A beforeAll that timed out leaves both unset; say nothing more than it did.
+    if (server) await new Promise<void>(r => server.close(() => r()))
+    await fw?.close()
   })
 
   it('GET /health returns ok', async () => {

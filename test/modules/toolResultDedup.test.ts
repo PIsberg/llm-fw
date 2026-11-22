@@ -3,6 +3,7 @@ import { ToolResultDedupModule } from '../../src/modules/builtin/toolResultDedup
 import type { GatewayModuleContext } from '../../src/modules/types.js'
 import { getParser } from '../../src/detection/parsers.js'
 import { withholdNotice } from '../../src/detection/withhold.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 const ctx: GatewayModuleContext = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages', isLlmRequest: true, parser: null }
 const file = 'export const x = 1\n'.repeat(40)
@@ -119,12 +120,11 @@ describe('ToolResultDedupModule', () => {
     expect(gemini[1].parts[0].text).toBe(`next ${reminder}`)
   })
 
-  it('scans unclosed reminder openers in linear time', () => {
+  it('scans unclosed reminder openers in linear time', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
     const hostile = '<system-reminder>'.repeat(20_000) + ' '.repeat(50_000) + 'x'
-    const started = performance.now()
+    expect(underMs(1000, () => run(new ToolResultDedupModule({ enabled: true, minLength: 200 }), [assistantCall('t1'), userResult('t1', hostile)]))).toBeLessThan(1000)
     const out = run(mod, [assistantCall('t1'), userResult('t1', hostile)])
-    expect(performance.now() - started).toBeLessThan(1000)
     expect(out[1].content[0].content).toBe(hostile)
   })
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import zlib from 'node:zlib'
 import { parseUsage } from '../../src/modules/usage.js'
+import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
 
 const json = (v: unknown) => Buffer.from(JSON.stringify(v))
 const sse = (events: Array<[string | null, unknown]>) =>
@@ -89,14 +90,12 @@ describe('parseUsage — transport', () => {
     expect(parseUsage(zlib.gzipSync('x').subarray(0, 5), { 'content-encoding': 'gzip' })).toBeNull()
   })
 
-  it('stops decoding a compressed body that expands past the cap', () => {
+  it('stops decoding a compressed body that expands past the cap', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     // The capture is capped on the wire, but 64 MB of one byte gzips to about
     // 64 KB: without an output cap the meter inflated all of it.
     const bomb = zlib.gzipSync(Buffer.concat([Buffer.from('{"usage":{"input_tokens":1,"output_tokens":1},"pad":"'), Buffer.alloc(64 * 1024 * 1024, 48), Buffer.from('"}')]))
     for (const [encoding, body] of [['gzip', bomb], ['br', zlib.brotliCompressSync(zlib.gunzipSync(bomb))], ['deflate', zlib.deflateSync(zlib.gunzipSync(bomb))]] as const) {
-      const t0 = performance.now()
-      expect(parseUsage(body, { 'content-encoding': encoding }, 1024 * 1024)).toBeNull()
-      expect(performance.now() - t0).toBeLessThan(2000)
+      expect(underMs(2000, () => { expect(parseUsage(body, { 'content-encoding': encoding }, 1024 * 1024)).toBeNull() })).toBeLessThan(2000)
     }
-  }, 60_000)
+  })
 })
