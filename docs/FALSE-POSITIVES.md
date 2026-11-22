@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.85
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The OpenAI parser now reads the `prompt` and `suffix` of a `/v1/completions` request, which it claimed but never read (#857). These rows are sent as `/v1/messages` requests, so none can move.
+
 ## Result, ruleset 2026.11.84
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes DLP only (#856): the generic-secret rule accepts escaped quotes, and the `EXAMPLE` exemption applies to AWS keys only. DLP redactions are not counted here; measured separately on 704,547 lines of 2,225 local transcripts, the generic-secret rule finds 4 more distinct values (346 before).
