@@ -9,6 +9,7 @@ import { Pipeline } from '../detection/pipeline.js'
 import { SuppressionStore } from '../detection/suppressions.js'
 import { EventBus } from '../dashboard/eventBus.js'
 import { UrlClassifier, canonicalHost } from '../detection/urlHeuristic.js'
+import { parseResponseHead } from './responseHead.js'
 import { DlpScanner } from '../detection/dlp/scanner.js'
 import { locateDlpFindings, locationSummary } from './dlpLocation.js'
 import { QuotaManager } from '../detection/dos/quota.js'
@@ -80,7 +81,9 @@ function decompressBody(buf: Buffer, encoding: string, maxOutput: number): Buffe
  * already started receiving the response) to make the console line actionable
  * instead of an anonymous "upstream timeout".
  */
-const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding'])
+// `expect` too: the proxy sends the whole body at once, so a 100-continue
+// handshake with the provider only adds an interim response to read (#855).
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding', 'expect'])
 
 /**
  * The request failed. Answer while a status can still be sent; after that only
@@ -1776,7 +1779,12 @@ export class ProxyServer {
       let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' = 'passthrough'
       let sniffBuf: Buffer = Buffer.alloc(0)
       let status = 200
-      const respHeaders: Record<string, string> = {}
+      const respHeaders: Record<string, string | string[]> = {}
+      // One header's value as text; only Set-Cookie is ever a list.
+      const hdr = (name: string): string => {
+        const v = respHeaders[name]
+        return Array.isArray(v) ? v.join(', ') : v ?? ''
+      }
       let cenc = ''
       const jsonChunks: Buffer[] = []
       let jsonRawLen = 0
@@ -1790,14 +1798,14 @@ export class ProxyServer {
 
       // Inspected modes forward decompressed plaintext, so drop framing AND
       // content-encoding (else the client would try to gunzip plaintext).
-      const inspectedHeaders = (): Record<string, string> => {
+      const inspectedHeaders = (): Record<string, string | string[]> => {
         const h = { ...respHeaders }
         delete h['content-length']; delete h['transfer-encoding']; delete h['content-encoding']
         return h
       }
       // Fail-open passthrough of still-encoded bytes: drop framing but KEEP
       // content-encoding so the client decodes them itself.
-      const failoverHeaders = (): Record<string, string> => {
+      const failoverHeaders = (): Record<string, string | string[]> => {
         const h = { ...respHeaders }
         delete h['content-length']; delete h['transfer-encoding']
         return h
@@ -1870,35 +1878,41 @@ export class ProxyServer {
 
       let statusLine = ''
       let upstreamConnection = ''
+      // A throw in a socket's 'data' listener leaves the event loop and ends the
+      // process (a malformed status line made writeHead throw, #855): fail
+      // this request, and only this one.
       const onData = (chunk: Buffer): void => {
+        try {
+          readData(chunk)
+        } catch (err) {
+          upstream.destroy()
+          reject(err instanceof Error ? err : new Error(String(err)))
+        }
+      }
+      const readData = (chunk: Buffer): void => {
         if (headersDone) wireBodyBytes += chunk.length
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
-          const sep = rawHeaders.indexOf('\r\n\r\n')
-          if (sep === -1) return
+          const head = parseResponseHead(rawHeaders)
+          if (head === null) return
           headersDone = true
-          const headerPart = rawHeaders.slice(0, sep)
-          const bodyStart = Buffer.from(rawHeaders.slice(sep + 4), 'binary')
+          const bodyStart = Buffer.from(rawHeaders.slice(head.bodyStart), 'binary')
           wireBodyBytes = bodyStart.length
-          const lines = headerPart.split('\r\n')
-          statusLine = lines[0] ?? ''
-          status = parseInt(statusLine.split(' ')[1] ?? '200', 10)
-          for (const line of lines.slice(1)) {
-            const ci = line.indexOf(': ')
-            if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
-          }
+          statusLine = head.statusLine
+          status = head.status
+          Object.assign(respHeaders, head.headers)
           // Connection and Keep-Alive are hop-by-hop: under keep-alive they
           // describe the proxy's connection to the provider (#670). The client
           // is told to close, as it always was when the provider was asked to.
-          upstreamConnection = respHeaders['connection'] ?? ''
+          upstreamConnection = hdr('connection')
           if (poolKey !== null) {
             delete respHeaders['keep-alive']
             respHeaders['connection'] = 'close'
           }
-          cenc = (respHeaders['content-encoding'] ?? '').toLowerCase().trim()
+          cenc = hdr('content-encoding').toLowerCase().trim()
           const compressed = cenc !== '' && cenc !== 'identity'
 
-          const ctype = (respHeaders['content-type'] ?? '').toLowerCase()
+          const ctype = hdr('content-type').toLowerCase()
           if (wantInspect && ctype.includes('text/event-stream')) {
             // Streaming decompression is unsupported — a compressed SSE stream
             // falls back to untouched passthrough rather than risk corruption.
@@ -1915,7 +1929,7 @@ export class ProxyServer {
 
           // Decode chunked framing so we can re-frame once (and, for JSON,
           // decompress the assembled body at end).
-          if ((respHeaders['transfer-encoding'] ?? '').toLowerCase().includes('chunked')) {
+          if (hdr('transfer-encoding').toLowerCase().includes('chunked')) {
             dechunker = new ChunkedDecoder()
           }
           const dechunk = (raw: Buffer): Buffer => dechunker ? dechunker.push(raw) : raw
@@ -1951,7 +1965,7 @@ export class ProxyServer {
         if (!headersDone) return 'before answering'
         if (req.method === 'HEAD' || status === 204 || status === 304) return null
         if (dechunker) return dechunker.finished ? null : 'before the last chunk'
-        const declared = Number(respHeaders['content-length'])
+        const declared = Number(hdr('content-length'))
         return Number.isFinite(declared) && wireBodyBytes < declared ? `after ${wireBodyBytes} of ${declared} body bytes` : null
       }
       const onUpstreamEnd = async (): Promise<void> => {
@@ -2040,7 +2054,7 @@ export class ProxyServer {
         if (!headersDone) return false
         if (noBody()) return true
         if (dechunker) return dechunker.complete
-        const declared = (respHeaders['content-length'] ?? '').trim()
+        const declared = hdr('content-length').trim()
         return /^\d{1,15}$/.test(declared) && wireBodyBytes >= Number(declared)
       }
       // The response is whole: finish it as an ended connection would, and
@@ -2051,7 +2065,7 @@ export class ProxyServer {
         released = true
         const exact = noBody() ? wireBodyBytes === 0
           : dechunker ? dechunker.excess === 0
-          : wireBodyBytes === Number((respHeaders['content-length'] ?? '').trim())
+          : wireBodyBytes === Number(hdr('content-length').trim())
         const reusable = exact && statusLine.startsWith('HTTP/1.1 ') && !/(?:^|,)\s*close\s*(?:,|$)/i.test(upstreamConnection)
         upstream.setTimeout(0)
         upstream.removeListener('timeout', onTimeout)
@@ -2073,7 +2087,7 @@ export class ProxyServer {
    * (neutralized in block mode), the tool-call argument scan and the harm
    * scan (either may withhold the body). Returns the bytes written.
    */
-  private async deliverInspectedJson(text: string, status: number, headers: Record<string, string>, req: http.IncomingMessage, res: http.ServerResponse, hostname: string, parser: PayloadParser | null, mcpActive: boolean): Promise<number> {
+  private async deliverInspectedJson(text: string, status: number, headers: Record<string, string | string[]>, req: http.IncomingMessage, res: http.ServerResponse, hostname: string, parser: PayloadParser | null, mcpActive: boolean): Promise<number> {
     let finalBody = text
     if (mcpActive && parser) {
       const { decisions, blockedNames } = inspectJsonResponse(text, parser, this.mcp)
