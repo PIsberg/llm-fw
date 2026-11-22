@@ -692,7 +692,10 @@ under [Ports and firewall rules](#ports-and-firewall-rules).
 that is not on loopback to a loopback, unspecified or link-local address
 (`127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, `169.254.0.0/16`, which holds the AWS,
 GCP and Azure metadata endpoint, `fe80::/10`, and AWS's `fd00:ec2::254`) is
-refused with `403`, checked on the address the name resolves to. Metadata
+refused with `403`, checked on the address the name resolves to. An IPv6
+address is compared as a number, so every spelling of one counts
+(`0:0:0:0:0:0:0:1`, `::ffff:7f00:1`), and so does an IPv4 address carried in
+an IPv4-mapped, IPv4-compatible or NAT64 (`64:ff9b::/96`) IPv6 address. Metadata
 services elsewhere, such as Alibaba Cloud's `100.100.100.200`, are not covered;
 firewall them at the host if the proxy runs there. Private ranges stay reachable, because clients send all their HTTPS
 traffic through the proxy. A remote client that reaches the proxy through a TLS

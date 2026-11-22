@@ -14,6 +14,28 @@ describe('isPrivilegedTunnelAddress', () => {
     expect(isPrivilegedTunnelAddress(addr)).toBe(true)
   })
 
+  // #849: net.isIP accepts every spelling of an IPv6 address, so a literal
+  // skips the DNS lookup the guard sits on and only this check stands in the
+  // way. Compared as strings, the spellings below all passed it.
+  it.each([
+    '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::0:1', 'FE80::1', 'fe80::1%eth0',
+    '::0', '0::0', '0:0:0:0:0:0:0:0',
+    'fd00:0ec2::254', 'fd00:ec2:0:0:0:0:0:254', 'FD00:EC2::254',
+    '::ffff:7f00:1', '::ffff:a9fe:a9fe', '::ffff:0:0', '0:0:0:0:0:ffff:127.0.0.1', '::FFFF:127.0.0.1',
+    '::127.0.0.1', '::7f00:1', '::169.254.169.254',
+    '64:ff9b::127.0.0.1', '64:ff9b::a9fe:a9fe', '::ffff:0:127.0.0.1',
+    '[0:0:0:0:0:0:0:1]', '[::ffff:7f00:1]',
+  ])('refuses the non-canonical spelling %s (#849)', (addr) => {
+    expect(isPrivilegedTunnelAddress(addr)).toBe(true)
+  })
+
+  it.each([
+    '::ffff:808:808', '64:ff9b::8.8.8.8', '2001:db8::7f00:1', '::ffff:1:7f00:1', '::8.8.8.8', 'fe7f::1',
+    'not-an-address', '::ffff:127.0.0.1.1', '1::2::3',
+  ])('allows %s (#849)', (addr) => {
+    expect(isPrivilegedTunnelAddress(addr)).toBe(false)
+  })
+
   it.each([
     '192.168.1.10', '10.0.0.1', '172.16.0.1', '8.8.8.8', '128.0.0.1', '169.255.0.1',
     '2001:db8::1', 'fec0::1', 'fd00::1', '::ffff:8.8.8.8',
