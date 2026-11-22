@@ -439,6 +439,7 @@ llm-fw/
 │   │   ├── certs.ts         # CA + per-host SAN cert factory
 │   │   ├── websocket.ts     # RFC 6455 codec + Realtime / Gemini Live scan plans
 │   │   ├── realtimeRelay.ts # inspected WebSocket relay, shared by proxy and gateway
+│   │   ├── upstreamPool.ts  # idle upstream TLS connections (proxy.upstreamKeepAlive)
 │   │   └── upstream.ts      # external DNS resolver + LRU cache
 │   ├── detection/
 │   │   ├── normalize.ts     # NFKC + homoglyph/leetspeak fold + base64/32/ascii85/hex/morse/… decoders

@@ -67,6 +67,15 @@ Rules that must not regress:
   the upstream, because the provider bills for what it goes on generating. Pinned by
   `test/proxy/proxy-upstream-stall.e2e.test.ts` and
   `test/gateway/gateway-upstream-timeout.e2e.test.ts`.
+- With `proxy.upstreamKeepAlive` on (#670, off by default), an upstream
+  connection goes back to the pool only when its response was read to the end
+  of its framing with not one byte after it (the Content-Length, or
+  `ChunkedDecoder.complete` with `excess` 0), over HTTP/1.1, without
+  `Connection: close`. Never pool on a guess: a stray byte would open the next
+  request's response. A kept connection that fails before any byte of its
+  answer is sent once more on a new one and never shown to the client. Pinned
+  by `test/proxy/proxy-upstream-keepalive.e2e.test.ts` and
+  `test/proxy/upstreamPool.test.ts`.
 - A client that goes silent before its request is in is closed after
   `proxy.upstreamTimeoutMs` (`closeSilentClients`): the inner server only receives
   handed-over connections, so its own header and request timeouts never start. A

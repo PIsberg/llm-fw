@@ -89,6 +89,9 @@ function differs(a: unknown, b: unknown): boolean {
 // per the plan, thresholds under those sections (e.g. dos rate limits,
 // manyShot turn counts) are left for a restart.
 const HOT_PATHS: Path[] = [
+  // Read per request: off stops taking pooled connections at once, and the
+  // idle ones close on their own timer.
+  ['proxy', 'upstreamKeepAlive'],
   ['detection', 'heuristicBlockThreshold'],
   ['detection', 'embeddingBlockThreshold'],
   ['detection', 'embeddingWarnThreshold'],

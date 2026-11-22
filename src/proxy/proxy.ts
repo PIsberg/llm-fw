@@ -43,6 +43,7 @@ import { isTokenCountRequest } from './tokenCount.js'
 import { bodyCap } from './bodyCap.js'
 import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT, sseStreamText } from './canary.js'
 import { TlsSessionCache } from './tlsSessions.js'
+import { UpstreamPool } from './upstreamPool.js'
 import { ExfilStreamHold } from './streamExfil.js'
 import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
@@ -121,6 +122,18 @@ class UpstreamClosedError extends Error {
   constructor(hostname: string, port: number, detail: string) {
     super(`upstream ${hostname}:${port} closed the connection ${detail}`)
     this.name = 'UpstreamClosedError'
+  }
+}
+
+/**
+ * A kept upstream connection failed before any byte of its answer arrived: the
+ * provider closed it while it sat idle (#670). forwardRequest sends the
+ * request once more on a new connection; it is never shown to a client.
+ */
+class StaleUpstreamError extends Error {
+  constructor(hostname: string, port: number) {
+    super(`kept upstream connection to ${hostname}:${port} closed before answering`)
+    this.name = 'StaleUpstreamError'
   }
 }
 
@@ -302,6 +315,8 @@ export class ProxyServer {
   private upstreamContext: tls.SecureContext | null = null
   // The last TLS session per provider host, so a request resumes it (#670).
   private readonly tlsSessions = new TlsSessionCache()
+  // Idle upstream connections, used only with proxy.upstreamKeepAlive (#670).
+  private readonly upstreamPool = new UpstreamPool()
   private resolver: UpstreamResolver
   private pipeline: Pipeline
   // Every defense scanner is constructed unconditionally; whether it RUNS is
@@ -468,6 +483,7 @@ export class ProxyServer {
 
   stop(): Promise<void> {
     for (const socket of this.sessions) socket.destroy()
+    this.upstreamPool.close()
     this.server.closeAllConnections()
     const closes: Promise<void>[] = [
       new Promise(resolve => this.server.close(() => resolve())),
@@ -1612,13 +1628,32 @@ export class ProxyServer {
       if (injected !== null) { body = Buffer.from(injected, 'utf8'); canary = token }
     }
     const ip = await this.resolver.resolve(hostname)
+    // #670: with upstreamKeepAlive on, the request goes on an idle connection
+    // to the same host when one is pooled. One the provider closed just as it
+    // was taken fails before a byte of the answer arrives; the request then
+    // goes once more, on a new connection.
+    const poolKey = this.config.proxy.upstreamKeepAlive === true ? `${hostname}:${port}:${ip}` : null
+    const pooled = poolKey === null ? null : this.upstreamPool.take(poolKey)
+    const exchange = (socket: tls.TLSSocket | null): Promise<number> =>
+      this.exchange(hostname, port, ip, req, body, res, isLlmRequest, mcpInspect, extraHeaders, passThrough, canary, poolKey, socket)
+    try {
+      return await exchange(pooled)
+    } catch (err) {
+      if (pooled !== null && err instanceof StaleUpstreamError) return exchange(null)
+      throw err
+    }
+  }
+
+  /**
+   * One request and its response on one upstream connection: `pooled` when
+   * it is a kept connection, else a new one. With `poolKey` set the request
+   * asks for keep-alive, and a response read to the end of its framing with
+   * nothing after it hands the connection to the pool (#670).
+   */
+  private exchange(hostname: string, port: number, ip: string, req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, isLlmRequest: boolean, mcpInspect: boolean, extraHeaders: Record<string, string> | undefined, passThrough: boolean, canary: string | null, poolKey: string | null, pooled: tls.TLSSocket | null): Promise<number> {
     return new Promise<number>((resolve, reject) => {
       const startedAt = Date.now()
-      // One context for every upstream connection, verifying against the same
-      // default CA store a context per connection would load.
-      this.upstreamContext ??= tls.createSecureContext()
-      // Resumes the host's last TLS session when it has one (#670).
-      const upstream = this.tlsSessions.connect({ host: ip, port, servername: hostname, secureContext: this.upstreamContext }, () => {
+      const writeRequest = (): void => {
         upstream.write(req.method + ' ' + (req.url ?? '/') + ' HTTP/1.1\r\n')
         const headers = { ...req.headers, ...extraHeaders, host: hostname }
         for (const [k, v] of Object.entries(headers)) {
@@ -1626,10 +1661,22 @@ export class ProxyServer {
         }
         upstream.write('Content-Length: ' + body.length + '\r\n')
         upstream.write('Accept-Encoding: identity\r\n')
-        upstream.write('Connection: close\r\n')
+        upstream.write(poolKey === null ? 'Connection: close\r\n' : 'Connection: keep-alive\r\n')
         upstream.write('\r\n')
         if (body.length) upstream.write(body)
-      })
+      }
+      // One context for every upstream connection, verifying against the same
+      // default CA store a context per connection would load.
+      this.upstreamContext ??= tls.createSecureContext()
+      // Resumes the host's last TLS session when it has one (#670).
+      const upstream = pooled ?? this.tlsSessions.connect({ host: ip, port, servername: hostname, secureContext: this.upstreamContext }, writeRequest)
+      if (pooled) writeRequest()
+      // Set once the connection went to the pool or was closed after a whole
+      // response: nothing that happens to it after that is this request's.
+      let released = false
+      // A kept connection that failed before any byte of the answer: the
+      // provider closed it while idle, and the request can go again.
+      const staleBeforeAnswer = (): boolean => pooled !== null && !headersDone && rawHeaders === ''
 
       // Idle timeout: fires when the upstream socket sees no I/O for the
       // configured window. Note this is an *inactivity* timer — for
@@ -1637,28 +1684,38 @@ export class ProxyServer {
       // until the whole body is generated, so a long generation legitimately
       // looks idle. We report how long we actually waited and whether the
       // response had started so the cause is obvious in the console.
-      upstream.setTimeout(this.config.proxy.upstreamTimeoutMs, () => {
+      const onTimeout = (): void => {
         const waited = Date.now() - startedAt
         upstream.destroy()
         reject(new UpstreamTimeoutError(hostname, port, waited, this.config.proxy.upstreamTimeoutMs,
           headersDone ? 'mid-response stall' : 'awaiting response headers'))
-      })
+      }
+      upstream.setTimeout(this.config.proxy.upstreamTimeoutMs)
+      upstream.on('timeout', onTimeout)
       // Disarm the idle timer and surface the error once. Without clearing the
       // timer on settle, a socket lingering idle after a completed response
       // could fire a spurious "upstream timeout" against an already-resolved
       // request.
-      upstream.on('error', (err: Error) => { upstream.setTimeout(0); reject(err) })
+      const onError = (err: Error): void => {
+        upstream.setTimeout(0)
+        reject(staleBeforeAnswer() ? new StaleUpstreamError(hostname, port) : err)
+      }
+      upstream.on('error', onError)
       // Neither an end nor an error: nothing else would ever settle this request.
       let upstreamEnded = false
-      upstream.on('close', () => {
-        if (!upstreamEnded) reject(new UpstreamClosedError(hostname, port, 'without ending its response'))
-      })
+      const onClose = (): void => {
+        if (upstreamEnded) return
+        reject(staleBeforeAnswer() ? new StaleUpstreamError(hostname, port) : new UpstreamClosedError(hostname, port, 'without ending its response'))
+      }
+      upstream.on('close', onClose)
       // The client went away. Nothing can read the rest, and the provider bills
       // for every token it goes on generating.
-      res.once('close', () => {
+      const onClientClose = (): void => {
+        if (released) return
         upstream.destroy()
         resolve(respBodyBytes)
-      })
+      }
+      res.once('close', onClientClose)
 
       // Parse and stream the response. Any LLM response may carry tool_use
       // invocations, whether or not its request listed tools — inspect them BEFORE the bytes
@@ -1782,7 +1839,9 @@ export class ProxyServer {
         begin(initial)
       }
 
-      upstream.on('data', (chunk: Buffer) => {
+      let statusLine = ''
+      let upstreamConnection = ''
+      const onData = (chunk: Buffer): void => {
         if (headersDone) wireBodyBytes += chunk.length
         if (!headersDone) {
           rawHeaders += chunk.toString('binary')
@@ -1793,10 +1852,19 @@ export class ProxyServer {
           const bodyStart = Buffer.from(rawHeaders.slice(sep + 4), 'binary')
           wireBodyBytes = bodyStart.length
           const lines = headerPart.split('\r\n')
-          status = parseInt((lines[0] ?? '').split(' ')[1] ?? '200', 10)
+          statusLine = lines[0] ?? ''
+          status = parseInt(statusLine.split(' ')[1] ?? '200', 10)
           for (const line of lines.slice(1)) {
             const ci = line.indexOf(': ')
             if (ci > 0) respHeaders[line.slice(0, ci).toLowerCase()] = line.slice(ci + 2)
+          }
+          // Connection and Keep-Alive are hop-by-hop: under keep-alive they
+          // describe the proxy's connection to the provider (#670). The client
+          // is told to close, as it always was when the provider was asked to.
+          upstreamConnection = respHeaders['connection'] ?? ''
+          if (poolKey !== null) {
+            delete respHeaders['keep-alive']
+            respHeaders['connection'] = 'close'
           }
           cenc = (respHeaders['content-encoding'] ?? '').toLowerCase().trim()
           const compressed = cenc !== '' && cenc !== 'identity'
@@ -1846,7 +1914,9 @@ export class ProxyServer {
           const out = dechunker ? dechunker.push(chunk) : chunk
           if (out.length) { res.write(out); respBodyBytes += out.length }
         }
-      })
+        if (poolKey !== null && !released && !cut && messageRead()) releaseKept()
+      }
+      upstream.on('data', onData)
       // What the connection ending means, when it cannot be the response's end.
       const truncation = (): string | null => {
         if (!headersDone) return 'before answering'
@@ -1867,7 +1937,7 @@ export class ProxyServer {
             this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
           }
-          reject(new UpstreamClosedError(hostname, port, cutShort))
+          reject(staleBeforeAnswer() ? new StaleUpstreamError(hostname, port) : new UpstreamClosedError(hostname, port, cutShort))
           return
         }
         if (mode === 'sniff') {
@@ -1928,7 +1998,43 @@ export class ProxyServer {
       }
       // Rejected, not thrown into the void: a scan that throws here used to leave
       // an unhandled rejection and a client waiting for ever.
-      upstream.on('end', () => { onUpstreamEnd().catch(reject) })
+      const onEnd = (): void => { onUpstreamEnd().catch(reject) }
+      upstream.on('end', onEnd)
+
+      // #670: under keep-alive the provider does not close the connection
+      // after a response, so the end of the framing is the end of the
+      // response: the declared length, the last chunk and its trailers, or the
+      // headers alone for a response that has no body. A response with neither
+      // a length nor chunks is still read to its close.
+      const noBody = (): boolean => req.method === 'HEAD' || status === 204 || status === 304
+      const messageRead = (): boolean => {
+        if (!headersDone) return false
+        if (noBody()) return true
+        if (dechunker) return dechunker.complete
+        const declared = (respHeaders['content-length'] ?? '').trim()
+        return /^\d{1,15}$/.test(declared) && wireBodyBytes >= Number(declared)
+      }
+      // The response is whole: finish it as an ended connection would, and
+      // pool the connection only when it is HTTP/1.1, the provider did not ask
+      // to close it, and not one byte arrived past the message; any doubt
+      // closes it instead.
+      const releaseKept = (): void => {
+        released = true
+        const exact = noBody() ? wireBodyBytes === 0
+          : dechunker ? dechunker.excess === 0
+          : wireBodyBytes === Number((respHeaders['content-length'] ?? '').trim())
+        const reusable = exact && statusLine.startsWith('HTTP/1.1 ') && !/(?:^|,)\s*close\s*(?:,|$)/i.test(upstreamConnection)
+        upstream.setTimeout(0)
+        upstream.removeListener('timeout', onTimeout)
+        upstream.removeListener('error', onError)
+        upstream.removeListener('close', onClose)
+        upstream.removeListener('data', onData)
+        upstream.removeListener('end', onEnd)
+        res.removeListener('close', onClientClose)
+        if (reusable && poolKey !== null) this.upstreamPool.put(poolKey, upstream)
+        else upstream.destroy()
+        onUpstreamEnd().catch(reject)
+      }
     })
   }
 

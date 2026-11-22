@@ -445,6 +445,22 @@ with what it rewrites and what to watch for, is in
 [Token savings](token-savings.md). The design is in
 [SPEC-modules.md](../specs/SPEC-modules.md).
 
+**Upstream keep-alive.** By default the forward proxy opens a new connection
+to the provider for every request and asks it to close after the answer, which
+costs a TCP and a TLS round trip each time: about 50 ms to api.anthropic.com
+and api.openai.com from one home connection (2026-11-07), against 0.5 to 2 s to
+the first token. `proxy.upstreamKeepAlive: true` (or
+`LLM_FW_UPSTREAM_KEEPALIVE=true`) keeps the connection and sends the next
+request to the same host on it. A connection is reused only after its response
+was read to the end of its framing (the declared length, or the last chunk and
+its trailers) with nothing after it, from an HTTP/1.1 provider that did not ask
+to close it; anything else closes it. An idle connection is closed after 30 s,
+or at once when the provider writes to it or closes it. When a reused
+connection dies before any byte of the answer arrives, the request is sent once
+more on a new connection, so a provider that dropped the request without
+answering receives it twice. Off by default until it has run on live traffic;
+hot-reloaded. The gateway still opens a connection per request.
+
 **Update check.** `llm-fw start` prints its version and ruleset first, and once
 every listener is bound asks the npm registry
 (`https://registry.npmjs.org/llm-fw/latest`) for the newest release. When it is
@@ -495,7 +511,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_120 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_121 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -617,6 +633,7 @@ _120 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_TOOLUSE_SCAN_MODE` | `responseScan.toolUse.mode` | `audit` |
 | `LLM_FW_TRUSTED_PATHS` | `detection.surfaces.tool_result` |  |
 | `LLM_FW_UPDATE_CHECK` | `updateCheck` | `true` |
+| `LLM_FW_UPSTREAM_KEEPALIVE` | `proxy.upstreamKeepAlive` | `false` |
 | `LLM_FW_USAGE_METER_ENABLED` | `modules.usageMeter.enabled` | `true` |
 | `LLM_FW_WORKER_INFERENCE` | `detection.workerInference` | `true` |
 

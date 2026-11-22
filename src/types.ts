@@ -27,6 +27,11 @@ export interface ProxyConfig {
   // does so multiple clients can share one firewall server.
   bindHost: string;
   upstreamTimeoutMs: number;
+  /**
+   * Reuse upstream TLS connections between requests to the same provider host
+   * instead of opening one per request (#670). Off by default.
+   */
+  upstreamKeepAlive: boolean;
   maxBodyBytes: number;
   dnsServers: string[];
   urlFilter: UrlFilterConfig;

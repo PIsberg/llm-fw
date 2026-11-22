@@ -24,6 +24,11 @@ export const DEFAULT_CONFIG: Config = {
     // so a short window aborts legitimate long generations. Lower it if you want
     // a tighter DoS backstop and only expect streaming traffic.
     upstreamTimeoutMs: 120000,
+    // Keep the upstream connection open after a response and reuse it for the
+    // next request to the same provider host, saving a TCP and a TLS round trip
+    // (about 50 ms to the providers, measured 2026-11-07). Off until it has
+    // run on live traffic (#670).
+    upstreamKeepAlive: false,
     maxBodyBytes: 10_485_760, // 10 MiB — cap buffered request body to bound memory
     // eslint-disable-next-line sonarjs/no-hardcoded-ip -- default public DNS resolvers to bypass local /etc/hosts sinkhole
     dnsServers: ['1.1.1.1', '8.8.8.8'],
@@ -790,6 +795,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
   LLM_FW_PROXY_TOKEN: (c, v) => { c.proxy.authToken = v; },
   LLM_FW_PROXY_REQUIRE_AUTH: (c, v) => { c.proxy.requireAuth = v === 'true'; },
+  LLM_FW_UPSTREAM_KEEPALIVE: (c, v) => { c.proxy.upstreamKeepAlive = v === 'true'; },
   LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = envPort('LLM_FW_HTTPS_PORT', v); },
   LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = envInt('LLM_FW_MAX_BODY_BYTES', v, { min: 0 }); },
   LLM_FW_JUDGE_ENABLED: (c, v) => { c.detection.judgeEnabled = v === 'true'; },
