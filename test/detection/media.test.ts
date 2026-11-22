@@ -408,6 +408,38 @@ describe('PDF streams (#857)', () => {
     expect(block.partial).toBe(true)
   })
 
+  // Commit security review of #890: a stream the reader does not understand
+  // exactly must mark the PDF partial, never be skipped.
+  it.each([
+    ['an indirect /Filter', [['/Filter 9 0 R', flate('BT (x) Tj ET')]] as Array<[string, Buffer]>],
+    ['a #-escaped filter name', [['/Filter /Fl#61teDecode', flate('BT (x) Tj ET')]] as Array<[string, Buffer]>],
+    ['/DecodeParms', [['/Filter /FlateDecode /DecodeParms << /Predictor 12 >>', flate('BT (x) Tj ET')]] as Array<[string, Buffer]>],
+    ['an embedded font, which can draw any code as any glyph', [page('(hello) Tj'), ['/Type /FontDescriptor /FontFile2 9 0 R', Buffer.alloc(0)]] as Array<[string, Buffer]>],
+    ['an /Encoding /Differences table', [page('(hello) Tj'), ['/Type /Encoding /Differences [65 /z]', Buffer.alloc(0)]] as Array<[string, Buffer]>],
+  ])('marks a PDF with %s as only partly inspected', (_label, streams) => {
+    expect(mediaBlockFromBase64('document', 'application/pdf', pdf(streams)).partial).toBe(true)
+  })
+
+  it('marks partial a stream keyword followed by something other than a line end', () => {
+    const raw = '%PDF-1.7\n3 0 obj\n<< /Length 5 >>\nstream hello\nendstream\nendobj\n%%EOF\n'
+    expect(mediaBlockFromBase64('document', 'application/pdf', Buffer.from(raw, 'latin1').toString('base64')).partial).toBe(true)
+  })
+
+  it('marks partial an endstream whose stream it could not find', () => {
+    const raw = '%PDF-1.7\n3 0 obj\n<< /Length 5 /Filter /FlateDecode\nstream\nxxxxx\nendstream\nendobj\n%%EOF\n'
+    expect(mediaBlockFromBase64('document', 'application/pdf', Buffer.from(raw, 'latin1').toString('base64')).partial).toBe(true)
+  })
+
+  it('reads a stream that carries a font key instead of skipping it', () => {
+    const block = mediaBlockFromBase64('document', 'application/pdf', pdf([['/Filter /FlateDecode /Length1 100', flate(`BT (${INJECTION}) Tj ET`)]]))
+    expect(block.text).toContain(INJECTION)
+  })
+
+  it('counts a literal string of control bytes as unread', () => {
+    const block = mediaBlockFromBase64('document', 'application/pdf', pdf([page('(\x01\x02\x03\x04) Tj')]))
+    expect(block.partial).toBe(true)
+  })
+
   it('stops inflating past the cap and marks the PDF partly inspected', () => {
     const bomb: [string, Buffer] = ['/Filter /FlateDecode', zlib.deflateSync(Buffer.alloc(3 * 1024 * 1024, 0x20))]
     const started = performance.now()
@@ -457,6 +489,14 @@ describe('PDF reading stays linear (#857)', () => {
     ['operators', 'Td '.repeat(N / 3)],
   ])('reads 200 KB of %s in linear time', { timeout: LINEAR_TIME_TIMEOUT }, (_label, src) => {
     expect(underMs(500, () => pdfContentText(src))).toBeLessThan(500)
+  })
+
+  it.each([
+    ['nested dictionary openers before stream keywords', '%PDF-1.7\n' + ('<<'.repeat(2000) + '>> stream\nendstream\n').repeat(50)],
+    ['dense /Filter arrays', '%PDF-1.7\n' + ('<< /Filter [' + '/A '.repeat(2000) + '] >>stream\nendstream\n').repeat(30)],
+  ])('reads a PDF of %s in linear time', { timeout: LINEAR_TIME_TIMEOUT }, (_label, raw) => {
+    const data = Buffer.from(raw, 'latin1').toString('base64')
+    expect(underMs(500, () => decodeMediaText('application/pdf', data))).toBeLessThan(500)
   })
 
   it('reads a PDF of 200 KB of stream keywords in linear time', { timeout: LINEAR_TIME_TIMEOUT }, () => {

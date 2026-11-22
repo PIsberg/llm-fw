@@ -78,44 +78,62 @@ export function decodeMedia(mimeType: string | undefined, base64Data: string, ma
   return { text: null, partial: false }
 }
 
-const FONT_DICT = /\/Length[123]\b|\/Subtype\s*\/(?:Type1C|CIDFontType0C|OpenType)\b/
+// Types whose streams hold no page text but may hold strings worth a raw
+// look. Not an exemption: every decoded stream is also read as content.
 const PLAIN_DICT = /\/Type\s*\/(?:ObjStm|XRef|Metadata)\b/
+// Anything that makes the glyphs a page shows differ from the bytes read: an
+// embedded font can draw any code as any shape, /Differences remaps codes,
+// a Type3 font draws with its own procedures, and /Encrypt hides everything.
+const UNREADABLE = /\/(?:Encrypt|Differences|Type3|FontFile[23]?)\b/
+// The most a stream dictionary may span, looked for backwards from its stream.
+const MAX_DICT_CHARS = 4096
 
 /**
  * The text of a PDF: printable runs of its raw bytes, and the text operators
- * of each content stream, inflated when it is FlateDecode (bounded by
- * `maxBytes` in all). `partial` is set when any stream could not be read: an
- * image, a filter other than FlateDecode, corrupt data, an encrypted file, or
- * a cap reached. Read only as raw bytes, a PDF counted as inspected from its
- * uncompressed dictionaries alone, with not one word of its pages read (#857).
+ * of each stream, inflated when it is FlateDecode (bounded by `maxBytes` in
+ * all). Fail closed: `partial` is set whenever any stream is not read exactly
+ * as written: an image, a filter other than one plain FlateDecode, an
+ * indirect or escaped filter, decode parameters, a dictionary or line end it
+ * cannot parse, corrupt data, a cap reached, unreadable strings (two-byte
+ * glyph codes, control bytes), an embedded font or a re-encoding (which can
+ * show other glyphs than the bytes say), or an encrypted file. Read only as
+ * raw bytes, a PDF counted as inspected from its uncompressed dictionaries
+ * alone, with not one word of its pages read (#857).
  */
 function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean } {
   const s = buf.toString('latin1')
   const texts: string[] = [extractPrintableRuns(buf)]
-  // Every stream of an encrypted file is ciphertext.
-  let partial = s.includes('/Encrypt')
+  let partial = UNREADABLE.test(s)
   let budget = maxBytes
+  // Backward dictionary scans, bounded in total so dense streams stay linear.
+  let scanBudget = 2 * s.length + MAX_DICT_CHARS
   let streams = 0
+  let ends = 0
+  for (let at = s.indexOf('endstream'); at !== -1; at = s.indexOf('endstream', at + 9)) ends++
   let from = 0
   for (;;) {
     const at = s.indexOf('stream', from)
     if (at === -1) break
     from = at + 6
     if (s.startsWith('end', at - 3)) continue
+    let dictEnd = at
+    while (dictEnd > 0 && isPdfSpace(s.charCodeAt(dictEnd - 1))) dictEnd--
+    if (!s.startsWith('>>', dictEnd - 2)) continue // the word, not the keyword
+    if (++streams > MAX_PDF_STREAMS) { partial = true; break }
     const eol = s[at + 6] === '\r' && s[at + 7] === '\n' ? 2 : s[at + 6] === '\n' ? 1 : 0
-    if (eol === 0) continue
+    if (eol === 0) { partial = true; continue }
     const start = at + 6 + eol
     const end = s.indexOf('endstream', start)
     if (end === -1) { partial = true; break }
     from = end + 9
-    if (++streams > MAX_PDF_STREAMS) { partial = true; break }
-    const head = s.slice(Math.max(0, at - 2048), at)
-    const dict = head.slice(head.lastIndexOf('obj') + 1)
+    const dictStart = streamDictStart(s, dictEnd, Math.min(MAX_DICT_CHARS, scanBudget))
+    scanBudget -= Math.min(MAX_DICT_CHARS, dictEnd)
+    if (dictStart === -1) { partial = true; continue }
+    const dict = s.slice(dictStart, dictEnd)
+    const filters = streamFilters(dict)
+    if (filters === null || /\/DecodeParms\b/.test(dict) || /\/Subtype\s*\/Image\b/.test(dict)) { partial = true; continue }
     let data = buf.subarray(start, end)
     while (data.length > 0 && (data[data.length - 1] === 0x0a || data[data.length - 1] === 0x0d)) data = data.subarray(0, data.length - 1)
-    const filter = /\/Filter\s*(?:\[([^\]]*)\]|\/([A-Za-z0-9]+))/.exec(dict)
-    const filters = filter ? (filter[1] ?? filter[2] ?? '').split('/').map(f => f.trim()).filter(Boolean) : []
-    if (/\/Subtype\s*\/Image\b/.test(dict)) { partial = true; continue }
     let decoded: Buffer
     if (filters.length === 0) {
       decoded = data
@@ -131,19 +149,79 @@ function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolea
       partial = true
       continue
     }
-    if (FONT_DICT.test(dict)) continue // glyph programs, no text
+    const content = readContentStream(decoded.toString('latin1'))
+    if (content.text) texts.push(content.text)
+    if (content.unread > 0) partial = true
     if (PLAIN_DICT.test(dict)) {
       const runs = extractPrintableRuns(decoded)
       if (runs) texts.push(runs)
-      continue
     }
-    const content = readContentStream(decoded.toString('latin1'))
-    if (content.text) texts.push(content.text)
-    // Text in two-byte glyph codes needs the font's ToUnicode map, which is
-    // not read yet: such a page is not inspected.
-    if (content.unread > 0) partial = true
   }
+  // An endstream whose stream was not recognised is a stream not read.
+  if (streams < ends) partial = true
   return { text: texts.filter(Boolean).join('\n'), partial }
+}
+
+/** A byte below 0x20 other than tab, line feed, vertical tab, form feed and carriage return. */
+function hasControlBytes(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 9 || (c > 13 && c < 32)) return true
+  }
+  return false
+}
+
+const isPdfSpace = (c: number): boolean => c === 32 || c === 9 || c === 10 || c === 13 || c === 12 || c === 0
+
+/**
+ * Where the dictionary that ends just before `dictEnd` (after its `>>`)
+ * starts: its matching `<<`, found by counting nesting backwards, or -1 when
+ * none is found within `limit` characters.
+ */
+function streamDictStart(s: string, dictEnd: number, limit: number): number {
+  let depth = 0
+  const stop = Math.max(0, dictEnd - limit)
+  for (let i = dictEnd - 2; i >= stop; i--) {
+    if (s[i] === '>' && s[i + 1] === '>') { depth++; i--; continue }
+    if (s[i] === '<' && s[i + 1] === '<' && --depth === 0) return i
+  }
+  return -1
+}
+
+/**
+ * The filter names of a stream dictionary: [] with no /Filter, or null when
+ * the value is anything but a direct name or a short array of names (an
+ * indirect reference, a #-escaped name, a repeated key).
+ */
+function streamFilters(dict: string): string[] | null {
+  const first = dict.indexOf('/Filter')
+  if (first === -1) return []
+  if (dict.indexOf('/Filter', first + 7) !== -1) return null
+  let i = first + 7
+  while (i < dict.length && isPdfSpace(dict.charCodeAt(i))) i++
+  const name = (from: number): [string, number] | null => {
+    let j = from + 1
+    while (j < dict.length && /[A-Za-z0-9]/.test(dict[j]!)) j++
+    if (j === from + 1 || dict[j] === '#') return null
+    return [dict.slice(from + 1, j), j]
+  }
+  if (dict[i] === '/') {
+    const n = name(i)
+    return n ? [n[0]] : null
+  }
+  if (dict[i] !== '[') return null
+  const close = dict.indexOf(']', i)
+  if (close === -1 || close - i > 256) return null
+  const names: string[] = []
+  for (let j = i + 1; j < close;) {
+    if (isPdfSpace(dict.charCodeAt(j))) { j++; continue }
+    if (dict[j] !== '/') return null
+    const n = name(j)
+    if (!n) return null
+    names.push(n[0])
+    j = n[1]
+  }
+  return names
 }
 
 // Character tests by code: a regex per character made the tokenizer the
@@ -202,7 +280,9 @@ function readContentStream(src: string): { text: string; unread: number } {
         out += d
         i++
       }
-      pending += out
+      // Control bytes are glyph codes of a custom encoding, not text.
+      if (hasControlBytes(out)) unread++
+      else pending += out
       continue
     }
     if (c === '<' && src[i + 1] !== '<') {

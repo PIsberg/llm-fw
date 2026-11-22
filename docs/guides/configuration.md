@@ -322,14 +322,17 @@ startup.
 **PDF documents.** A PDF is read from its raw bytes (uncompressed text,
 metadata, anything appended after `%%EOF`) and from the text operators of each
 content stream, inflated when it is `FlateDecode` (2 MiB of inflated output per
-PDF at most). A PDF counts as inspected only when every stream was read: one
-with an image, a filter other than `FlateDecode`, corrupt or encrypted data, a
-cap reached, or text in two-byte glyph codes (what most writers emit for
-embedded fonts, readable only through the font's ToUnicode map, #889) is
-treated as opaque, so `nonText.mode` audits or refuses it like an image. Before
-#857 a PDF counted as inspected from its uncompressed dictionaries alone.
-Reading the streams costs time: 71 to 90 ms for 1.3 to 1.7 MB PDFs, against 16
-to 30 ms for the raw bytes alone, measured on one machine.
+PDF at most). A PDF counts as inspected only when every stream was read exactly
+as written. One with an image, a filter other than a plain `FlateDecode`, decode
+parameters, a dictionary it cannot parse, corrupt or encrypted data, a cap
+reached, an embedded font or a re-encoding (either can show other glyphs than
+the bytes say), or text in two-byte glyph codes (what most writers emit,
+readable only through the font's ToUnicode map, #889) is treated as opaque,
+so `nonText.mode` audits or refuses it like an image. In practice that is most
+real PDFs: all 25 measured were. Before #857 a PDF counted as inspected from its
+uncompressed dictionaries alone. Reading the streams costs time: 93 to 112 ms for
+1.3 to 1.7 MB PDFs, against 17 to 21 ms for the raw bytes alone, measured on one
+machine.
 
 **Audio transcription.** OpenAI's audio models (`input_audio` parts) and Gemini
 (`inlineData` with an `audio/*` type) accept speech in an ordinary chat
