@@ -171,16 +171,22 @@ export interface ResilienceCount { kept: number; total: number }
  * them blocks except the Greek one inside a markdown fence, a Stage 2 block at
  * the threshold that the fence turns into a warn: markdown-fence 132 of 133.
  * Synonyms is 131 of 133, the same two as before.
+ *
+ * Re-pinned on ruleset 2026.11.80 (#652): two overrides with no joiner at all,
+ * every word run together, joined the seeds, 133 to 135. They are encoded, so
+ * the character-level rewordings skip them (114 unchanged). Every rewording of
+ * them blocks: markdown-fence 134 of 135 and synonyms 133 of 135, the same
+ * misses as before.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
   homoglyph: { kept: 113, total: 114 },
   leetspeak: { kept: 113, total: 114 },
   'zero-width': { kept: 113, total: 114 },
   casing: { kept: 113, total: 114 },
-  'markdown-fence': { kept: 131, total: 133 },
-  blockquote: { kept: 132, total: 133 },
-  'polite-prefix': { kept: 132, total: 133 },
-  synonyms: { kept: 130, total: 133 },
+  'markdown-fence': { kept: 133, total: 135 },
+  blockquote: { kept: 134, total: 135 },
+  'polite-prefix': { kept: 134, total: 135 },
+  synonyms: { kept: 132, total: 135 },
   'no-punctuation': { kept: 113, total: 114 },
   'curly-apostrophe': { kept: 113, total: 114 },
 }

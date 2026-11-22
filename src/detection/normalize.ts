@@ -568,6 +568,81 @@ const OVERRIDE_FIRST_RE = /^(?:ignore|disregard|forget|override|bypass)\b/i
 const DOTTED_WORDS_RE = /(?<![\p{L}\p{N}.])[\p{L}\p{N}]+(?:\.[\p{L}\p{N}]+){3,}(?![\p{L}\p{N}])/gu
 const CAMEL_WORDS_RE = /(?<![\p{L}\p{N}_])\p{L}\p{Ll}+(?:\p{Lu}\p{Ll}+){3,}(?![\p{L}\p{N}_])/gu
 const CAMEL_HUMP_RE = /(\p{Ll})(\p{Lu})/gu
+// No joiner at all (#652): "ignoreallpreviousinstructions". A general word segmenter
+// would split every identifier in every code file, so a run of letters is read only
+// when it holds an override verb, and is split only into the words of this closed
+// override vocabulary, starting at the verb. A split counts with three words or more,
+// one of them a target, so "ignorecase", "ignoreallwhitespace" and
+// "gandalfignoreinstructions" (two words from the verb) stay one word.
+const RUN_TOGETHER_RE = /(?<![\p{L}\p{M}])[\p{L}\p{M}]{12,}/gu
+const RUN_TOGETHER_VERBS = ['ignore', 'disregard', 'forget', 'override', 'bypass']
+const RUN_TOGETHER_VERB_RE = /ignore|disregard|forget|override|bypass/gi
+const RUN_TOGETHER_TARGETS = new Set([
+  'instructions', 'instruction', 'rules', 'rule', 'prompt', 'prompts', 'directives', 'directive',
+  'guidelines', 'guardrails', 'constraints', 'restrictions', 'context', 'messages', 'commands',
+  'programming', 'policies', 'policy', 'filters', 'training',
+])
+const RUN_TOGETHER_VOCAB = new Set([
+  ...RUN_TOGETHER_TARGETS, ...RUN_TOGETHER_VERBS,
+  'all', 'any', 'every', 'the', 'your', 'my', 'of', 'these', 'those', 'such', 'other',
+  'prior', 'previous', 'above', 'earlier', 'preceding', 'former', 'initial', 'original',
+  'system', 'developer', 'safety', 'security', 'content', 'existing', 'current',
+  'and', 'then', 'now', 'instead', 'from', 'before', 'that', 'this', 'you', 'were', 'are',
+  'given', 'told', 'to', 'reveal', 'show', 'print', 'output', 'tell', 'me', 'say', 'do',
+  'act', 'as', 'what', 'repeat', 'display', 'it', 'is', 'only', 'just', 'obey', 'follow',
+])
+const MAX_RUN_TOGETHER_WORD = Math.max(...[...RUN_TOGETHER_VOCAB].map(w => w.length))
+const MIN_RUN_TOGETHER_WORDS = 3
+
+/**
+ * The override phrases inside one lower-cased run of letters, split into words.
+ * One pass left to right: a split starts at a verb, and a position is live when a
+ * vocabulary word on some split ends there. Each live position tries words at most
+ * MAX_RUN_TOGETHER_WORD letters ahead, and the first split to reach a position
+ * keeps it, so the work is linear in the run whatever it repeats.
+ */
+function runTogetherPhrases(run: string): string[] {
+  const n = run.length
+  const from = new Int32Array(n + 1).fill(-1) // where the word ending here starts
+  const words = new Int32Array(n + 1)
+  const target = new Uint8Array(n + 1)
+  const start = new Int32Array(n + 1)
+  const verbAt = new Uint8Array(n + 1)
+  for (const m of run.matchAll(RUN_TOGETHER_VERB_RE)) verbAt[m.index] = 1
+  for (let i = 0; i < n; i++) {
+    const live = from[i] !== -1
+    if (!live && verbAt[i] === 0) continue
+    for (let j = i + 2; j <= Math.min(n, i + MAX_RUN_TOGETHER_WORD); j++) {
+      if (from[j] !== -1) continue
+      const word = run.slice(i, j)
+      if (!RUN_TOGETHER_VOCAB.has(word)) continue
+      if (!live && !RUN_TOGETHER_VERBS.includes(word)) continue
+      from[j] = i
+      words[j] = (live ? words[i]! : 0) + 1
+      target[j] = (live ? target[i]! : 0) | (RUN_TOGETHER_TARGETS.has(word) ? 1 : 0)
+      start[j] = live ? start[i]! : i
+    }
+  }
+  // The furthest qualifying end of each split, read once.
+  const furthest = new Map<number, number>()
+  for (let end = 1; end <= n; end++) {
+    if (from[end] !== -1 && words[end]! >= MIN_RUN_TOGETHER_WORDS && target[end] === 1) furthest.set(start[end]!, end)
+  }
+  const phrases: string[] = []
+  for (const end of furthest.values()) {
+    const parts: string[] = []
+    let i = end
+    while (parts.length < words[end]!) {
+      const s = from[i]!
+      parts.push(run.slice(s, i))
+      i = s
+    }
+    // Walked from the end; one reverse keeps the rebuild linear in the words.
+    parts.reverse()
+    phrases.push(parts.join(' '))
+  }
+  return phrases
+}
 // Real texts carry 23 such runs at p99 and 266 at most, at about 0.3 ms each. An
 // attacker can send thousands, so past this they share candidates: nothing goes
 // unread, and the cost is bounded by the text's length rather than its runs.
@@ -593,6 +668,10 @@ function joinedWordsCandidates(text: string): { text: string; source: string }[]
     for (const run of new Set(text.match(CAMEL_WORDS_RE))) {
       const spaced = run.replace(CAMEL_HUMP_RE, '$1 $2')
       if (OVERRIDE_WORD_RE.test(spaced)) runs.add(spaced)
+    }
+    for (const run of new Set(text.match(RUN_TOGETHER_RE))) {
+      if (!OVERRIDE_VERB_RE.test(run)) continue
+      for (const phrase of runTogetherPhrases(run.toLowerCase())) runs.add(phrase)
     }
   }
   if (runs.size === 0) return []
