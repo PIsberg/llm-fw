@@ -91,6 +91,16 @@ describe.skipIf(!lanAddress)('Proxy tunnel guard E2E (remote client)', { timeout
     ['the cloud metadata address', () => '169.254.169.254:80'],
     ['the unspecified address', () => `0.0.0.0:${loopbackPort}`],
     ['an IPv6 loopback literal', () => `[::1]:${loopbackPort}`],
+    // #849: spellings net.isIP accepts (so no lookup runs) that a string
+    // compare against '::1', '::' and '::ffff:a.b.c.d' missed.
+    ['an expanded IPv6 loopback literal', () => `[0:0:0:0:0:0:0:1]:${loopbackPort}`],
+    ['IPv4 loopback mapped into IPv6 in hex', () => `[::ffff:7f00:1]:${loopbackPort}`],
+    ['the metadata address mapped into IPv6 in hex', () => '[::ffff:a9fe:a9fe]:80'],
+    ['an expanded unspecified address', () => `[0::0]:${loopbackPort}`],
+    // Unbracketed, the last colon still splits off the port, and the literal
+    // went straight to net.connect with no lookup to guard it.
+    ['an unbracketed expanded IPv6 loopback literal', () => `0:0:0:0:0:0:0:1:${loopbackPort}`],
+    ['unbracketed IPv4 loopback mapped into IPv6 in hex', () => `::ffff:7f00:1:${loopbackPort}`],
   ])('refuses %s with 403', async (_label, target) => {
     expect(await sendConnect(lanAddress!, PORT, target(), auth)).toBe(403)
   })

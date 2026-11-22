@@ -156,6 +156,11 @@ class UpstreamTimeoutError extends Error {
  * which previously truncated the final character of the hostname.
  */
 export function parseConnectTarget(url: string): { hostname: string; port: number } {
+  // An IPv6 literal comes in brackets ([::1]:443), and the brackets are not
+  // part of the address: left on, the tunnel guard and the intercept match
+  // compared a name no address has (#849).
+  const bracketed = /^\[([^\]]*)\](?::(\d*))?$/.exec(url)
+  if (bracketed) return { hostname: canonicalHost(bracketed[1] ?? ''), port: Number.parseInt(bracketed[2] ?? '', 10) || 443 }
   const colonIdx = url.lastIndexOf(':')
   // No colon, or a lone trailing colon → treat the whole string as the hostname.
   if (colonIdx === -1) return { hostname: canonicalHost(url), port: 443 }

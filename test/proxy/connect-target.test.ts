@@ -50,6 +50,16 @@ describe('parseConnectTarget', () => {
   })
 })
 
+// #849: an IPv6 literal in a request target is written in brackets (RFC 9110
+// and RFC 3986), and the brackets are not part of the address.
+describe('parseConnectTarget on a bracketed IPv6 literal (#849)', () => {
+  it('takes the address out of its brackets', () => {
+    expect(parseConnectTarget('[::1]:8443')).toEqual({ hostname: '::1', port: 8443 })
+    expect(parseConnectTarget('[0:0:0:0:0:0:0:1]:443')).toEqual({ hostname: '0:0:0:0:0:0:0:1', port: 443 })
+    expect(parseConnectTarget('[FE80::1]')).toEqual({ hostname: 'fe80::1', port: 443 })
+  })
+})
+
 describe('isInterceptedHost on a host spelled another way (#848)', () => {
   it('intercepts a provider named in capitals or with a trailing dot', () => {
     for (const host of ['API.OPENAI.COM', 'api.openai.com.', 'Api.Anthropic.Com.', 'MY-RESOURCE.OPENAI.AZURE.COM.']) {
