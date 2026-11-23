@@ -1,5 +1,5 @@
 import { getLlmFwDir } from '../config/paths.js'
-import { DEFAULT_LOAD_TIMEOUT_MS, loadWithVisibility } from './modelLoad.js'
+import { DEFAULT_LOAD_TIMEOUT_MS, LOAD_RETRY_MS, loadWithVisibility } from './modelLoad.js'
 import { join } from 'node:path'
 
 /**
@@ -21,6 +21,8 @@ type Worker = { recognize(image: Buffer): Promise<{ data: { text: string } }>; t
 
 // Reuse a single worker across requests — creation is the costly part.
 let workerPromise: Promise<Worker | null> | null = null
+// When the last load failed; the next use past LOAD_RETRY_MS loads again (#869).
+let workerFailedAt = 0
 
 // Raster formats Tesseract can decode. SVG (vector) and animated/exotic
 // formats are skipped — there's nothing for the rasterizer to read.
@@ -51,6 +53,10 @@ interface OcrBounds {
 }
 
 async function getWorker(loadTimeoutMs: number): Promise<Worker | null> {
+  if (workerPromise && workerFailedAt > 0 && Date.now() - workerFailedAt >= LOAD_RETRY_MS) {
+    workerPromise = null
+    workerFailedAt = 0
+  }
   if (!workerPromise) {
     workerPromise = (async () => {
       try {
@@ -66,6 +72,7 @@ async function getWorker(loadTimeoutMs: number): Promise<Worker | null> {
           { label: 'OCR language data', timeoutMs: loadTimeoutMs },
         )
       } catch {
+        workerFailedAt = Date.now()
         return null // OCR unavailable (offline first run, install issue) — degrade to opaque.
       }
     })()

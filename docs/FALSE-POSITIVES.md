@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.107
+
+Unchanged from 2026.11.106: a model load that failed is tried again a minute later instead of never (#869); a loaded model scores as before.
+
 ## Result, ruleset 2026.11.106
 
 Unchanged from 2026.11.105: what a blocked tool result's withholding replaces (#917: structured results, short parts, one group per tool result); no verdict changes.

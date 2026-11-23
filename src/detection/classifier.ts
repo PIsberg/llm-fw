@@ -2,7 +2,7 @@ import { DetectionConfig } from '../types.js'
 import { createHash } from 'node:crypto'
 import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError } from './inferenceWorker.js'
 import { compactTokenizer } from './compactTokenizer.js'
-import { ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
+import { LOAD_RETRY_MS, ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, isClaudeCodePromptNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { classifierWindows } from './classifierWindows.js'
 import { isWithholdNotice } from './withhold.js'
@@ -64,6 +64,9 @@ export class InjectionClassifier {
   // hot-reloaded one also applies to a text scored before it changed (#858).
   private cache = new Map<string, number>()
   private initAttempted = false
+  // When the last load failed (0: it did not), and the load in flight.
+  private failedAt = 0
+  private loading: Promise<void> | null = null
   // Task C3 — mirrors EmbeddingChecker's `ready` flag: true once the worker
   // has confirmed it can classify, decoupled from `classifier` (which stays
   // null in worker mode unless a permanent fallback loads it in-process).
@@ -80,8 +83,24 @@ export class InjectionClassifier {
   /** Lazy-load the ONNX model. No-op when the classifier stage is disabled, so
    *  the ~700 MB download only happens for users who opt in. */
   async init(): Promise<void> {
-    if (!this.config.classifier?.enabled || this.initAttempted) return
+    if (!this.config.classifier?.enabled || this.isInitialized()) return
+    if (this.initAttempted && !this.retryDue()) return
+    if (this.loading) return this.loading
     this.initAttempted = true
+    this.loading = this.load().finally(() => {
+      // A failed load is tried again once LOAD_RETRY_MS has passed (#869).
+      this.failedAt = this.isInitialized() ? 0 : Date.now()
+      this.loading = null
+    })
+    return this.loading
+  }
+
+  /** Whether a failed load has waited long enough to be tried again. */
+  private retryDue(): boolean {
+    return this.failedAt > 0 && Date.now() - this.failedAt >= LOAD_RETRY_MS
+  }
+
+  private async load(): Promise<void> {
     if (this.config.workerInference) {
       // The model loads inside the worker thread. A worker that cannot come up
       // falls back to loading it here rather than disabling the stage (see
@@ -91,7 +110,7 @@ export class InjectionClassifier {
         this.workerReady = true
       } catch (err) {
         if (err instanceof ModelLoadTimeoutError) {
-          log.warn('could not load injection classifier — stage disabled', { err: err.message })
+          log.warn('could not load injection classifier — stage off until a retry a minute from now', { err: err.message })
           return
         }
         log.warn('inference worker unavailable; running the injection classifier on the main thread', { err: (err as Error).message })
@@ -100,7 +119,7 @@ export class InjectionClassifier {
           this.classifier = await loadWithVisibility(loadInjectionClassifier, { label: 'injection classifier', timeoutMs: this.config.modelLoadTimeoutMs ?? 0 })
         } catch (loadErr) {
           this.classifier = null
-          log.warn('could not load injection classifier — stage disabled', { err: (loadErr as Error).message })
+          log.warn('could not load injection classifier — stage off until a retry a minute from now', { err: (loadErr as Error).message })
         }
       }
       return
@@ -112,7 +131,7 @@ export class InjectionClassifier {
       // Best-effort, exactly like the embedding stage: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.
       this.classifier = null
-      log.warn('could not load injection classifier — stage disabled', { err: (err as Error).message })
+      log.warn('could not load injection classifier — stage off until a retry a minute from now', { err: (err as Error).message })
     }
   }
 
@@ -151,7 +170,12 @@ export class InjectionClassifier {
     if (!this.config.classifier?.enabled || !text) return null
     // Lazy-load on first use so toggling the stage on from the dashboard
     // activates it without a restart (the first request pays the one-time load).
-    if (!this.isInitialized() && !this.initAttempted) await this.init()
+    if (!this.isInitialized()) {
+      if (!this.initAttempted) await this.init()
+      // A load that failed is tried again behind this request, which skips
+      // the stage rather than waiting on a model that may fail again (#869).
+      else if (this.retryDue()) void this.init()
+    }
     if (!this.isInitialized()) return null
     const threshold = this.config.classifier.blockThreshold ?? 0.9
 

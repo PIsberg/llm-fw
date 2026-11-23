@@ -3,7 +3,7 @@ import { classifierWindows } from './classifierWindows.js'
 import { createHash } from 'node:crypto'
 import { createLogger } from '../logger.js';
 import { compactTokenizer } from './compactTokenizer.js';
-import { NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js';
+import { LOAD_RETRY_MS, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js';
 
 const log = createLogger('output-classifier');
 
@@ -64,6 +64,9 @@ export class OutputModerationClassifier {
   // Scores, not verdicts: the threshold is applied on every call (#858).
   private cache = new Map<string, number>()
   private initAttempted = false
+  // When the last load failed (0: it did not), and the load in flight (#869).
+  private failedAt = 0
+  private loading: Promise<void> | null = null
 
   constructor(config: ResponseScanConfig | undefined, private readonly modelLoadTimeoutMs = 0) {
     this.config = config
@@ -72,10 +75,21 @@ export class OutputModerationClassifier {
   /** Lazy-load the ONNX model. No-op when the stage is disabled, so the
    *  ~330 MB download only happens for users who opt in. */
   async init(): Promise<void> {
-    if (!this.config?.classifier?.enabled || this.initAttempted) return
+    if (!this.config?.classifier?.enabled || this.classifier) return
+    if (this.initAttempted && !(this.failedAt > 0 && Date.now() - this.failedAt >= LOAD_RETRY_MS)) return
+    if (this.loading) return this.loading
     this.initAttempted = true
+    this.loading = this.load().finally(() => {
+      // A failed load is tried again once LOAD_RETRY_MS has passed (#869).
+      this.failedAt = this.classifier ? 0 : Date.now()
+      this.loading = null
+    })
+    return this.loading
+  }
+
+  private async load(): Promise<void> {
     try {
-      const model = this.config.classifier.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL
+      const model = this.config?.classifier?.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL
       this.classifier = await loadWithVisibility(
         // Spinning off with no switch: measured for #650, it is both cheaper and
         // faster here (29 ms a pass against 43, 95% of one core at a light load
@@ -91,7 +105,7 @@ export class OutputModerationClassifier {
       // Best-effort, exactly like the input classifier: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.
       this.classifier = null
-      log.warn('could not load response moderation classifier — stage disabled', { err: (err as Error).message })
+      log.warn('could not load response moderation classifier — stage off until a retry a minute from now', { err: (err as Error).message })
     }
   }
 
@@ -108,7 +122,11 @@ export class OutputModerationClassifier {
     if (!this.config?.classifier?.enabled || !text) return null
     // Lazy-load on first use so toggling the stage on from the dashboard
     // activates it without a restart (the first response pays the one-time load).
-    if (!this.classifier && !this.initAttempted) await this.init()
+    if (!this.classifier) {
+      if (!this.initAttempted) await this.init()
+      // Tried again behind this response, which skips the stage (#869).
+      else if (this.failedAt > 0 && Date.now() - this.failedAt >= LOAD_RETRY_MS) void this.init()
+    }
     if (!this.classifier) return null
     const threshold = this.config.classifier.blockThreshold ?? 0.9
 
