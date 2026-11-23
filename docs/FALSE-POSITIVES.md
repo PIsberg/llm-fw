@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.92
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The Gemini, Cloud Code, Bedrock and Cohere parsers now yield the conversation, so the crescendo and multi-turn cipher checks run there (#857). These rows go through `/v1/messages`; sent as Gemini, Bedrock and Cohere requests, the 1,000 benign oasst1 threads block 1, as they do as Anthropic requests.
+
 ## Result, ruleset 2026.11.91
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Images and files in Responses API and Gemini tool outputs are now read as media (#857). No row holds one, and none of 2,188 local transcripts does.

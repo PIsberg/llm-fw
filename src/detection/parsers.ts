@@ -630,6 +630,8 @@ class OpenAIParser implements PayloadParser {
         if (Array.isArray(content)) return content.filter((p: any) => typeof p?.text === 'string').map((p: any) => p.text).join('\n')
         return ''
       }
+      // Responses: top-level developer instructions come first (#857).
+      if (typeof data.instructions === 'string' && data.instructions) turns.push({ role: 'system', text: data.instructions })
       // Chat Completions messages[] and Responses input[] both carry ordered turns.
       if (Array.isArray(data.messages)) {
         for (const msg of data.messages) {
@@ -638,6 +640,8 @@ class OpenAIParser implements PayloadParser {
           if (text) turns.push({ role: roleOf(msg.role), text })
         }
       }
+      // A Responses input given as one string is one user turn (#857).
+      if (typeof data.input === 'string' && data.input) turns.push({ role: 'user', text: data.input })
       if (Array.isArray(data.input)) {
         for (const item of data.input) {
           if (!item || item.role === 'tool') continue
@@ -831,6 +835,37 @@ class CohereParser implements PayloadParser {
       return out
     } catch { return [] }
   }
+
+  // The crescendo and multi-turn cipher stages read the whole conversation;
+  // without this method both were off for this provider (#857).
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      const textOf = (c: unknown): string => typeof c === 'string' ? c
+        : Array.isArray(c) ? c.filter((p: any) => typeof p?.text === 'string' && (p.type === undefined || p.type === 'text')).map((p: any) => p.text).join('\n') : ''
+      // v2: OpenAI-like messages[], tool results under role 'tool'.
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          if (!msg || msg.role === 'tool') continue
+          const text = textOf(msg.content)
+          if (text) turns.push({ role: msg.role === 'assistant' ? 'assistant' : msg.role === 'system' ? 'system' : 'user', text })
+        }
+        return turns
+      }
+      // v1: preamble, chat_history[] with USER / CHATBOT / SYSTEM / TOOL roles, then the new message.
+      if (typeof data.preamble === 'string' && data.preamble) turns.push({ role: 'system', text: data.preamble })
+      if (Array.isArray(data.chat_history)) {
+        for (const h of data.chat_history) {
+          const role = String(h?.role ?? '').toUpperCase()
+          if (role === 'TOOL' || typeof h?.message !== 'string' || !h.message) continue
+          turns.push({ role: role === 'CHATBOT' ? 'assistant' : role === 'SYSTEM' ? 'system' : 'user', text: h.message })
+        }
+      }
+      if (typeof data.message === 'string' && data.message) turns.push({ role: 'user', text: data.message })
+      return turns
+    } catch { return [] }
+  }
 }
 
 /**
@@ -1010,6 +1045,29 @@ class GeminiParser implements PayloadParser {
       return out
     } catch { return [] }
   }
+
+  // The crescendo and multi-turn cipher stages read the whole conversation;
+  // without this method both were off for this provider (#857).
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      // Text parts only: a functionCall or functionResponse turn is a tool
+      // exchange, and a thought part is the model's own reasoning.
+      const textOf = (parts: unknown): string => Array.isArray(parts)
+        ? parts.filter((p: any) => typeof p?.text === 'string' && p.thought !== true).map((p: any) => p.text).join('\n') : ''
+      const sys = data.systemInstruction ?? data.system_instruction
+      const system = typeof sys === 'string' ? sys : textOf(sys?.parts)
+      if (system) turns.push({ role: 'system', text: system })
+      if (Array.isArray(data.contents)) {
+        for (const content of data.contents) {
+          const text = textOf(content?.parts)
+          if (text) turns.push({ role: content.role === 'model' ? 'assistant' : 'user', text })
+        }
+      }
+      return turns
+    } catch { return [] }
+  }
 }
 
 /**
@@ -1047,6 +1105,7 @@ class CloudCodeParser extends GeminiParser {
   override extractToolResults(body: string): ToolResultItem[] { return super.extractToolResults(cloudCodeInner(body, 'request')) }
   override extractMediaBlocks(body: string): MediaBlock[] { return super.extractMediaBlocks(cloudCodeInner(body, 'request')) }
   override extractToolUses(body: string): { toolName: string; args: any }[] { return super.extractToolUses(cloudCodeInner(body, 'response')) }
+  override extractConversation(body: string): ConversationTurn[] { return super.extractConversation(cloudCodeInner(body, 'request')) }
 }
 
 /**
@@ -1243,6 +1302,28 @@ class BedrockParser implements PayloadParser {
     } catch {
       return out
     }
+  }
+
+  // The crescendo and multi-turn cipher stages read the whole conversation;
+  // without this method both were off for this provider (#857).
+  extractConversation(body: string): ConversationTurn[] {
+    try {
+      const data = JSON.parse(body)
+      const turns: ConversationTurn[] = []
+      // Converse blocks are {text}; Anthropic-native InvokeModel blocks are
+      // {type: 'text', text}. Tool use and results are left out of both.
+      const textOf = (c: unknown): string => typeof c === 'string' ? c
+        : Array.isArray(c) ? c.filter((b: any) => typeof b?.text === 'string' && (b.type === undefined || b.type === 'text')).map((b: any) => b.text).join('\n') : ''
+      const system = textOf(data.system)
+      if (system) turns.push({ role: 'system', text: system })
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          const text = textOf(msg?.content)
+          if (text) turns.push({ role: msg.role === 'assistant' ? 'assistant' : 'user', text })
+        }
+      }
+      return turns
+    } catch { return [] }
   }
 }
 
