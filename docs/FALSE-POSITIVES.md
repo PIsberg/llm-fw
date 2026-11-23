@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.87
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.86 moved 0 of 31,323 rows, and the real-traffic replay 0 of 65,329 items. Decoded base64, base32 and ascii85 text is now kept in any script, and base64url is decoded (#857). Over 168,357 local texts the decoded candidates rose from 16,973 to 22,456, 0.6% of all candidates.
+
 ## Result, ruleset 2026.11.86
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). PDF content streams are now read, and a PDF the firewall cannot fully read counts as opaque (#857). No row carries a document.

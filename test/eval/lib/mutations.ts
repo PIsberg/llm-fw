@@ -177,16 +177,23 @@ export interface ResilienceCount { kept: number; total: number }
  * the character-level rewordings skip them (114 unchanged). Every rewording of
  * them blocks: markdown-fence 134 of 135 and synonyms 133 of 135, the same
  * misses as before.
+ *
+ * Re-pinned on ruleset 2026.11.87 (#857): a French override with accents,
+ * base64- and base64url-encoded, joined the seeds, 135 to 137; the old decoder
+ * dropped any decoded text outside ASCII, Cyrillic and CJK ideographs. They
+ * are encoded, so the character-level rewordings skip them (114 unchanged).
+ * Every rewording of them blocks: markdown-fence 136 of 137 and synonyms 135
+ * of 137, the same misses as before.
  */
 export const RESILIENCE_FLOORS: Record<string, ResilienceCount> = {
   homoglyph: { kept: 113, total: 114 },
   leetspeak: { kept: 113, total: 114 },
   'zero-width': { kept: 113, total: 114 },
   casing: { kept: 113, total: 114 },
-  'markdown-fence': { kept: 133, total: 135 },
-  blockquote: { kept: 134, total: 135 },
-  'polite-prefix': { kept: 134, total: 135 },
-  synonyms: { kept: 132, total: 135 },
+  'markdown-fence': { kept: 135, total: 137 },
+  blockquote: { kept: 136, total: 137 },
+  'polite-prefix': { kept: 136, total: 137 },
+  synonyms: { kept: 134, total: 137 },
   'no-punctuation': { kept: 113, total: 114 },
   'curly-apostrophe': { kept: 113, total: 114 },
 }
