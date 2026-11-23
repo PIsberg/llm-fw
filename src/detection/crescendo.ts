@@ -17,6 +17,7 @@
 
 import { ConversationTurn } from '../types.js'
 import { containsHarmfulVocab } from './manyShot.js'
+import { stripInvisibles } from './normalize.js'
 
 export interface CrescendoConfig {
   enabled: boolean
@@ -67,7 +68,9 @@ const BOUNDARY_PUSH_ALT = [
 const CONTINUATION =
   /^\s*(?:continue|go on|keep going|and then\??|what(?:'s| is) next\??|next step\??|proceed|carry on|more\??)\s*(?:[.!?]+\s*)?$/i
 
-function isEscalation(text: string): boolean {
+function isEscalation(typed: string): boolean {
+  // A zero-width character inside a keyword is not there to a model (#914).
+  const text = stripInvisibles(typed)
   if (BOUNDARY_PUSH.test(text)) return true
   if (BOUNDARY_PUSH_ALT.some(re => re.test(text))) return true
   // A bare continuation directive counts only when it is the whole short turn.

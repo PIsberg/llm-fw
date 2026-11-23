@@ -35,6 +35,7 @@
  */
 
 import { quotedSpans } from './intentMention.js'
+import { stripInvisibles } from './normalize.js'
 
 export interface MemoryPoisoningFinding {
   /** Which family fired, for the audit event and for tests. */
@@ -143,8 +144,10 @@ function snippetFor(text: string, index: number, length: number): string {
  * agent's authority. Returns the first family that fires outside quotes, else
  * the first quoted match (flagged `quoted`), or null.
  */
-export function detectMemoryPoisoning(text: string): MemoryPoisoningFinding | null {
-  if (!text || text.length < 12) return null
+export function detectMemoryPoisoning(input: string): MemoryPoisoningFinding | null {
+  if (!input || input.length < 12) return null
+  // A zero-width character inside a keyword is not there to a model (#914).
+  const text = stripInvisibles(input)
 
   let spans: Array<[number, number]> | undefined
   let quotedFinding: MemoryPoisoningFinding | null = null

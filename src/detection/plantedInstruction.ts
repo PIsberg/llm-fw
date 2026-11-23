@@ -26,6 +26,8 @@
 // Linear time: one pass over the lines, whole, since every pattern opens on a
 // literal and has bounded spans. Nothing is truncated: padding hides nothing.
 
+import { stripInvisibles } from './normalize.js'
+
 export interface PlantedInstructionFinding {
   shape: string
   action: 'block' | 'warn'
@@ -89,8 +91,10 @@ function firstHit(line: string, shapes: readonly Shape[], flag = false): Hit | n
 }
 
 /** The strongest finding in an instruction file: a block over a warn; null when there is none. */
-export function detectPlantedInstruction(text: string): PlantedInstructionFinding | null {
-  if (!text || text.length < 8) return null
+export function detectPlantedInstruction(input: string): PlantedInstructionFinding | null {
+  if (!input || input.length < 8) return null
+  // A zero-width character inside a keyword is not there to a model (#914).
+  const text = stripInvisibles(input)
   let warn: PlantedInstructionFinding | null = null
   for (const line of text.split('\n')) {
     if (line.length < 8) continue

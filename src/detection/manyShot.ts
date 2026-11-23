@@ -15,6 +15,8 @@
 // judge. A block requires the structural signal AND multiple faux assistant
 // turns that exhibit harmful compliance, which a benign transcript does not.
 
+import { stripInvisibles } from './normalize.js'
+
 export interface ManyShotConfig {
   enabled: boolean
   /** Role-labeled turns required before a text is considered "many-shot". */
@@ -70,7 +72,7 @@ const harmfulRe = new RegExp(
  * multi-turn escalation has actually been steering toward harmful content.
  */
 export function containsHarmfulVocab(text: string): boolean {
-  return harmfulRe.test(text)
+  return harmfulRe.test(stripInvisibles(text))
 }
 
 /**
@@ -80,9 +82,11 @@ export function containsHarmfulVocab(text: string): boolean {
  * faux assistant turns whose body demonstrates harmful compliance. Pure and
  * linear in the input length — safe to call on every scanned surface.
  */
-export function detectManyShot(text: string, config: ManyShotConfig): ManyShotResult {
+export function detectManyShot(input: string, config: ManyShotConfig): ManyShotResult {
   const none: ManyShotResult = { turns: 0, assistantTurns: 0, harmfulComplianceTurns: 0, severity: 'none' }
-  if (!text) return none
+  if (!input) return none
+  // A zero-width character inside a turn label or a keyword is not there to a model (#914).
+  const text = stripInvisibles(input)
 
   const lines = text.split(/\r?\n/)
 

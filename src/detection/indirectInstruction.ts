@@ -27,7 +27,7 @@
 // than any verb anywhere. A descriptive review that merely contains the word
 // "send" ("they send great updates") is not an imperative and does not fire.
 
-import { foldApostrophes } from './normalize.js'
+import { stripInvisibles, foldApostrophes } from './normalize.js'
 
 /**
  * Whether a text names somewhere an attacker could send something, anywhere in
@@ -1529,8 +1529,9 @@ function decodeJsonEscapes(text: string): string {
  */
 export function detectIndirectInstruction(input: string, options: IndirectInstructionOptions = {}): IndirectInstructionFinding | null {
   if (!input || input.length < 8) return null
-  // A typographic apostrophe reads as an ASCII one (#802), typed or escaped.
-  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(normalizeObfuscatedAddresses(foldApostrophes(decodeJsonEscapes(input)).replace(ESCAPED_APOSTROPHE_RE, "'")))))
+  // A typographic apostrophe reads as an ASCII one (#802), typed or escaped, and
+  // a character that renders as nothing, typed or escaped, is not there (#914).
+  const original = blankContactClauses(blankAttributionFields(blankGitIdentityLines(normalizeObfuscatedAddresses(foldApostrophes(stripInvisibles(decodeJsonEscapes(input))).replace(ESCAPED_APOSTROPHE_RE, "'")))))
   const trusted = (options.trustedRecipientDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter(Boolean)
   const text = blankTrustedAddresses(original, trusted)
   const logVerdicts = new Map<number, boolean>()
