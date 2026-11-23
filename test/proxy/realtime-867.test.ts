@@ -67,6 +67,20 @@ describe('#867 Gemini Live: both spellings of every field', () => {
     expect(bodies(plan)).toContain('gs://bucket/notes.pdf')
   })
 
+  it('reads tool output and code parts inside clientContent turns', () => {
+    const plan = GEMINI_LIVE.plan({ clientContent: { turns: [{ role: 'user', parts: [
+      { functionResponse: { id: 'f9', name: 'fetch', response: { output: 'fetched page text in a turn' } } },
+      { function_response: { name: 'fetch', response: { output: 'snake fetched text' } } },
+      { executableCode: { language: 'PYTHON', code: 'print("code text in a turn")' } },
+      { codeExecutionResult: { outcome: 'OUTCOME_OK', output: 'execution output in a turn' } },
+      { functionCall: { name: 'send', args: { to: 'args text in a turn' } } },
+    ] }] } }, false)
+    const all = bodies(plan)
+    for (const t of ['fetched page text in a turn', 'snake fetched text', 'code text in a turn', 'execution output in a turn', 'args text in a turn']) expect(all).toContain(t)
+    // Tool output is scored on the tool-result surface, as it is on the HTTP path.
+    expect(all).toContain('"role":"tool"')
+  })
+
   it('runs DLP whenever the message holds anything but media-only realtime input', () => {
     const pcm = Buffer.alloc(32).toString('base64')
     expect(GEMINI_LIVE.plan({ realtimeInput: { audio: { mimeType: 'audio/pcm', data: pcm } } }, false).dlp).toBe(false)

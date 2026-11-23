@@ -394,7 +394,7 @@ scanned when the turn ends (`activityEnd` or `audioStreamEnd`), and every 15 s
 while it streams under automatic activity detection. `realtimeInput` text and
 the user turns of `clientContent` are scanned as a prompt (model turns are
 history and pass), `toolResponse` function responses as tool results, and video
-frames as images, so `nonText.mode` applies to them; other inline data (a PDF, text, audio that is not PCM) is read as an uploaded file, and a `fileData` part as a file it cannot open. A message that carries `realtimeInput` together with `clientContent` or `toolResponse` has every field read, in both spellings protobuf's JSON mapping accepts (`client_content`, `inline_data`, `mime_type` and so on), and in both when a message carries both (#867). `setup` is
+frames as images, so `nonText.mode` applies to them; other inline data (a PDF, text, audio that is not PCM) is read as an uploaded file, and a `fileData` part as a file it cannot open; a turn's `functionResponse` parts are read as tool results and its `functionCall`, `executableCode` and `codeExecutionResult` parts as text. A message that carries `realtimeInput` together with `clientContent` or `toolResponse` has every field read, in both spellings protobuf's JSON mapping accepts (`client_content`, `inline_data`, `mime_type` and so on), and in both when a message carries both (#867). `setup` is
 developer-authored and passes, but DLP reads it. A message that carries only
 media skips DLP, whose patterns would otherwise run over base64. Gemini clients
 read errors from the close frame, so a block closes the socket with 1008 and a

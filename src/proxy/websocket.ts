@@ -311,10 +311,21 @@ function geminiClientContent(turns: unknown[]): RealtimeScan[] {
     // Model turns are history, skipped like assistant messages on the HTTP path.
     if (!turn || turn.role === 'model') continue
     const content: unknown[] = []
+    const toolOutputs: unknown[] = []
     for (const parts of fields(turn, 'parts', 'parts')) {
       if (!Array.isArray(parts)) continue
       for (const part of records(parts)) {
         if (typeof part.text === 'string') content.push({ type: 'text', text: part.text })
+        // Tool output in a turn is scored as a tool result, as on the HTTP
+        // path; a call's arguments and code parts are text the model reads
+        // (security review of #867: none of them were read).
+        for (const fr of records(fields(part, 'functionResponse', 'function_response'))) {
+          const id = typeof fr.id === 'string' ? fr.id : typeof fr.name === 'string' ? fr.name : 'gemini-live'
+          toolOutputs.push({ role: 'tool', tool_call_id: id, content: JSON.stringify(fr.response ?? {}) })
+        }
+        for (const fc of records(fields(part, 'functionCall', 'function_call'))) content.push({ type: 'text', text: JSON.stringify(fc.args ?? {}) })
+        for (const ec of records(fields(part, 'executableCode', 'executable_code'))) if (typeof ec.code === 'string') content.push({ type: 'text', text: ec.code })
+        for (const cr of records(fields(part, 'codeExecutionResult', 'code_execution_result'))) if (typeof cr.output === 'string') content.push({ type: 'text', text: cr.output })
         // A file the client points at (a Cloud Storage URI): not readable
         // here, so the media stage weighs it as an opaque upload.
         for (const fd of records(fields(part, 'fileData', 'file_data'))) {
@@ -338,6 +349,7 @@ function geminiClientContent(turns: unknown[]): RealtimeScan[] {
       }
     }
     if (content.length) messages.push({ role: 'user', content })
+    messages.push(...toolOutputs)
   }
   return messages.length ? [{ kind: 'body', surface: hasAudio ? 'audio-item' : 'prompt', body: chatBody(messages) }] : []
 }
