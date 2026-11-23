@@ -11,6 +11,12 @@
  * the caller keeps the highest score. Bounded on purpose: each window is a
  * forward pass, and the tokenizer is superlinear in what it is given, which
  * is what the old 4,000-character cut also guarded against.
+ *
+ * Known limits (#898): past 8 KB the stretches between windows go unread by
+ * this stage, at offsets fixed by the text's length, and a window of
+ * token-dense text (code, CJK) is cut at 512 tokens. Fixed rather than random
+ * so one text always gets one verdict; the heuristic stage reads every byte
+ * and the embedding stage samples the whole text either way.
  */
 export const CLASSIFIER_WINDOW_CHARS = 2000
 export const MAX_CLASSIFIER_WINDOWS = 4

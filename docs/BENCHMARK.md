@@ -268,7 +268,8 @@ since 2026-11-22 for lacking them): with the classifier preset, multiturn-cipher
 blocks 479 of 517 attacks and 234 of its 300 controls, safemt-attack-600 99 of
 600, and oasst1-multiturn 285 of 1,000 benign threads. Since #858 the classifier
 reads a long text in up to four 2,000-character windows (head, tail, evenly
-spaced between) instead of its first 4,000 characters; that moved
+spaced between) instead of its first 4,000 characters (past 8 KB of prose it
+reads those four and no more, #898); that moved
 jailbreak-classification recall 82.7% to 82.3% and nothing else past 0.1 points.
 
 **Prompt injection**
