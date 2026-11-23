@@ -547,7 +547,12 @@ turning it on changes what your retention policy has to cover.
 `LLM_FW_AUDIT_WEBHOOK=<url>` additionally POSTs batches to a collector, each a
 JSON object `{ "schema": 1, "ruleset": "...", "events": [...] }`. The file
 stays the durable record, and the shipper drops rather than backlogs when the
-collector is down. `LLM_FW_AUDIT_FILE` relocates the file.
+collector is down. One batch is in flight at a time, so batches arrive in order.
+A collector that needs a token (Splunk HEC, Datadog, Elastic) gets it from
+`audit.webhookHeaders` (`{"Authorization": "Splunk <token>"}`) or
+`LLM_FW_AUDIT_WEBHOOK_HEADER="Authorization: Splunk <token>"`, one header (#865).
+`LLM_FW_AUDIT_FILE` relocates the file. The audit file and `whitelist.json` are
+created readable by their owner only (0600 on POSIX): both can hold prompt text.
 
 **Exporting a time range.** The dashboard's Events tab has an Export control,
 and the same download is an API call behind the dashboard's auth:
@@ -597,12 +602,16 @@ them. `llmfw_warns_total` counts warn events, and a warning history item that
 an agent resends on every request raises one, not one per request. A histogram
 `llmfw_scan_duration_seconds` (buckets 0.005 to 2.5 s) tracks pipeline scan latency.
 Gauges `llmfw_model_loaded{model="embedding"|"classifier"}` report whether each
-model has finished initialising. On by default; disable with
+model has finished initialising. The audit sinks report `llmfw_audit_write_failures_total`
+(writes that failed, and events dropped during a rotation), `llmfw_audit_webhook_dropped_total`
+(records dropped from a full webhook queue) and `llmfw_audit_webhook_failures_total`
+(batches that did not deliver); all three are 0 without an audit sink (#865). On by default; disable with
 `dashboard.metrics: false` or `LLM_FW_METRICS_ENABLED=false`.
 
-Four alerts worth having: `llmfw_model_loaded` stuck at 0, a `llmfw_blocks_total`
+Five alerts worth having: `llmfw_model_loaded` stuck at 0, a `llmfw_blocks_total`
 rate that jumps after a deploy (usually a new false positive, not an attack),
-`llmfw_scan_duration_seconds` p99 climbing, and the process restarting, which
+`llmfw_scan_duration_seconds` p99 climbing, `llmfw_audit_write_failures_total`
+rising (the audit trail has gaps), and the process restarting, which
 regenerates any unpinned token.
 
 ---

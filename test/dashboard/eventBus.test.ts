@@ -8,6 +8,7 @@ vi.mock('node:fs', () => ({
   default: {
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn((path: string, data: string) => { fakeFs.set(path, data) }),
+    renameSync: vi.fn((from: string, to: string) => { fakeFs.set(to, fakeFs.get(from)!); fakeFs.delete(from) }),
     readFileSync: vi.fn((path: string) => {
       if (!fakeFs.has(path)) { const e = new Error('ENOENT') as NodeJS.ErrnoException; e.code = 'ENOENT'; throw e }
       return fakeFs.get(path)!

@@ -59,6 +59,17 @@ export interface AuditSink {
  * allow. A failed write is reported once and then counted, not retried into a
  * queue that could grow without bound.
  */
+/**
+ * The most events held while a rotation's flush and rename are in flight
+ * (#865). Unbounded, a rotation that never finished kept every later event in
+ * memory; past this the oldest held one is dropped and counted as a failed
+ * write, so the count still says something was lost.
+ */
+export const MAX_PENDING_AUDIT_LINES = 10_000;
+
+/** The audit file holds what was blocked and why: its owner's alone (#865). */
+const PRIVATE_FILE_MODE = 0o600;
+
 export class AuditLog {
   private readonly config: AuditConfig;
   private stream: fs.WriteStream | null = null;
@@ -95,8 +106,17 @@ export class AuditLog {
     } catch (err) {
       this.noteFailure(err);
     }
-    this.stream = fs.createWriteStream(this.path, { flags: 'a' });
-    this.stream.on('error', (err) => this.noteFailure(err));
+    this.stream = this.openStream();
+  }
+
+  /** The append stream, created 0600; an existing file is narrowed to 0600 too. */
+  private openStream(): fs.WriteStream {
+    const stream = fs.createWriteStream(this.path, { flags: 'a', mode: PRIVATE_FILE_MODE });
+    stream.on('error', (err) => this.noteFailure(err));
+    if (process.platform !== 'win32') {
+      try { fs.chmodSync(this.path, PRIVATE_FILE_MODE); } catch { /* created by the stream, a moment later */ }
+    }
+    return stream;
   }
 
   async close(): Promise<void> {
@@ -124,6 +144,10 @@ export class AuditLog {
     // them would either land them in the file about to be renamed away or
     // re-create the file underneath the rename.
     if (this.rotating) {
+      if (this.pending.length >= MAX_PENDING_AUDIT_LINES) {
+        this.pending.shift();
+        this.noteFailure(new Error(`more than ${MAX_PENDING_AUDIT_LINES} events arrived during a rotation; the oldest was dropped`));
+      }
       this.pending.push(line);
       return;
     }
@@ -169,7 +193,10 @@ export class AuditLog {
     // would move a file the buffered tail has not reached yet, so the last
     // records of the old generation would reappear at the head of the new one.
     this.rotation = new Promise<void>((resolve) => {
+      let finished = false;
       const finish = (): void => {
+        if (finished) return;
+        finished = true;
         try {
           if (fs.existsSync(previous)) fs.unlinkSync(previous);
           if (fs.existsSync(this.path)) fs.renameSync(this.path, previous);
@@ -177,8 +204,7 @@ export class AuditLog {
           this.noteFailure(err);
         }
         this.bytesWritten = 0;
-        const next = fs.createWriteStream(this.path, { flags: 'a' });
-        next.on('error', (err) => this.noteFailure(err));
+        const next = this.openStream();
         this.stream = next;
         this.rotating = false;
         const held = this.pending;
@@ -190,7 +216,17 @@ export class AuditLog {
         this.rotation = null;
         resolve();
       };
-      if (stream) stream.end(finish); else finish();
+      // A destroyed stream never calls end's callback (#865): the rotation
+      // stayed open and every later event went to memory. Such a stream has
+      // nothing left to flush, so the rename goes ahead at once; an error
+      // while flushing ends the wait too.
+      if (!stream || stream.destroyed || stream.writableFinished) {
+        finish();
+      } else {
+        stream.once('error', finish);
+        stream.once('close', finish);
+        stream.end(finish);
+      }
     });
   }
 }
@@ -209,6 +245,9 @@ export class AuditWebhook {
   private timer: ReturnType<typeof setInterval> | null = null;
   private dropped = 0;
   private failures = 0;
+  // The delivery in flight (#865): flush ran every 2 s with a 10 s timeout
+  // and no lock, so batches overlapped and could arrive out of order.
+  private inFlight: Promise<void> | null = null;
 
   constructor(
     private readonly url: string,
@@ -229,6 +268,7 @@ export class AuditWebhook {
 
   async stop(): Promise<void> {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.inFlight) await this.inFlight;
     await this.flush();
   }
 
@@ -243,10 +283,20 @@ export class AuditWebhook {
     this.queue.push(auditRecord(event, this.includePayloads));
   }
 
+  /**
+   * Send what is queued, one batch at a time: a flush while one is in flight
+   * waits for it, then sends what queued meanwhile, so batches arrive in order.
+   */
   async flush(): Promise<void> {
+    while (this.inFlight) await this.inFlight;
     if (!this.queue.length) return;
     const batch = this.queue;
     this.queue = [];
+    this.inFlight = this.deliver(batch).finally(() => { this.inFlight = null; });
+    await this.inFlight;
+  }
+
+  private async deliver(batch: Record<string, unknown>[]): Promise<void> {
     try {
       const res = await fetch(this.url, {
         method: 'POST',
@@ -255,6 +305,8 @@ export class AuditWebhook {
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) this.failures++;
+      // An unread body keeps its connection; nothing in it is used (#865).
+      await res.body?.cancel().catch(() => undefined);
     } catch {
       // Dropped rather than requeued: a collector that has been down for an
       // hour would otherwise hand back an hour of backlog the moment it
@@ -262,4 +314,14 @@ export class AuditWebhook {
       this.failures++;
     }
   }
+}
+
+/**
+ * The webhook sink an audit config asks for, or null. `webhookHeaders` goes
+ * with every POST (#865): a collector such as Splunk HEC, Datadog or Elastic
+ * needs a token header, and there was no way to set one.
+ */
+export function auditWebhookFor(config: AuditConfig | undefined): AuditWebhook | null {
+  if (!config?.enabled || !config.webhookUrl) return null;
+  return new AuditWebhook(config.webhookUrl, undefined, undefined, config.webhookHeaders ?? {}, config.includePayloads);
 }

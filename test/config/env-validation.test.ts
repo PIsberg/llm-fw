@@ -25,6 +25,7 @@ const TOUCHED = [
   'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DOS_MAX_TOKENS_PER_SESSION',
   'LLM_FW_DOS_TOKEN_WINDOW_MS',
   'LLM_FW_DLP_MODE', 'LLM_FW_PROXY_MODE', 'LLM_FW_GATEWAY_PORT',
+  'LLM_FW_AUDIT_WEBHOOK_HEADER',
 ]
 
 const saved: Record<string, string | undefined> = {}
@@ -110,5 +111,20 @@ describe('enum and gateway-port environment overrides fail fast (#864)', () => {
     expect(c.dlp.mode).toBe('audit')
     expect(c.proxy.mode).toBe('proxy')
     expect(c.gateway?.port).toBe(18081)
+  })
+})
+
+// #865: a collector such as Splunk HEC, Datadog or Elastic needs a token
+// header, and there was no way to set one.
+describe('LLM_FW_AUDIT_WEBHOOK_HEADER (#865)', () => {
+  it('adds one "Name: value" header to the audit webhook', async () => {
+    process.env.LLM_FW_AUDIT_WEBHOOK_HEADER = 'Authorization: Bearer abc:def'
+    const c = await loadConfig()
+    expect(c.audit?.webhookHeaders).toEqual({ Authorization: 'Bearer abc:def' })
+  })
+
+  it('refuses a value that is not "Name: value"', async () => {
+    process.env.LLM_FW_AUDIT_WEBHOOK_HEADER = 'no colon here'
+    await expect(loadConfig()).rejects.toThrow(ConfigError)
   })
 })
