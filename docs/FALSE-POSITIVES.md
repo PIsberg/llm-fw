@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.89
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). A Codex AGENTS.md envelope is now read by the planted-instruction and credential-file rules (#857). No row holds one; over 54 local Codex sessions, 5 distinct envelopes and no hit, whole body included.
+
 ## Result, ruleset 2026.11.88
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The OpenAI parser now reads the `variables` of a Responses API prompt template (#857). These rows are sent as `/v1/messages` requests, so none can move.

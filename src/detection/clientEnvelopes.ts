@@ -523,6 +523,23 @@ export function unwrapCodexEnvironment(raw: string): string {
     .split('\n').map(l => l.trim()).filter(Boolean).join('\n')
 }
 
+/**
+ * The instructions inside a Codex AGENTS.md envelope, with the directory the
+ * header names, or null when the text is no envelope. Codex puts the user's
+ * own ~/.codex/AGENTS.md first and the repository's files after a
+ * "--- project-doc ---" line (codex-rs core/src/agents_md.rs), but a
+ * repository file can write that line too, and with no user file there is no
+ * real one to tell it from: the whole body is returned, the user's own part
+ * included, so a forged line cannot hide what comes before it.
+ */
+export function codexRepositoryInstructions(raw: string): { dir: string | null; body: string } | null {
+  const body = unwrapCodexAgentsEnvelope(raw)
+  if (body === raw) return null
+  const firstLine = raw.trim().split('\n', 1)[0] ?? ''
+  const dir = /^# agents\.md instructions for (.+)$/i.exec(firstLine.trim())?.[1]?.trim() ?? null
+  return { dir, body }
+}
+
 function unwrapCodexAgentsEnvelope(raw: string): string {
   const trimmed = raw.trim()
   const lower = trimmed.toLowerCase()
