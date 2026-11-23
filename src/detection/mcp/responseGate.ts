@@ -1,7 +1,7 @@
 import { McpScanner } from './scanner.js'
 import type { McpCheckResult } from './scanner.js'
 import { PayloadParser } from '../../types.js'
-import { GeminiParser, OpenAIParser, responsesToolCall } from '../parsers.js'
+import { CohereParser, GeminiParser, OpenAIParser, responsesToolCall } from '../parsers.js'
 
 /**
  * Response-side (inbound) MCP interception.
@@ -251,7 +251,13 @@ function eventEnd(raw: string): string {
  * unchecked. The rest of it, up to its end, is dropped too.
  */
 abstract class BufferedSseGate implements SseGate {
-  protected buf = ''
+  // The pieces of the event still waiting for its end, and the last three
+  // characters of them, where a separator split across chunks may start.
+  // Appending each chunk to one string and searching it copied the event on
+  // every chunk: a 12 MB event in 4 KB chunks held the thread for 4.1 s (#881).
+  private pending: string[] = []
+  private pendingBytes = 0
+  private tail = ''
   private discarding = false
   protected readonly suppressedIndexes = new Set<number>()
   protected readonly emittedTools = new Set<string>()
@@ -262,30 +268,50 @@ abstract class BufferedSseGate implements SseGate {
   /** Decide whatever is still held when the stream ends; nothing by default. */
   protected releaseHeld(): string { return '' }
 
+  /**
+   * Release held blocks until none is held: releasing one replays what
+   * arrived after it, which can start holding the next.
+   */
+  protected drain(holding: () => boolean, release: () => EventResult): string {
+    let out = ''
+    while (holding()) out += release().forward
+    return out
+  }
+
   push(text: string): SsePushResult {
-    // Resume one character early: the previous chunk may have ended mid-separator.
-    let from = Math.max(0, this.buf.length - 3)
-    this.buf += text
+    // Searched: the new chunk, after the last characters of what is pending.
+    const lb = this.tail
+    const hay = lb + text
     const forwardParts: string[] = []
     const decisions: ToolDecision[] = []
-    let start = 0
+    let consumed = 0
     for (;;) {
-      EVENT_END.lastIndex = from
-      const m = EVENT_END.exec(this.buf)
+      EVENT_END.lastIndex = consumed
+      const m = EVENT_END.exec(hay)
       // A trailing CR may be the first half of a CRLF still to come.
-      if (!m || (m.index + m[0].length === this.buf.length && m[0].endsWith('\r'))) break
+      if (!m || (m.index + m[0].length === hay.length && m[0].endsWith('\r'))) break
       const end = m.index + m[0].length
-      const raw = this.buf.slice(start, end)
-      start = end
-      from = end
+      // The first event of this chunk begins in what was pending, which
+      // already holds the look-back characters.
+      const raw = consumed === 0 ? this.pending.join('') + hay.slice(lb.length, end) : hay.slice(consumed, end)
+      consumed = end
+      this.pending = []
+      this.pendingBytes = 0
       if (this.discarding) { this.discarding = false; continue }
       const r = this.handleEvent(raw)
       if (r.forward) forwardParts.push(r.forward)
       decisions.push(...r.decisions)
     }
-    this.buf = this.buf.slice(start)
-    if (this.buf.length > MAX_SSE_EVENT_BYTES) {
-      this.buf = ''
+    const rest = consumed === 0 ? text : hay.slice(consumed)
+    if (rest) {
+      this.pending.push(rest)
+      this.pendingBytes += rest.length
+    }
+    this.tail = (consumed === 0 ? lb + rest : rest).slice(-3)
+    if (this.pendingBytes > MAX_SSE_EVENT_BYTES) {
+      this.pending = []
+      this.pendingBytes = 0
+      this.tail = ''
       if (!this.discarding) {
         this.blockedAny = true
         decisions.push({ toolName: '(unframed SSE event)', action: 'block', reason: `an SSE event over ${MAX_SSE_EVENT_BYTES} bytes without an end was dropped unread` })
@@ -302,8 +328,10 @@ abstract class BufferedSseGate implements SseGate {
    * call nobody checked.
    */
   flush(): string {
-    const rest = this.discarding ? '' : this.buf
-    this.buf = ''
+    const rest = this.discarding ? '' : this.pending.join('')
+    this.pending = []
+    this.pendingBytes = 0
+    this.tail = ''
     this.discarding = false
     const tail = rest ? this.handleEvent(rest).forward : ''
     return tail + this.releaseHeld()
@@ -373,11 +401,7 @@ export class SseToolGate extends BufferedSseGate {
   }
 
   protected override releaseHeld(): string {
-    // Releasing one block replays what arrived after it, which can start
-    // holding the next: decide until nothing is held.
-    let out = ''
-    while (this.held) out += this.release().forward
-    return out
+    return this.drain(() => this.held !== null, () => this.release())
   }
 
   protected handleEvent(raw: string): EventResult {
@@ -818,10 +842,266 @@ export class GeminiSseToolGate extends BufferedSseGate {
  * Cloud Code get the Gemini gate; everything else (Anthropic natively, and
  * Bedrock's Anthropic-shaped InvokeModel stream) uses the Anthropic-shaped gate.
  */
+/** A Cohere v2 stream event's tool call: `delta.message.tool_calls`, one object (or a one-element list). */
+function cohereStreamCall(data: Record<string, unknown>): { name: string; args: string } {
+  const delta = data.delta as Record<string, unknown> | undefined
+  const message = delta?.message as Record<string, unknown> | undefined
+  let call: unknown = message?.tool_calls
+  if (Array.isArray(call)) call = call[0]
+  const fn = (call as Record<string, unknown> | undefined)?.function as Record<string, unknown> | undefined
+  return {
+    name: typeof fn?.name === 'string' ? fn.name : '',
+    args: typeof fn?.arguments === 'string' ? fn.arguments : '',
+  }
+}
+
+/** `raw` with its `data:` payload replaced by `data`, its other lines and framing kept. */
+function withData(raw: string, data: Record<string, unknown>): string {
+  let end = raw.length
+  while (end > 0 && (raw[end - 1] === '\n' || raw[end - 1] === '\r')) end--
+  const lines = eventLines(raw.slice(0, end)).filter(l => !l.startsWith('data:'))
+  const nl = raw.includes('\r\n') ? '\r\n' : '\n'
+  return [...lines, `data: ${JSON.stringify(data)}`].join(nl) + eventEnd(raw)
+}
+
+/**
+ * Incremental gate for a Cohere v2 (`/v2/chat`) stream (#881). A call is
+ * `tool-call-start` (its name in `delta.message.tool_calls.function`), then
+ * `tool-call-delta` argument fragments, then `tool-call-end`, all carrying
+ * the call's `index`. A call blocked by name is dropped from its start; an
+ * execution tool is held with every event after its start until its end, then
+ * decided on the assembled arguments, as the Anthropic gate does. Once a call
+ * was blocked, `message-end`'s `finish_reason` `TOOL_CALL` becomes
+ * `COMPLETE`, so the client does not wait for a result.
+ */
+export class CohereSseToolGate extends BufferedSseGate {
+  private held: { index: number; name: string; args: string; events: HeldEvent[] } | null = null
+
+  constructor(private readonly mcp: McpScanner) {
+    super()
+  }
+
+  protected override releaseHeld(): string {
+    return this.drain(() => this.held !== null, () => this.release())
+  }
+
+  protected handleEvent(raw: string): EventResult {
+    const data = parseSseData(raw)
+    const type = data && typeof data.type === 'string' ? data.type : undefined
+    const index = data && typeof data.index === 'number' ? data.index : undefined
+
+    if (this.held) {
+      this.held.events.push({ raw, index })
+      if (index !== this.held.index) return NOTHING
+      if (type === 'tool-call-delta' && data) this.held.args += cohereStreamCall(data).args
+      return type === 'tool-call-end' ? this.release() : NOTHING
+    }
+
+    if (!data) return { forward: raw, decisions: [] }
+
+    if (type === 'tool-call-start') {
+      const { name, args } = cohereStreamCall(data)
+      const result = this.mcp.checkToolInvocation(name, assembledArgs(args, {}))
+      if (result.action === 'block') {
+        if (index !== undefined) this.suppressedIndexes.add(index)
+        this.blockedAny = true
+        return { forward: '', decisions: [{ toolName: name, action: 'block', reason: result.reason }] }
+      }
+      if (index !== undefined && this.mcp.scansArguments(name)) {
+        this.held = { index, name, args, events: [{ raw, index }] }
+        return NOTHING
+      }
+      const decision = this.passDecision(name, result)
+      return { forward: raw, decisions: decision ? [decision] : [] }
+    }
+
+    if (index !== undefined && this.suppressedIndexes.has(index) && type?.startsWith('tool-call-')) {
+      if (type === 'tool-call-end') this.suppressedIndexes.delete(index)
+      return NOTHING
+    }
+
+    if (type === 'message-end' && this.blockedAny) {
+      const delta = data.delta as Record<string, unknown> | undefined
+      if (delta && delta.finish_reason === 'TOOL_CALL') {
+        delta.finish_reason = 'COMPLETE'
+        return { forward: withData(raw, data), decisions: [] }
+      }
+    }
+
+    return { forward: raw, decisions: [] }
+  }
+
+  private release(): EventResult {
+    const held = this.held!
+    this.held = null
+    const result = this.mcp.checkToolInvocation(held.name, assembledArgs(held.args, {}))
+    const decisions: ToolDecision[] = []
+    const out: string[] = []
+    if (result.action === 'block') {
+      this.blockedAny = true
+      decisions.push({ toolName: held.name, action: 'block', reason: result.reason })
+    } else {
+      const decision = this.passDecision(held.name, result)
+      if (decision) decisions.push(decision)
+    }
+    this.replay(held.events, held.index, result.action !== 'block', out, decisions)
+    return { forward: out.join(''), decisions }
+  }
+}
+
+/**
+ * Incremental gate for a Cohere v1 (`/v1/chat`) stream, newline-delimited
+ * JSON rather than SSE (#881). Calls stream as `tool-calls-chunk` events
+ * (`tool_call_delta`: an index, the name, then parameter text), then a
+ * `tool-calls-generation` event carries them whole, and `stream-end`
+ * repeats them in `response.tool_calls`. From the first chunk on, lines are
+ * held until the generation event; each call is decided on its complete
+ * parameters, and a blocked one is removed from its chunks, the generation
+ * event and the final response. A stream that ends first is decided on the
+ * chunks. A line over MAX_SSE_EVENT_BYTES without an end is dropped and
+ * reported, like an unframed SSE event.
+ */
+export class CohereNdjsonToolGate implements SseGate {
+  // The pieces of a line still waiting for its end. Appending to one string
+  // and searching it copied the whole line on every chunk, quadratic in it.
+  private pending: string[] = []
+  private pendingBytes = 0
+  private discarding = false
+  private held: string[] | null = null
+  private readonly chunkCalls = new Map<number, { name: string; params: string }>()
+  private readonly blockedNames = new Set<string>()
+  private readonly emitted = new Set<string>()
+
+  constructor(private readonly mcp: McpScanner) {}
+
+  push(text: string): SsePushResult {
+    const out: string[] = []
+    const decisions: ToolDecision[] = []
+    let start = 0
+    for (let nl = text.indexOf('\n'); nl !== -1; nl = text.indexOf('\n', start)) {
+      const piece = text.slice(start, nl + 1)
+      start = nl + 1
+      const line = this.pending.length ? this.pending.join('') + piece : piece
+      this.pending = []
+      this.pendingBytes = 0
+      if (this.discarding) { this.discarding = false; continue }
+      this.handleLine(line, out, decisions)
+    }
+    if (start < text.length && !this.discarding) {
+      this.pending.push(text.slice(start))
+      this.pendingBytes += text.length - start
+    }
+    if (this.pendingBytes > MAX_SSE_EVENT_BYTES) {
+      this.pending = []
+      this.pendingBytes = 0
+      if (!this.discarding) decisions.push({ toolName: '(unframed stream line)', action: 'block', reason: `a stream line over ${MAX_SSE_EVENT_BYTES} bytes without an end was dropped unread` })
+      this.discarding = true
+    }
+    return { forward: out.join(''), decisions }
+  }
+
+  flush(): string {
+    const rest = this.discarding ? '' : this.pending.join('')
+    this.pending = []
+    this.pendingBytes = 0
+    this.discarding = false
+    const out: string[] = []
+    if (rest) this.handleLine(rest, out, [])
+    if (this.held) this.decideHeld(null, out, [])
+    return out.join('')
+  }
+
+  private handleLine(line: string, out: string[], decisions: ToolDecision[]): void {
+    let data: Record<string, unknown> | null = null
+    try { data = JSON.parse(line) as Record<string, unknown> } catch { /* not JSON: forwarded or held as it is */ }
+    const type = data && typeof data.event_type === 'string' ? data.event_type : undefined
+    if (type === 'tool-calls-chunk' && data) {
+      const d = data.tool_call_delta as Record<string, unknown> | undefined
+      const idx = typeof d?.index === 'number' ? d.index : 0
+      const call = this.chunkCalls.get(idx) ?? { name: '', params: '' }
+      if (typeof d?.name === 'string') call.name += d.name
+      if (typeof d?.parameters === 'string') call.params += d.parameters
+      this.chunkCalls.set(idx, call)
+      this.held ??= []
+      this.held.push(line)
+      return
+    }
+    if (type === 'tool-calls-generation' && data) {
+      this.decideHeld({ data, line }, out, decisions)
+      return
+    }
+    if (this.held) { this.held.push(line); return }
+    if (type === 'stream-end' && data && this.blockedNames.size > 0) {
+      out.push(this.rewriteEnd(data, line))
+      return
+    }
+    out.push(line)
+  }
+
+  /** Decide the calls (from the generation event, or the chunks when it never came), then emit what was held. */
+  private decideHeld(gen: { data: Record<string, unknown>; line: string } | null, out: string[], decisions: ToolDecision[]): void {
+    const generation = gen?.data ?? null
+    const calls: { name: string; args: unknown }[] = generation && Array.isArray(generation.tool_calls)
+      ? (generation.tool_calls as Array<Record<string, unknown>>).map(c => ({ name: cohereToolName(c), args: c?.parameters ?? {} }))
+      : [...this.chunkCalls.values()].map(c => ({ name: c.name, args: assembledArgs(c.params, {}) }))
+    const blockedIdx = new Set<number>()
+    calls.forEach((call, i) => {
+      const result = this.mcp.checkToolInvocation(call.name, call.args)
+      if (result.action === 'block') {
+        blockedIdx.add(i)
+        this.blockedNames.add(call.name)
+        decisions.push({ toolName: call.name, action: 'block', reason: result.reason })
+      } else if (!this.emitted.has(call.name)) {
+        this.emitted.add(call.name)
+        decisions.push({ toolName: call.name, action: 'pass', audit: result.audit, reason: result.reason })
+      }
+    })
+    const held = this.held ?? []
+    this.held = null
+    this.chunkCalls.clear()
+    for (const line of held) {
+      if (blockedIdx.size === 0) { out.push(line); continue }
+      let data: Record<string, unknown> | null = null
+      try { data = JSON.parse(line) as Record<string, unknown> } catch { /* kept */ }
+      const d = data?.tool_call_delta as Record<string, unknown> | undefined
+      const idx = typeof d?.index === 'number' ? d.index : 0
+      if (data?.event_type === 'tool-calls-chunk' && blockedIdx.has(idx)) continue
+      if (data?.event_type === 'stream-end') { out.push(this.rewriteEnd(data, line)); continue }
+      out.push(line)
+    }
+    if (!gen || !generation) return
+    if (blockedIdx.size === 0) { out.push(gen.line); return }
+    const kept = (generation.tool_calls as unknown[]).filter((_c, i) => !blockedIdx.has(i))
+    if (kept.length === 0) return
+    generation.tool_calls = kept
+    out.push(serializeLine(generation, gen.line))
+  }
+
+  /** The final event without the blocked calls. */
+  private rewriteEnd(data: Record<string, unknown>, line: string): string {
+    const response = data.response as Record<string, unknown> | undefined
+    if (!response || !Array.isArray(response.tool_calls)) return line
+    const kept = (response.tool_calls as unknown[]).filter(c => !this.blockedNames.has(cohereToolName(c)))
+    if (kept.length === response.tool_calls.length) return line
+    if (kept.length > 0) response.tool_calls = kept
+    else delete response.tool_calls
+    return serializeLine(data, line)
+  }
+}
+
+/** `data` as one NDJSON line, ending as `like` did. */
+function serializeLine(data: Record<string, unknown>, like: string): string {
+  return JSON.stringify(data) + (like.endsWith('\r\n') ? '\r\n' : '\n')
+}
+
 export function createSseGate(parser: PayloadParser, mcp: McpScanner, path = ''): SseGate {
   if (parser instanceof OpenAIParser) {
     return /\/responses(?:[/?]|$)/.test(path) ? new ResponsesSseToolGate(mcp) : new OpenAiSseToolGate(mcp)
   }
   if (parser instanceof GeminiParser) return new GeminiSseToolGate(mcp)
+  // #881: v1 streams newline-delimited JSON, v2 SSE; both went to the Anthropic gate.
+  if (parser instanceof CohereParser) {
+    return /\/v1\/chat(?:[/?]|$)/.test(path) ? new CohereNdjsonToolGate(mcp) : new CohereSseToolGate(mcp)
+  }
   return new SseToolGate(mcp)
 }
