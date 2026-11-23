@@ -75,7 +75,7 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.11.87
 
-**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.86 moved 0 of 31,323 rows, and the real-traffic replay 0 of 65,329 items. Decoded base64, base32 and ascii85 text is now kept in any script, and base64url is decoded (#857). Over 166,777 local texts the decoded candidates rose from 16,939 to 19,281, 0.25% of all candidates.
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.86 moved 0 of 31,323 rows, and the real-traffic replay 0 of 65,329 items. Decoded base64, base32 and ascii85 text is now kept in any script, and base64url is decoded (#857). Over 168,357 local texts the decoded candidates rose from 16,973 to 22,456, 0.6% of all candidates.
 
 ## Result, ruleset 2026.11.86
 

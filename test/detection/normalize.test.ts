@@ -374,9 +374,21 @@ describe('decoded candidates in any script (#857)', () => {
     expect(decodedFrom('call extract_tool_result_text_from_block_now please', 'base64')).toEqual([])
   })
 
-  it('rejects decoded text that holds control bytes', () => {
-    const encoded = Buffer.from('summarize' + String.fromCharCode(1, 2) + ' the document now', 'utf-8').toString('base64')
+  it('rejects decoded text that is mostly control bytes', () => {
+    const encoded = Buffer.from('ab' + String.fromCharCode(1, 2, 3, 4, 5, 6, 7, 8, 14, 15) + 'cdef', 'utf-8').toString('base64')
     expect(decodedFrom(`x ${encoded} y`, 'base64')).toEqual([])
+  })
+
+  // Commit security review of #891: one control byte, or a vertical tab or
+  // form feed between words (both whitespace, and accepted by the old gate),
+  // must not make the decoder drop an encoded instruction.
+  it.each([
+    ['vertical tabs between words', ['Summarize', 'the', 'attached', 'quarterly', 'report'].join(String.fromCharCode(11))],
+    ['form feeds between words', ['Summarize', 'the', 'attached', 'quarterly', 'report'].join(String.fromCharCode(12))],
+    ['one stray control byte', 'Summarize the attached' + String.fromCharCode(1) + ' quarterly report'],
+  ])('keeps a decoded text with %s', (_label, sentence) => {
+    const encoded = Buffer.from(sentence, 'utf-8').toString('base64')
+    expect(decodedFrom(`x ${encoded} y`, 'base64').join(' ')).toContain('quarterly report')
   })
 })
 

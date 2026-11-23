@@ -89,29 +89,37 @@ function decodeBase64Candidates(text: string): { text: string; source: string }[
   for (const match of matches) {
     if (match.length < 8) continue
     try {
-      const decoded = Buffer.from(match, 'base64').toString('utf-8')
-      if (looksLikeText(decoded)) results.push({ text: decoded, source: 'base64' })
+      const decoded = decodedText(Buffer.from(match, 'base64').toString('utf-8'))
+      if (decoded) results.push({ text: decoded, source: 'base64' })
     } catch {}
   }
   return results
 }
 
 // What decoding garbage leaves: U+FFFD for bytes that are not UTF-8, control
-// characters other than whitespace, and private-use, unassigned or surrogate
-// code points.
-const NOT_TEXT = /[\u{FFFD}\p{Co}\p{Cn}\p{Cs}]|[^\P{Cc}\t\n\r]/u
+// characters other than whitespace (tab, line feed, vertical tab, form feed,
+// carriage return stay), and private-use, unassigned or surrogate code points.
+const GARBAGE = /[\u{FFFD}\p{Co}\p{Cn}\p{Cs}]|[^\P{Cc}\s]/gu
+// More than this share of garbage and a decoded blob is noise, not text.
+const MAX_GARBAGE_SHARE = 0.1
 
-// A decoded blob "looks like text" if it has a run of letters/digits/space and
-// none of what decoding garbage leaves behind. Any script counts: the old gate
-// kept only printable ASCII, Cyrillic and CJK ideographs, so an encoded
-// instruction in French with accents, Greek, Arabic, Hebrew, Hindi, Thai,
-// kana or Hangul, or with typographic punctuation, was never decoded (#857).
-function looksLikeText(decoded: string): boolean {
-  return /[\p{L}\p{N}\s]{4,}/u.test(decoded) && !NOT_TEXT.test(decoded)
+// A decoded blob as text worth scanning, or null when it is noise. Any script
+// counts: the old gate kept only printable ASCII, Cyrillic and CJK ideographs,
+// so an encoded instruction in French with accents, Greek, Arabic, Hebrew,
+// Hindi, Thai, kana or Hangul, or with typographic punctuation, was never
+// decoded (#857). A few garbage characters are replaced with spaces rather
+// than discarding the text, so one control byte inserted between the words
+// of an encoded instruction cannot hide it (the old gate dropped the whole
+// text for one).
+function decodedText(decoded: string): string | null {
+  let garbage = 0
+  const clean = decoded.replace(GARBAGE, () => { garbage++; return ' ' })
+  if (garbage > decoded.length * MAX_GARBAGE_SHARE) return null
+  return /[\p{L}\p{N}\s]{4,}/u.test(clean) ? clean : null
 }
 
 // RFC 4648 base32. Attackers uppercase or lowercase freely, so match both and
-// fold to canonical case before decoding; the looksLikeText gate rejects the
+// fold to canonical case before decoding; the decodedText gate rejects the
 // many ordinary all-letter words that happen to be valid base32 alphabet runs.
 function decodeBase32Candidates(text: string): { text: string; source: string }[] {
   const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -132,8 +140,8 @@ function decodeBase32Candidates(text: string): { text: string; source: string }[
     }
     if (!ok || out.length < 4) continue
     try {
-      const decoded = Buffer.from(out).toString('utf-8')
-      if (looksLikeText(decoded)) results.push({ text: decoded, source: 'base32' })
+      const decoded = decodedText(Buffer.from(out).toString('utf-8'))
+      if (decoded) results.push({ text: decoded, source: 'base32' })
     } catch {}
   }
   return results
@@ -169,8 +177,8 @@ function decodeAscii85Candidates(text: string): { text: string; source: string }
     }
     if (!ok || out.length < 4) continue
     try {
-      const decoded = Buffer.from(out).toString('utf-8')
-      if (looksLikeText(decoded)) results.push({ text: decoded, source: 'ascii85' })
+      const decoded = decodedText(Buffer.from(out).toString('utf-8'))
+      if (decoded) results.push({ text: decoded, source: 'ascii85' })
     } catch {}
   }
   return results
