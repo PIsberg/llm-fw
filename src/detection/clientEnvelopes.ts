@@ -523,26 +523,20 @@ export function unwrapCodexEnvironment(raw: string): string {
     .split('\n').map(l => l.trim()).filter(Boolean).join('\n')
 }
 
-// Between the user's own ~/.codex/AGENTS.md and the repository's files
-// (codex-rs core/src/agents_md.rs, AGENTS_MD_SEPARATOR).
-const CODEX_PROJECT_DOC_SEPARATOR = '\n\n--- project-doc ---\n\n'
-
 /**
- * The repository's instructions inside a Codex AGENTS.md envelope, with the
- * directory the header names, or null when the text is no envelope. Codex
- * puts the user's own ~/.codex/AGENTS.md first and the repository's files
- * after "--- project-doc ---"; only those are returned, as only a
- * repository's CLAUDE.md is read on Claude Code. Without the separator the
- * body is one or the other, or several environments' files (Codex labels
- * them instead), and it is returned whole: read more, never less.
+ * The instructions inside a Codex AGENTS.md envelope, with the directory the
+ * header names, or null when the text is no envelope. Codex puts the user's
+ * own ~/.codex/AGENTS.md first and the repository's files after a
+ * "--- project-doc ---" line (codex-rs core/src/agents_md.rs), but a
+ * repository file can write that line too, and with no user file there is no
+ * real one to tell it from: the whole body is returned, the user's own part
+ * included, so a forged line cannot hide what comes before it.
  */
 export function codexRepositoryInstructions(raw: string): { dir: string | null; body: string } | null {
-  const inner = unwrapCodexAgentsEnvelope(raw)
-  if (inner === raw) return null
+  const body = unwrapCodexAgentsEnvelope(raw)
+  if (body === raw) return null
   const firstLine = raw.trim().split('\n', 1)[0] ?? ''
   const dir = /^# agents\.md instructions for (.+)$/i.exec(firstLine.trim())?.[1]?.trim() ?? null
-  const separator = inner.indexOf(CODEX_PROJECT_DOC_SEPARATOR)
-  const body = separator === -1 ? inner : inner.slice(separator + CODEX_PROJECT_DOC_SEPARATOR.length)
   return { dir, body }
 }
 
