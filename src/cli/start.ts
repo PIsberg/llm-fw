@@ -27,9 +27,11 @@ import { checkForUpdate, shouldCheckForUpdates, startupBanner } from './updateCh
 import { ownsSinkhole } from './sinkholeOwner.js';
 import { restoreSinkholeHosts } from './hosts.js';
 import { RULESET_VERSION } from '../detection/ruleset.js';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { systemTool } from '../systemTool.js';
 import { Lifecycle } from './lifecycle.js';
+import { freeLlmFwPort, systemPortDeps, waitForPortFree } from './portOwner.js';
+import { addPortRedirect, removePortRedirect } from './portRedirect.js';
 
 // How long a graceful stop waits for every resource to close before it exits
 // anyway (#863): a stuck audit webhook used to keep the process alive.
@@ -92,47 +94,6 @@ export function applyGatewayOverrides(config: Config): void {
  */
 export { lanIPv4 };
 
-async function waitForPortFree(port: number, timeoutMs = 5000): Promise<boolean> {
-  const { createServer } = await import('node:net');
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const free = await new Promise<boolean>(resolve => {
-      const srv = createServer();
-      srv.once('error', () => resolve(false));
-      srv.listen(port, () => srv.close(() => resolve(true)));
-    });
-    if (free) return true;
-    await new Promise(r => setTimeout(r, 100));
-  }
-  return false;
-}
-
-function killPortOwner(port: number): void {
-  try {
-    if (platform() === 'win32') {
-      const out = execFileSync(systemTool('netstat'), ['-ano'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-      for (const line of out.split('\n')) {
-        if (!line.includes('LISTENING')) continue;
-        const m = /:(\d+)\s+\S+\s+LISTENING\s+(\d+)/.exec(line);
-        // Neither group is optional, so a successful match always has both; the
-        // fallbacks parse to NaN, which fails the port comparison and the pid
-        // truthiness check, so the unreachable branch is also the inert one.
-        if (m && parseInt(m[1] ?? '', 10) === port) {
-          const pid = parseInt(m[2] ?? '', 10);
-          if (pid && pid !== process.pid) try { process.kill(pid) } catch { }
-        }
-      }
-    } else {
-      // execFileSync (no shell) so the port can never be interpreted as a command.
-      const out = execFileSync('lsof', ['-ti', `:${port}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-      for (const pidStr of out.trim().split('\n')) {
-        const pid = parseInt(pidStr, 10);
-        if (pid && pid !== process.pid) try { process.kill(pid) } catch { }
-      }
-    }
-  } catch { /* command unavailable */ }
-}
-
 export async function run(args: string[] = []): Promise<void> {
   const standalone = isStandalone(args);
   // Said before anything binds: the proxy decompresses and TLS-verifies
@@ -166,11 +127,23 @@ export async function run(args: string[] = []): Promise<void> {
   if (replaced !== null) {
     console.log(`Replaced the running llm-fw (PID ${replaced}): one instance runs at a time, and this one takes over its ports.`);
   }
-  for (const port of [config.proxy.port, config.dashboard.port]) {
-    if (await waitForPortFree(port, 500)) continue;
-    console.log(`Port ${port} still in use — killing owner...`);
-    killPortOwner(port);
-    if (!await waitForPortFree(port)) {
+  const listeners: [number, string][] = [
+    [config.proxy.port, config.proxy.bindHost ?? '127.0.0.1'],
+    [config.dashboard.port, config.dashboard.bindHost ?? '127.0.0.1'],
+  ];
+  for (const [port, host] of listeners) {
+    if (await waitForPortFree(port, host, 500)) continue;
+    // Only an earlier llm-fw is stopped (#863): this used to kill whatever
+    // held the port, an unrelated dev server included.
+    const { owners, stopped } = await freeLlmFwPort(port, systemPortDeps);
+    if (!stopped) {
+      console.error(owners.length
+        ? `Port ${port} is in use by another program (PID ${owners.join(', ')}). llm-fw stops only an earlier llm-fw: stop that program, or give llm-fw another port (LLM_FW_PROXY_PORT, LLM_FW_DASHBOARD_PORT).`
+        : `Port ${port} is in use and its owner could not be found. Free it, or give llm-fw another port (LLM_FW_PROXY_PORT, LLM_FW_DASHBOARD_PORT).`);
+      process.exit(1);
+    }
+    console.log(`Port ${port} was held by an earlier llm-fw (PID ${owners.join(', ')}): stopped it.`);
+    if (!await waitForPortFree(port, host)) {
       console.error(`Port ${port} could not be freed. Kill the process manually and retry.`);
       process.exit(1);
     }
@@ -230,10 +203,9 @@ export async function run(args: string[] = []): Promise<void> {
           ], { stdio: 'ignore' });
         }
       } catch { /* no admin rights */ }
-    } else if (os === 'darwin') {
-      try { execSync(`echo "rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port ${config.proxy.httpsPort}" | pfctl -ef -`, { stdio: 'pipe' }); } catch { }
     } else {
-      try { execSync(`iptables -t nat -A OUTPUT -o lo -p tcp --dport 443 -j REDIRECT --to-port ${config.proxy.httpsPort} 2>/dev/null || true`, { stdio: 'pipe' }); } catch { }
+      // Its own pf anchor on macOS, added only once on Linux (#863).
+      try { addPortRedirect(os, config.proxy.httpsPort); } catch { /* no root */ }
     }
   }
 
@@ -262,15 +234,10 @@ export async function run(args: string[] = []): Promise<void> {
             'listenport=443', 'listenaddress=::1',
           ], { stdio: 'ignore' });
         } catch { }
-      } else if (os === 'darwin') {
-        try { execSync('pfctl -F nat', { stdio: 'ignore' }); } catch { }
       } else {
-        try {
-          execSync(
-            `iptables -t nat -D OUTPUT -o lo -p tcp --dport 443 -j REDIRECT --to-port ${config.proxy.httpsPort}`,
-            { stdio: 'ignore' }
-          );
-        } catch { }
+        // Only llm-fw's own anchor: `pfctl -F nat` flushed every NAT rule
+        // on the host (#863).
+        removePortRedirect(os, config.proxy.httpsPort);
       }
     }
     try {

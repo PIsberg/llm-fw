@@ -8,7 +8,8 @@ import { LLMFW_USER_ENV, parseRegQueryValue, recordPriorEnv, type EnvSnapshot } 
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { addPortRedirect, PF_ANCHOR } from './portRedirect.js';
 import { systemTool } from '../systemTool.js';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -444,10 +445,11 @@ export async function run(args: string[]): Promise<void> {
     if (os === 'win32') {
       execFileSync(systemTool('certutil'), ['-addstore', '-f', 'Root', caCertPath]);
     } else if (os === 'darwin') {
-      execSync('security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "' + caCertPath + '"');
+      // No shell (#863): the path came from LLM_FW_DIR and went into a command line.
+      execFileSync('security', ['add-trusted-cert', '-d', '-r', 'trustRoot', '-k', '/Library/Keychains/System.keychain', caCertPath]);
     } else {
       fs.copyFileSync(caCertPath, '/usr/local/share/ca-certificates/llm-fw-ca.crt');
-      execSync('update-ca-certificates');
+      execFileSync('update-ca-certificates');
     }
     console.log('CA certificate installed to OS trust store.');
     caTrusted = true;
@@ -503,25 +505,14 @@ export async function run(args: string[]): Promise<void> {
       } catch (err) {
         console.warn('Could not add port proxy rule (requires admin):', (err as Error).message);
       }
-    } else if (os === 'darwin') {
-      try {
-        execSync(
-          `echo "rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port ${config.proxy.httpsPort}" | pfctl -ef -`,
-          { stdio: 'pipe' }
-        );
-        console.log(`pf redirect: lo0:443 → ${config.proxy.httpsPort}`);
-      } catch (err) {
-        console.warn('Could not add pf redirect (requires sudo):', (err as Error).message);
-      }
     } else {
+      // Its own pf anchor on macOS, and added only once on Linux (#863).
+      const kind = os === 'darwin' ? `pf anchor ${PF_ANCHOR}` : 'iptables';
       try {
-        execSync(
-          `iptables -t nat -A OUTPUT -o lo -p tcp --dport 443 -j REDIRECT --to-port ${config.proxy.httpsPort}`,
-          { stdio: 'pipe' }
-        );
-        console.log(`iptables redirect: lo:443 → ${config.proxy.httpsPort}`);
+        addPortRedirect(os, config.proxy.httpsPort);
+        console.log(`${kind} redirect: lo:443 → ${config.proxy.httpsPort}`);
       } catch (err) {
-        console.warn('Could not add iptables redirect (requires sudo):', (err as Error).message);
+        console.warn(`Could not add ${kind} redirect (requires sudo):`, (err as Error).message);
       }
     }
 
