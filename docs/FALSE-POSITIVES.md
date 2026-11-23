@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.105
+
+Unchanged from 2026.11.104: the Cohere v1 parser orders user turns oldest first and reads SYSTEM history turns as system text, and Bedrock Converse tool results with inline media are read as media, not text (#917). No eval split is sent in either format, so no eval verdict can move.
+
 ## Result, ruleset 2026.11.104
 
 Unchanged from 2026.11.103: response-side tool-call reading only (#916: Responses hosted MCP calls, Anthropic server and MCP tool blocks, Cohere streams in the tool-use scan, Bedrock frames inside a held block); requests are scored as before.
