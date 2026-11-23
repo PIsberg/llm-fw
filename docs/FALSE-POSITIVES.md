@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.91
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Images and files in Responses API and Gemini tool outputs are now read as media (#857). No row holds one, and none of 2,188 local transcripts does.
+
 ## Result, ruleset 2026.11.90
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.86 moved 0 of 31,323 rows. Tool definitions are now read at any depth and for `title`, `default`, `examples`, `enum` and `const` (#857); the 68 real tool definitions of a Claude Code session give 574 texts instead of 333 and still pass.
