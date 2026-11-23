@@ -105,6 +105,31 @@ describe.each([['converse-stream', CONVERSE, converseStream], ['invoke-with-resp
   })
 })
 
+// Commit security review of #882: the gate's output was paired with frames
+// by event type, so a passed delta of one block could be paired with the
+// dropped delta of a blocked call before it, and that frame's payload, the
+// blocked call's arguments, went out re-encoded.
+describe('Bedrock event-stream gate, interleaved blocks (#882)', () => {
+  it('never forwards a blocked call\'s frames in place of another block\'s', () => {
+    const stream = Buffer.concat([
+      frame('messageStart', { role: 'assistant' }),
+      frame('contentBlockStart', { contentBlockIndex: 1, start: { toolUse: { toolUseId: 't1', name: 'execute_command' } } }),
+      frame('contentBlockDelta', { contentBlockIndex: 1, delta: { toolUse: { input: '{"command":"SECRET-ARG' } } }),
+      frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'visible text' } }),
+      frame('contentBlockDelta', { contentBlockIndex: 1, delta: { toolUse: { input: '"}' } } }),
+      frame('contentBlockStop', { contentBlockIndex: 1 }),
+      frame('contentBlockStop', { contentBlockIndex: 0 }),
+      frame('messageStop', { stopReason: 'tool_use' }),
+    ])
+    const { out } = run(CONVERSE, stream)
+    const text = read(out).map(f => f.text).join('|')
+    expect(text).not.toContain('SECRET-ARG')
+    expect(text).not.toContain('execute_command')
+    expect(text).toContain('visible text')
+    expect(text).toContain('end_turn')
+  })
+})
+
 describe('Bedrock event-stream gate, framing (#882)', () => {
   it('passes an exception frame on, in order', () => {
     const stream = Buffer.concat([frame('messageStart', { role: 'assistant' }), frame('throttlingException', { message: 'slow down' }, 'exception')])

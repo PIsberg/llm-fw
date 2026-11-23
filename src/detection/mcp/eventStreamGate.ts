@@ -28,8 +28,8 @@ export interface BinaryGate {
 interface Adapter {
   /** The Anthropic event a frame stands for, or null for a frame the gate does not read. */
   toEvent(frame: EventStreamFrame, payload: Record<string, unknown>): { type: string; data: Record<string, unknown> } | null
-  /** The frame again, carrying the gate's rewrite of its event. */
-  fromEvent(frame: EventStreamFrame, payload: Record<string, unknown>, data: Record<string, unknown>): Buffer
+  /** The frame again, carrying the gate's rewrite of its event; null when that frame may not be rewritten. */
+  fromEvent(frame: EventStreamFrame, payload: Record<string, unknown>, data: Record<string, unknown>): Buffer | null
 }
 
 const converse: Adapter = {
@@ -60,6 +60,8 @@ const converse: Adapter = {
     }
   },
   fromEvent(frame, p, data) {
+    // Only the stop reason is ever rewritten; nothing else is re-encoded.
+    if (frame.headers[':event-type'] !== 'messageStop') return null
     const stop = (data.delta as Record<string, unknown> | undefined)?.stop_reason
     return encodeFrame(frame.headersRaw, Buffer.from(JSON.stringify({ ...p, stopReason: stop })))
   },
@@ -81,6 +83,8 @@ const invoke: Adapter = {
 }
 
 interface Entry {
+  /** Carried through the gate on the event's `id:` line, to pair what it forwards with this frame. */
+  id?: number
   frame: EventStreamFrame
   payload?: Record<string, unknown>
   /** The SSE event handed to the gate; absent for a frame the gate does not read. */
@@ -95,6 +99,7 @@ class EventStreamToolGate implements BinaryGate {
   private readonly inner: SseToolGate
   private queue: Entry[] = []
   private broken = false
+  private nextId = 0
 
   constructor(mcp: McpScanner, private readonly adapter: Adapter) {
     this.inner = new SseToolGate(mcp)
@@ -146,31 +151,40 @@ class EventStreamToolGate implements BinaryGate {
     }
     const ev = this.adapter.toEvent(frame, payload)
     if (!ev) return { frame }
-    return { frame, payload, type: ev.type, sse: `event: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n` }
+    const id = this.nextId++
+    return { id, frame, payload, type: ev.type, sse: `id: ${id}\nevent: ${ev.type}\ndata: ${JSON.stringify(ev.data)}\n\n` }
   }
 
   /**
-   * Pair what the gate forwarded with the frames it came from. The gate
-   * keeps the order of its input, so an undecided frame before the one an
-   * event matches was dropped.
+   * Pair what the gate forwarded with the frames it came from, by identity
+   * (commit security review of #882: paired by event type, a passed delta of
+   * one block took the place of a blocked call's dropped delta, and that
+   * frame's payload, the blocked call's arguments, went out). An event the
+   * gate passes keeps its `id:` line, so it is that frame, byte for byte. The
+   * one event the gate rewrites, the stop reason once a call was dropped,
+   * carries no id: it is paired only with an undecided stop frame. The gate
+   * keeps the order of its input, so any undecided frame before the one an
+   * event is paired with was dropped. An event that cannot be paired is not
+   * forwarded.
    */
   private match(text: string): void {
     if (!text) return
-    let cursor = 0
     for (const sse of text.split(/(?<=\n\n)/)) {
-      const type = /^event: (\S+)/.exec(sse)?.[1]
-      for (; cursor < this.queue.length; cursor++) {
-        const e = this.queue[cursor]!
-        if (e.sse === undefined || e.out !== undefined) continue
-        if (e.type !== type) { e.out = null; continue }
-        if (sse === e.sse) {
-          e.out = e.frame.raw
-        } else {
-          const data = /^data: (.*)$/m.exec(sse)?.[1]
-          e.out = data ? this.adapter.fromEvent(e.frame, e.payload!, JSON.parse(data) as Record<string, unknown>) : null
-        }
-        cursor++
-        break
+      const idLine = /^id: (\d+)$/m.exec(sse)?.[1]
+      const at = idLine !== undefined
+        ? this.queue.findIndex(e => e.id === Number(idLine) && e.out === undefined && e.sse === sse)
+        : this.queue.findIndex(e => e.sse !== undefined && e.out === undefined && e.type === 'message_delta')
+      if (at === -1) continue
+      for (let i = 0; i < at; i++) {
+        const e = this.queue[i]!
+        if (e.sse !== undefined && e.out === undefined) e.out = null
+      }
+      const e = this.queue[at]!
+      if (idLine !== undefined) {
+        e.out = e.frame.raw
+      } else {
+        const data = /^data: (.*)$/m.exec(sse)?.[1]
+        e.out = data ? this.adapter.fromEvent(e.frame, e.payload!, JSON.parse(data) as Record<string, unknown>) : null
       }
     }
   }
