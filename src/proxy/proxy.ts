@@ -48,7 +48,8 @@ import { UpstreamPool } from './upstreamPool.js'
 import { ExfilStreamHold } from './streamExfil.js'
 import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
-import { createLogger, urlForLog } from '../logger.js';
+import { createLogger, urlForLog } from '../logger.js'
+import { sniName } from './sni.js';
 
 const log = createLogger('proxy');
 
@@ -297,6 +298,9 @@ function drainRefusedUpload(req: http.IncomingMessage): void {
   req.once('end', stop)
   req.once('error', stop)
 }
+
+// Errors that mean an address did not take the connection at all (#866).
+const CONNECT_FAILURES: ReadonlySet<string> = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL'])
 
 export class ProxyServer {
   private server: http.Server
@@ -1611,7 +1615,7 @@ export class ProxyServer {
     let upstream: tls.TLSSocket
     try {
       const ip = await this.resolver.resolve(hostname)
-      upstream = tls.connect({ host: ip, port, servername: hostname })
+      upstream = tls.connect({ host: ip, port, servername: sniName(hostname) })
     } catch (err) {
       log.warn(`${protocol.label} upstream connect failed for ${hostname}: ${(err as Error).message}`)
       client.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
@@ -1671,6 +1675,9 @@ export class ProxyServer {
       return await exchange(pooled)
     } catch (err) {
       if (pooled !== null && err instanceof StaleUpstreamError) return exchange(null)
+      // An address that would not take the connection: the next request for
+      // this host goes to its next address (#866).
+      if (CONNECT_FAILURES.has((err as NodeJS.ErrnoException)?.code ?? '')) this.resolver.markFailed(hostname, ip)
       throw err
     }
   }
