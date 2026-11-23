@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.98
+
+Unchanged from 2026.11.97: `src/config/config.ts`, which the digest covers, now checks config files at load (#864) and changes no default or verdict.
+
 ## Result, ruleset 2026.11.97
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset adds the MCP gate for Bedrock event streams (`src/detection/mcp/eventStream.ts`, `eventStreamGate.ts`, #882), which reads responses only.

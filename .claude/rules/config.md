@@ -42,6 +42,12 @@ digest, so a new default also needs `RULESET_DIGEST` re-pinned.
 
 ## Traps that have bitten before
 
+- **Config files are checked against `DEFAULT_CONFIG`'s shape** (`checkConfigFile`,
+  #864): a value must have its default's type, and an enum key must be one of its
+  values. A new enum-valued key needs an entry in `ENUM_BY_KEY` or `MODE_BY_PATH`
+  in `src/config/config.ts` (an `audit`/`block` `mode` is covered already), and
+  a new env override for an enum uses `envEnum`, never an `as` cast.
+
 - **Booleans are strictly `'true'`.** `ENV_OVERRIDES` tests `v === 'true'`, so
   `1` and `yes` both mean false.
 - **`loadConfig` only applies an entry `if (value)`.** An empty string is

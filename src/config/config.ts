@@ -524,9 +524,14 @@ export const DEFAULT_CONFIG: Config = {
   hotReload: true,
 };
 
+// Keys that would write through to a prototype instead of setting a value:
+// `result['__proto__'] = x` replaces the object's prototype (#864).
+const UNSAFE_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = { ...target };
   for (const key of Object.keys(source) as (keyof T)[]) {
+    if (UNSAFE_KEYS.has(key as string)) continue;
     const srcVal = source[key];
     const tgtVal = result[key];
     if (
@@ -632,12 +637,76 @@ export function readUserConfigFile(file = userConfigPath()): Record<string, unkn
   return parsed as Record<string, unknown>;
 }
 
+// The values an enum-valued key may take, by key name (#864).
+const ENUM_BY_KEY: Readonly<Record<string, ReadonlySet<string>>> = {
+  enforcement: new Set(['enforce', 'observe']),
+  failMode: new Set(['open', 'closed']),
+  onBlock: new Set(['refuse', 'withhold']),
+  olderTurns: new Set(['refuse', 'withhold']),
+};
+const AUDIT_OR_BLOCK: ReadonlySet<string> = new Set(['audit', 'block']);
+const MODE_BY_PATH: Readonly<Record<string, ReadonlySet<string>>> = {
+  'proxy.mode': new Set(['proxy', 'sinkhole']),
+  'dlp.mode': new Set(['block', 'redact', 'audit']),
+};
+
+function describeValue(v: unknown): string {
+  if (Array.isArray(v)) return 'a list';
+  if (v === null) return 'null';
+  if (typeof v === 'string') return JSON.stringify(v.length > 40 ? v.slice(0, 40) + '...' : v);
+  if (typeof v === 'object') return 'an object';
+  return typeof v === 'number' || typeof v === 'boolean' ? `${typeof v} ${String(v)}` : typeof v;
+}
+
+/** What `value` at `path` should be and is not, or null when it fits. */
+function misfit(path: string, key: string, value: unknown, def: unknown): string | null {
+  const allowed = ENUM_BY_KEY[key] ?? (key === 'mode' ? MODE_BY_PATH[path] ?? (typeof def === 'string' && AUDIT_OR_BLOCK.has(def) ? AUDIT_OR_BLOCK : undefined) : undefined);
+  if (allowed) {
+    return typeof value === 'string' && allowed.has(value) ? null : `one of ${[...allowed].join(', ')}`;
+  }
+  if (def === undefined || def === null) return null;
+  if (Array.isArray(def)) return Array.isArray(value) ? null : 'a list';
+  if (typeof def === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value) ? null : 'an object of settings';
+  if (typeof def === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 'a number';
+    if ((key === 'port' || key === 'httpsPort') && !(Number.isInteger(value) && value >= 0 && value <= 65535)) return 'a port from 0 to 65535';
+    return null;
+  }
+  return typeof value === typeof def ? null : `a ${typeof def}`;
+}
+
+/**
+ * Check a config file's settings against the shape of the defaults (#864):
+ * each value must have its default's type, an enum key one of its values, a
+ * port a legal port. Keys llm-fw does not know are left alone. Throws an
+ * error naming the file and the key, as a file that is not JSON already does:
+ * merged unchecked, a threshold written as a string made every comparison
+ * false and turned its stage off, and a mistyped mode stopped blocking.
+ */
+export function checkConfigFile(settings: Record<string, unknown>, file: string): void {
+  const walk = (node: Record<string, unknown>, def: unknown, prefix: string): void => {
+    for (const [key, value] of Object.entries(node)) {
+      if (UNSAFE_KEYS.has(key)) continue;
+      const path = prefix ? `${prefix}.${key}` : key;
+      const d = def !== null && typeof def === 'object' && !Array.isArray(def) ? (def as Record<string, unknown>)[key] : undefined;
+      const expected = misfit(path, key, value, d);
+      if (expected !== null) {
+        throw new Error(`llm-fw: ${file}: ${path} is ${describeValue(value)}, but must be ${expected}. Fix or remove it; nothing was changed.`);
+      }
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) walk(value as Record<string, unknown>, d, path);
+    }
+  };
+  walk(settings, DEFAULT_CONFIG, '');
+}
+
 function buildConfig(): Config {
   const projectConfig = readProjectConfig();
+  if (process.env.LLM_FW_CONFIG) checkConfigFile(projectConfig, process.env.LLM_FW_CONFIG);
 
   // ~/.llm-fw/config.json persists settings written by setup (e.g. sinkhole mode).
   // It takes priority over project-level config but is overridden by env vars below.
   const userConfig = readUserConfigFile() as Partial<Config>;
+  checkConfigFile(userConfig, userConfigPath());
 
   // Clone the default before merging: deepMerge only recurses into keys the
   // SOURCE layer actually sets, so a section neither the project file nor
@@ -815,6 +884,12 @@ function envFloat(variable: string, value: string, opts: { min?: number; max?: n
   return n;
 }
 
+/** One of `values`, or refuse to start (#864). */
+function envEnum<T extends string>(variable: string, value: string, values: readonly T[]): T {
+  if ((values as readonly string[]).includes(value)) return value as T;
+  throw new ConfigError(variable, value, `one of ${values.join(', ')}`);
+}
+
 /** A TCP port. 0 is legal and means "any free port", so the floor is 0. */
 function envPort(variable: string, value: string): number {
   return envInt(variable, value, { min: 0, max: 65535 });
@@ -822,7 +897,8 @@ function envPort(variable: string, value: string): number {
 
 const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_PORT: (c, v) => { c.proxy.port = envPort('LLM_FW_PROXY_PORT', v); },
-  LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = v as 'proxy' | 'sinkhole'; },
+  // Checked, not cast (#864): a mistyped mode matched no comparison.
+  LLM_FW_PROXY_MODE: (c, v) => { c.proxy.mode = envEnum('LLM_FW_PROXY_MODE', v, ['proxy', 'sinkhole'] as const); },
   LLM_FW_BYPASS: (c, v) => { c.proxy.bypass = v === 'true'; },
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
   LLM_FW_PROXY_TOKEN: (c, v) => { c.proxy.authToken = v; },
@@ -915,7 +991,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_AUDIT_PAYLOADS: (c, v) => { if (c.audit) c.audit.includePayloads = v === 'true'; },
   LLM_FW_AUDIT_WEBHOOK: (c, v) => { if (c.audit) c.audit.webhookUrl = v; },
   LLM_FW_GATEWAY_ENABLED: (c, v) => { if (c.gateway) c.gateway.enabled = v === 'true'; },
-  LLM_FW_GATEWAY_PORT: (c, v) => { const n = parseInt(v, 10); if (!Number.isNaN(n) && c.gateway) c.gateway.port = n; },
+  LLM_FW_GATEWAY_PORT: (c, v) => { const n = envPort('LLM_FW_GATEWAY_PORT', v); if (c.gateway) c.gateway.port = n; },
   LLM_FW_GATEWAY_BIND: (c, v) => { if (c.gateway) c.gateway.bindHost = v; },
   LLM_FW_GATEWAY_TOKEN: (c, v) => { if (c.gateway) c.gateway.authToken = v; },
   LLM_FW_GATEWAY_REQUIRE_AUTH: (c, v) => { if (c.gateway) c.gateway.requireAuth = v === 'true'; },
@@ -927,7 +1003,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
     if (c.gateway) c.gateway.tls = { certFile: c.gateway.tls?.certFile ?? '', keyFile: v };
   },
   LLM_FW_DLP_ENABLED: (c, v) => { c.dlp.enabled = v === 'true'; },
-  LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = v as 'block' | 'redact' | 'audit'; },
+  LLM_FW_DLP_MODE: (c, v) => { c.dlp.mode = envEnum('LLM_FW_DLP_MODE', v, ['block', 'redact', 'audit'] as const); },
   LLM_FW_DOS_ENABLED: (c, v) => { c.dos.enabled = v === 'true'; },
   LLM_FW_DOS_MAX_RPM: (c, v) => { c.dos.maxRequestsPerMinute = envInt('LLM_FW_DOS_MAX_RPM', v, { min: 0 }); },
   LLM_FW_DOS_MAX_TOKENS_PER_SESSION: (c, v) => { c.dos.maxTokensPerSession = envInt('LLM_FW_DOS_MAX_TOKENS_PER_SESSION', v, { min: 0 }); },

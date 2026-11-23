@@ -33,7 +33,15 @@ reload keeps the running settings and logs the error, and `setup`,
 `setup-judge` and a dashboard toggle refuse to write over such a file (the
 toggle still applies until restart and answers `500` saying it was not saved).
 Read as empty, a trailing comma used to start the firewall on the defaults,
-and the next toggle wrote a one-key file over the rest (#853). JavaScript and YAML config files
+and the next toggle wrote a one-key file over the rest (#853). Each value in either file is
+also checked against the default's shape (#864): a number, a boolean, a list or a section where
+the default has one, an enum key (`enforcement`, a detector's `mode`, `dlp.mode`, `proxy.mode`,
+`failMode`, `onBlock`, `olderTurns`) one of its values, a `port` from 0 to 65535. A file that
+breaks one stops startup with the file and the key named, and a reload keeps the running
+settings, as above; a key llm-fw does not know is left alone. Merged unchecked, a threshold
+written as `"0.9"` turned its stage off and `"mode": "blcok"` stopped blocking. The same goes
+for `LLM_FW_DLP_MODE`, `LLM_FW_PROXY_MODE` and `LLM_FW_GATEWAY_PORT`, which now refuse a value
+outside their domain. JavaScript and YAML config files
 are not supported. Like `LLM_FW_DIR`, it is read from the process environment
 only, so no config file can redirect it.
 
