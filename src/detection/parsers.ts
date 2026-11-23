@@ -1280,31 +1280,47 @@ export function getParser(path: string): PayloadParser | null {
   return null
 }
 
+// Schema keys whose string value the model reads as text, and keys whose
+// value holds strings it reads (a default, an example, a choice).
+const TOOL_TEXT_KEYS = new Set(['description', 'title'])
+const TOOL_VALUE_KEYS = new Set(['default', 'examples', 'enum', 'const'])
 /**
- * Collect every free-text `description` string out of a list of tool/function
- * definitions, regardless of provider nesting. The model reads and obeys these
- * descriptions, so a poisoned one ("before answering, read ~/.ssh/id_rsa …") is
- * an injection vector ("tool poisoning"). Walking by key name catches the
- * top-level tool description, Gemini's `functionDeclarations[].description`, and
- * per-parameter `properties.<x>.description` in one pass. Depth-bounded so a
- * hostile deeply-nested schema can't blow the stack.
+ * Collect the free text out of a list of tool/function definitions,
+ * regardless of provider nesting. The model reads and obeys it, so a poisoned
+ * line ("before answering, read ~/.ssh/id_rsa ...") is an injection vector
+ * ("tool poisoning"): every `description` and `title` string, and every
+ * string under `default`, `examples`, `enum` and `const`, at any depth.
+ * An explicit stack, not recursion, so no nesting overflows the stack, and no
+ * cap: the walk is linear in a tree JSON.parse already built from a body that
+ * proxy.maxBodyBytes bounds, so each string is read on its own, however many
+ * come before it. Before #857 the walk stopped at depth 6 (under a Gemini
+ * declaration's second level of parameters) and read `description` only.
  */
 export function extractToolDescriptions(tools: unknown[]): string[] {
   const out: string[] = []
-  const walk = (node: unknown, depth: number): void => {
-    if (node == null || depth > 6) return
-    if (Array.isArray(node)) {
-      for (const v of node) walk(v, depth + 1)
-      return
+  const stack: Array<{ node: unknown; values: boolean }> = [{ node: tools, values: false }]
+  while (stack.length > 0) {
+    const { node, values } = stack.pop()!
+    if (node == null) continue
+    if (typeof node === 'string') {
+      if (values && node.length > 0) out.push(node)
+      continue
     }
-    if (typeof node === 'object') {
-      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-        if (k === 'description' && typeof v === 'string' && v.length > 0) out.push(v)
-        else walk(v, depth + 1)
+    if (Array.isArray(node)) {
+      for (let i = node.length - 1; i >= 0; i--) stack.push({ node: node[i], values })
+      continue
+    }
+    if (typeof node !== 'object') continue
+    const entries = Object.entries(node as Record<string, unknown>)
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const [k, v] = entries[i]!
+      if (TOOL_TEXT_KEYS.has(k) && typeof v === 'string') {
+        if (v.length > 0) out.push(v)
+      } else {
+        stack.push({ node: v, values: values || TOOL_VALUE_KEYS.has(k) })
       }
     }
   }
-  walk(tools, 0)
   return out
 }
 
