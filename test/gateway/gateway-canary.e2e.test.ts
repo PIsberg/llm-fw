@@ -105,12 +105,17 @@ describe('Gateway system-prompt canary E2E (#552)', { timeout: 30000 }, () => {
           res.end(JSON.stringify({ id: 'c2', choices: [{ index: 0, message: { role: 'assistant', content: 'Two fixes and a new flag.' } }] }))
           return
         }
-        const out = [
-          chunk('BEFORE '),
-          ...(parsed.scenario === 'sse-leak' ? [chunk(leak.slice(0, 18)), chunk(leak.slice(18))] : []),
-          chunk(' AFTER'),
-          'data: [DONE]\n\n',
-        ]
+        // #859: the same leak with CRLF line endings, and one whose token
+        // completes in a last event that no blank line closes.
+        const crlf = parsed.scenario === 'sse-leak-crlf'
+        const out = parsed.scenario === 'sse-leak-tail'
+          ? [chunk('BEFORE '), chunk(leak.slice(0, 18)), chunk(leak.slice(18)).replace(/\n\n$/, '')]
+          : [
+            chunk('BEFORE '),
+            ...(parsed.scenario === 'sse-leak' || crlf ? [chunk(leak.slice(0, 18)), chunk(leak.slice(18))] : []),
+            chunk(' AFTER'),
+            'data: [DONE]\n\n',
+          ].map(ev => crlf ? ev.replace(/\n/g, '\r\n') : ev)
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const next = (): void => {
           const ev = out.shift()
@@ -195,6 +200,26 @@ describe('Gateway system-prompt canary E2E (#552)', { timeout: 30000 }, () => {
     } finally {
       cfg.responseScan!.canary!.mode = 'block'
     }
+  })
+
+  it('cuts a CRLF stream that repeats the canary (#859)', async () => {
+    events.length = 0
+    const res = await post(request('sse-leak-crlf', 'You are the release assistant.'))
+    const token = fs.readFileSync(join(tempDir, 'canary.txt'), 'utf8').trim()
+    expect(res.text).toContain('BEFORE ')
+    expect(res.text).not.toContain(token.slice(18))
+    expect(res.text).not.toContain(' AFTER')
+    expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+  })
+
+  it('resets a stream whose last, unterminated event completes the canary (#859)', async () => {
+    events.length = 0
+    const res = await post(request('sse-leak-tail', 'You are the release assistant.'))
+    // The event's bytes went out before the stream ended; a client drops an
+    // event no blank line closed, and the reset keeps it from being taken
+    // as a complete stream.
+    expect(res.outcome).toBe('aborted')
+    expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
   })
 
   it('sends no canary when the request has no system prompt', async () => {

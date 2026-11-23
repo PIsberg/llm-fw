@@ -30,6 +30,7 @@
 
 import { detectMemoryPoisoning, type MemoryPoisoningFinding } from './memoryPoisoning.js'
 import type { PayloadParser, DlpFinding } from '../types.js'
+import { responsesToolCall } from './parsers.js'
 import type { DlpScanner } from './dlp/scanner.js'
 
 export interface ScannedToolCall {
@@ -48,6 +49,7 @@ export function extractToolCallsFromJson(body: string, parser: PayloadParser): S
 
 interface AnthropicAccum { name: string; json: string }
 interface OpenAiAccum { name: string; args: string }
+interface ResponsesAccum { name: string; args: string; custom: boolean }
 
 /**
  * Extract tool calls from accumulated FLUSHED SSE response text. Auto-detects
@@ -62,8 +64,10 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
   const out: ScannedToolCall[] = []
   const anthropicByIndex = new Map<number, AnthropicAccum>()
   const openAiByIndex = new Map<number, OpenAiAccum>()
+  const responsesByIndex = new Map<number, ResponsesAccum>()
 
-  for (const raw of sseText.split('\n\n')) {
+  // Events end at a blank line in LF or CRLF (#859: CRLF yielded no event).
+  for (const raw of sseText.split(/\r?\n\r?\n/)) {
     if (!raw.trim()) continue
     const payload = parseSseEventData(raw)
     if (payload === null || payload === '[DONE]') continue
@@ -77,6 +81,25 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
 
     const type = typeof data.type === 'string' ? data.type : undefined
     const index = typeof data.index === 'number' ? data.index : undefined
+
+    // OpenAI Responses API (#859): a call is an output item. `added` names
+    // it, argument or input deltas follow, and `done` carries it whole;
+    // `response.completed` repeats every item, so it is not read again.
+    if (type?.startsWith('response.')) {
+      const at = typeof data.output_index === 'number' ? data.output_index : 0
+      if (type === 'response.output_item.added') {
+        const item = data.item as Record<string, unknown> | undefined
+        const call = responsesToolCall(item)
+        if (call) responsesByIndex.set(at, { name: call.toolName, args: '', custom: item?.type === 'custom_tool_call' })
+      } else if ((type === 'response.function_call_arguments.delta' || type === 'response.custom_tool_call_input.delta') && typeof data.delta === 'string') {
+        const entry = responsesByIndex.get(at)
+        if (entry) entry.args += data.delta
+      } else if (type === 'response.output_item.done') {
+        const call = responsesToolCall(data.item)
+        if (call) { responsesByIndex.delete(at); out.push(call) }
+      }
+      continue
+    }
 
     // Anthropic: content_block_start (tool_use, name) -> content_block_delta
     // (input_json_delta, partial_json fragments) -> content_block_stop.
@@ -145,6 +168,9 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
   }
   for (const entry of openAiByIndex.values()) {
     if (entry.name) out.push({ toolName: entry.name, args: parseJsonArgs(entry.args) })
+  }
+  for (const entry of responsesByIndex.values()) {
+    out.push({ toolName: entry.name, args: entry.custom ? entry.args : parseJsonArgs(entry.args) })
   }
 
   return out

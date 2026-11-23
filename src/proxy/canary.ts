@@ -23,16 +23,30 @@ export const CANARY_CUT = 'llm-fw cut this response: the model was repeating its
 
 const TOKEN_RE = /^llmfw-canary-[0-9a-f]{32}$/
 
-/** The install's canary token, created in `<dir>/canary.txt` on first use. */
+// The token of each data directory this process has used. It is read on
+// every inspected request with the canary on, and was read from disk each
+// time, on the thread that serves every client (#859).
+const tokens = new Map<string, string>()
+
+/**
+ * The install's canary token, created in `<dir>/canary.txt` on first use and
+ * read from disk once per directory per process.
+ */
 export function canaryToken(dir: string): string {
+  const known = tokens.get(dir)
+  if (known !== undefined) return known
   const file = join(dir, 'canary.txt')
+  let token: string | null = null
   try {
     const existing = readFileSync(file, 'utf8').trim()
-    if (TOKEN_RE.test(existing)) return existing
+    if (TOKEN_RE.test(existing)) token = existing
   } catch { /* not created yet */ }
-  const token = `llmfw-canary-${randomBytes(16).toString('hex')}`
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(file, `${token}\n`, { mode: 0o600 })
+  if (token === null) {
+    token = `llmfw-canary-${randomBytes(16).toString('hex')}`
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(file, `${token}\n`, { mode: 0o600 })
+  }
+  tokens.set(dir, token)
   return token
 }
 
@@ -146,30 +160,67 @@ export function sseStreamText(sse: string): string {
   return parts.join('')
 }
 
+// The blank line that ends an SSE event, with either line ending (#859).
+const EVENT_END = /\r?\n\r?\n/g
+// An event longer than this with no end in sight is read as raw text and
+// dropped, so a stream that never sends a blank line cannot grow the buffer
+// without bound. The token is hex, so JSON does not escape it in the raw text.
+const MAX_EVENT_CHARS = 256 * 1024
+
 /**
  * Watches a streamed (SSE) response for the canary. The token arrives in
  * pieces, one per text or argument delta, so the watch joins the strings of
  * each complete event and keeps the tail it needs to see a token that spans
  * events. push() returns true on the chunk that completes it; the caller cuts
- * the stream before forwarding that chunk.
+ * the stream before forwarding that chunk. Events end at a blank line in LF
+ * or CRLF (#859: a CRLF stream never ended one, so the token went through).
+ * flush(), at the end of the stream, reads a last event that no blank line
+ * closed.
  */
 export class CanaryWatch {
   private buf = ''
   private tail = ''
+  // Where the search for the next event end resumes: a chunk is scanned once,
+  // with three characters back for a CRLF blank line split across chunks.
+  private scanned = 0
 
   constructor(private readonly token: string) {}
 
   push(raw: string): boolean {
     this.buf += raw
-    let sep = this.buf.indexOf('\n\n')
-    while (sep !== -1) {
-      const event = this.buf.slice(0, sep)
-      this.buf = this.buf.slice(sep + 2)
-      const text = this.tail + (sseEventText(event, CONTENT_KEYS) ?? eventData(event))
-      if (text.includes(this.token)) return true
-      this.tail = text.slice(-(this.token.length - 1))
-      sep = this.buf.indexOf('\n\n')
+    for (;;) {
+      EVENT_END.lastIndex = Math.max(0, this.scanned - 3)
+      const m = EVENT_END.exec(this.buf)
+      if (m === null) break
+      const event = this.buf.slice(0, m.index)
+      this.buf = this.buf.slice(m.index + m[0].length)
+      this.scanned = 0
+      if (this.check(sseEventText(event, CONTENT_KEYS) ?? eventData(event))) return true
     }
+    this.scanned = this.buf.length
+    if (this.buf.length > MAX_EVENT_CHARS) {
+      const raw = this.buf
+      this.buf = ''
+      this.scanned = 0
+      return this.check(raw)
+    }
+    return false
+  }
+
+  /** At the end of the stream: true when a last, unterminated event completes the token. */
+  flush(): boolean {
+    const rest = this.buf
+    this.buf = ''
+    this.scanned = 0
+    if (!rest.trim()) return false
+    const tail = this.tail
+    return this.check(sseEventText(rest, CONTENT_KEYS) ?? eventData(rest)) || (tail + rest).includes(this.token)
+  }
+
+  private check(text: string): boolean {
+    const joined = this.tail + text
+    if (joined.includes(this.token)) return true
+    this.tail = joined.slice(-(this.token.length - 1))
     return false
   }
 }
@@ -289,8 +340,14 @@ export function guardCanary(res: http.ServerResponse, token: string, cap: number
       release()
       return end()
     }
-    if (mode === 'sse' && chunk !== undefined && typeof chunk !== 'function') {
-      if (!sseChunk(chunk, encoding)) return res
+    if (mode === 'sse') {
+      // What was written before this call, for cutting at the stream's end.
+      const written = atEventBoundary
+      if (chunk !== undefined && typeof chunk !== 'function' && !sseChunk(chunk, encoding)) return res
+      // A last event no blank line closed (#859). Its bytes, when they came
+      // in this call, are not written; when they were written already, the
+      // connection is reset, and a client drops an unterminated event.
+      if (watch.flush() && leak()) { atEventBoundary = written; cutStream(); return res }
     }
     return end(chunk, encoding, cb)
   }) as typeof res.end

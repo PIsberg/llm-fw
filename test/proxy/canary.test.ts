@@ -122,3 +122,59 @@ describe('sseStreamText', () => {
     expect(sseStreamText('data: {"delta":"a"}\r\n\r\ndata: {"delta":"b"}\r\n\r\n')).toBe('ab')
   })
 })
+
+// #859: the watch split events on LF only, so a CRLF stream (as an SSE
+// server may send) never yielded one event and carried the token through,
+// while its buffer grew with the whole stream. A final event with no blank
+// line after it was never read, and the token file was read from disk on
+// every inspected request.
+describe('CanaryWatch on CRLF streams and at end of stream (#859)', () => {
+  const crlf = (text: string) => `event: content_block_delta\r\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })}\r\n\r\n`
+
+  it('fires on a CRLF stream, across deltas', () => {
+    const watch = new CanaryWatch(TOKEN)
+    expect(watch.push(crlf('Sure: '))).toBe(false)
+    expect(watch.push(crlf(TOKEN.slice(0, 15)))).toBe(false)
+    expect(watch.push(crlf(TOKEN.slice(15)))).toBe(true)
+  })
+
+  it('fires on a CRLF stream split across network chunks', () => {
+    const watch = new CanaryWatch(TOKEN)
+    const stream = crlf('a ') + crlf(TOKEN.slice(0, 9)) + crlf(TOKEN.slice(9))
+    let hit = false
+    for (let i = 0; i < stream.length && !hit; i += 3) hit = watch.push(stream.slice(i, i + 3))
+    expect(hit).toBe(true)
+  })
+
+  it('reads a final event that has no blank line after it', () => {
+    const watch = new CanaryWatch(TOKEN)
+    expect(watch.push(crlf('x ') + crlf(TOKEN.slice(0, 10)) + crlf(TOKEN.slice(10)).replace(/\r\n\r\n$/, ''))).toBe(false)
+    expect(watch.flush()).toBe(true)
+  })
+
+  it('stays quiet at the end of a clean stream', () => {
+    const watch = new CanaryWatch(TOKEN)
+    watch.push(crlf('nothing to see'))
+    expect(watch.flush()).toBe(false)
+  })
+
+  it('still finds the token in one event that never ends, past its buffer cap', () => {
+    const watch = new CanaryWatch(TOKEN)
+    let hit = watch.push('data: {"type":"content_block_delta","delta":{"text":"')
+    for (let i = 0; i < 40 && !hit; i++) hit = watch.push('filler '.repeat(10_000))
+    hit = hit || watch.push(TOKEN)
+    expect(hit || watch.flush()).toBe(true)
+  })
+})
+
+describe('canaryToken is read from disk once per directory (#859)', () => {
+  let dir: string
+  beforeEach(() => { dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-canary-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  it('returns the token it first read, without reading the file again', () => {
+    const first = canaryToken(dir)
+    fs.writeFileSync(join(dir, 'canary.txt'), 'llmfw-canary-' + '0'.repeat(32) + '\n')
+    expect(canaryToken(dir)).toBe(first)
+  })
+})

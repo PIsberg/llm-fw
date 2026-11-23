@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.94 (#859: response-side scans only; the request pipeline is unchanged).
   // Held at ruleset 2026.11.93 (#858: the classifiers read long texts in windows; the classifier is off in
   // this run's config; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.92 (#857: Gemini, Cloud Code, Bedrock and Cohere yield the conversation; these

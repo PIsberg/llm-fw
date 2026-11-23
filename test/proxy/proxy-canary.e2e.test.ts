@@ -118,11 +118,21 @@ describe('Proxy system-prompt canary (#539, E2E)', { timeout: 30000 }, () => {
         }
         // One event per write, paced like a model, so each reaches the proxy
         // as its own chunk.
-        const events = [
+        // #859: the same leak with CRLF line endings, and one whose token
+        // completes in a last event that no blank line closes.
+        const crlf = parsed.scenario === 'sse-leak-crlf'
+        const opening = [
           sse('message_start', { message: { id: 'msg_s', role: 'assistant', content: [] } }),
           sse('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }),
           sse('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'BEFORE ' } }),
-          ...(parsed.scenario === 'sse-leak' ? [
+        ]
+        const events = parsed.scenario === 'sse-leak-tail' ? [
+          ...opening,
+          sse('content_block_delta', { index: 0, delta: { type: 'text_delta', text: leak.slice(0, 18) } }),
+          sse('content_block_delta', { index: 0, delta: { type: 'text_delta', text: leak.slice(18) } }).replace(/\n\n$/, ''),
+        ] : [
+          ...opening,
+          ...(parsed.scenario === 'sse-leak' || crlf ? [
             sse('content_block_delta', { index: 0, delta: { type: 'text_delta', text: leak.slice(0, 18) } }),
             sse('content_block_delta', { index: 0, delta: { type: 'text_delta', text: leak.slice(18) } }),
           ] : []),
@@ -130,7 +140,7 @@ describe('Proxy system-prompt canary (#539, E2E)', { timeout: 30000 }, () => {
           sse('content_block_stop', { index: 0 }),
           sse('message_delta', { delta: { stop_reason: 'end_turn' } }),
           sse('message_stop', {}),
-        ]
+        ].map(ev => crlf ? ev.replace(/\n/g, '\r\n') : ev)
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const next = (): void => {
           const ev = events.shift()
@@ -198,6 +208,25 @@ describe('Proxy system-prompt canary (#539, E2E)', { timeout: 30000 }, () => {
     const res = await send(config.proxy.port, upstreamPort, request('json-leak', 'You are the release assistant.'))
     expect(res.statusCode).toBe(502)
     expect(res.body).not.toMatch(CANARY_RE)
+    expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+  })
+
+  it('cuts a CRLF stream that repeats the canary (#859)', async () => {
+    events.length = 0
+    const res = await send(config.proxy.port, upstreamPort, request('sse-leak-crlf', 'You are the release assistant.'))
+    const token = fs.readFileSync(join(tempDir, 'canary.txt'), 'utf8').trim()
+    expect(res.body).toContain('BEFORE ')
+    expect(res.body).not.toContain(token.slice(18))
+    expect(res.body).not.toContain(' AFTER')
+    expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+  })
+
+  it('resets a stream whose last, unterminated event completes the canary (#859)', async () => {
+    events.length = 0
+    const res = await send(config.proxy.port, upstreamPort, request('sse-leak-tail', 'You are the release assistant.'))
+    // Its bytes went out before the stream ended; the reset keeps a client
+    // from taking the unterminated event as the end of a complete stream.
+    expect(res.complete).toBe(false)
     expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
   })
 

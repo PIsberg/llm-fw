@@ -35,9 +35,6 @@ const SCHEME_RE = /^[a-z][a-z\d+.-]*:/i
 // at every `[` and ran to the end of the text when the markup never closed, on
 // the thread serving every client: 6 s on 200 KB (GHSA-ggrw-cm2f-mh3c).
 const BRACKET_RE = /!\[|\[|\]\(?/g
-// A destination, after whitespace and an optional `<`. It stops at whitespace,
-// ')' or '>'. Nothing follows the run, so it never backtracks.
-const DEST_RE = /\s*<?([^\s)>]*)/y
 // Deep enough for any real nesting, and it keeps `[[[[...` from filling memory.
 // Past it an inner bracket is not tracked, which can only mislabel a finding.
 const MAX_BRACKET_DEPTH = 1024
@@ -108,6 +105,49 @@ export function normalizeDestination(raw: string, attribute: boolean): string {
   return s.replace(STRIPPED_RE, '').replace(/\\/g, '/')
 }
 
+const OPEN_PAREN = 40
+const CLOSE_PAREN = 41
+const LESS_THAN = 60
+const GREATER_THAN = 62
+const BACKSLASH = 92
+
+function isSpace(code: number): boolean {
+  return code === 32 || (code >= 9 && code <= 13)
+}
+
+/**
+ * The destination that starts at `from` (just after a `](`), read as
+ * CommonMark 6.3 reads it, and the index after it. Leading whitespace is
+ * skipped. In `<...>` it runs to the `>`, parentheses included; bare, it
+ * runs to whitespace, `>` or the `)` that closes the link, past balanced
+ * pairs and backslash-escaped parentheses (#859: stopping at the first `)`
+ * left `p(1)?secret=...` unread). One pass, so linear.
+ */
+function readDestination(text: string, from: number): { url: string; end: number } {
+  let i = from
+  while (i < text.length && isSpace(text.charCodeAt(i))) i++
+  if (text.charCodeAt(i) === LESS_THAN) {
+    const start = ++i
+    while (i < text.length && text.charCodeAt(i) !== GREATER_THAN && !isSpace(text.charCodeAt(i))) i++
+    return { url: text.slice(start, i), end: i }
+  }
+  const start = i
+  let depth = 0
+  for (; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (isSpace(c) || c === GREATER_THAN) break
+    if (c === BACKSLASH) {
+      if (i + 1 < text.length && !isSpace(text.charCodeAt(i + 1))) i++
+    } else if (c === OPEN_PAREN) {
+      depth++
+    } else if (c === CLOSE_PAREN) {
+      if (depth === 0) break
+      depth--
+    }
+  }
+  return { url: text.slice(start, i), end: i }
+}
+
 /**
  * Every destination after a `](`, each read once: linear in `text`. A `](`
  * inside a destination that has not ended opens another one, so each of those
@@ -127,12 +167,12 @@ function inlineDestinations(text: string): { url: string; image: boolean }[] {
     }
     const image = open.pop() === true
     if (token === ']') continue
-    DEST_RE.lastIndex = BRACKET_RE.lastIndex
-    const url = DEST_RE.exec(text)?.[1] ?? ''
-    BRACKET_RE.lastIndex = DEST_RE.lastIndex
+    const { url, end } = readDestination(text, BRACKET_RE.lastIndex)
+    BRACKET_RE.lastIndex = end
     found.push({ url, image })
     if (url.includes('](')) {
-      for (const inner of url.split('](')) found.push({ url: inner.replace(/^</, ''), image })
+      // Each piece is read on its own, so the pieces together are read once.
+      for (const inner of url.split('](')) found.push({ url: readDestination(inner, 0).url, image })
     }
   }
   return found
