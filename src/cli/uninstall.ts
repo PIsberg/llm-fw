@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { execSync, execFileSync } from 'node:child_process';
+import { removePortRedirect as removeRedirect, PF_ANCHOR } from './portRedirect.js';
 import { systemTool } from '../systemTool.js';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -195,17 +196,11 @@ function removePortRedirect(httpsPort: number): void {
         execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'delete', 'v6tov4', 'listenport=443', 'listenaddress=::1'], { stdio: 'ignore' });
       } catch { /* v6 rule may not exist */ }
       ok('Removed netsh port redirect (127.0.0.1:443)');
-    } else if (os === 'darwin') {
-      // setup loaded a single rdr rule via `pfctl -ef -`; flush the nat ruleset.
-      execSync('pfctl -F nat', { stdio: 'ignore' });
-      ok('Flushed pf nat redirect');
     } else {
-      // execFile with an arg array — no shell, so the port value can't inject.
-      execFileSync('iptables', [
-        '-t', 'nat', '-D', 'OUTPUT', '-o', 'lo', '-p', 'tcp',
-        '--dport', '443', '-j', 'REDIRECT', '--to-port', String(httpsPort),
-      ], { stdio: 'ignore' });
-      ok('Removed iptables :443 redirect');
+      // Only llm-fw's own pf anchor on macOS, where `pfctl -F nat` flushed
+      // every NAT rule on the host; every copy of the iptables rule on Linux (#863).
+      removeRedirect(os, httpsPort);
+      ok(os === 'darwin' ? `Flushed pf anchor ${PF_ANCHOR}` : 'Removed iptables :443 redirect');
     }
   } catch {
     skip('No port redirect to remove (or needs admin/root)');

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { PF_ANCHOR } from './portRedirect.js'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import { join } from 'node:path'
@@ -135,7 +136,7 @@ function redirectName(os: OS, httpsPort: number): string {
 
 function redirectShowCmd(os: OS): string {
   if (os === 'win32') return 'netsh interface portproxy show all'
-  if (os === 'darwin') return 'sudo pfctl -s nat'
+  if (os === 'darwin') return `sudo pfctl -a ${PF_ANCHOR} -s nat`
   return 'sudo iptables -t nat -S OUTPUT'
 }
 
@@ -605,7 +606,8 @@ function detectPortRedirect(os: OS, httpsPort: number): boolean | null {
     return out === null ? null : parsePortRedirect(os, out, httpsPort)
   }
   if (os === 'darwin') {
-    const out = safeExec('pfctl', ['-s', 'nat'])
+    // setup loads the rule into llm-fw's own anchor (#863).
+    const out = safeExec('pfctl', ['-a', PF_ANCHOR, '-s', 'nat'])
     return out === null ? null : parsePortRedirect(os, out, httpsPort)
   }
   const out = safeExec('iptables', ['-t', 'nat', '-S', 'OUTPUT'])
