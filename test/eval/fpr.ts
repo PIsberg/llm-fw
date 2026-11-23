@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.88 (#857: Responses API prompt template variables are read; these rows go
+  // through /v1/messages, so none can move; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.87 (#857: decoded base64/base32/ascii85 text is kept in any script, base64url
   // decoded; verdicts:diff 0 of 31,323; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.86 (#857: PDF streams are read and a partly read PDF is opaque; no row carries

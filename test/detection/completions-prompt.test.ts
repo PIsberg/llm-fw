@@ -47,3 +47,28 @@ describe('Pipeline on a /v1/completions request (#857)', () => {
     expect(result.action).toBe('pass')
   })
 })
+
+// #857: a Responses API request can name a stored prompt template and fill
+// its `variables`, text the server substitutes into the prompt. None of it
+// was read: the parser saw an object where a completions prompt is a string.
+describe('Responses API prompt template variables (#857)', () => {
+  const o = new OpenAIParser()
+  const template = (variables: Record<string, unknown>) =>
+    JSON.stringify({ model: 'gpt-5', prompt: { id: 'pmpt_123', version: '2', variables }, input: 'Go.' })
+
+  it('reads string variables and input_text variables', () => {
+    const prompts = o.extractPrompts(template({ customer: 'Ada Lovelace', note: { type: 'input_text', text: 'Prefers email.' } }))
+    expect(prompts).toEqual(expect.arrayContaining(['Ada Lovelace', 'Prefers email.']))
+  })
+
+  it('reads nothing from an image or file variable', () => {
+    const prompts = o.extractPrompts(template({ photo: { type: 'input_image', image_url: 'https://x.example/a.png' } }))
+    expect(prompts).toEqual(['Go.'])
+  })
+
+  it('blocks an override carried in a template variable', async () => {
+    const body = template({ customer_note: OVERRIDE })
+    const result = await new Pipeline(structuredClone(DEFAULT_CONFIG)).run('/v1/responses', body, { target: 'api.openai.com', method: 'POST', path: '/v1/responses' })
+    expect(result.action).toBe('block')
+  })
+})
