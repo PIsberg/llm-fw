@@ -58,32 +58,26 @@ function isBase64Image(b: any): boolean {
 }
 
 /**
- * The text to keep of a Bedrock Converse media block with inline bytes, or null
- * when `b` is not exactly one: an `image`, `document` or `video` key and
- * nothing else, holding only `format`, `source` with base64 `bytes`, and a
- * document's `name`. An image must also be one, as isBase64Image checks.
- * extractMediaBlocks reads all three from tool results, so their bytes are not
- * text: as JSON they put megabytes of base64 through every text stage.
+ * Whether `b` is exactly a Bedrock Converse image with its bytes inline: an
+ * `image` key and nothing else, holding only one of Bedrock's four formats and
+ * a `source` with base64 `bytes` that open as that format, as isBase64Image
+ * checks. extractMediaBlocks reads it from tool results, so its bytes are not
+ * text: as JSON they put megabytes of base64 through every text stage (#917).
+ * Documents and videos keep their JSON: not every document format is one the
+ * media path decodes, so their bytes stay where the text stages read them.
  */
-function bedrockInlineMedia(b: any): string | null {
-  if (!b || typeof b !== 'object' || Array.isArray(b)) return null
-  const keys = Object.keys(b)
-  const kind = keys[0]
-  if (keys.length !== 1 || (kind !== 'image' && kind !== 'document' && kind !== 'video')) return null
-  const m = b[kind]
-  if (!m || typeof m !== 'object' || typeof m.format !== 'string') return null
-  const allowed = kind === 'document' ? ['format', 'source', 'name'] : ['format', 'source']
-  if (Object.keys(m).some(k => !allowed.includes(k))) return null
+function isBedrockInlineImage(b: any): boolean {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return false
+  if (Object.keys(b).length !== 1 || !b.image || typeof b.image !== 'object') return false
+  const m = b.image
+  if (Object.keys(m).some(k => k !== 'format' && k !== 'source') || !['png', 'jpeg', 'gif', 'webp'].includes(m.format)) return false
   const s = m.source
-  if (!s || typeof s !== 'object' || Object.keys(s).length !== 1 || typeof s.bytes !== 'string' || !BASE64.test(s.bytes)) return null
-  if (kind === 'image') {
-    const format = m.format === 'jpg' ? 'jpeg' : m.format
-    if (!isBase64Image({ type: 'image', source: { type: 'base64', media_type: `image/${format}`, data: s.bytes } })) return null
-  }
-  return kind === 'document' && typeof m.name === 'string' ? m.name : ''
+  if (!s || typeof s !== 'object' || Object.keys(s).length !== 1 || typeof s.bytes !== 'string') return false
+  return isBase64Image({ type: 'image', source: { type: 'base64', media_type: `image/${m.format}`, data: s.bytes } })
 }
 
-function toolResultText(content: unknown): string {
+/** Bedrock Converse reads its own image shape as media; every other provider scans that shape as text. */
+function toolResultText(content: unknown, bedrock = false): string {
   if (typeof content === 'string') return content
   if (content === undefined) return ''
   if (!Array.isArray(content)) return JSON.stringify(content)
@@ -91,7 +85,7 @@ function toolResultText(content: unknown): string {
     if (typeof b === 'string') return b
     if (typeof b?.text === 'string') return b.text
     // A block's own title and context are text beside its content (#857).
-    if (Array.isArray(b?.content)) return [b.title, b.context].filter((s: unknown): s is string => typeof s === 'string' && s.length > 0).concat(toolResultText(b.content)).join('\n')
+    if (Array.isArray(b?.content)) return [b.title, b.context].filter((s: unknown): s is string => typeof s === 'string' && s.length > 0).concat(toolResultText(b.content, bedrock)).join('\n')
     // Images and files in a Responses tool output are read as media (#857).
     if (b?.type === 'input_image' || b?.type === 'input_file') return ''
     // Claude Code's tool search: a block that names a tool to load and holds
@@ -100,10 +94,7 @@ function toolResultText(content: unknown): string {
     // whole, as an unknown block is.
     if (b?.type === 'tool_reference' && typeof b.tool_name === 'string' && TOOL_NAME.test(b.tool_name) && Object.keys(b).length === 2) return b.tool_name
     if (isBase64Image(b)) return ''
-    // A Bedrock Converse image, document or video with its bytes inline is
-    // read as media (#917); only a document's name is text here.
-    const media = bedrockInlineMedia(b)
-    if (media !== null) return media
+    if (bedrock && isBedrockInlineImage(b)) return ''
     return JSON.stringify(b)
   }).join('\n')
 }
@@ -710,13 +701,14 @@ class CohereParser implements PayloadParser {
       // v1: { preamble, chat_history:[{role, message}], message }. `message` is
       // the newest user turn, so it goes last: the pipeline takes the last
       // prompt for the newest, and with `message` first it withheld an
-      // injection there as an older turn instead of refusing it (#917). Only
-      // USER turns of the history; SYSTEM turns are read by extractSystem, and
-      // CHATBOT and TOOL turns are not the user's. Roles in any case.
+      // injection there as an older turn instead of refusing it (#917). Every
+      // history turn but the model's own is scanned, SYSTEM ones included: the
+      // client sends them, and only the top-level preamble is the system
+      // prompt. Roles in any case.
       if (typeof data.preamble === 'string') results.push(data.preamble)
       if (Array.isArray(data.chat_history)) {
         for (const turn of data.chat_history) {
-          if (cohereRole(turn) === 'user' && typeof turn.message === 'string') results.push(turn.message)
+          if (cohereRole(turn) !== 'chatbot' && typeof turn?.message === 'string') results.push(turn.message)
         }
       }
       if (typeof data.message === 'string') results.push(data.message)
@@ -745,13 +737,8 @@ class CohereParser implements PayloadParser {
     try {
       const data = JSON.parse(body)
       const results: string[] = []
-      // v1 preamble, and SYSTEM turns of the history (#917).
+      // v1 preamble.
       if (typeof data.preamble === 'string') results.push(data.preamble)
-      if (Array.isArray(data.chat_history)) {
-        for (const turn of data.chat_history) {
-          if (cohereRole(turn) === 'system' && typeof turn.message === 'string') results.push(turn.message)
-        }
-      }
       // v2 system-role messages.
       if (Array.isArray(data.messages)) {
         for (const msg of data.messages) {
@@ -1272,7 +1259,7 @@ class BedrockParser implements PayloadParser {
               const call = typeof tr.toolUseId === 'string' ? calls.get(tr.toolUseId) : undefined
               results.push({
                 toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
-                result: toolResultText(tr.content ?? tr),
+                result: toolResultText(tr.content ?? tr, true),
                 ...call,
               })
             }

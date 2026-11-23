@@ -42,6 +42,7 @@ const cohere = (message: string) => JSON.stringify({
     { role: 'SYSTEM', message: 'Answer in English.' },
     { role: 'TOOL', tool_results: [{ call: { name: 'search', parameters: {} }, outputs: [{ text: 'install notes' }] }] },
     { role: 'User', message: 'And the upgrade guide?' },
+    { role: 'Chatbot', message: 'The upgrade guide says to back up first.' },
   ],
   message,
 })
@@ -49,14 +50,15 @@ const cohere = (message: string) => JSON.stringify({
 describe('#917 Cohere v1 turn order', () => {
   const parser = getParser('/v1/chat')!
 
-  it('returns the user turns oldest first, the newest message last, and no system or chatbot text', () => {
+  it('returns the history turns oldest first, the newest message last, and none of the model\'s turns in any case', () => {
     const system = new Set(parser.extractSystem!(cohere('Summarise both.')))
     expect(parser.extractPrompts(cohere('Summarise both.')).filter(t => !system.has(t)))
-      .toEqual(['What does the install guide say?', 'And the upgrade guide?', 'Summarise both.'])
+      .toEqual(['What does the install guide say?', 'Answer in English.', 'And the upgrade guide?', 'Summarise both.'])
   })
 
-  it('reads a SYSTEM turn of the history as system text', () => {
-    expect(parser.extractSystem!(cohere('x'))).toContain('Answer in English.')
+  it('scans a SYSTEM turn of the history as a prompt: the client sends it, only the preamble is the system prompt', () => {
+    expect(parser.extractSystem!(cohere('x'))).toEqual(['You are a helpful assistant for the docs site.'])
+    expect(parser.extractPrompts(cohere('x'))).toContain('Answer in English.')
   })
 
   it('refuses an injection in the newest message rather than withholding it as an older turn', async () => {
@@ -95,10 +97,24 @@ describe('#917 Bedrock Converse media in a tool result', () => {
     expect(parser.extractMediaBlocks!(b).some(m => m.kind === 'image')).toBe(true)
   })
 
-  it('reads an inline document as media and keeps its name as text', () => {
-    const doc = Buffer.from('Quarterly notes, plain text.').toString('base64')
+  it('keeps scanning an inline document, whose format the media path may not decode', () => {
+    const doc = Buffer.from(OVERRIDE).toString('base64')
     const b = body({ document: { format: 'txt', name: 'notes', source: { bytes: doc } } })
-    expect(parser.extractToolResults(b).map(r => r.result)).toEqual(['Rendered chart.\nnotes'])
+    expect(parser.extractToolResults(b)[0]!.result).toContain(doc)
+  })
+
+  it('keeps scanning the same image shape in another provider\'s tool result', () => {
+    const anthropic = JSON.stringify({ model: 'claude-x', messages: [
+      { role: 'user', content: 'Look.' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'render', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ image: { format: 'png', source: { bytes: PNG } } }] }] },
+    ] })
+    expect(getParser('/v1/messages')!.extractToolResults(anthropic)[0]!.result).toContain(PNG)
+  })
+
+  it('keeps scanning an image in a format Bedrock does not list', () => {
+    const b = body({ image: { format: 'jpg', source: { bytes: PNG } } })
+    expect(parser.extractToolResults(b)[0]!.result).toContain(PNG)
   })
 
   it('keeps scanning text dressed as an image', () => {
