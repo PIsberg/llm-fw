@@ -11,6 +11,7 @@ import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { UpstreamResolver } from '../../src/proxy/upstream.js'
 import { CertFactory } from '../../src/proxy/certs.js'
 import { Config } from '../../src/types.js'
+import { SYNTHETIC_AWS_SECRET } from '../fixtures/syntheticSecrets.js'
 
 vi.spyOn(UpstreamResolver.prototype, 'resolve').mockResolvedValue('127.0.0.1')
 
@@ -194,6 +195,19 @@ describe('Proxy DLP redact mode (E2E)', { timeout: 20000 }, () => {
     expect(forwarded).toContain(MARKER)
     // Forwarded body remains valid JSON.
     expect(() => JSON.parse(forwarded)).not.toThrow()
+  })
+
+  // #915: redacting took the JSON key and quotes around an AWS secret, or the
+  // backslash of an escaped quote after a connection URI, and the proxy then
+  // refused its own rewritten body as malformed (422).
+  it('forwards a parseable body when it redacts an AWS secret in quoted JSON and a URI before a quote', async () => {
+    capturedBody = null
+    const content = `Config: ${JSON.stringify({ aws_secret: SYNTHETIC_AWS_SECRET })} and "postgres://app:pa55word@db.example.com"`
+    const body = Buffer.from(JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 16, messages: [{ role: 'user', content }] }), 'utf-8')
+    const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages', body)
+    expect(res.statusCode).toBe(200)
+    const forwarded = JSON.parse(capturedBody!.toString('utf-8')) as { messages: { content: string }[] }
+    expect(forwarded.messages[0]!.content).toBe('Config: {"aws_secret":"[REDACTED_AWS_SECRET]"} and "[REDACTED_CONNECTION_URI]"')
   })
 
   for (const [host, path, body] of TOKEN_COUNT_ROUTES) {
