@@ -151,12 +151,13 @@ describe('OutputModerationClassifier', () => {
     warn.mockRestore()
   })
 
-  it('truncates very long responses before classifying', async () => {
+  it('reads very long responses in at most four windows of 2,000 characters', async () => {
     fakeClassify.mockResolvedValue([{ label: 'NORMAL', score: 0.99 }])
     const c = new OutputModerationClassifier(cfg())
     await c.init()
     await c.classify('x'.repeat(9000))
-    expect((fakeClassify.mock.calls[0][0] as string).length).toBe(4000)
+    expect(fakeClassify.mock.calls.length).toBe(4)
+    for (const [input] of fakeClassify.mock.calls) expect((input as string).length).toBe(2000)
   })
 
   it('treats empty model output as not-flagged (score 0)', async () => {
@@ -164,5 +165,31 @@ describe('OutputModerationClassifier', () => {
     const c = new OutputModerationClassifier(cfg())
     await c.init()
     expect(await c.classify('nothing came back')).toEqual({ flagged: false, score: 0 })
+  })
+})
+
+// #858: the response classifier read only the first 4,000 characters, so a
+// refusal or harmful passage past ~2 KB of a long generation was never seen,
+// and a cached verdict kept the threshold it was cached under.
+describe('OutputModerationClassifier on long responses and changed thresholds (#858)', () => {
+  beforeEach(() => {
+    // An earlier case leaves pipeline() rejecting; mockClear keeps that.
+    vi.mocked(pipeline).mockImplementation((async () => fakeClassify) as never)
+    fakeClassify.mockReset()
+    fakeClassify.mockImplementation(async (t: string) => /HARM-MARKER/.test(t) ? [{ label: 'HARMFUL', score: 0.99 }] : [{ label: 'SAFE', score: 0.99 }])
+  })
+  const filler = (n: number) => 'Here is the summary of the meeting notes you asked for. '.repeat(Math.ceil(n / 56)).slice(0, n)
+
+  it('reads a flagged passage past 4,000 characters', async () => {
+    expect((await new OutputModerationClassifier(cfg()).classify(`${filler(12_000)} HARM-MARKER`))?.flagged).toBe(true)
+  })
+
+  it('judges a cached score against the threshold in force now', async () => {
+    fakeClassify.mockImplementation(async () => [{ label: 'HARMFUL', score: 0.8 }])
+    const config = cfg({ blockThreshold: 0.9 })
+    const c = new OutputModerationClassifier(config)
+    expect((await c.classify('a response'))?.flagged).toBe(false)
+    config.classifier!.blockThreshold = 0.7
+    expect((await c.classify('a response'))?.flagged).toBe(true)
   })
 })

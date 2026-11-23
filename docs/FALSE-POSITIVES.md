@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.93
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Stage 2.5 and the response classifier now read a long text in up to four windows (#858); both are off in this run's default configuration. The classifier preset, measured with `bench:compare`, moved jailbreak-classification recall 82.7% to 82.3% and oasst1-sample FPR 11.8% to 11.7%.
+
 ## Result, ruleset 2026.11.92
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The Gemini, Cloud Code, Bedrock and Cohere parsers now yield the conversation, so the crescendo and multi-turn cipher checks run there (#857). These rows go through `/v1/messages`; sent as Gemini, Bedrock and Cohere requests, the 1,000 benign oasst1 threads block 1, as they do as Anthropic requests.
