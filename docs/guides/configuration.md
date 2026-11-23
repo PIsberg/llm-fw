@@ -694,6 +694,7 @@ Two neighboring escape hatches are unrelated to pipeline errors: `proxy.bypass` 
 | A `CONNECT` to a host that is not intercepted | Tunnelled without inspection, by design | open | `proxy.ts` |
 | A `CONNECT` from a non-loopback client into the host's loopback or link-local addresses | `403` | closed | `tunnelGuard.ts` |
 | A `CONNECT` whose port is outside 1 to 65535 | `400` | closed | `proxy.ts` |
+| A provider's response head that is malformed (status line, header name) or over 64 KiB | `502`, the connection to the provider closed | closed | `responseHead.ts` |
 | A `CONNECT` handler fails, or its client connection errors | That connection is closed and logged; the proxy keeps serving | closed | `proxy.ts` |
 | Observe mode, deployment-wide or per tenant | Every refusal is recorded and the request forwarded | open, by configuration | `pipeline.ts` |
 
