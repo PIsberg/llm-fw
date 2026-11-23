@@ -143,6 +143,14 @@ describe('Proxy DLP block mode (E2E)', { timeout: 20000 }, () => {
     const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, '/v1/messages/count_tokens?beta=true', anthropicBody(GH_TOKEN))
     expect(res.statusCode).toBe(422)
   })
+
+  // #856: the same request on a path spelled another way skipped DLP.
+  it.each(['/v1//messages/count_tokens', '/v1/messages/%63ount_tokens', '/v1/messages/count_tokens/'])(
+    'refuses it on %s too', async (path) => {
+      const res = await sendBody(testConfig.proxy.port, 'api.anthropic.com', caPem, path, anthropicBody(GH_TOKEN))
+      expect(res.statusCode).toBe(422)
+    },
+  )
 })
 
 // The token-counting endpoints the providers llm-fw parses offer, with the
