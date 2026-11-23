@@ -116,4 +116,7 @@ export interface GatewayModule {
 
   /** Reset in-memory statistics. */
   resetStats?(): void;
+
+  /** Release processes, timers or handles the module holds; called on shutdown. */
+  close?(): void;
 }

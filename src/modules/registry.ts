@@ -272,6 +272,17 @@ export class ModuleManager {
     this.modules.set(module.id, module)
   }
 
+  /**
+   * Release what modules hold outside a request: lean-ctx's sidecar process
+   * and its idle timer outlived a graceful stop (#863). One that throws does
+   * not keep the rest from closing.
+   */
+  close(): void {
+    for (const mod of this.modules.values()) {
+      try { mod.close?.() } catch { /* closing anyway */ }
+    }
+  }
+
   getModule(id: string): GatewayModule | undefined {
     return this.modules.get(id)
   }

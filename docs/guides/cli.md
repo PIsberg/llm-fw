@@ -12,7 +12,7 @@ Every command and flag, the built-in diagnostics, and the dashboard.
 | `llm-fw setup --proxy-only` | Skip the sinkhole; configure proxy mode only (no admin needed) |
 | `llm-fw setup-judge` | Install Ollama model and enable Stage 3 judge |
 | `llm-fw start` | Start proxy and dashboard. One instance runs at a time: a second `start` replaces the running one (including one `install-service` launched) and prints the PID it replaced |
-| `llm-fw stop` | Ask the running process to shut down gracefully (restores the hosts file and removes the port redirect if sinkhole mode, flushes the audit log), on Windows too; signals it after 5 s if it does not answer |
+| `llm-fw stop` | Ask the running process to shut down gracefully (restores the hosts file and removes the port redirect if sinkhole mode, closes the proxy, gateway, dashboard and modules, flushes the audit log; a step that has not finished after 10 s is named and the process exits anyway), on Windows too; signals it after 5 s if it does not answer |
 | `llm-fw status` | Show running state, enforcement (`observe` means nothing is blocked), proxy, sinkhole, gateway and dashboard URLs, as the running process recorded them in `<LLM_FW_DIR>/llm-fw.state.json` |
 | `llm-fw doctor` | Diagnose the interception setup and print a fix for anything that's off (`--json` for machine-readable output) |
 | `llm-fw install-service` | Register llm-fw to auto-start at login (Task Scheduler / launchd / systemd --user), for your user only and without admin rights |
