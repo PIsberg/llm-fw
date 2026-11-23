@@ -400,12 +400,23 @@ class OpenAIParser implements PayloadParser {
       // claimed): `prompt` is a string or a batch of strings, `suffix` the
       // text after an insertion point. Unread, every completions request
       // passed whatever it said (#857). A prompt of token ids holds no text
-      // to scan. The Responses API's `prompt` is a template reference object
-      // and is not read here.
+      // to scan.
       if (typeof data.prompt === 'string') {
         results.push(data.prompt)
       } else if (Array.isArray(data.prompt)) {
         for (const p of data.prompt) if (typeof p === 'string') results.push(p)
+      } else if (data.prompt && typeof data.prompt === 'object') {
+        // The Responses API's `prompt` names a stored template, and its
+        // `variables` are text the server substitutes into it: a string, or
+        // an input_text part. Unread before #857. Image and file variables
+        // carry no text here.
+        const variables = data.prompt.variables
+        if (variables && typeof variables === 'object' && !Array.isArray(variables)) {
+          for (const v of Object.values(variables)) {
+            if (typeof v === 'string') results.push(v)
+            else if (v && typeof v === 'object' && (v as { type?: unknown }).type === 'input_text' && typeof (v as { text?: unknown }).text === 'string') results.push((v as { text: string }).text)
+          }
+        }
       }
       if (typeof data.suffix === 'string') results.push(data.suffix)
 
@@ -587,6 +598,12 @@ class OpenAIParser implements PayloadParser {
         for (const item of data.input) {
           if (Array.isArray(item?.content)) for (const part of item.content) walkPart(part)
         }
+      }
+      // A Responses prompt template's image and file variables are media
+      // like any input part: decoded and scanned, or counted opaque (#857).
+      const variables = data.prompt?.variables
+      if (variables && typeof variables === 'object' && !Array.isArray(variables)) {
+        for (const v of Object.values(variables)) walkPart(v)
       }
       return out
     } catch { return [] }
