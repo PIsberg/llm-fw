@@ -78,26 +78,36 @@ function hasLeetWord(text: string): boolean {
     .some(word => LEET_INSIDE_WORD.test(word) && !HEX_RUN.test(word))
 }
 
+// base64, and base64url (- and _ for + and /, which Buffer decodes alike).
+// Matched apart: one pattern for both alphabets merged `token_<payload>` into
+// one misaligned match that decoded to noise, so a url-safe token counts only
+// when it holds a - or _, and the standard alphabet is matched as before.
 function decodeBase64Candidates(text: string): { text: string; source: string }[] {
-  const matches = text.match(/([A-Za-z0-9+/]{4,}=*)/g) || []
+  const urlSafe = (text.match(/[A-Za-z0-9_-]{4,}=*/g) || []).filter(m => /[-_]/.test(m))
+  const matches = [...(text.match(/[A-Za-z0-9+/]{4,}=*/g) || []), ...urlSafe]
   const results: { text: string; source: string }[] = []
   for (const match of matches) {
     if (match.length < 8) continue
     try {
       const decoded = Buffer.from(match, 'base64').toString('utf-8')
-      if (/[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x21-\x7E\s\u0400-\u04FF\u4E00-\u9FFF]+$/.test(decoded)) {
-        results.push({ text: decoded, source: 'base64' })
-      }
+      if (looksLikeText(decoded)) results.push({ text: decoded, source: 'base64' })
     } catch {}
   }
   return results
 }
 
+// What decoding garbage leaves: U+FFFD for bytes that are not UTF-8, control
+// characters other than whitespace, and private-use, unassigned or surrogate
+// code points.
+const NOT_TEXT = /[\u{FFFD}\p{Co}\p{Cn}\p{Cs}]|[^\P{Cc}\t\n\r]/u
+
 // A decoded blob "looks like text" if it has a run of letters/digits/space and
-// is confined to printable ASCII + common scripts (Latin-1, Cyrillic, CJK). The
-// same gate the base64/hex decoders use, factored out for the new decoders.
+// none of what decoding garbage leaves behind. Any script counts: the old gate
+// kept only printable ASCII, Cyrillic and CJK ideographs, so an encoded
+// instruction in French with accents, Greek, Arabic, Hebrew, Hindi, Thai,
+// kana or Hangul, or with typographic punctuation, was never decoded (#857).
 function looksLikeText(decoded: string): boolean {
-  return /[\p{L}\p{N}\s]{4,}/u.test(decoded) && /^[\x21-\x7E\sЀ-ӿ一-鿿]+$/.test(decoded)
+  return /[\p{L}\p{N}\s]{4,}/u.test(decoded) && !NOT_TEXT.test(decoded)
 }
 
 // RFC 4648 base32. Attackers uppercase or lowercase freely, so match both and
