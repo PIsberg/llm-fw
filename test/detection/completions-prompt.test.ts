@@ -61,9 +61,24 @@ describe('Responses API prompt template variables (#857)', () => {
     expect(prompts).toEqual(expect.arrayContaining(['Ada Lovelace', 'Prefers email.']))
   })
 
-  it('reads nothing from an image or file variable', () => {
+  it('reads nothing from an image or file variable as prompt text', () => {
     const prompts = o.extractPrompts(template({ photo: { type: 'input_image', image_url: 'https://x.example/a.png' } }))
     expect(prompts).toEqual(['Go.'])
+  })
+
+  // Commit security review of #892: image and file variables are media and
+  // get what an input part gets.
+  it('decodes a text file variable as media, and blocks an override in it', async () => {
+    const file = { type: 'input_file', filename: 'notes.txt', file_data: 'data:text/plain;base64,' + Buffer.from(OVERRIDE, 'utf-8').toString('base64') }
+    expect(o.extractMediaBlocks(template({ notes: file })).map(m => m.text)).toContain(OVERRIDE)
+    const result = await new Pipeline(structuredClone(DEFAULT_CONFIG)).run('/v1/responses', template({ notes: file }), { target: 'api.openai.com', method: 'POST', path: '/v1/responses' })
+    expect(result.action).toBe('block')
+  })
+
+  it('counts an image variable as opaque media, so block mode refuses it', async () => {
+    const config = { ...structuredClone(DEFAULT_CONFIG), nonText: { enabled: true, mode: 'block' as const } }
+    const result = await new Pipeline(config).run('/v1/responses', template({ photo: { type: 'input_image', image_url: 'https://x.example/a.png' } }), { target: 'api.openai.com', method: 'POST', path: '/v1/responses' })
+    expect(result.stage).toBe('non-text')
   })
 
   it('blocks an override carried in a template variable', async () => {

@@ -599,6 +599,12 @@ class OpenAIParser implements PayloadParser {
           if (Array.isArray(item?.content)) for (const part of item.content) walkPart(part)
         }
       }
+      // A Responses prompt template's image and file variables are media
+      // like any input part: decoded and scanned, or counted opaque (#857).
+      const variables = data.prompt?.variables
+      if (variables && typeof variables === 'object' && !Array.isArray(variables)) {
+        for (const v of Object.values(variables)) walkPart(v)
+      }
       return out
     } catch { return [] }
   }
