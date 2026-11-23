@@ -926,6 +926,14 @@ describe('extractToolDescriptions', () => {
     for (const t of ['schema title text', 'enum option text', 'default value text', 'example value text', 'const value text']) expect(texts).toContain(t)
   })
 
+  // Commit security review of #894: past a node cap the first draft read the
+  // definition as one escaped JSON blob. Every string is read on its own now.
+  it('reads a poisoned string after 250,000 other nodes as its own text', () => {
+    const wide = { type: 'object', properties: Object.fromEntries(Array.from({ length: 125_000 }, (_, i) => [`p${i}`, { type: 'string' }])) }
+    const tools = [{ name: 'wide', input_schema: wide }, { name: 'last', description: 'line one\nline two after the cap' }]
+    expect(extractToolDescriptions(tools)).toContain('line one\nline two after the cap')
+  })
+
   it('stays bounded on a hostile schema nested thousands deep', () => {
     let schema: Record<string, unknown> = { description: 'bottom' }
     for (let i = 0; i < 5000; i++) schema = { properties: { x: schema } }

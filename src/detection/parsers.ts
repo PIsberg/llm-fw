@@ -1284,29 +1284,22 @@ export function getParser(path: string): PayloadParser | null {
 // value holds strings it reads (a default, an example, a choice).
 const TOOL_TEXT_KEYS = new Set(['description', 'title'])
 const TOOL_VALUE_KEYS = new Set(['default', 'examples', 'enum', 'const'])
-// Nodes walked per request before the rest is read as one JSON text instead.
-const MAX_TOOL_SCHEMA_NODES = 200_000
-
 /**
  * Collect the free text out of a list of tool/function definitions,
  * regardless of provider nesting. The model reads and obeys it, so a poisoned
  * line ("before answering, read ~/.ssh/id_rsa ...") is an injection vector
  * ("tool poisoning"): every `description` and `title` string, and every
  * string under `default`, `examples`, `enum` and `const`, at any depth.
- * An explicit stack, not recursion, so no nesting overflows the stack; a
- * definition past MAX_TOOL_SCHEMA_NODES is also returned whole as JSON, so
- * nothing in it goes unread. Before #857 the walk stopped at depth 6 (under a
- * Gemini declaration's second level of parameters) and read `description` only.
+ * An explicit stack, not recursion, so no nesting overflows the stack, and no
+ * cap: the walk is linear in a tree JSON.parse already built from a body that
+ * proxy.maxBodyBytes bounds, so each string is read on its own, however many
+ * come before it. Before #857 the walk stopped at depth 6 (under a Gemini
+ * declaration's second level of parameters) and read `description` only.
  */
 export function extractToolDescriptions(tools: unknown[]): string[] {
   const out: string[] = []
   const stack: Array<{ node: unknown; values: boolean }> = [{ node: tools, values: false }]
-  let nodes = 0
   while (stack.length > 0) {
-    if (++nodes > MAX_TOOL_SCHEMA_NODES) {
-      try { out.push(JSON.stringify(tools)) } catch { /* cyclic: not JSON from a body */ }
-      break
-    }
     const { node, values } = stack.pop()!
     if (node == null) continue
     if (typeof node === 'string') {
