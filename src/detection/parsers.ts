@@ -64,7 +64,10 @@ function toolResultText(content: unknown): string {
   return content.map((b: any) => {
     if (typeof b === 'string') return b
     if (typeof b?.text === 'string') return b.text
-    if (Array.isArray(b?.content)) return toolResultText(b.content)
+    // A block's own title and context are text beside its content (#857).
+    if (Array.isArray(b?.content)) return [b.title, b.context].filter((s: unknown): s is string => typeof s === 'string' && s.length > 0).concat(toolResultText(b.content)).join('\n')
+    // Images and files in a Responses tool output are read as media (#857).
+    if (b?.type === 'input_image' || b?.type === 'input_file') return ''
     // Claude Code's tool search: a block that names a tool to load and holds
     // nothing else. Its JSON scored 98.8% injection on the classifier live.
     // One with any other field, or a name that is not a tool name, is scanned
@@ -562,7 +565,8 @@ class OpenAIParser implements PayloadParser {
         // Chat vision: {type:'image_url', image_url:{url}} — url may be a
         // data: URL carrying the actual bytes. Responses: {type:'input_image',
         // image_url: string | {url}}.
-        if (part.type === 'image_url' || part.type === 'input_image') {
+        // computer_call_output's screenshot is an image part by another name.
+        if (part.type === 'image_url' || part.type === 'input_image' || part.type === 'computer_screenshot') {
           const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url
           const block = mediaBlockFromUrl('image', url)
           if (block) out.push(block)
@@ -597,6 +601,12 @@ class OpenAIParser implements PayloadParser {
       if (Array.isArray(data.input)) {
         for (const item of data.input) {
           if (Array.isArray(item?.content)) for (const part of item.content) walkPart(part)
+          // A tool's output can hold images and files too (#857): a function
+          // output's parts, and computer_call_output's screenshot object.
+          if (typeof item?.type === 'string' && item.type.endsWith('_call_output')) {
+            if (Array.isArray(item.output)) for (const part of item.output) walkPart(part)
+            else if (item.output && typeof item.output === 'object') walkPart(item.output)
+          }
         }
       }
       // A Responses prompt template's image and file variables are media
@@ -978,7 +988,12 @@ class GeminiParser implements PayloadParser {
       if (Array.isArray(data.contents)) {
         for (const content of data.contents) {
           if (!Array.isArray(content?.parts)) continue
-          for (const part of content.parts) {
+          // A functionResponse can carry media parts of its own (#857).
+          const parts = content.parts.flatMap((part: any) => {
+            const fr = part?.functionResponse ?? part?.function_response
+            return fr && Array.isArray(fr.parts) ? [part, ...fr.parts] : [part]
+          })
+          for (const part of parts) {
             // REST uses inlineData/fileData (camelCase); some SDKs emit snake_case.
             const inline = part?.inlineData ?? part?.inline_data
             const file = part?.fileData ?? part?.file_data
