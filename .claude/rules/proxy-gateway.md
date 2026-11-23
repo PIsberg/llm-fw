@@ -136,6 +136,12 @@ Rules that must not regress:
 These are real and load-bearing. If you change one, it is a behaviour change
 that needs a changelog entry, not a cleanup.
 
+- **The MCP request checks are shared.** `checkMcpRequest`
+  (`src/detection/mcp/requestCheck.ts`) decides tool definitions and tool
+  results for both the proxy and the gateway (#866); change it there, not in
+  either surface. The gateway also runs the URL-path exfil check. It does not
+  run the process-wide DoS quota, the loop detector or taint (#912).
+
 - **Response-side scanning is proxy-only, except the canary.** The gateway runs
   the request-side pipeline and streams responses through untouched. The one
   exception is `responseScan.canary` (#552): with it on, the gateway adds the

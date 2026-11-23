@@ -49,6 +49,7 @@ import { ExfilStreamHold } from './streamExfil.js'
 import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
 import { createLogger, urlForLog } from '../logger.js'
+import { checkMcpRequest } from '../detection/mcp/requestCheck.js'
 import { sniName } from './sni.js';
 
 const log = createLogger('proxy');
@@ -1201,70 +1202,17 @@ export class ProxyServer {
       if (this.config.mcp.enabled && getParser(innerReq.url ?? '/') !== null) {
         mcpInspectResponse = true
         const parser = getParser(innerReq.url ?? '/')!
-        const tools = parser.extractTools(body)
-        if (tools.length > 0) {
-          const defResult = this.mcp.checkToolDefinitions(tools)
-          if (defResult.action === 'block') {
-            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify({ error: defResult.reason }))
-            emitEvent({
-              stage: 'mcp-filter',
-              score: 100, similarity: 0,
-              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Blocked tool definition`, payload_full: JSON.stringify(tools),
-              action: 'blocked', kind: 'mcp'
-            })
-            return
-          } else if (defResult.audit) {
-            emitEvent({
-              stage: 'mcp-filter', score: 50, similarity: 0,
-              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Audit: would block tool definition (${defResult.reason ?? ''})`, payload_full: JSON.stringify(tools),
-              action: 'warned', kind: 'mcp'
-            })
-          } else {
-            emitEvent({
-              stage: 'mcp-filter', score: 0, similarity: 0,
-              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Exposed ${tools.length} tools to LLM`, payload_full: JSON.stringify(tools),
-              action: 'passed', kind: 'mcp'
-            })
-          }
+        // Shared with the gateway (#866). A thread continuation's result
+        // arrives without its call (Claude Code through the proxy); the call
+        // came in the response before it.
+        const checked = checkMcpRequest(parser, body, this.mcp, id => this.pipeline.learnedCall(id)?.name)
+        for (const e of checked.events) {
+          emitEvent({ ...e, target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/' })
         }
-
-        // A thread continuation's result arrives without its call (Claude Code
-        // through the proxy); the call came in the response before it.
-        const toolResults = parser.extractToolResults(body).map(tr =>
-          tr.toolName !== undefined ? tr : { ...tr, toolName: this.pipeline.learnedCall(tr.toolUseId)?.name })
-        for (const tr of toolResults) {
-          const resResult = this.mcp.checkToolResult(tr.toolUseId, tr.result)
-          if (resResult.action === 'block') {
-            innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
-            innerRes.end(JSON.stringify({ error: resResult.reason }))
-            emitEvent({
-              stage: 'mcp-filter',
-              score: 100, similarity: 0,
-              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Blocked tool result (id ${tr.toolUseId})`, payload_full: tr.result,
-              action: 'blocked', kind: 'mcp', ...(tr.toolName ? { mcpTool: tr.toolName } : {})
-            })
-            return
-          } else if (resResult.audit) {
-            emitEvent({
-              stage: 'mcp-filter', score: 50, similarity: 0,
-              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              payload_preview: `Audit: would block tool result (id ${tr.toolUseId}) — ${resResult.reason ?? ''}`, payload_full: tr.result,
-              action: 'warned', kind: 'mcp', ...(tr.toolName ? { mcpTool: tr.toolName } : {})
-            })
-          } else {
-            emitEvent({
-              stage: 'mcp-filter', score: 0, similarity: 0,
-              target: hostname, method: innerReq.method ?? 'GET', path: innerReq.url ?? '/',
-              // The tool it answers, so the MCP tab can group calls and results (#591).
-              payload_preview: tr.toolName ? `Tool result returned from ${tr.toolName} (id ${tr.toolUseId})` : `Tool result returned (id ${tr.toolUseId})`, payload_full: tr.result,
-              action: 'passed', kind: 'mcp', ...(tr.toolName ? { mcpTool: tr.toolName } : {})
-            })
-          }
+        if (checked.refusal !== null) {
+          innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
+          innerRes.end(JSON.stringify({ error: checked.refusal }))
+          return
         }
       }
 
@@ -1610,6 +1558,40 @@ export class ProxyServer {
       const body = JSON.stringify({ error: 'websocket not inspectable', detail: refusal.detail })
       client.end(`HTTP/1.1 ${refusal.status} ${refusal.reason}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`)
       return
+    }
+
+    // The checks an HTTP request on this host passes first (#866): an upgrade
+    // skipped them. Rate and session budget count a session as one request.
+    const refuseUpgrade = (status: number, reason: string, body: Record<string, unknown>, extra = ''): void => {
+      const text = JSON.stringify(body)
+      client.end(`HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(text)}\r\n${extra}Connection: close\r\n\r\n${text}`)
+    }
+    if (this.config.dos.enabled) {
+      const q = this.quota.checkRpm()
+      const why = !q.allowed ? 'rate limit exceeded' : this.quota.sessionExceeded() ? 'session token budget exceeded' : null
+      if (why !== null) {
+        this.eventBus.emit({
+          stage: 'dos', score: 100, similarity: 0, target: hostname, method: 'WS', path,
+          payload_preview: why, payload_full: why, action: 'blocked', kind: 'dos', dosReason: why,
+        })
+        refuseUpgrade(429, 'Too Many Requests', { error: why }, q.allowed ? '' : `Retry-After: ${q.retryAfterSec}\r\n`)
+        return
+      }
+    }
+    if (this.config.proxy.urlFilter.enabled) {
+      const verdict = this.urlClassifier.classifyPath(path)
+      if (verdict.action === 'block') {
+        const observing = this.config.enforcement === 'observe'
+        this.eventBus.emit({
+          stage: 'url-filter', score: 100, similarity: 0, target: hostname, method: 'WS', path,
+          payload_preview: path.slice(0, 120), payload_full: path, action: 'blocked', kind: 'url', urlBlockReason: verdict.reason,
+          ...(observing ? { enforced: false } : {}),
+        })
+        if (!observing) {
+          refuseUpgrade(this.config.blockStatus ?? 422, 'Unprocessable Entity', { error: 'url blocked', reason: verdict.reason })
+          return
+        }
+      }
     }
 
     let upstream: tls.TLSSocket

@@ -336,4 +336,26 @@ describe('Realtime API over WebSocket through the proxy (#270)', { timeout: 60_0
       session.socket.destroy()
     }
   })
+
+  // #866: an upgrade skipped the request-rate limit and the URL-path exfil
+  // check every HTTP request on the same host passes through.
+  it('refuses an upgrade over the request-rate limit, with 429', async () => {
+    const saved = config.dos.maxRequestsPerMinute
+    config.dos.maxRequestsPerMinute = 0
+    try {
+      const { status, session } = await open()
+      expect(status).toContain('429')
+      session.socket.destroy()
+      expect(events.some(e => e.stage === 'dos' && e.method === 'WS')).toBe(true)
+    } finally {
+      config.dos.maxRequestsPerMinute = saved
+    }
+  })
+
+  it('refuses an upgrade whose path carries data out, with the block status', async () => {
+    const { status, session } = await open('/v1/realtime?model=gpt-realtime&data=foo')
+    expect(status).toContain(String(DEFAULT_CONFIG.blockStatus ?? 422))
+    session.socket.destroy()
+    expect(events.some(e => e.stage === 'url-filter' && e.action === 'blocked')).toBe(true)
+  })
 })
