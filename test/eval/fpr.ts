@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.90 (#857: tool definitions read at any depth and for title, default, examples,
+  // enum and const; verdicts:diff 0 of 31,323; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.89 (#857: a Codex AGENTS.md envelope is read by the planted-instruction and
   // credential-file rules; no row holds one; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.88 (#857: Responses API prompt template variables are read; these rows go

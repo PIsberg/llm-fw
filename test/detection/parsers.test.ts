@@ -904,6 +904,33 @@ describe('extractToolDescriptions', () => {
     expect(extractToolDescriptions([{ name: 'x' }])).toEqual([])
     expect(extractToolDescriptions([])).toEqual([])
   })
+
+  // #857: the walk stopped at depth 6, under a Gemini declaration's second
+  // level of nested parameters, and read only `description`, while the model
+  // reads a schema's title, default, examples, enum and const as well.
+  it('reaches a parameter description nested as deep as a real schema goes', () => {
+    let schema: Record<string, unknown> = { type: 'string', description: 'deep parameter text' }
+    for (let i = 0; i < 6; i++) schema = { type: 'object', properties: { [`level${i}`]: schema } }
+    const tools = [{ functionDeclarations: [{ name: 'deep', parameters: schema }] }]
+    expect(extractToolDescriptions(tools)).toContain('deep parameter text')
+  })
+
+  it('reads title, default, examples, enum and const strings', () => {
+    const tools = [{
+      name: 'pick',
+      input_schema: { type: 'object', title: 'schema title text', properties: {
+        mode: { type: 'string', enum: ['fast', 'enum option text'], default: 'default value text', examples: ['example value text'], const: 'const value text' },
+      } },
+    }]
+    const texts = extractToolDescriptions(tools)
+    for (const t of ['schema title text', 'enum option text', 'default value text', 'example value text', 'const value text']) expect(texts).toContain(t)
+  })
+
+  it('stays bounded on a hostile schema nested thousands deep', () => {
+    let schema: Record<string, unknown> = { description: 'bottom' }
+    for (let i = 0; i < 5000; i++) schema = { properties: { x: schema } }
+    expect(() => extractToolDescriptions([{ name: 'evil', input_schema: schema }])).not.toThrow()
+  })
 })
 
 describe('GeminiParser – extractToolUses', () => {
