@@ -9,7 +9,7 @@ import { detectCrescendo } from '../../src/detection/crescendo.js'
 import { detectHiddenChars } from '../../src/detection/asciiSmuggling.js'
 import { extractCandidates, normalize } from '../../src/detection/normalize.js'
 import type { ConversationTurn } from '../../src/types.js'
-import { LINEAR_TIME_TIMEOUT, underMs } from '../linearTime.js'
+import { LINEAR_TIME_TIMEOUT, fastestMs, underMs } from '../linearTime.js'
 
 // #914: the domain detectors read the raw text, and Stage S blocks only the
 // invisibles it calls smuggling channels. A zero-width space, a soft hyphen or a
@@ -124,9 +124,14 @@ describe('#914 homoglyph folding', () => {
     expect(underMs(500, () => normalize(`Note: ${`${the} `.repeat(50_000)}`))).toBeLessThan(500)
   })
 
-  it('reads 200 KB of words joined by invisibles in linear time', { timeout: LINEAR_TIME_TIMEOUT }, () => {
-    expect(underMs(500, () => extractCandidates(`ab${CGJ}`.repeat(70_000)))).toBeLessThan(500)
-    expect(underMs(500, () => extractCandidates(`ignore${INVISIBLE_SEP}`.repeat(30_000)))).toBeLessThan(500)
+  // A ratio, not a ceiling: these take about 190 ms alone at 200 KB, close
+  // enough to a 500 ms ceiling that a loaded full run went over it. Four
+  // times the input takes about four times as long; a quadratic read, sixteen.
+  it.each([['U+034F', `ab${CGJ}`], ['U+2063', `ignore${INVISIBLE_SEP}`]])('reads 200 KB of words joined by %s in linear time', { timeout: LINEAR_TIME_TIMEOUT }, (_label, unit) => {
+    const small = unit.repeat(Math.ceil(50_000 / unit.length))
+    const big = unit.repeat(Math.ceil(200_000 / unit.length))
+    const ratio = fastestMs(() => extractCandidates(big)) / fastestMs(() => extractCandidates(small))
+    expect(ratio).toBeLessThan(8)
   })
 
   it('leaves look-alike words between Cyrillic words alone', () => {
