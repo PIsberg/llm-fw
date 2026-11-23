@@ -57,12 +57,13 @@ type ScanCursor = {
  * carries signal. `caesar` is additionally gated on override keywords already
  * appearing in the shifted text, and fired on 0 of the 97 corpus texts.
  */
-// A deferred warn. `reported` is set once its event has been emitted, and the
-// record is shared with the item cache, so a history item an agent resends on
-// every call warns in the event log once rather than once per request (#290).
+// A deferred warn. The record is shared with the item cache, so nothing about
+// who saw it is kept on it (#860): a history item an agent resends on every
+// call warns in the event log once per tenant and session, through
+// Pipeline.firstReport, rather than once per request (#290).
 // scanned: the text the stage scored, when `prompt` is only a display line;
 // it becomes the event's full payload and its suppression key.
-interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; reported?: boolean; scanned?: string }
+interface PendingWarn { result: PipelineResult; prompt: string; source: ScanSource; scanned?: string }
 /** Why a non-empty request body cannot be read exactly as JSON, or null when it can. */
 function malformedBody(body: string): string | null {
   if (body.trim() === '') return null
@@ -102,8 +103,8 @@ interface ItemOutcome {
 }
 
 /** The first warn wins, except that one already reported yields to one that is not. */
-function firstWarn(a: PendingWarn | null, b: PendingWarn | null): PendingWarn | null {
-  return a && !(a.reported && b && !b.reported) ? a : b
+function firstWarn(a: PendingWarn | null, b: PendingWarn | null, reported: (w: PendingWarn) => boolean): PendingWarn | null {
+  return a && !(b && reported(a) && !reported(b)) ? a : b
 }
 // About one long agent session's worth of distinct history items, several
 // times over; an entry is a hash and a few numbers unless the item warned.
@@ -471,6 +472,8 @@ export class Pipeline {
     // the crescendo check below) so an operator-suppressed crescendo block can
     // downgrade into it too.
     let pendingWarn: PendingWarn | null = null
+    // Whether this tenant and session were told of a warn already (#860).
+    const reported = (w: PendingWarn): boolean => this.reportedOnce.has(this.warnKey(w, meta))
 
     // Stage C — Multi-turn crescendo. Operates on the WHOLE conversation (the
     // request resends every turn), not a single surface, so it runs once here
@@ -750,7 +753,7 @@ export class Pipeline {
             result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
             prompt: trustedPath ? `[trusted-path] ${trustedPath}: ${line}` : line,
             source,
-          })
+          }, reported)
         }
         continue
       }
@@ -777,7 +780,7 @@ export class Pipeline {
         known = await pending
       }
       if (known) {
-        pendingWarn = firstWarn(pendingWarn, known.warn)
+        pendingWarn = firstWarn(pendingWarn, known.warn, reported)
         lastScore = Math.max(lastScore, known.score)
         lastSim = Math.max(lastSim, known.sim)
         continue
@@ -803,7 +806,7 @@ export class Pipeline {
         if (itemText === meta.newestPrompt) meta = { ...meta, newestPrompt: near.text }
         prompt = near.text
         if (prompt === '') {
-          pendingWarn = firstWarn(pendingWarn, nearWarn)
+          pendingWarn = firstWarn(pendingWarn, nearWarn, reported)
           continue
         }
       }
@@ -1388,7 +1391,7 @@ export class Pipeline {
       }
       at.claim?.(outcome)
       at.claim = null
-      pendingWarn = firstWarn(warnBeforeItem, pendingWarn)
+      pendingWarn = firstWarn(warnBeforeItem, pendingWarn, reported)
       lastScore = Math.max(scoreBeforeItem, lastScore)
       lastSim = Math.max(simBeforeItem, lastSim)
     }
@@ -1400,8 +1403,10 @@ export class Pipeline {
     // embedding warn if any candidate crossed the warn threshold; otherwise pass.
     if (opaqueAudit) this.emitNonTextWarn(opaqueAudit, meta)
     if (pendingWarn) {
-      if (!pendingWarn.reported) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, pendingWarn.scanned ?? null)
-      pendingWarn.reported = true
+      // Reported once per tenant and session. A repeat still counts toward
+      // the session's probes; noteProbe ignores a text it has seen (#860).
+      if (this.firstReport(this.warnKey(pendingWarn, meta))) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, pendingWarn.scanned ?? null)
+      else this.noteProbe(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, pendingWarn.scanned ?? null)
       return pendingWarn.result
     }
 
@@ -1449,6 +1454,14 @@ export class Pipeline {
     this.itemCache.clear()
     this.reportedOnce.clear()
     this.itemCacheFingerprint = fingerprint
+  }
+
+  /** Who a warn was reported to, and what it was about (#860). */
+  private warnKey(w: PendingWarn, meta: { tenant?: string; sessionKey?: string }): string {
+    return createHash('sha256')
+      .update(`warn\0${meta.tenant ?? ''}\0${meta.sessionKey ?? ''}\0${w.source}\0${w.result.stage}\0`)
+      .update(w.result.prompt ?? '').update('\0').update(w.scanned ?? '').update('\0').update(w.prompt)
+      .digest('hex')
   }
 
   /** True the first time `key` is seen since the last clear. */
@@ -1653,7 +1666,7 @@ export class Pipeline {
     // was withheld with no event for the operator to mark.
     const key = scanned === null ? null : result.stage === 'ascii-smuggling' ? rawSuppressionKey(scanned, source) : suppressionKey(scanned, source)
     if ((observing || withheld === true) && result.action === 'block'
-      && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${source}\0${result.stage}\0${key ?? prompt}`).digest('hex'))) return
+      && !this.firstReport(createHash('sha256').update(`block\0${meta.tenant ?? ''}\0${meta.sessionKey ?? ''}\0${source}\0${result.stage}\0${key ?? prompt}`).digest('hex'))) return
     // Tag the provenance inline so a tool-result (indirect) or tool-definition
     // (poisoning) hit is distinguishable from a direct prompt injection in the
     // existing Live Traffic UI without a schema change.

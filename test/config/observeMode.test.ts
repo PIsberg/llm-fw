@@ -53,6 +53,25 @@ describe('applyObserveMode — every content gate relaxed', () => {
     expect(config.responseScan?.toolUse?.mode).toBe('audit')
   })
 
+  // #860: memoryPoisoning was missing from the list, so its block mode
+  // still refused memory writes under --observe. Walks the whole config, so
+  // a gate added later without its line here fails too.
+  it('leaves no content gate in block mode, whatever was configured', () => {
+    const config = structuredClone(DEFAULT_CONFIG)
+    const modes: { holder: Record<string, unknown>; path: string }[] = []
+    const walk = (node: unknown, path: string): void => {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return
+      const holder = node as Record<string, unknown>
+      if (holder.mode === 'audit' || holder.mode === 'block' || holder.mode === 'redact') modes.push({ holder, path })
+      for (const [k, v] of Object.entries(holder)) walk(v, path ? `${path}.${k}` : k)
+    }
+    walk(config, '')
+    expect(modes.map(m => m.path)).toContain('memoryPoisoning')
+    for (const m of modes) m.holder.mode = 'block'
+    applyObserveMode(config)
+    expect(modes.filter(m => m.holder.mode === 'block').map(m => m.path)).toEqual([])
+  })
+
   it('overrides a detector an operator had explicitly set to block', () => {
     // Observe has to win over the config file and env layers, or the one gate
     // that slipped through is the one that breaks an agent on day one.

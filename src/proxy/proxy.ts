@@ -578,7 +578,7 @@ export class ProxyServer {
         if (findings.length) {
           const f = findings[0]!
           const detail = `Outbound connection to a host named in untrusted content: ${maskToken(f.token)}`
-          if (this.config.taint?.mode === 'block') {
+          if (this.gateMode(this.config.taint?.mode) === 'block') {
             const errBody = JSON.stringify({ error: 'tainted destination blocked', category: f.category })
             clientSocket.write(
               `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(errBody)}\r\nConnection: close\r\n\r\n${errBody}`
@@ -977,7 +977,7 @@ export class ProxyServer {
         if (findings.length) {
           const f = findings[0]!
           const detail = `Untrusted ${f.category} from a prior tool result reused in outbound request: ${maskToken(f.token)}`
-          if (this.config.taint?.mode === 'block') {
+          if (this.gateMode(this.config.taint?.mode) === 'block') {
             innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
             innerRes.end(JSON.stringify({ error: 'tainted data flow blocked', category: f.category }))
             emitEvent({
@@ -1013,7 +1013,7 @@ export class ProxyServer {
           const types = Array.from(new Set(findings.map(f => f.type)))
           const dlpLocations = locateDlpFindings(getParser(dlpPath), body, findings)
           const typeSummary = types.join(', ') + locationSummary(dlpLocations)
-          const mode = this.config.dlp.mode
+          const mode = this.gateMode(this.config.dlp.mode)
 
           if (mode === 'block') {
             innerRes.writeHead(this.config.blockStatus ?? 422, { 'Content-Type': 'application/json' })
@@ -1397,7 +1397,7 @@ export class ProxyServer {
     if (!this.config.responseScan?.enabled) return null
     const findings = scanResponseExfil(text, this.isExfilDestination)
     if (!findings.length) return null
-    const block = this.config.responseScan.mode === 'block' && canNeutralize
+    const block = this.gateMode(this.config.responseScan.mode) === 'block' && canNeutralize
     this.emitExfil(findings, block, req, hostname)
     return block ? neutralizeExfil(text, findings) : null
   }
@@ -1432,7 +1432,7 @@ export class ProxyServer {
     const raw = scanResponseExfil(text, this.isExfilDestination)
     const fields = scanJsonTextFields(text, this.isExfilDestination, raw)
     if (!raw.length && !fields.length) return text
-    const block = this.config.responseScan.mode === 'block'
+    const block = this.gateMode(this.config.responseScan.mode) === 'block'
     this.emitExfil([...raw, ...fields], block, req, hostname)
     if (!block) return text
     return neutralizeJsonExfil(text, this.isExfilDestination, raw)
@@ -1500,7 +1500,7 @@ export class ProxyServer {
       // the proxy degrades gracefully to the regex layer above.
       const verdict = await this.outputClassifier.classify(text)
       if (verdict?.flagged) {
-        const block = this.config.responseScan.mode === 'block' && canBlock
+        const block = this.gateMode(this.config.responseScan.mode) === 'block' && canBlock
         this.eventBus.emit({
           stage: 'none',
           score: Math.round(verdict.score * 100),
@@ -1531,6 +1531,16 @@ export class ProxyServer {
    * it always degrades to audit — same rule as runResponseHarmScan's
    * classifier layer. Returns true when the caller must BLOCK the response.
    */
+  /**
+   * A gate's mode as it applies now: `audit` whenever the deployment observes
+   * (#860). `applyObserveMode` relaxes every mode at start and on reload, but
+   * `config.enforcement` is the switch, so a gate reads it on every request
+   * rather than trusting each mode to have been rewritten.
+   */
+  private gateMode<M extends string>(mode: M | undefined): M | 'audit' | undefined {
+    return this.config.enforcement === 'observe' ? 'audit' : mode
+  }
+
   private runToolUseScan(calls: ScannedToolCall[], req: http.IncomingMessage, hostname: string, canBlock: boolean): boolean {
     if (!this.config.responseScan?.enabled) return false
     if (calls.length === 0) return false
@@ -1544,7 +1554,7 @@ export class ProxyServer {
     let memoryBlock = false
     if (this.config.memoryPoisoning?.enabled) {
       const memFindings = scanToolCallsForMemoryPoisoning(calls)
-      const memBlockMode = this.config.memoryPoisoning.mode === 'block' && canBlock
+      const memBlockMode = this.gateMode(this.config.memoryPoisoning.mode) === 'block' && canBlock
       for (const f of memFindings) {
         this.eventBus.emit({
           stage: 'memory-poisoning',
@@ -1566,7 +1576,7 @@ export class ProxyServer {
     const findings = scanToolCallsForExfil(calls, this.dlp, (h, p) => this.urlClassifier.classifyDetailed(h, p).action === 'block')
     if (findings.length === 0) return memoryBlock
 
-    const block = (cfg?.mode ?? 'audit') === 'block' && canBlock
+    const block = this.gateMode(cfg?.mode ?? 'audit') === 'block' && canBlock
     for (const f of findings) {
       const parts: string[] = []
       if (f.dlpFindings.length) parts.push(`secrets: ${[...new Set(f.dlpFindings.map(d => d.label))].join(', ')}`)
@@ -1654,7 +1664,8 @@ export class ProxyServer {
     // #539: the system-prompt canary goes in after detection has passed the
     // request, and only when there is a system prompt to leak.
     let canary: string | null = null
-    if (isLlmRequest && !passThrough && this.config.responseScan?.canary?.enabled) {
+    // Not while observing (#860): observation forwards the request as sent.
+    if (isLlmRequest && !passThrough && this.config.responseScan?.canary?.enabled && this.config.enforcement !== 'observe') {
       const token = canaryToken(getLlmFwDir())
       const injected = injectCanary(req.url ?? '/', body.toString('utf8'), token)
       if (injected !== null) { body = Buffer.from(injected, 'utf8'); canary = token }
@@ -1763,7 +1774,7 @@ export class ProxyServer {
       const responseScanActive = this.config.responseScan?.enabled === true
       const wantInspect = !passThrough && (mcpActive || responseScanActive || canary !== null)
       const watch = canary !== null ? new CanaryWatch(canary) : null
-      const canaryBlocks = this.config.responseScan?.canary?.mode === 'block'
+      const canaryBlocks = this.gateMode(this.config.responseScan?.canary?.mode) === 'block'
       // Set once the canary cut the stream: later upstream bytes are dropped.
       let cut = false
       const maxResp = bodyCap(this.config.proxy.maxBodyBytes)
@@ -1849,7 +1860,7 @@ export class ProxyServer {
       const begin = (initial: Buffer) => {
         if (mode === 'sse') {
           gate = mcpActive ? createSseGate(parser!, this.mcp, req.url ?? '') : null
-          if (responseScanActive && this.config.responseScan?.mode === 'block') {
+          if (responseScanActive && this.gateMode(this.config.responseScan?.mode) === 'block') {
             hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
           }
           res.writeHead(status, inspectedHeaders())
@@ -2164,7 +2175,7 @@ export class ProxyServer {
 
     // #551: a stored stream is complete, so block mode judges it before a
     // byte is written and refuses it as a buffered body would be.
-    if (this.config.responseScan?.enabled && this.config.responseScan.mode === 'block') {
+    if (this.config.responseScan?.enabled && this.gateMode(this.config.responseScan.mode) === 'block') {
       // The hold reads the URL a stream assembles across deltas; the scan of
       // the whole body also sees markup the hold's state machine settles on
       // differently.

@@ -758,6 +758,8 @@ export function applyObserveMode(config: Config): void {
   if (config.crescendo) config.crescendo.mode = 'audit';
   if (config.indirectInstruction) config.indirectInstruction.mode = 'audit';
   if (config.harmfulRequest) config.harmfulRequest.mode = 'audit';
+  // #860: missing here, so memory-write tool calls still blocked under --observe.
+  if (config.memoryPoisoning) config.memoryPoisoning.mode = 'audit';
   if (config.responseScan) {
     config.responseScan.mode = 'audit';
     if (config.responseScan.toolUse) config.responseScan.toolUse.mode = 'audit';
