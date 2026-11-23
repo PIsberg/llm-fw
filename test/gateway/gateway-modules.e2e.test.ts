@@ -399,6 +399,28 @@ def calculate(x):
     }
   })
 
+  // #871: the response cache stored what the provider sent, usage chunk
+  // included, and replayed it as it was, so a cache hit brought back the chunk
+  // the stream usage reporter had dropped from the first answer.
+  it('drops the usage chunk from a cache hit too', async () => {
+    moduleManager.setModuleEnabled('stream-usage', true)
+    config.modules!.responseCache!.enabled = true
+    try {
+      calls = []
+      const payload = JSON.stringify({ model: 'test', stream: true, messages: [{ role: 'user', content: 'cache this stream' }] })
+      const first = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      const second = await reqHttp(GATEWAY_PORT, 'POST', '/v1/chat/completions', payload, { 'x-llm-fw-key': TOKEN })
+      expect(calls).toHaveLength(1)
+      expect(second.headers['x-llm-fw-cache']).toBe('hit')
+      expect(first.body).not.toContain('"usage":{')
+      expect(second.body).toContain('Hello')
+      expect(second.body).not.toContain('"usage":{')
+    } finally {
+      config.modules!.responseCache!.enabled = false
+      moduleManager.setModuleEnabled('stream-usage', false)
+    }
+  })
+
   it('SSE endpoint /events receives replayed module events', async () => {
     const body = await new Promise<string>((resolve, reject) => {
       const request = http.request(

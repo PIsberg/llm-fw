@@ -298,6 +298,10 @@ export class GatewayServer {
       const sent = decision.body.toString('utf-8');
       const answer = moduleCtx ? this.modules.respond(sent, moduleCtx) : undefined;
       if (answer) {
+        // A hit is the provider's answer as stored, usage chunk and tool calls
+        // included (#871): drop the chunk as the live path does, and learn the calls.
+        if (decision.stripStreamUsage) stripUsageChunk(res);
+        if (this.pipeline.wantsCalls()) this.pipeline.learnCalls(answer.response);
         writeCapturedResponse(res, answer.response);
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev);
         return;

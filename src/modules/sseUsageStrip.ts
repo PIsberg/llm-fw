@@ -40,6 +40,13 @@ function headerValue(headers: Record<string, unknown> | undefined, name: string)
  * content-encoding; anything else passes through untouched. Events are held
  * only until their blank-line end arrives, so the stream keeps streaming.
  */
+/**
+ * Most text held waiting for an event's end. A stream that never ends an
+ * event (no blank lines) was held whole (#871); past this the held text and
+ * the rest of the stream pass through unexamined.
+ */
+const MAX_PENDING = 1024 * 1024
+
 export function stripUsageChunk(res: http.ServerResponse): void {
   const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => http.ServerResponse
   const write = res.write.bind(res) as (...args: unknown[]) => boolean
@@ -96,7 +103,12 @@ export function stripUsageChunk(res: http.ServerResponse): void {
     decide()
     if (!active) return write(chunk, encoding, cb)
     pending += text(chunk, encoding)
-    const out = drain(false)
+    let out = drain(false)
+    if (pending.length > MAX_PENDING) {
+      out += pending
+      pending = ''
+      active = false
+    }
     const done = typeof encoding === 'function' ? encoding : cb
     if (!out) {
       if (typeof done === 'function') process.nextTick(done)

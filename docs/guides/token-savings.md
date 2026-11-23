@@ -677,7 +677,7 @@ How llm-fw runs lean-ctx:
   instruction: there is no retrieve tool behind llm-fw, and the instruction
   would land in a tool result that llm-fw's detectors scan.
 - Each result's output is decided the first time it is seen and remembered
-  for the last 4,096 results, so a history comes out the same on every turn.
+  for the last 4,096 results, and at most 64 M characters of them (#871), so a history comes out the same on every turn.
   lean-ctx's output for a given result was byte-identical in 834 of 834
   samples, across a restart of lean-ctx too. The exception is a result
   forwarded whole because lean-ctx did not answer in time: after llm-fw
@@ -958,7 +958,10 @@ the option. When the client did not ask for it, the proxy and the gateway
 drop that chunk from the stream the client receives, after the Usage Meter
 has read it, so the client gets the stream it asked for. A client that set
 `include_usage` itself gets the chunk as before. No message text is touched,
-so the prompt cache is unaffected.
+so the prompt cache is unaffected. A response cache hit is filtered the same
+way (#871): the cache stores what the provider sent, chunk included. The filter
+holds at most 1 MiB waiting for an event to end; a stream that never ends one
+passes through unfiltered past that.
 
 Checked on 2026-10-19 with openai-node 7.39.0 and openai-python 3.35.1 against
 a local stand-in that streams the way the API does with the option set
@@ -1092,7 +1095,7 @@ TTL is short.
 | --- | --- | --- |
 | `ttlSeconds` | `300` | How long a stored response may be replayed. |
 | `maxEntries` | `100` | Responses kept; the least recently used goes first. |
-| `maxEntryBytes` | `524288` | Largest response body stored. With the defaults the cache holds at most about 50 MB. |
+| `maxEntryBytes` | `524288` | Largest response body stored. With the defaults the cache holds at most about 50 MB, and whatever the two settings allow, never more than 64 MiB (#871). |
 
 The key is the target, method, the URL as the client sent it (query
 included, since Google takes its key as `?key=`), tenant, client address,
