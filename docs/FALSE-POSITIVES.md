@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.82
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes only the response-side MCP tool gate (`src/detection/mcp/responseGate.ts`, and `extractToolUses` in `parsers.ts`, which only response-side code calls), which no prompt verdict reads (#851).
+
 ## Result, ruleset 2026.11.81
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes only the URL classifier (`src/detection/urlHeuristic.ts`), which the request pipeline never calls; the proxy uses it for CONNECT targets, response URLs and tool-call arguments. Host names are compared lowercase without a trailing dot, and the auth-path exemption from the query exfil check now holds only on allowlisted hosts (#848). Of 2,231 local Claude Code and Codex transcripts, 1 distinct URL has an auth path and it does not start blocking.
