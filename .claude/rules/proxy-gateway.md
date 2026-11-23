@@ -56,8 +56,12 @@ Rules that must not regress:
 - A compressed LLM request body (`Content-Encoding` gzip, br, deflate, zstd)
   is decoded before DLP, modules and detection, and forwarded decoded without
   the header (`src/proxy/contentEncoding.ts`, proxy and gateway). An encoding
-  that cannot be decoded answers 415, a corrupt one 400, one that expands past
-  `maxBodyBytes` 413: never forward a body nothing could read. Pinned by
+  that cannot be decoded, or a chain of more than `MAX_ENCODINGS` (3), answers
+  415, a corrupt one 400, one that expands past `maxBodyBytes` 413, and past
+  `MAX_DECODED_BYTES` (128 MiB) when `maxBodyBytes` is 0 (`decodeCap`, #861:
+  decoding is synchronous, and bodyCap's ~4 GiB let one small bomb take the
+  process down). Responses go through the same decoder. Never forward a body
+  nothing could read. Pinned by
   `test/proxy/proxy-request-encoding.e2e.test.ts` and
   `test/gateway/gateway-request-encoding.e2e.test.ts`.
 - A request that fails after its response started closes the client's connection
