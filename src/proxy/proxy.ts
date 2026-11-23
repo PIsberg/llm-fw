@@ -380,7 +380,7 @@ export class ProxyServer {
     // like every other scanner; init()/classify() are no-ops unless
     // responseScan.classifier.enabled is set, so the default config never
     // downloads the model.
-    this.outputClassifier = new OutputModerationClassifier(config.responseScan, config.detection.modelLoadTimeoutMs)
+    this.outputClassifier = new OutputModerationClassifier(config.responseScan, config.detection.modelLoadTimeoutMs, config.detection.workerInference === true)
     // Client credential policy. Resolved once at construction so the generated
     // token is stable for the process lifetime and can be printed at startup.
     // A proxy reachable off-host without this is an open forward relay.

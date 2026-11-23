@@ -2,6 +2,9 @@ import { parentPort } from 'node:worker_threads'
 import { embedRaw, loadEmbeddingExtractor, type FeatureExtractor } from './embedding.js'
 import { loadInjectionClassifier, type ClassifyFn } from './classifier.js'
 import { cachedLoad } from './modelLoad.js'
+import { loadModerationClassifier } from './outputClassifier.js'
+import { loadTranscriber, runTranscriber, type Transcriber } from './transcribe.js'
+import type { WorkerRequestMessage } from './inferenceWorker.js'
 
 /**
  * Task C3 — the code that actually runs INSIDE the persistent worker thread
@@ -33,14 +36,17 @@ function getExtractor(spinWait: boolean, threads: number | undefined): Promise<F
 
 const getClassifier: () => Promise<ClassifyFn> = cachedLoad(loadInjectionClassifier)
 
-interface WorkerRequest {
-  id: number
-  kind: 'embed' | 'classify' | 'ensure'
-  text?: string
-  model?: 'embed' | 'classify'
-  spinWait?: boolean
-  threads?: number
+// The response moderation classifier, one load per model id, and the
+// transcriber: off the main thread too (#869).
+const moderators = new Map<string, () => Promise<ClassifyFn>>()
+function getModerator(modelId: string): Promise<ClassifyFn> {
+  let get = moderators.get(modelId)
+  if (!get) { get = cachedLoad(() => loadModerationClassifier(modelId)); moderators.set(modelId, get) }
+  return get()
 }
+const getTranscriber: () => Promise<Transcriber> = cachedLoad(loadTranscriber)
+
+type WorkerRequest = WorkerRequestMessage & { id: number }
 
 port.on('message', (msg: WorkerRequest) => {
   void (async () => {
@@ -53,10 +59,19 @@ port.on('message', (msg: WorkerRequest) => {
         const classifier = await getClassifier()
         const result = await classifier(msg.text ?? '')
         port.postMessage({ id: msg.id, ok: true, kind: 'classify', result })
+      } else if (msg.kind === 'moderate') {
+        const moderator = await getModerator(msg.modelId ?? '')
+        const result = await moderator(msg.text ?? '')
+        port.postMessage({ id: msg.id, ok: true, kind: 'moderate', result })
+      } else if (msg.kind === 'transcribe') {
+        const result = await runTranscriber(await getTranscriber(), msg.audio ?? new Float32Array(0))
+        port.postMessage({ id: msg.id, ok: true, kind: 'transcribe', result })
       } else {
         // 'ensure' — lazily load a model without running inference on any
         // text, used by init() to probe availability.
         if (msg.model === 'embed') await getExtractor(msg.spinWait === true, msg.threads)
+        else if (msg.model === 'moderate') await getModerator(msg.modelId ?? '')
+        else if (msg.model === 'transcribe') await getTranscriber()
         else await getClassifier()
         port.postMessage({ id: msg.id, ok: true, kind: 'ensure' })
       }

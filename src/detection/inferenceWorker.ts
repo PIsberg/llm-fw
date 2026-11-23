@@ -30,8 +30,26 @@ export type WorkerFactory = (url: URL, options: { execArgv: string[] }) => Worke
 interface EmbedResponse { id: number; ok: true; kind: 'embed'; result: Float32Array }
 interface ClassifyResponse { id: number; ok: true; kind: 'classify'; result: { label: string; score: number }[] }
 interface EnsureResponse { id: number; ok: true; kind: 'ensure' }
+interface ModerateResponse { id: number; ok: true; kind: 'moderate'; result: { label: string; score: number }[] }
+interface TranscribeResponse { id: number; ok: true; kind: 'transcribe'; result: string }
 interface ErrorResponse { id: number; ok: false; error: string }
-type WorkerResponse = EmbedResponse | ClassifyResponse | EnsureResponse | ErrorResponse
+type WorkerResponse = EmbedResponse | ClassifyResponse | EnsureResponse | ModerateResponse | TranscribeResponse | ErrorResponse
+
+/** The models the worker can hold: the embedder, the injection classifier, a response moderation classifier and the transcriber (#869). */
+export type WorkerModel = 'embed' | 'classify' | 'moderate' | 'transcribe'
+
+/** One request to the worker thread. */
+export interface WorkerRequestMessage {
+  kind: 'embed' | 'classify' | 'ensure' | 'moderate' | 'transcribe'
+  text?: string
+  model?: WorkerModel
+  /** The response moderation model to load or run. */
+  modelId?: string
+  /** 16 kHz mono samples to transcribe. */
+  audio?: Float32Array
+  spinWait?: boolean
+  threads?: number
+}
 
 interface PendingRequest {
   resolve: (r: WorkerResponse) => void
@@ -176,7 +194,7 @@ export class InferenceWorkerClient {
     }
   }
 
-  private request(req: { kind: 'embed' | 'classify' | 'ensure'; text?: string; model?: 'embed' | 'classify'; spinWait?: boolean; threads?: number }): Promise<WorkerResponse> {
+  private request(req: WorkerRequestMessage): Promise<WorkerResponse> {
     if (this.permanentlyDisabled) return Promise.reject(new WorkerUnavailableError())
     const worker = this.getWorker()
     const id = this.nextId++
@@ -209,15 +227,29 @@ export class InferenceWorkerClient {
     throw new Error('unexpected inference worker response for classify')
   }
 
+  /** Run a response moderation model (`modelId`) on ONE text, in the worker (#869). */
+  async moderate(text: string, modelId: string): Promise<{ label: string; score: number }[]> {
+    const res = await this.request({ kind: 'moderate', text, modelId })
+    if (res.ok && res.kind === 'moderate') return res.result
+    throw new Error('unexpected inference worker response for moderate')
+  }
+
+  /** Transcribe 16 kHz mono samples in the worker (#869): Whisper took 0.5 to 15 s a clip on the thread that serves every request. */
+  async transcribe(audio: Float32Array): Promise<string> {
+    const res = await this.request({ kind: 'transcribe', audio })
+    if (res.ok && res.kind === 'transcribe') return res.result
+    throw new Error('unexpected inference worker response for transcribe')
+  }
+
   /** Lazily load a model in the worker without running inference on any
    *  text — used by init() to probe availability (mirrors the in-process
    *  catch-and-disable path around the initial pipeline() call). */
-  async ensure(model: 'embed' | 'classify', options?: { spinWait: boolean; threads?: number | undefined }): Promise<void> {
+  async ensure(model: WorkerModel, options?: { spinWait: boolean; threads?: number | undefined }, modelId?: string): Promise<void> {
     if (model === 'embed' && options) {
       this.embeddingSpinWait = options.spinWait
       this.embeddingThreads = options.threads
     }
-    const res = await this.request({ kind: 'ensure', model, ...this.embeddingOptions() })
+    const res = await this.request({ kind: 'ensure', model, ...(modelId ? { modelId } : {}), ...this.embeddingOptions() })
     if (!(res.ok && res.kind === 'ensure')) throw new Error('unexpected inference worker response for ensure')
   }
 

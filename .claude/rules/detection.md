@@ -37,7 +37,8 @@ unseen rows (the number to quote for generalisation); 22 rows were read on
 2. **Embedding similarity** (`src/detection/embedding.ts`), model
    `Xenova/multilingual-e5-small`, loaded eagerly by `llm-fw start` before any
    listener binds, then resident for the process lifetime, on a worker thread
-   (`detection.workerInference`, on by default; a worker that cannot start falls
+   (`detection.workerInference`, on by default, and since #869 also the response
+   moderation classifier and Whisper; a worker that cannot start falls
    back to the main thread and never disables the stage). A test that mocks the
    model sets the flag false: a worker thread does not see `vi.mock`. The cosine
    gate is calibrated; changing it invalidates published benchmark numbers.
