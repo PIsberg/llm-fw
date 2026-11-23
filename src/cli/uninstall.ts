@@ -9,7 +9,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { isElevated, getIdeSettingsPaths, readPriorEnv, readRegEnv, readUserEnv } from './setup.js';
 import { LLMFW_USER_ENV, planEnvRestore } from './userEnv.js';
 import { serializeLike } from './jsonFormat.js';
-import { loadConfig } from '../config/config.js';
+import { loadConfig, writeUserConfigFile } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
 import { run as stopFirewall } from './stop.js';
 
@@ -253,7 +253,7 @@ export function stripSetupMode(configPath: string): boolean {
   delete proxy.mode;
   if (Object.keys(proxy).length === 0) delete parsed.proxy;
   if (Object.keys(parsed).length === 0) fs.rmSync(configPath, { force: true });
-  else fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf8');
+  else writeUserConfigFile(configPath, parsed);
   return true;
 }
 
