@@ -553,7 +553,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_122 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_125 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -580,7 +580,9 @@ _122 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_CRESCENDO_MODE` | `crescendo.mode` | `block` |
 | `LLM_FW_CRESCENDO_PROBE_ESCALATION` | `crescendo.probeEscalation` | `false` |
 | `LLM_FW_DASHBOARD_BIND` | `dashboard.bindHost` | `127.0.0.1` |
+| `LLM_FW_DASHBOARD_ENABLED` | `dashboard.enabled` | `true` |
 | `LLM_FW_DASHBOARD_PORT` | `dashboard.port` | `7731` |
+| `LLM_FW_DASHBOARD_REQUIRE_AUTH` | `dashboard.requireAuth` | _unset_ |
 | `LLM_FW_DASHBOARD_TOKEN` | `dashboard.authToken` | _unset_ |
 | `LLM_FW_DLP_ENABLED` | `dlp.enabled` | `true` |
 | `LLM_FW_DLP_MODE` | `dlp.mode` | `redact` |
@@ -643,6 +645,7 @@ _122 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_PROMPT_OLDER_TURNS` | `detection.surfaces.prompt` |  |
 | `LLM_FW_PROMPT_WORDING_ACTION` | `detection.surfaces.prompt` |  |
 | `LLM_FW_PROXY_BIND` | `proxy.bindHost` | `127.0.0.1` |
+| `LLM_FW_PROXY_ENABLED` | `proxy.enabled` | `true` |
 | `LLM_FW_PROXY_MODE` | `proxy.mode` | `proxy` |
 | `LLM_FW_PROXY_PORT` | `proxy.port` | `8080` |
 | `LLM_FW_PROXY_REQUIRE_AUTH` | `proxy.requireAuth` | _unset_ |

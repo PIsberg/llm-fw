@@ -9,6 +9,8 @@ export const DEFAULT_CONFIG: Config = {
   // LLM_FW_UPDATE_CHECK.
   updateCheck: true,
   proxy: {
+    // Open the forward proxy at all (#870); see ProxyConfig.enabled.
+    enabled: true,
     mode: 'proxy',
     // Fail-safe pass-through. OFF by default. Flip on (LLM_FW_BYPASS=true) to turn
     // the proxy into a transparent tunnel — no interception, no blocking — so a bad
@@ -188,6 +190,8 @@ export const DEFAULT_CONFIG: Config = {
     embedding: { spinWait: false },
   },
   dashboard: {
+    // Open the dashboard at all (#870).
+    enabled: true,
     port: 7731,
     maxEvents: 100,
     bindHost: '127.0.0.1',
@@ -922,6 +926,7 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_PROXY_BIND: (c, v) => { c.proxy.bindHost = v; },
   LLM_FW_PROXY_TOKEN: (c, v) => { c.proxy.authToken = v; },
   LLM_FW_PROXY_REQUIRE_AUTH: (c, v) => { c.proxy.requireAuth = v === 'true'; },
+  LLM_FW_PROXY_ENABLED: (c, v) => { c.proxy.enabled = v === 'true'; },
   LLM_FW_UPSTREAM_KEEPALIVE: (c, v) => { c.proxy.upstreamKeepAlive = v === 'true'; },
   LLM_FW_HTTPS_PORT: (c, v) => { c.proxy.httpsPort = envPort('LLM_FW_HTTPS_PORT', v); },
   LLM_FW_MAX_BODY_BYTES: (c, v) => { c.proxy.maxBodyBytes = envInt('LLM_FW_MAX_BODY_BYTES', v, { min: 0 }); },
@@ -994,6 +999,8 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_TAINT_ENABLED: (c, v) => { if (c.taint) c.taint.enabled = v === 'true'; },
   LLM_FW_TAINT_MODE: (c, v) => { if (c.taint && (v === 'audit' || v === 'block')) c.taint.mode = v; },
   LLM_FW_DASHBOARD_PORT: (c, v) => { c.dashboard.port = envPort('LLM_FW_DASHBOARD_PORT', v); },
+  LLM_FW_DASHBOARD_ENABLED: (c, v) => { c.dashboard.enabled = v === 'true'; },
+  LLM_FW_DASHBOARD_REQUIRE_AUTH: (c, v) => { c.dashboard.requireAuth = v === 'true'; },
   LLM_FW_DASHBOARD_BIND: (c, v) => { c.dashboard.bindHost = v; },
   LLM_FW_DASHBOARD_TOKEN: (c, v) => { c.dashboard.authToken = v; },
   LLM_FW_METRICS_ENABLED: (c, v) => { c.dashboard.metrics = v === 'true'; },

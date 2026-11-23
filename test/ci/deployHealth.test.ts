@@ -72,6 +72,11 @@ describe('Helm chart (#870)', () => {
   const dep = read('deploy/helm/llm-fw/templates/deployment.yaml')
   const values = read('deploy/helm/llm-fw/values.yaml')
 
+  it('switches a listener off in the process, not only in the Service', () => {
+    expect(dep).toMatch(/- name: LLM_FW_PROXY_ENABLED\n\s+value: \{\{ \.Values\.proxy\.enabled \| quote \}\}/)
+    expect(dep).toMatch(/- name: LLM_FW_DASHBOARD_ENABLED\n\s+value: \{\{ \.Values\.dashboard\.enabled \| quote \}\}/)
+  })
+
   it('passes every listener its port, not only the gateway', () => {
     expect(dep).toMatch(/- name: LLM_FW_PROXY_PORT\n\s+value: \{\{ \.Values\.proxy\.port \| quote \}\}/)
     expect(dep).toMatch(/- name: LLM_FW_DASHBOARD_PORT\n\s+value: \{\{ \.Values\.dashboard\.port \| quote \}\}/)
