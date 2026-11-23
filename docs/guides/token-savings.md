@@ -934,7 +934,8 @@ stats empties it; `uninstall --purge` deletes it.
 An agent sends its whole tool list, descriptions included, on every request.
 This applies the token pruner's rules to each tool's `description` and to
 every `description` inside its parameter schema, in the Anthropic, OpenAI chat,
-Responses API and Gemini shapes, and in tools added mid-conversation as
+Responses API, Gemini, Bedrock Converse (`toolConfig.tools[].toolSpec`) and
+Cohere v1 (`parameter_definitions`) shapes, and in tools added mid-conversation as
 `tool_addition` blocks of a system message. Tool names, enum values and schema structure
 are never touched, because they are the contract with the tool. The tool list
 sits at the very front of the cached prefix, so this costs one cache miss when
@@ -1208,7 +1209,8 @@ What it keeps:
   retry of the same request.
   Tool results, system text and assistant turns are never kept, and neither is
   a `<system-reminder>` part an agent appends to the user turn.
-- Anthropic, OpenAI chat, the Responses API and Gemini request shapes.
+- Anthropic, OpenAI chat, the Responses API, Gemini, Bedrock Converse and Cohere v1
+  request shapes (the last two since #917).
 - The text after the DLP redactor has run on it with the default detectors,
   whatever `dlp.mode` is, so a key pasted into a prompt is not kept in the clear.
   The redactor misses what no detector matches: treat the list as sensitive.

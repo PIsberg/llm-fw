@@ -189,21 +189,13 @@ export class ToolResultDedupModule extends SlotModule<ToolResultDedupConfig> {
     const restore = new Map<string, string>()
     for (const [pointer, { id, text }] of written) if (withheld.has(id)) restore.set(pointer, text)
     if (restore.size === 0 || data === undefined) return undefined
+    // Only tool results hold pointers: rewrite() writes one nowhere else, and a
+    // message that reads the same as one stays as it was sent (#917).
     let changed = false
-    const walk = (v: unknown): void => {
-      if (Array.isArray(v)) {
-        for (let i = 0; i < v.length; i++) {
-          const text = typeof v[i] === 'string' ? restore.get(v[i] as string) : undefined
-          if (text !== undefined) { v[i] = text; changed = true } else walk(v[i])
-        }
-      } else if (isObj(v)) {
-        for (const [k, child] of Object.entries(v)) {
-          const text = typeof child === 'string' ? restore.get(child) : undefined
-          if (text !== undefined) { v[k] = text; changed = true } else walk(child)
-        }
-      }
+    for (const slot of collectTextSlots(data)) {
+      const text = slot.kind === 'tool_result' ? restore.get(slot.text) : undefined
+      if (text !== undefined) { slot.set(text); changed = true }
     }
-    walk(data)
     if (!changed) return undefined
     this.pointers.delete(ctx)
     return JSON.stringify(data)
