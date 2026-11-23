@@ -43,8 +43,11 @@ Rules that must not regress:
   `frame-ancestors 'none'`. A new asset or fetch target on the page has to fit
   that policy, not loosen it: pinned by
   `test/dashboard/dashboard.integration.test.ts` and `test/dashboard/csp.spec.ts`.
-- State-changing dashboard routes keep the JSON content-type plus same-origin
-  check.
+- Every dashboard `POST` and `DELETE` keeps the JSON content-type plus
+  same-origin check (`checkSameOrigin`), the playground's `/api/test` and
+  `/api/translate` included, and reads its body through `readBody` with a
+  limit. `EventBus` fan-out never throws into `emit`: the metric and the
+  audit sinks are written whatever a subscriber does (#862).
 - A refusal written before the request body has finished uploading (413, the
   early 429s, the URL-path refusal) drains the
   rest with `drainRefusedUpload` in `src/proxy/proxy.ts`. Never

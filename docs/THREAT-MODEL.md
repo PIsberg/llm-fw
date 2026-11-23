@@ -88,8 +88,9 @@ way to build an open relay, and is the operator's decision.
 - **What crosses it:** the UI, the HTTP API, SSE, `/metrics`, `/ca.crt` and
   `/crl`.
 - **Enforced by:** loopback is exempt from the token only with a loopback
-  `Host`; state-changing routes need a JSON content type and a same-origin
-  request; the page carries `Content-Security-Policy: default-src 'none'`
+  `Host`; every `POST` and `DELETE`, the playground's included, needs a JSON
+  content type and a same-origin request, and a body over 1 MiB (16 MiB for
+  `/api/test`) is refused; the page carries `Content-Security-Policy: default-src 'none'`
   with `frame-ancestors 'none'` (`test/dashboard/csp.spec.ts`). `/ca.crt` and
   `/crl` are public by design: a client cannot present a token before it
   trusts the CA.

@@ -28,6 +28,11 @@ export class EventBus {
   private moduleEvents: ModuleEvent[] = []
   private static readonly TRAFFIC_MAX = 500
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  // #862: subscribers per stream, and how far one may fall behind before it
+  // is let go. A tab that stopped reading kept every event in its socket's
+  // buffer, and nothing bounded how many tabs or scripts subscribed.
+  static readonly MAX_SUBSCRIBERS = 64
+  private static readonly MAX_BUFFERED_BYTES = 1024 * 1024
   // Persisted store of events an operator marked as false positives.
   // Resolved per access so LLM_FW_DIR set after module load is honoured.
   private static get WHITELIST_PATH(): string {
@@ -67,10 +72,42 @@ export class EventBus {
   }
 
   private sendHeartbeat(): void {
-    this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
-    for (const res of this.subscribers) res.write(':\n\n')
-    this.trafficSubscribers = this.trafficSubscribers.filter(r => !r.writableEnded && !r.destroyed)
-    for (const res of this.trafficSubscribers) res.write(':\n\n')
+    this.subscribers = EventBus.fanOut(this.subscribers, ':\n\n')
+    this.trafficSubscribers = EventBus.fanOut(this.trafficSubscribers, ':\n\n')
+  }
+
+  /**
+   * Write `data` to every live subscriber and return the ones still worth
+   * writing to (#862). A write that throws, or a subscriber with more than
+   * MAX_BUFFERED_BYTES unsent, is let go and its socket closed; nothing a
+   * subscriber does can stop the caller from going on to the metrics and the
+   * audit sinks.
+   */
+  private static fanOut(subscribers: ServerResponse[], data: string): ServerResponse[] {
+    const kept: ServerResponse[] = []
+    for (const res of subscribers) {
+      if (res.writableEnded || res.destroyed) continue
+      if (res.writableLength > EventBus.MAX_BUFFERED_BYTES) { EventBus.drop(res); continue }
+      try {
+        res.write(data)
+        kept.push(res)
+      } catch {
+        EventBus.drop(res)
+      }
+    }
+    return kept
+  }
+
+  private static drop(res: ServerResponse): void {
+    try { res.destroy() } catch { /* already gone */ }
+  }
+
+  /** Whether another subscriber fits; answers 503 when not. */
+  private static admit(subscribers: ServerResponse[], res: ServerResponse): boolean {
+    if (subscribers.filter(r => !r.writableEnded && !r.destroyed).length < EventBus.MAX_SUBSCRIBERS) return true
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '5' })
+    res.end(JSON.stringify({ error: `too many event stream subscribers (${EventBus.MAX_SUBSCRIBERS})` }))
+    return false
   }
 
   /** Stop the heartbeat timer (call during server shutdown). */
@@ -93,9 +130,7 @@ export class EventBus {
       this.blocked.set(event.id, event)
       if (this.blocked.size > this.maxSize) this.blocked.delete(this.blocked.keys().next().value!)
     }
-    const data = 'data: ' + JSON.stringify(event) + '\n\n'
-    this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
-    for (const res of this.subscribers) res.write(data)
+    this.subscribers = EventBus.fanOut(this.subscribers, 'data: ' + JSON.stringify(event) + '\n\n')
     this.metrics?.recordEvent(event)
     // After the in-memory fan-out, never before: a slow or broken audit sink
     // must not delay the dashboard stream or the request that produced this
@@ -108,9 +143,7 @@ export class EventBus {
   emitModuleEvent(event: ModuleEvent): ModuleEvent {
     this.moduleEvents.push(event)
     if (this.moduleEvents.length > this.maxSize) this.moduleEvents.shift()
-    const data = 'event: module\ndata: ' + JSON.stringify(event) + '\n\n'
-    this.subscribers = this.subscribers.filter(r => !r.writableEnded && !r.destroyed)
-    for (const res of this.subscribers) res.write(data)
+    this.subscribers = EventBus.fanOut(this.subscribers, 'event: module\ndata: ' + JSON.stringify(event) + '\n\n')
     return event
   }
 
@@ -119,6 +152,7 @@ export class EventBus {
   }
 
   subscribe(res: ServerResponse): void {
+    if (!EventBus.admit(this.subscribers, res)) return
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
     this.subscribers.push(res)
     for (const event of this.listed()) res.write('data: ' + JSON.stringify(event) + '\n\n')
@@ -134,13 +168,12 @@ export class EventBus {
     }
     this.trafficRing.push(metric)
     if (this.trafficRing.length > EventBus.TRAFFIC_MAX) this.trafficRing.shift()
-    const data = 'data: ' + JSON.stringify(metric) + '\n\n'
-    this.trafficSubscribers = this.trafficSubscribers.filter(r => !r.writableEnded && !r.destroyed)
-    for (const res of this.trafficSubscribers) res.write(data)
+    this.trafficSubscribers = EventBus.fanOut(this.trafficSubscribers, 'data: ' + JSON.stringify(metric) + '\n\n')
     return metric
   }
 
   subscribeTraffic(res: ServerResponse): void {
+    if (!EventBus.admit(this.trafficSubscribers, res)) return
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
     this.trafficSubscribers.push(res)
     for (const m of this.trafficRing) res.write('data: ' + JSON.stringify(m) + '\n\n')

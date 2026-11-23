@@ -25,7 +25,7 @@ import { PromptMonitorModule } from '../modules/builtin/promptMonitor.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
 import { createLogger } from '../logger.js';
 import { RULESET_VERSION } from '../detection/ruleset.js'
-import { parseExportQuery, filterEvents, toCsv, toJsonl, readAuditEvents, eventTime } from './eventExport.js'
+import { parseExportQuery, filterEvents, toCsv, toJsonl, auditEvents, eventTime, matchesExport, CSV_HEADER, csvRow, jsonlRow } from './eventExport.js'
 
 const log = createLogger('dashboard');
 
@@ -2921,6 +2921,49 @@ function persistSettings(config: Config, before: Record<string, unknown>): void 
 //      blocks anything that does reach us from another origin.
 // Non-browser clients (curl, scripts) have no ambient credentials to abuse and
 // send no Origin, so they are unaffected beyond the JSON content-type rule.
+// #862: every POST route but the playground read its body without a bound.
+const DASHBOARD_BODY_LIMIT = 1024 * 1024
+const PLAYGROUND_BODY_LIMIT = 16 * 1024 * 1024
+
+/**
+ * Collect a request body of at most `limit` bytes, then call `onBody` with it.
+ * Past the limit the request is answered 413 once and the rest of it is read
+ * and dropped, so the client still sees the answer.
+ */
+function readBody(req: http.IncomingMessage, res: http.ServerResponse, limit: number, onBody: (body: string) => void): void {
+  const chunks: Buffer[] = []
+  let size = 0
+  let tooLarge = false
+  req.on('data', (chunk: Buffer) => {
+    if (tooLarge) return
+    size += chunk.length
+    if (size > limit) {
+      tooLarge = true
+      chunks.length = 0
+      res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' })
+      res.end(JSON.stringify({ error: 'payload too large' }))
+      return
+    }
+    chunks.push(chunk)
+  })
+  req.on('end', () => { if (!tooLarge) onBody(Buffer.concat(chunks).toString('utf8')) })
+}
+
+/** Resolves when `res` can take more, or has closed (a client that left never drains). */
+function writable(res: http.ServerResponse): Promise<void> {
+  return new Promise(resolve => {
+    const done = (): void => { res.off('drain', done); res.off('close', done); resolve() }
+    res.on('drain', done)
+    res.on('close', done)
+  })
+}
+
+/** A `limit` query parameter: `fallback` when absent or unreadable, kept within 1 to `max`. */
+function queryLimit(raw: string | null, fallback: number, max: number): number {
+  const n = Number.parseInt(raw ?? '', 10)
+  return Math.min(Math.max(Number.isFinite(n) ? n : fallback, 1), max)
+}
+
 function checkSameOrigin(req: http.IncomingMessage): { ok: true } | { ok: false; status: number; error: string } {
   const ct = ((req.headers['content-type'] ?? '').split(';')[0] ?? '').trim().toLowerCase()
   if (ct !== 'application/json') {
@@ -3066,8 +3109,8 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     }
 
     if (req.method === 'GET' && path === '/api/events') {
-      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 500)
-      const page = Math.max(parseInt(url.searchParams.get('page') ?? '0', 10), 0)
+      const limit = queryLimit(url.searchParams.get('limit'), 50, 500)
+      const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '0', 10) || 0, 0)
       const events = eventBus.getRecent(limit, page)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(events))
@@ -3103,22 +3146,43 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.end(JSON.stringify({ error: q.error }))
         return
       }
-      const fromAudit = config.audit?.enabled === true
-      const source = fromAudit ? readAuditEvents(config.audit?.file ?? join(getLlmFwDir(), 'audit.jsonl')) : Promise.resolve(eventBus.getAll())
-      source.then(all => {
-        const events = filterEvents(all, q).sort((a, b) => (eventTime(a) || 0) - (eventTime(b) || 0))
-        const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')
-        res.writeHead(200, {
-          'Content-Type': q.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8',
-          'Content-Disposition': `attachment; filename="llm-fw-events-${stamp}.${q.format}"`,
-          'X-Llm-Fw-Export-Source': fromAudit ? 'audit' : 'memory',
-          'X-Llm-Fw-Export-Count': String(events.length),
-        })
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')
+      const head = (source: 'audit' | 'memory', extra: Record<string, string>) => ({
+        'Content-Type': q.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8',
+        'Content-Disposition': `attachment; filename="llm-fw-events-${stamp}.${q.format}"`,
+        'X-Llm-Fw-Export-Source': source,
+        ...extra,
+      })
+      if (config.audit?.enabled !== true) {
+        const events = filterEvents(eventBus.getAll(), q).sort((a, b) => (eventTime(a) || 0) - (eventTime(b) || 0))
+        res.writeHead(200, head('memory', { 'X-Llm-Fw-Export-Count': String(events.length) }))
         res.end(q.format === 'csv' ? toCsv(events) : toJsonl(events))
-      }).catch((err: unknown) => {
+        return
+      }
+      // #862: the audit log is read a line at a time and each matching row
+      // written as it is read, in the order the log holds them (it is
+      // appended in time order). The count is only known at the end, so it is
+      // sent as a trailer.
+      void (async () => {
+        res.writeHead(200, head('audit', { Trailer: 'X-Llm-Fw-Export-Count' }))
+        if (q.format === 'csv') res.write(CSV_HEADER)
+        let count = 0
+        for await (const e of auditEvents(config.audit?.file ?? join(getLlmFwDir(), 'audit.jsonl'))) {
+          if (res.destroyed) return
+          if (!matchesExport(e, q)) continue
+          count++
+          if (!res.write(q.format === 'csv' ? csvRow(e) : jsonlRow(e))) await writable(res)
+        }
+        res.addTrailers({ 'X-Llm-Fw-Export-Count': String(count) })
+        res.end()
+      })().catch((err: unknown) => {
         log.warn('event export failed', { err: (err as Error).message })
-        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'export failed' }))
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'export failed' }))
+        } else {
+          res.destroy()
+        }
       })
       return
     }
@@ -3138,9 +3202,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.end(JSON.stringify({ error: guard.error }))
         return
       }
-      let body = ''
-      req.on('data', chunk => { body += chunk })
-      req.on('end', () => {
+      readBody(req, res, DASHBOARD_BODY_LIMIT, (body) => {
         try {
           let patch: unknown
           try {
@@ -3215,11 +3277,17 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.end(JSON.stringify({ error: guard.error }))
         return
       }
-      let body = ''
-      req.on('data', chunk => { body += chunk })
-      req.on('end', () => {
+      readBody(req, res, DASHBOARD_BODY_LIMIT, (body) => {
         try {
-          const patch = JSON.parse(body || '{}') as { id?: string; enabled?: boolean; options?: unknown }
+          let patch: { id?: string; enabled?: boolean; options?: unknown }
+          try {
+            patch = JSON.parse(body || '{}') as { id?: string; enabled?: boolean; options?: unknown }
+          } catch {
+            // #862: answered 500 as an internal error.
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'invalid JSON body' }))
+            return
+          }
           const hasSwitch = typeof patch.enabled === 'boolean'
           const options = patch.options !== undefined && typeof patch.options === 'object' && patch.options !== null && !Array.isArray(patch.options)
             ? patch.options as Record<string, unknown> : undefined
@@ -3305,24 +3373,16 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     }
 
     if (req.method === 'POST' && path === '/api/test') {
-      let body = ''
-      let tooLarge = false
+      // #862: it ran scans for any page the operator visited.
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
       // Image/Document uploads ride this endpoint as base64 data URLs (capped at
-      // 8 MB client-side ≈ ~11 MB encoded). Guard the server too so a rogue
-      // client can't grow the in-memory body unbounded.
-      const POST_BODY_LIMIT = 16 * 1024 * 1024
-      req.on('data', chunk => {
-        if (tooLarge) return
-        body += chunk
-        if (body.length > POST_BODY_LIMIT) {
-          tooLarge = true
-          res.writeHead(413, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'payload too large' }))
-          req.destroy()
-        }
-      })
-      req.on('end', () => {
-        if (tooLarge) return
+      // 8 MB client-side, about 11 MB encoded), so it takes more than the rest.
+      readBody(req, res, PLAYGROUND_BODY_LIMIT, (body) => {
         void (async () => {
         try {
           let parsed: { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
@@ -3565,9 +3625,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.end(JSON.stringify({ error: guard.error }))
         return
       }
-      let body = ''
-      req.on('data', chunk => { body += chunk })
-      req.on('end', () => {
+      readBody(req, res, DASHBOARD_BODY_LIMIT, (body) => {
         try {
           let id: string | undefined, reason: string | undefined
           try {
@@ -3622,9 +3680,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
         res.end(JSON.stringify({ error: guard.error }))
         return
       }
-      let body = ''
-      req.on('data', chunk => { body += chunk })
-      req.on('end', () => {
+      readBody(req, res, DASHBOARD_BODY_LIMIT, (body) => {
         try {
           let eventId: string | undefined
           try {
@@ -3726,9 +3782,14 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     // Translate the playground's injection text into a target language so the
     // same attack can be exercised across locales. Server-side to dodge CORS.
     if (req.method === 'POST' && path === '/api/translate') {
-      let body = ''
-      req.on('data', chunk => { body += chunk })
-      req.on('end', () => { void (async () => {
+      // #862: a page the operator visited could use this to reach Google Translate.
+      const guard = checkSameOrigin(req)
+      if (!guard.ok) {
+        res.writeHead(guard.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: guard.error }))
+        return
+      }
+      readBody(req, res, DASHBOARD_BODY_LIMIT, (body) => { void (async () => {
         try {
           let parsed: { text?: string; target?: string; source?: string }
           try {
@@ -3766,7 +3827,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
     }
 
     if (req.method === 'GET' && path === '/api/metrics/traffic') {
-      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 500)
+      const limit = queryLimit(url.searchParams.get('limit'), 100, 500)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(eventBus.getTrafficMetrics(limit)))
       return

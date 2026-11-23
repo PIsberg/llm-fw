@@ -480,8 +480,13 @@ Shared behaviour worth knowing:
   present a token before it trusts the CA.
 - `/healthz`, `/livez` and `/readyz` answer before authentication, because a
   kubelet cannot present a token.
-- State-changing dashboard requests additionally require
-  `Content-Type: application/json` and a same-origin `Origin` or `Referer`.
+- Every dashboard `POST` and `DELETE` additionally requires
+  `Content-Type: application/json` and a same-origin `Origin` or `Referer`,
+  the playground's `/api/test` and `/api/translate` included (#862: they
+  ran scans and reached Google Translate for any page the operator visited).
+  A body is read up to 1 MiB (16 MiB for `/api/test`, which carries image
+  uploads) and answered 413 past it. Each event stream takes 64 subscribers,
+  answering 503 past that, and lets go of one more than 1 MiB behind.
 
 ---
 
@@ -557,7 +562,9 @@ and the rest of the Events tab's kinds); `format` is `jsonl` (the default) or
 `csv`. The events come from the audit log when it is on, its rotated
 generation included, and otherwise from the in-memory ring of the last 100;
 the `X-Llm-Fw-Export-Source` header says which, `X-Llm-Fw-Export-Count` how
-many. Payloads follow the source: the audit log has them only with
+many. From the audit log the file is read a line at a time and each row
+written as it is read (#862), so the count arrives as an HTTP trailer after
+the rows instead of a header; from memory it stays a header. Payloads follow the source: the audit log has them only with
 `LLM_FW_AUDIT_PAYLOADS=true`. A CSV cell that a spreadsheet would run as a
 formula (a leading `=`, `+`, `-` or `@`) is prefixed with a quote, since event
 text can come from an attacker.

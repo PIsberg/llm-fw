@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseExportQuery, filterEvents, toCsv, toJsonl, readAuditEvents, eventTime } from '../../src/dashboard/eventExport.js'
+import { parseExportQuery, filterEvents, toCsv, toJsonl, auditEvents, eventTime } from '../../src/dashboard/eventExport.js'
 import type { BlockEvent } from '../../src/types.js'
 
 // #592: export events (prompt blocks, MCP logging, everything the Events tab
@@ -72,10 +72,10 @@ describe('reading the audit log', () => {
     const file = join(dir, 'audit.jsonl')
     writeFileSync(`${file}.1`, `${JSON.stringify({ schema: 1, ...EVENTS[0] })}\n`)
     writeFileSync(file, `${JSON.stringify({ schema: 1, ...EVENTS[1] })}\n{"torn":\n${JSON.stringify({ schema: 1, ...EVENTS[2] })}\n`)
-    expect((await readAuditEvents(file)).map(e => e.id)).toEqual(['a', 'b', 'c'])
+    expect((await Array.fromAsync(auditEvents(file))).map(e => e.id)).toEqual(['a', 'b', 'c'])
   })
 
   it('returns nothing when there is no audit file yet', async () => {
-    expect(await readAuditEvents(join(dir, 'missing.jsonl'))).toEqual([])
+    expect(await Array.fromAsync(auditEvents(join(dir, 'missing.jsonl')))).toEqual([])
   })
 })
