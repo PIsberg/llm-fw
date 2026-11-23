@@ -11,6 +11,10 @@
  * chunk framing instead would double-frame it (the hex size lines leak into the
  * body the client sees), so this decode is required, not optional.
  */
+// A chunk size: hex digits only (#868). parseInt read "-5" as -5 and "10xyz"
+// as 16. Fifteen digits is past any body and still an exact number.
+const CHUNK_SIZE = /^[0-9a-fA-F]{1,15}$/
+
 export class ChunkedDecoder {
   private buf: Buffer = Buffer.alloc(0)
   private need = 0          // bytes left in the current chunk's data
@@ -29,6 +33,9 @@ export class ChunkedDecoder {
 
   push(raw: Buffer): Buffer {
     if (this.complete) { this.excess += raw.length; return Buffer.alloc(0) }
+    // Nothing after malformed framing is read, so none of it is kept (#868):
+    // each push copied all that had come before it.
+    if (this.malformed) return Buffer.alloc(0)
     this.buf = this.buf.length ? Buffer.concat([this.buf, raw]) : raw
     if (this.finished) {
       if (!this.malformed) this.readTrailers()
@@ -38,7 +45,10 @@ export class ChunkedDecoder {
     for (;;) {
       if (this.afterData) {
         if (this.buf.length < 2) break
-        this.buf = this.buf.subarray(2) // skip CRLF after chunk data
+        // Chunk data ends with CRLF; anything else is malformed framing, never
+        // a complete message a kept connection could carry on from (#868).
+        if (this.buf[0] !== 0x0d || this.buf[1] !== 0x0a) { this.fail(); break }
+        this.buf = this.buf.subarray(2)
         this.afterData = false
         continue
       }
@@ -55,13 +65,20 @@ export class ChunkedDecoder {
       const idx = this.buf.indexOf('\r\n')
       if (idx === -1) break
       const sizeHex = (this.buf.subarray(0, idx).toString('ascii').split(';')[0] ?? '').trim()
+      if (!CHUNK_SIZE.test(sizeHex)) { this.fail(); break }
       const size = parseInt(sizeHex, 16)
       this.buf = this.buf.subarray(idx + 2)
-      if (Number.isNaN(size)) { this.finished = true; this.malformed = true; break }
       if (size === 0) { this.finished = true; this.readTrailers(); break }
       this.need = size
     }
     return out.length ? Buffer.concat(out) : Buffer.alloc(0)
+  }
+
+  /** Malformed framing: the payload ends here, the message is never complete, and nothing more is kept. */
+  private fail(): void {
+    this.finished = true
+    this.malformed = true
+    this.buf = Buffer.alloc(0)
   }
 
   /** Skip trailer lines up to the empty line that ends the message. */
