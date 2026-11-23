@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.86
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). PDF content streams are now read, and a PDF the firewall cannot fully read counts as opaque (#857). No row carries a document.
+
 ## Result, ruleset 2026.11.85
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The OpenAI parser now reads the `prompt` and `suffix` of a `/v1/completions` request, which it claimed but never read (#857). These rows are sent as `/v1/messages` requests, so none can move.

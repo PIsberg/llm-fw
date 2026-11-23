@@ -445,6 +445,10 @@ export interface MediaBlock {
   mimeType?: string | undefined;
   sizeBytes?: number;
   text?: string;
+  // Part of the payload could not be read (a PDF image, a stream filter it
+  // does not decode, an encrypted file, a cap reached): the pipeline counts
+  // the block as opaque even when `text` holds what was read (#857).
+  partial?: boolean;
   // Raw base64 payload, retained ONLY for opaque raster images and audio so
   // the optional OCR and transcription stages can read them. Never serialized
   // into events (callers that emit blocks map fields explicitly). Absent for

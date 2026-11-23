@@ -662,7 +662,8 @@ export class Pipeline {
           if (text) scanItems.push({ text, source: 'document' })
         }
       }
-      const opaque = media.filter(m => !m.text)
+      // A block read only in part is opaque too: its text alone is not all of it (#857).
+      const opaque = media.filter(m => !m.text || m.partial)
       if (opaque.length > 0) {
         const summary = summarizeOpaque(opaque)
         if (nonText.mode === 'block') {
