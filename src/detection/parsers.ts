@@ -396,6 +396,19 @@ class OpenAIParser implements PayloadParser {
         results.push(data.instructions)
       }
 
+      // Legacy Completions (/v1/completions, which supports() has always
+      // claimed): `prompt` is a string or a batch of strings, `suffix` the
+      // text after an insertion point. Unread, every completions request
+      // passed whatever it said (#857). A prompt of token ids holds no text
+      // to scan. The Responses API's `prompt` is a template reference object
+      // and is not read here.
+      if (typeof data.prompt === 'string') {
+        results.push(data.prompt)
+      } else if (Array.isArray(data.prompt)) {
+        for (const p of data.prompt) if (typeof p === 'string') results.push(p)
+      }
+      if (typeof data.suffix === 'string') results.push(data.suffix)
+
       return results.filter(s => s.length > 0)
     } catch {
       return []
