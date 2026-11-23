@@ -41,14 +41,23 @@ function decodeOne(buf: Buffer, encoding: string, maxOutput: number): Buffer {
 }
 
 /**
- * Undo a request body's Content-Encoding so detection reads the text the
- * provider will read. Encodings listed in the header are undone in reverse
- * order of application. Throws UnsupportedEncoding for one it cannot undo, a
- * RangeError when the output would pass `maxOutput` bytes (a few KB of gzip
- * can expand to gigabytes), and a zlib error on a corrupt stream.
+ * The most encodings one body may stack (#861). Each is a full synchronous
+ * pass up to the size limit, so an unbounded `gzip, gzip, ...` multiplied
+ * the work; no real client sends more than two. `identity` does not count.
+ */
+export const MAX_ENCODINGS = 3;
+
+/**
+ * Undo a body's Content-Encoding so detection reads the text the provider (or,
+ * for a response, the client) will read. Encodings listed in the header are
+ * undone in reverse order of application. Throws UnsupportedEncoding for one
+ * it cannot undo or a chain longer than MAX_ENCODINGS, a RangeError when the
+ * output would pass `maxOutput` bytes (a few KB of gzip can expand to
+ * gigabytes), and a zlib error on a corrupt stream.
  */
 export function decodeContentEncoding(buf: Buffer, header: string, maxOutput: number): Buffer {
-  const encodings = header.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  const encodings = header.split(',').map(e => e.trim().toLowerCase()).filter(e => e && e !== 'identity');
+  if (encodings.length > MAX_ENCODINGS) throw new UnsupportedEncoding(`a chain of ${encodings.length} encodings (${header.trim()})`);
   let out = buf;
   encodings.reverse();
   for (const enc of encodings) out = decodeOne(out, enc, maxOutput);

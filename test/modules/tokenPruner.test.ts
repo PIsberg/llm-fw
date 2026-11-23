@@ -367,3 +367,20 @@ describe('TokenPrunerModule — scope', () => {
     expect(parsed.input[0].content[0].text).toBe('Hello there')
   })
 })
+
+// #861 suggested the code-fence split was quadratic on unclosed fences.
+// Measured on 200 KB it is not (0 to 27 ms over the shapes below): each
+// fence's opener is also the closer of the one before it, so at most one scan
+// runs to the end of the text. Pinned here, so a change to the split that
+// makes it quadratic fails.
+describe('pruneText stays linear on fence-shaped input (#861)', () => {
+  it.each([
+    ['openers only', '```\n'.repeat(50_000)],
+    ['one unclosed fence', '```\n' + 'a '.repeat(100_000)],
+    ['openers with a language and no line break', '```abc'.repeat(33_000)],
+    ['four backticks', '````\n'.repeat(40_000)],
+    ['two backticks', '``\n'.repeat(66_000)],
+  ])('%s', { timeout: LINEAR_TIME_TIMEOUT }, (_label, text) => {
+    expect(underMs(500, () => pruneText(text))).toBeLessThan(500)
+  })
+})

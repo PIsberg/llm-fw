@@ -22,7 +22,6 @@ import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate
 import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
-import zlib from 'node:zlib'
 import { identifyService, matchesDomain, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
 import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil, type ExfilFinding } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
@@ -41,7 +40,7 @@ import { relayRealtimeSession, WS_SKIPPED_HEADERS } from './realtimeRelay.js'
 import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { isTokenCountRequest } from './tokenCount.js'
-import { bodyCap } from './bodyCap.js'
+import { bodyCap, decodeCap } from './bodyCap.js'
 import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT, sseStreamText } from './canary.js'
 import { TlsSessionCache } from './tlsSessions.js'
 import { UpstreamPool } from './upstreamPool.js'
@@ -51,29 +50,6 @@ import { getLlmFwDir } from '../config/paths.js'
 import { createLogger, urlForLog } from '../logger.js';
 
 const log = createLogger('proxy');
-
-/**
- * Decompress a fully-buffered response body by its Content-Encoding so the
- * inspected paths (MCP tool rewrite, response-exfil scan) see plaintext. Some
- * servers send raw (headerless) deflate, so fall back to inflateRaw. Throws on a
- * corrupt/truncated stream, and with a RangeError on one that would expand past
- * `maxOutput` bytes (#352: 64 MB of one byte gzips to about 64 KB, under any
- * wire cap); the caller forwards the original bytes on failure.
- */
-function decompressBody(buf: Buffer, encoding: string, maxOutput: number): Buffer {
-  const enc = encoding.toLowerCase().trim()
-  if (!enc || enc === 'identity') return buf
-  const opts = { maxOutputLength: maxOutput }
-  if (enc === 'gzip' || enc === 'x-gzip') return zlib.gunzipSync(buf, opts)
-  if (enc === 'br') return zlib.brotliDecompressSync(buf, opts)
-  if (enc === 'deflate') {
-    try { return zlib.inflateSync(buf, opts) } catch (err) {
-      if (err instanceof RangeError) throw err
-      return zlib.inflateRawSync(buf, opts)
-    }
-  }
-  return buf // unknown encoding — treat as opaque
-}
 
 /**
  * Raised when the upstream socket goes idle for longer than `upstreamTimeoutMs`.
@@ -918,7 +894,7 @@ export class ProxyServer {
           innerRes.end(JSON.stringify({ error }))
         }
         try {
-          bodyBuf = decodeContentEncoding(bodyBuf, requestEncoding, bodyCap(maxBodyBytes))
+          bodyBuf = decodeContentEncoding(bodyBuf, requestEncoding, decodeCap(maxBodyBytes))
         } catch (err) {
           if (err instanceof UnsupportedEncoding) refuse(415, `${err.message}; llm-fw cannot inspect it`)
           else if (err instanceof RangeError) refuse(413, 'request body too large once decompressed')
@@ -2003,7 +1979,10 @@ export class ProxyServer {
           const raw = Buffer.concat(jsonChunks)
           let text: string
           try {
-            text = decompressBody(raw, cenc, maxResp).toString('utf8')
+            // The request decoder (#861): zstd and stacked encodings too, where
+            // this read only gzip, br and deflate and scanned the rest as the
+            // compressed bytes they were. What it cannot decode goes below.
+            text = decodeContentEncoding(raw, cenc, decodeCap(this.config.proxy.maxBodyBytes)).toString('utf8')
           } catch (err) {
             // Corrupt, truncated, or expanding past maxResp: forward verbatim,
             // uninspected, as an oversized plain body is above.
@@ -2164,7 +2143,7 @@ export class ProxyServer {
     }
     let text: string
     try {
-      text = decompressBody(stored.body, (stored.headers['content-encoding'] ?? '').toLowerCase().trim(), bodyCap(this.config.proxy.maxBodyBytes)).toString('utf8')
+      text = decodeContentEncoding(stored.body, stored.headers['content-encoding'] ?? '', decodeCap(this.config.proxy.maxBodyBytes)).toString('utf8')
     } catch {
       writeCapturedResponse(res, stored)
       return stored.body.length
