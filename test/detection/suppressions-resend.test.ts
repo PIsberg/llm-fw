@@ -136,7 +136,7 @@ describe('a mark survives a resend of the same event', () => {
     expect(r.withheld).toBe(0)
     expect(r.result.action).toBe('warn')
     expect(blocked()).toEqual([])
-    expect(events.at(-1)?.payload_full).toContain('[suppressed-fp]')
+    expect(events.at(-1)?.payload_preview).toContain('[suppressed-fp]')
   })
 
   it('a timing line beside the flagged line moved: honoured', async () => {
@@ -297,8 +297,8 @@ ${extra}`
       const r = await pipeline.inspect('/v1/messages', toolBody(elsewhere()), META)
       expect(r.withheld).toBe(0)
       expect(blocked()).toEqual([])
-      expect(events.at(-1)?.payload_full).toContain('[suppressed-fp]')
-      expect(events.at(-1)?.payload_full).toContain('another text')
+      expect(events.at(-1)?.payload_preview).toContain('[suppressed-fp]')
+      expect(events.at(-1)?.payload_preview).toContain('another text')
     })
 
     it('passes as a document when it was marked as a document', async () => {

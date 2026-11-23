@@ -3456,7 +3456,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
             const imageResult = await pipeline.run(
               '/v1/messages',
               imageBody,
-              { target: 'playground', method: 'POST', path: '/v1/messages' }
+              // Silent: a test prompt is no traffic, so it reaches neither the event
+              // feed nor the metrics nor the audit trail (#918).
+              { target: 'playground', method: 'POST', path: '/v1/messages', silent: true }
             )
             metricsRegistry.recordScan('playground', Date.now() - imageScanStart)
 
@@ -3611,7 +3613,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           const result = await pipeline.run(
             '/v1/messages',
             anthropicBody,
-            { target: 'playground', method: 'POST', path: '/v1/messages' }
+            { target: 'playground', method: 'POST', path: '/v1/messages', silent: true }
           )
           metricsRegistry.recordScan('playground', Date.now() - textScanStart)
           res.writeHead(200, { 'Content-Type': 'application/json' })
