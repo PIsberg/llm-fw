@@ -53,16 +53,91 @@ const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
 const MIN_PART = 24
 
 /**
- * Whether `v` can be one of the parts the parser joined into `text`: the
+ * Whether a value can be one of the parts the parser joined into `text`: the
  * whole of it, or a run of whole lines, since every parser joins parts with
  * a line break. A leaf that is only somewhere inside a line is a coincidence
  * (#530).
+ *
+ * Built once per text, so the cost is the body's size, not its leaves times
+ * the text's (#917: 20,000 blocks of a 710 KB tool result took 1.2 s, each
+ * leaf searching the whole text). A value of one line, which every
+ * serialized value is, is looked up among the text's lines. One of several
+ * lines must start and end on lines of the text, and is searched from where
+ * the last part of its group was found: a tool result's parts come in order.
+ * Past a total of 64 searches of the whole text it gives up, and the caller
+ * refuses the request rather than holding the thread.
  */
-function isPart(text: string, v: string): boolean {
-  return v === text || text.startsWith(`${v}\n`) || text.endsWith(`\n${v}`) || text.includes(`\n${v}\n`)
+class PartFinder {
+  private readonly lines: Set<string>
+  private readonly padded: string
+  private budget: number
+  private readonly from = new Map<string, number>()
+  exhausted = false
+
+  constructor(private readonly text: string) {
+    this.lines = new Set(text.split('\n'))
+    this.padded = `\n${text}\n`
+    this.budget = 64 * this.padded.length
+  }
+
+  isPart(v: string, group: string): boolean {
+    if (v === this.text) return true
+    const nl = v.indexOf('\n')
+    if (nl === -1) return this.lines.has(v)
+    if (!this.lines.has(v.slice(0, nl)) || !this.lines.has(v.slice(v.lastIndexOf('\n') + 1))) return false
+    const needle = `\n${v}\n`
+    const hint = this.from.get(group) ?? 0
+    for (const start of hint > 0 ? [hint, 0] : [0]) {
+      if (this.budget <= 0) { this.exhausted = true; return false }
+      const at = this.padded.indexOf(needle, start)
+      this.budget -= (at === -1 ? this.padded.length : at + needle.length) - start
+      if (at !== -1) { this.from.set(group, at + needle.length - 1); return true }
+    }
+    return false
+  }
 }
 
-interface Leaf { holder: Record<string, unknown>; key: string; length: number }
+interface Leaf {
+  holder: Record<string, unknown>
+  key: string
+  length: number
+  /** Under the shortest part: replaced with its tool result, never what chooses one. */
+  short?: boolean
+  /** A structured value the parser serialized whole: replaced by a text block. */
+  node?: unknown
+}
+
+/**
+ * Blocks that hold one tool result. Each is a group of its own (#917): grouped
+ * by message, parallel results in one message were one group, and a block two
+ * of them shared took the innocent one with the flagged one.
+ */
+const TOOL_RESULT_TYPES: ReadonlySet<string> = new Set(['tool_result', 'function_call_output', 'custom_tool_call_output', 'local_shell_call_output', 'mcp_call'])
+const TOOL_RESULT_KEYS = ['toolResult', 'functionResponse', 'function_response'] as const
+function isToolResultBlock(value: Record<string, unknown>): boolean {
+  return (typeof value.type === 'string' && TOOL_RESULT_TYPES.has(value.type)) || TOOL_RESULT_KEYS.some(k => k in value) || value.role === 'tool'
+}
+
+/**
+ * Deepest structured value tried whole, from its message: the parsers
+ * serialize a tool result's content or one of its blocks, which sit at most
+ * six levels down (Bedrock's messages[i].content[j].toolResult.content[k]).
+ * Bounded so serializing does not cost the body's size once per level.
+ */
+const MAX_NODE_DEPTH = 8
+
+/**
+ * What replaces a structured value, in the shape its place takes: a content
+ * block in an array (with Anthropic's `type` when the value had one), a Gemini
+ * functionResponse's `response` as its `output`, which the parser reads as
+ * the text, and a text block anywhere else. The parsers read each back as the
+ * notice alone, so no stage scores it.
+ */
+function nodeReplacement(holder: Record<string, unknown>, key: string, node: unknown, text: string): unknown {
+  if (Array.isArray(holder)) return node && typeof node === 'object' && 'type' in node ? { type: 'text', text } : { text }
+  if (key === 'response') return { output: text }
+  return { text }
+}
 
 /**
  * `body` with the flagged text replaced. The body is split into messages: an
@@ -83,17 +158,40 @@ export function withholdText(body: string, text: string, notice: string): string
   // request any parser reads, so only objects are walked.
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null
   const min = Math.min(text.length, MIN_PART)
+  const parts = new PartFinder(text)
   const groups = new Map<string, Leaf[]>()
-  const visit = (holder: Record<string, unknown>, key: string, value: unknown, group: string): void => {
+  const add = (group: string, leaf: Leaf): void => {
+    const leaves = groups.get(group) ?? []
+    leaves.push(leaf)
+    groups.set(group, leaves)
+  }
+  // `inResult`: inside one tool result, where a short part and a structured
+  // value are read too. `path` names a tool-result block's own group.
+  const visit = (holder: Record<string, unknown>, key: string, value: unknown, group: string, inResult: boolean, depth: number, path: string): void => {
     if (typeof value === 'string') {
-      if (STRUCTURAL_KEYS.has(key) || value.length < min || !isPart(text, value)) return
-      const leaves = groups.get(group) ?? []
-      leaves.push({ holder, key, length: value.length })
-      groups.set(group, leaves)
-    } else if (Array.isArray(value)) {
-      for (const [i, v] of value.entries()) visit(value as unknown as Record<string, unknown>, String(i), v, group)
-    } else if (value && typeof value === 'object') {
-      for (const [k, v] of Object.entries(value)) visit(value as Record<string, unknown>, k, v, group)
+      if (STRUCTURAL_KEYS.has(key) || value.length === 0 || !parts.isPart(value, group)) return
+      if (value.length >= min) add(group, { holder, key, length: value.length })
+      else if (inResult) add(group, { holder, key, length: value.length, short: true })
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    // A tool result's structured content, or one block of it, the parser
+    // serialized whole (#917): no string leaf sits on a line of that text.
+    if (inResult && depth > 0 && depth <= MAX_NODE_DEPTH) {
+      const json = JSON.stringify(value)
+      if (json.length >= min && parts.isPart(json, group)) {
+        add(group, { holder, key, length: json.length, node: value })
+        return
+      }
+    }
+    if (!Array.isArray(value) && isToolResultBlock(value as Record<string, unknown>)) {
+      group = `${group}>${path}`
+      inResult = true
+    }
+    if (Array.isArray(value)) {
+      for (const [i, v] of value.entries()) visit(value as unknown as Record<string, unknown>, String(i), v, group, inResult, depth + 1, `${path}/${i}`)
+    } else {
+      for (const [k, v] of Object.entries(value)) visit(value as Record<string, unknown>, k, v, group, inResult, depth + 1, `${path}/${k}`)
     }
   }
   // Google's Cloud Code API (Antigravity, Gemini CLI) wraps the Gemini request
@@ -105,15 +203,20 @@ export function withholdText(body: string, text: string, notice: string): string
     ? inner as Record<string, unknown>
     : envelope
   for (const [k, v] of Object.entries(top)) {
-    if (!Array.isArray(v)) { visit(top, k, v, k); continue }
-    for (const [i, el] of v.entries()) visit(v as unknown as Record<string, unknown>, String(i), el, `${k}#${i}`)
+    if (!Array.isArray(v)) { visit(top, k, v, k, false, 0, k); continue }
+    // Cohere v1 sends each tool result as an element of `tool_results`.
+    for (const [i, el] of v.entries()) visit(v as unknown as Record<string, unknown>, String(i), el, `${k}#${i}`, k === 'tool_results', 0, '')
   }
-  if (groups.size === 0) return null
-  const covered = (leaves: Leaf[]): number => leaves.reduce((n, l) => n + l.length, 0)
-  const best = Math.max(...[...groups.values()].map(covered))
+  if (parts.exhausted) return null
+  const covered = (leaves: Leaf[]): number => leaves.reduce((n, l) => n + (l.short ? 0 : l.length), 0)
+  const best = Math.max(0, ...[...groups.values()].map(covered))
+  if (best === 0) return null
   for (const leaves of groups.values()) {
     if (covered(leaves) < best) continue
-    leaves.forEach((l, i) => { l.holder[l.key] = i === 0 ? notice : WITHHELD_MARKER })
+    leaves.forEach((l, i) => {
+      const replacement = i === 0 ? notice : WITHHELD_MARKER
+      l.holder[l.key] = l.node === undefined ? replacement : nodeReplacement(l.holder, l.key, l.node, replacement)
+    })
   }
   return JSON.stringify(data)
 }
