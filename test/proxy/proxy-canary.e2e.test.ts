@@ -230,6 +230,21 @@ describe('Proxy system-prompt canary (#539, E2E)', { timeout: 30000 }, () => {
     expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
   })
 
+  // #860: observe mode leaves the request as the client sent it, read live.
+  it('adds no canary while the deployment observes, switched live (#860)', async () => {
+    seen.length = 0
+    events.length = 0
+    config.enforcement = 'observe'
+    try {
+      const res = await send(config.proxy.port, upstreamPort, request('sse-leak', 'You are the release assistant.'))
+      expect(seen[0]?.canary).toBeNull()
+      expect(res.body).toContain(' AFTER')
+      expect(events.filter(e => e.stage === 'response-canary')).toEqual([])
+    } finally {
+      config.enforcement = 'enforce'
+    }
+  })
+
   it('sends no canary when the request has no system prompt', async () => {
     seen.length = 0
     const res = await send(config.proxy.port, upstreamPort, request('sse-clean'))

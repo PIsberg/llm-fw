@@ -32,15 +32,15 @@ let upstreamPort = 0
 let tempDir: string
 const seen: { system: string; canary: string | null; acceptEncoding: string | undefined }[] = []
 
-function post(body: string): Promise<{ status: number; text: string; outcome: 'end' | 'aborted' }> {
+function post(body: string, opts: { key?: string; path?: string } = {}): Promise<{ status: number; text: string; outcome: 'end' | 'aborted' }> {
   return new Promise((resolve) => {
     let status = 0
     let text = ''
     let done = false
     const finish = (outcome: 'end' | 'aborted') => { if (!done) { done = true; resolve({ status, text, outcome }) } }
     const req = http.request({
-      host: '127.0.0.1', port: GATEWAY_PORT, method: 'POST', path: '/v1/chat/completions',
-      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)), 'x-llm-fw-key': TOKEN },
+      host: '127.0.0.1', port: GATEWAY_PORT, method: 'POST', path: opts.path ?? '/v1/chat/completions',
+      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)), 'x-llm-fw-key': opts.key ?? TOKEN },
     }, (res) => {
       status = res.statusCode ?? 0
       res.on('data', c => { text += c })
@@ -70,6 +70,10 @@ function config(mode: 'block' | 'audit'): Config {
     gateway: {
       enabled: true, port: GATEWAY_PORT, bindHost: '127.0.0.1',
       requireAuth: true, authToken: TOKEN, defaultProvider: 'stand',
+      tenants: {
+        watching: { token: 'tok-watching', enforcement: 'observe' },
+        'team-b': { token: 'tok-team-b', enforcement: 'enforce' },
+      },
       providers: {
         stand: { name: 'Stand', host: '127.0.0.1', port: upstreamPort, protocol: 'http', auth: 'bearer' },
       },
@@ -220,6 +224,57 @@ describe('Gateway system-prompt canary E2E (#552)', { timeout: 30000 }, () => {
     // as a complete stream.
     expect(res.outcome).toBe('aborted')
     expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+  })
+
+  // #860: observe mode, the deployment's or a tenant's, must leave the
+  // request as the client sent it and never refuse: the gateway added the
+  // canary and cut the stream for an observing tenant.
+  it('adds no canary for a tenant that observes, and forwards its stream whole (#860)', async () => {
+    seen.length = 0
+    events.length = 0
+    const res = await post(request('sse-leak', 'You are the release assistant.'), { key: 'tok-watching' })
+    expect(seen[0]?.canary).toBeNull()
+    expect(seen[0]?.system).toBe('You are the release assistant.')
+    expect(res.text).toContain(' AFTER')
+    expect(res.outcome).toBe('end')
+    expect(events.filter(e => e.stage === 'response-canary')).toEqual([])
+  })
+
+  it('adds no canary while the deployment observes, switched live (#860)', async () => {
+    seen.length = 0
+    cfg.enforcement = 'observe'
+    try {
+      const res = await post(request('sse-leak', 'You are the release assistant.'))
+      expect(seen[0]?.canary).toBeNull()
+      expect(res.text).toContain(' AFTER')
+    } finally {
+      cfg.enforcement = 'enforce'
+    }
+  })
+
+  // #860: the event carried the raw request URL, a query credential
+  // included, named 'gateway' as its target, and had no tenant.
+  it('records the provider, the path without its query and the tenant (#860)', async () => {
+    events.length = 0
+    await post(request('sse-leak', 'You are the release assistant.'), { key: 'tok-team-b', path: '/v1/chat/completions?key=sk-query-credential' })
+    const ev = events.find(e => e.stage === 'response-canary')
+    expect(ev?.action).toBe('blocked')
+    expect(ev?.path).toBe('/v1/chat/completions')
+    expect(ev?.target).toBe('127.0.0.1')
+    expect(ev?.tenant).toBe('team-b')
+  })
+
+  // #860: every tenant behind one ingress arrives from one address, and the
+  // session key was that address, so crescendo, probe and module state of
+  // one tenant was another's.
+  it('keys the session on the tenant, not on the address every tenant shares (#860)', async () => {
+    const inspect = vi.mocked(Pipeline.prototype.inspect)
+    inspect.mockClear()
+    await post(request('sse-clean', 'You are the release assistant.'), { key: 'tok-team-b' })
+    await post(request('sse-clean', 'You are the release assistant.'), { key: 'tok-watching' })
+    await post(request('sse-clean', 'You are the release assistant.'))
+    const keys = inspect.mock.calls.map(c => (c[2] as { sessionKey?: string }).sessionKey)
+    expect(keys).toEqual(['tenant:team-b', 'tenant:watching', '127.0.0.1'])
   })
 
   it('sends no canary when the request has no system prompt', async () => {

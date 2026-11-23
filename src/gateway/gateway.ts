@@ -54,6 +54,17 @@ const log = createLogger('gateway');
  * responses stream through untouched — see the README deployment table. That
  * is a real difference, not an oversight to discover in production.
  */
+/**
+ * The session a request belongs to: its tenant when it has one, else its
+ * address (#860). Behind an ingress every tenant arrives from the same
+ * address, and keying on it alone shared one tenant's crescendo, probe and
+ * module session state with every other.
+ */
+function sessionKeyFor(req: http.IncomingMessage, tenant: Tenant | null | undefined): string {
+  if (tenant) return `tenant:${tenant.id}`;
+  return (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+}
+
 export class GatewayServer {
   private server: http.Server;
   private pipeline: Pipeline;
@@ -291,14 +302,16 @@ export class GatewayServer {
       // sees each chunk first and the tap records only what the client got.
       let forwardBody = decision.body;
       let forwardHeaders = decision.headers;
-      if (this.config.responseScan?.canary?.enabled) {
+      // Not for a request that is only observed (#860), the deployment's or
+      // its tenant's: observation forwards the request as sent, never refuses.
+      if (this.config.responseScan?.canary?.enabled && !isObserving(this.config.enforcement, tenant?.enforcement)) {
         const token = canaryToken(getLlmFwDir());
         const injected = injectCanary(route.upstreamPath, sent, token);
         if (injected !== null) {
           forwardBody = Buffer.from(injected, 'utf-8');
           // The watch reads the response, so it must arrive uncompressed.
           forwardHeaders = { ...decision.headers, 'accept-encoding': 'identity' };
-          guardCanary(res, token, bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req), route.upstreamPath);
+          guardCanary(res, token, bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req, route, tenant), route.upstreamPath);
         }
       }
       await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);
@@ -312,15 +325,18 @@ export class GatewayServer {
   }
 
   /** A response repeated the system-prompt canary; returns whether to withhold it. */
-  private emitCanary(req: http.IncomingMessage): boolean {
+  // Named like every other gateway event (#860): the provider's host, and the
+  // upstream path, which holds no query, so no `?key=` credential is stored.
+  private emitCanary(req: http.IncomingMessage, route: GatewayRoute, tenant: Tenant | null): boolean {
     const blocked = this.config.responseScan?.canary?.mode === 'block';
     this.eventBus.emit({
+      ...(tenant ? { tenant: tenant.id } : {}),
       stage: 'response-canary',
       score: 100,
       similarity: 0,
-      target: 'gateway',
+      target: route.provider.host,
       method: req.method ?? 'POST',
-      path: req.url ?? '/',
+      path: route.upstreamPath,
       payload_preview: `${blocked ? 'Cut' : 'Detected'} a response that repeated the system-prompt canary: the model was reciting its system prompt`,
       // The response is not recorded: it holds the system prompt.
       payload_full: '',
@@ -431,7 +447,7 @@ export class GatewayServer {
         { config: this.config, pipeline: this.pipeline, dlp: this.dlp, eventBus: this.eventBus, dashboardUrl: () => this.dashboardUrl() },
         {
           protocol, target: route.provider.host, path: route.upstreamPath,
-          sessionKey: (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, ''),
+          sessionKey: sessionKeyFor(req, tenant),
           tenant: tenant ? { id: tenant.id, enforcement: tenant.enforcement } : undefined,
         },
         { client, head, upstream, readyEvent: plain ? 'connect' : 'secureConnect', requestHead },
@@ -534,7 +550,7 @@ export class GatewayServer {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
     const target = route.provider.host;
-    const sessionKey = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+    const sessionKey = sessionKeyFor(req, tenant);
     const dashboardUrl = this.dashboardUrl();
     let bodyBuf = original;
     let text = bodyBuf.toString('utf-8');
@@ -696,7 +712,7 @@ export class GatewayServer {
       path: route.upstreamPath,
       isLlmRequest: true,
       parser,
-      sessionKey: (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, ''),
+      sessionKey: sessionKeyFor(req, tenant),
       tenant: tenant?.id,
       headers: req.headers,
       url: req.url,
