@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.104 (#916: response-side tool calls; requests unchanged).
   // Held at ruleset 2026.11.103 (#915: DLP patterns end at the secret; redaction only, no detection verdict).
   // Held at ruleset 2026.11.102 (#914: detectors read past invisibles, uppercase Greek and look-alike runs fold; 0 of 31,323 eval verdicts moved).
   // Held at ruleset 2026.11.101 (#866: the MCP request checks moved into a shared function; no verdict change).

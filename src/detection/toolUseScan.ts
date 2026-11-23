@@ -30,7 +30,7 @@
 
 import { detectMemoryPoisoning, type MemoryPoisoningFinding } from './memoryPoisoning.js'
 import type { PayloadParser, DlpFinding } from '../types.js'
-import { responsesToolCall } from './parsers.js'
+import { RESPONSES_ARGUMENT_DELTAS, responsesToolCall } from './parsers.js'
 import type { DlpScanner } from './dlp/scanner.js'
 
 export interface ScannedToolCall {
@@ -47,7 +47,7 @@ export function extractToolCallsFromJson(body: string, parser: PayloadParser): S
   }
 }
 
-interface AnthropicAccum { name: string; json: string }
+interface AnthropicAccum { name: string; json: string; input: unknown }
 interface OpenAiAccum { name: string; args: string }
 interface ResponsesAccum { name: string; args: string; custom: boolean }
 
@@ -61,7 +61,11 @@ interface ResponsesAccum { name: string; args: string; custom: boolean }
  */
 export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
   if (!sseText) return []
+  // Cohere v1 streams newline-delimited JSON, not SSE (#881); the proxy hands
+  // it here as a line stream, and read as SSE it held no event (#916).
+  if (/^\s*\{/.test(sseText)) return extractCohereNdjsonCalls(sseText)
   const out: ScannedToolCall[] = []
+  const cohereByIndex = new Map<number, OpenAiAccum>()
   const anthropicByIndex = new Map<number, AnthropicAccum>()
   const openAiByIndex = new Map<number, OpenAiAccum>()
   const responsesByIndex = new Map<number, ResponsesAccum>()
@@ -91,7 +95,7 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
         const item = data.item as Record<string, unknown> | undefined
         const call = responsesToolCall(item)
         if (call) responsesByIndex.set(at, { name: call.toolName, args: '', custom: item?.type === 'custom_tool_call' })
-      } else if ((type === 'response.function_call_arguments.delta' || type === 'response.custom_tool_call_input.delta') && typeof data.delta === 'string') {
+      } else if (RESPONSES_ARGUMENT_DELTAS.has(type) && typeof data.delta === 'string') {
         const entry = responsesByIndex.get(at)
         if (entry) entry.args += data.delta
       } else if (type === 'response.output_item.done') {
@@ -101,12 +105,32 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
       continue
     }
 
-    // Anthropic: content_block_start (tool_use, name) -> content_block_delta
-    // (input_json_delta, partial_json fragments) -> content_block_stop.
+    // Cohere v2 (#916): tool-call-start names the call, tool-call-delta
+    // fragments carry its arguments, tool-call-end closes it, all by index.
+    if (type === 'tool-call-start' || type === 'tool-call-delta' || type === 'tool-call-end') {
+      const at = index ?? 0
+      if (type === 'tool-call-end') {
+        const entry = cohereByIndex.get(at)
+        cohereByIndex.delete(at)
+        if (entry?.name) out.push({ toolName: entry.name, args: parseJsonArgs(entry.args) })
+      } else {
+        const part = cohereStreamPart(data)
+        const entry = cohereByIndex.get(at) ?? { name: '', args: '' }
+        if (part.name) entry.name = part.name
+        entry.args += part.args
+        cohereByIndex.set(at, entry)
+      }
+      continue
+    }
+
+    // Anthropic: content_block_start (a tool block, name) -> content_block_delta
+    // (input_json_delta, partial_json fragments) -> content_block_stop. Server
+    // and MCP tool blocks too (#916), and an input that arrived whole in the
+    // start event is the arguments when no fragment follows.
     if (type === 'content_block_start' && index !== undefined) {
       const block = data.content_block as Record<string, unknown> | undefined
-      if (block && block.type === 'tool_use' && typeof block.name === 'string') {
-        anthropicByIndex.set(index, { name: block.name, json: '' })
+      if (block && ANTHROPIC_TOOL_BLOCKS.has(block.type as string) && typeof block.name === 'string') {
+        anthropicByIndex.set(index, { name: block.name, json: '', input: block.input })
       }
       continue
     }
@@ -120,7 +144,7 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
     if (type === 'content_block_stop' && index !== undefined && anthropicByIndex.has(index)) {
       const entry = anthropicByIndex.get(index)!
       anthropicByIndex.delete(index)
-      out.push({ toolName: entry.name, args: parseJsonArgs(entry.json) })
+      out.push({ toolName: entry.name, args: anthropicArgs(entry) })
       continue
     }
 
@@ -164,7 +188,10 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
   // truncated at the maxBodyBytes inspection cap): best-effort include
   // whatever argument text accumulated so far rather than dropping the call.
   for (const entry of anthropicByIndex.values()) {
-    out.push({ toolName: entry.name, args: parseJsonArgs(entry.json) })
+    out.push({ toolName: entry.name, args: anthropicArgs(entry) })
+  }
+  for (const entry of cohereByIndex.values()) {
+    if (entry.name) out.push({ toolName: entry.name, args: parseJsonArgs(entry.args) })
   }
   for (const entry of openAiByIndex.values()) {
     if (entry.name) out.push({ toolName: entry.name, args: parseJsonArgs(entry.args) })
@@ -174,6 +201,51 @@ export function extractToolCallsFromSse(sseText: string): ScannedToolCall[] {
   }
 
   return out
+}
+
+const ANTHROPIC_TOOL_BLOCKS = new Set(['tool_use', 'server_tool_use', 'mcp_tool_use'])
+
+/** A streamed Anthropic block's arguments: its fragments, or the input its start event carried when none came. */
+function anthropicArgs(entry: AnthropicAccum): unknown {
+  if (entry.json) return parseJsonArgs(entry.json)
+  return entry.input && typeof entry.input === 'object' ? entry.input : {}
+}
+
+/** The name and argument text one Cohere v2 tool-call event carries in delta.message.tool_calls.function. */
+function cohereStreamPart(data: Record<string, unknown>): { name: string; args: string } {
+  const message = (data.delta as Record<string, unknown> | undefined)?.message as Record<string, unknown> | undefined
+  let call: unknown = message?.tool_calls
+  if (Array.isArray(call)) call = call[0]
+  const fn = (call as Record<string, unknown> | undefined)?.function as Record<string, unknown> | undefined
+  return { name: typeof fn?.name === 'string' ? fn.name : '', args: typeof fn?.arguments === 'string' ? fn.arguments : '' }
+}
+
+/**
+ * Tool calls in a Cohere v1 newline-delimited JSON stream: whole in the
+ * `tool-calls-generation` event, or assembled from `tool-calls-chunk` deltas
+ * when the stream ended before it.
+ */
+function extractCohereNdjsonCalls(text: string): ScannedToolCall[] {
+  const chunks = new Map<number, { name: string; params: string }>()
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    let data: Record<string, unknown>
+    try { data = JSON.parse(line) as Record<string, unknown> } catch { continue }
+    if (data.event_type === 'tool-calls-generation' && Array.isArray(data.tool_calls)) {
+      return (data.tool_calls as Array<Record<string, unknown>>)
+        .filter(c => c && typeof c.name === 'string')
+        .map(c => ({ toolName: c.name as string, args: c.parameters ?? {} }))
+    }
+    if (data.event_type === 'tool-calls-chunk') {
+      const d = data.tool_call_delta as Record<string, unknown> | undefined
+      const idx = typeof d?.index === 'number' ? d.index : 0
+      const call = chunks.get(idx) ?? { name: '', params: '' }
+      if (typeof d?.name === 'string') call.name += d.name
+      if (typeof d?.parameters === 'string') call.params += d.parameters
+      chunks.set(idx, call)
+    }
+  }
+  return [...chunks.values()].filter(c => c.name).map(c => ({ toolName: c.name, args: parseJsonArgs(c.params) }))
 }
 
 function parseJsonArgs(json: string): unknown {
