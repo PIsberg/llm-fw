@@ -68,6 +68,7 @@ function sessionKeyFor(req: http.IncomingMessage, tenant: Tenant | null | undefi
 export class GatewayServer {
   private server: http.Server;
   private pipeline: Pipeline;
+  private readonly ownsPipeline: boolean;
   private readonly sandbox = new SandboxDetector();
   private dlp: DlpScanner;
   private eventBus: EventBus;
@@ -85,12 +86,15 @@ export class GatewayServer {
    */
   private sessions = new Set<Duplex>();
 
-  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager) {
+  // `pipeline`, when given, is the caller's (cli/start.ts shares one, #863):
+  // this gateway neither initialises nor closes it.
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager, pipeline?: Pipeline) {
     this.config = config;
     this.eventBus = eventBus;
     this.metrics = metrics;
     this.modules = moduleManager ?? new ModuleManager(config);
-    this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions);
+    this.ownsPipeline = pipeline === undefined;
+    this.pipeline = pipeline ?? new Pipeline(config, partial => eventBus.emit(partial), suppressions);
     this.dlp = new DlpScanner(config.dlp);
 
     const gw = config.gateway;
@@ -159,7 +163,7 @@ export class GatewayServer {
   get tenantIds(): string[] { return this.tenants.ids; }
 
   async init(): Promise<void> {
-    await this.pipeline.init();
+    if (this.ownsPipeline) await this.pipeline.init();
   }
 
   start(): void {
@@ -171,7 +175,7 @@ export class GatewayServer {
     for (const socket of this.sessions) socket.destroy();
     await Promise.all([
       new Promise<void>(resolve => this.server.close(() => resolve())),
-      this.pipeline.close(),
+      this.ownsPipeline ? this.pipeline.close() : Promise.resolve(),
     ]);
   }
 

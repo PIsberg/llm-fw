@@ -360,3 +360,19 @@ describe('token-pruner default', () => {
     expect(DEFAULT_CONFIG.modules?.tokenPruner.enabled).toBe(false)
   })
 })
+
+// #863: lean-ctx's sidecar process and idle timer outlived a graceful stop,
+// because nothing closed the modules.
+describe('ModuleManager.close (#863)', () => {
+  it('closes every module that has something to close, and survives one that throws', () => {
+    const mm = new ModuleManager(undefined, false)
+    const closed: string[] = []
+    const mod = (id: string, close?: () => void) => ({ id, name: id, description: id, enabled: true, transformRequest: (body: string) => ({ body, modified: false }), getStats: () => ({}) as never, ...(close ? { close } : {}) })
+    mm.register(mod('a', () => { closed.push('a') }) as never)
+    mm.register(mod('b') as never)
+    mm.register(mod('c', () => { throw new Error('gone') }) as never)
+    mm.register(mod('d', () => { closed.push('d') }) as never)
+    expect(() => mm.close()).not.toThrow()
+    expect(closed).toEqual(['a', 'd'])
+  })
+})

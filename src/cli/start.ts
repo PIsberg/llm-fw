@@ -29,6 +29,11 @@ import { restoreSinkholeHosts } from './hosts.js';
 import { RULESET_VERSION } from '../detection/ruleset.js';
 import { execSync, execFileSync } from 'node:child_process';
 import { systemTool } from '../systemTool.js';
+import { Lifecycle } from './lifecycle.js';
+
+// How long a graceful stop waits for every resource to close before it exits
+// anyway (#863): a stuck audit webhook used to keep the process alive.
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 /**
  * True when the `start` args request shared-server mode. `--standalone` is the
@@ -274,56 +279,38 @@ export async function run(args: string[] = []): Promise<void> {
     removeRuntimeState(llmfwDir);
   }
 
-  // Declared here, assigned further below once the config is known: the
-  // shutdown handlers close over them, and they are registered before any IO,
-  // so they must not reference bindings still in their dead zone.
+  // Declared here, assigned further below once the config is known.
   let gateway: GatewayServer | null = null;
   let auditLog: AuditLog | null = null;
   let auditWebhook: AuditWebhook | null = null;
   let toolUsage: ToolUsageModule | null = null;
   let usageMeter: UsageMeterModule | null = null;
-  // Flush the audit sinks on the way out. A batch still queued at SIGTERM is
-  // the record of the last seconds before a rollout — exactly the window
-  // someone goes looking for afterwards.
-  //
-  // allSettled, not all: these four are independent, and with Promise.all the
-  // FIRST rejection abandons the rest. A pipeline that fails to close would
-  // therefore skip the audit flush, losing precisely the record this comment
-  // says is worth keeping. Each failure is reported rather than swallowed,
-  // because a teardown that half-worked is worth knowing about.
-  const shutdown = async (): Promise<void> => {
-    const tasks: readonly { readonly what: string; readonly done: Promise<unknown> }[] = [
-      { what: 'detection pipeline', done: pipeline.close() },
-      { what: 'gateway', done: gateway ? gateway.stop() : Promise.resolve() },
-      { what: 'audit webhook', done: auditWebhook ? auditWebhook.stop() : Promise.resolve() },
-      { what: 'audit log', done: auditLog ? auditLog.close() : Promise.resolve() },
-      { what: 'tool usage', done: Promise.resolve().then(() => toolUsage?.flush()) },
-      { what: 'usage by client', done: Promise.resolve().then(() => usageMeter?.flush()) },
-    ];
-    const results = await Promise.allSettled(tasks.map(t => t.done));
-    results.forEach((r, i) => {
-      const task = tasks[i];
-      if (r.status !== 'rejected' || !task) return;
-      // Constant format string with the name as an ARGUMENT, not interpolated
-      // into it. Every name here is a literal from the array above, so nothing
-      // hostile can reach it, but a template literal in a console.* format
-      // position is a pattern worth not having in the codebase at all: the day
-      // one of those names becomes dynamic, an injected `%s` forges log lines.
-      console.error('[shutdown] %s did not close cleanly:', task.what, r.reason);
-    });
-  };
+  // Every resource is registered with the lifecycle as it is created, and the
+  // signal handlers name only the lifecycle (#863). They once closed over
+  // `const` bindings declared further down, so a signal during startup threw
+  // a ReferenceError from the handler, and the proxy, the dashboard, the event
+  // bus and the modules were never closed at all. stop() closes what exists by
+  // then, once, every step even when one fails, and exits within
+  // SHUTDOWN_TIMEOUT_MS. Flushing the audit sinks matters most: a batch still
+  // queued at SIGTERM is the record of the last seconds before a rollout.
+  const lifecycle = new Lifecycle({
+    cleanup,
+    exit: (code) => process.exit(code),
+    log: (format, ...rest) => console.error(format, ...rest),
+    timeoutMs: SHUTDOWN_TIMEOUT_MS,
+  });
 
   // Register cleanup hooks before any IO. SIGINT/SIGTERM are the graceful
   // paths, so they also terminate the shared inference worker thread (Task
   // C3, detection.workerInference) if one was ever spawned — a no-op
   // otherwise. uncaughtException exits immediately without waiting on it;
   // the worker thread dies with the process either way.
-  const gracefulStop = (): void => { hotReload.stop(); cleanup(); void shutdown().finally(() => process.exit(0)); };
+  const gracefulStop = (): void => { lifecycle.stop(0); };
   process.on('SIGINT', gracefulStop);
   process.on('SIGTERM', gracefulStop);
   // `llm-fw stop` asks through a file before it signals: on Windows SIGTERM is
   // TerminateProcess and the handler above would never run (#310).
-  watchForStopRequest(llmfwDir, process.pid, gracefulStop);
+  lifecycle.add('stop-request watcher', watchForStopRequest(llmfwDir, process.pid, gracefulStop));
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanup();
@@ -348,11 +335,13 @@ export async function run(args: string[] = []): Promise<void> {
   fs.writeFileSync(pidFile, String(process.pid), 'utf8');
 
   // Task C4 — shared across the dashboard's EventBus (records block/warn/
-  // event counters from the same hook that emits dashboard events) and both
-  // Pipeline instances' run() call boundaries (proxy live traffic +
-  // dashboard playground), so GET /metrics reports on the whole process.
+  // event counters from the same hook that emits dashboard events) and the
+  // proxy's and gateway's run() call boundaries (live traffic, and the
+  // dashboard playground on the same pipeline), so GET /metrics reports on
+  // the whole process.
   const metrics = new MetricsRegistry();
   const eventBus = new EventBus(config.dashboard, metrics);
+  lifecycle.add('event bus', () => eventBus.destroy());
 
   // Durable audit trail. Attached to the EventBus because that is the single
   // funnel every block/warn/audit event already passes through, so nothing can
@@ -362,10 +351,14 @@ export async function run(args: string[] = []): Promise<void> {
     ? new AuditWebhook(config.audit.webhookUrl, undefined, undefined, undefined, config.audit.includePayloads)
     : null;
   if (auditLog) {
+    const log = auditLog;
+    lifecycle.add('audit log', () => log.close());
     auditLog.open();
     console.log(`Audit log: ${auditLog.filePath}${config.audit?.includePayloads ? ' (including payloads)' : ' (metadata only — set LLM_FW_AUDIT_PAYLOADS=true to include prompt text)'}`);
   }
   if (auditWebhook) {
+    const hook = auditWebhook;
+    lifecycle.add('audit webhook', () => hook.stop());
     auditWebhook.start();
     console.log(`Audit webhook: ${config.audit?.webhookUrl}`);
   }
@@ -375,7 +368,11 @@ export async function run(args: string[] = []): Promise<void> {
   // positive from the dashboard actually suppresses future real traffic —
   // not just the dashboard's own /api/test calls.
   const suppressions = new SuppressionStore();
+  // One pipeline for the dashboard, the proxy and the gateway (#863): each
+  // built and initialised its own, three sets of anchor embeddings at startup
+  // and three item caches, and with workerInference off three model loads.
   const pipeline = new Pipeline(config, (partial) => eventBus.emit(partial), suppressions);
+  lifecycle.add('detection pipeline', () => pipeline.close());
 
   // Task C5 — watches <getLlmFwDir()>/config.json and hot-applies detection/
   // dlp/dos/rag/mcp/nonText/manyShot/crescendo/indirectInstruction/
@@ -385,6 +382,7 @@ export async function run(args: string[] = []): Promise<void> {
   // restart-required and left untouched. On by default (config.hotReload,
   // env LLM_FW_HOT_RELOAD); stopped on graceful shutdown below.
   const hotReload = startConfigHotReload(config);
+  lifecycle.add('config watcher', () => hotReload.stop());
 
   // A regenerated CA must carry a CRL distribution point this deployment can
   // actually serve: the URL follows the configured dashboard address rather
@@ -418,20 +416,33 @@ export async function run(args: string[] = []): Promise<void> {
   console.log('Model ready.');
 
   const modules = new ModuleManager(config);
+  lifecycle.add('modules', () => modules.close());
   // Tool Usage keeps its list across restarts, so the never-called tools it
   // suggests for the Tool Filter rest on more than one process's traffic.
   toolUsage = (modules.getModule('tool-usage') as ToolUsageModule | undefined) ?? null;
   toolUsage?.persistTo(join(getLlmFwDir(), 'tool-usage.json'));
+  if (toolUsage) { const tu = toolUsage; lifecycle.add('tool usage', () => tu.flush()); }
   // So does the Usage Meter's evidence on how each client's conversations
   // use the prompt cache: fifty conversations can be days of traffic.
   usageMeter = (modules.getModule('usage-meter') as UsageMeterModule | undefined) ?? null;
   usageMeter?.persistTo(join(getLlmFwDir(), 'usage-clients.json'));
+  if (usageMeter) { const um = usageMeter; lifecycle.add('usage by client', () => um.flush()); }
   const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
+  // A dashboard that cannot listen used to be an unhandled 'error' event (#863).
+  dashboardServer.on('error', (err: NodeJS.ErrnoException) => {
+    console.error(`Dashboard could not listen on ${config.dashboard.bindHost}:${config.dashboard.port}: ${err.message}`);
+    lifecycle.stop(1);
+  });
+  lifecycle.add('dashboard', () => new Promise<void>(resolve => {
+    dashboardServer.closeAllConnections();
+    dashboardServer.close(() => resolve());
+  }));
   dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
     // listening
   });
 
-  const proxy = new ProxyServer(config, eventBus, suppressions, metrics, modules);
+  const proxy = new ProxyServer(config, eventBus, suppressions, metrics, modules, pipeline);
+  lifecycle.add('proxy', () => proxy.stop());
   await proxy.init();
   proxy.start();
 
@@ -439,7 +450,9 @@ export async function run(args: string[] = []): Promise<void> {
   // the forward proxy rather than replacing it, so a team can migrate clients
   // to base_url one at a time instead of in a flag day.
   if (config.gateway?.enabled) {
-    gateway = new GatewayServer(config, eventBus, suppressions, metrics, modules);
+    gateway = new GatewayServer(config, eventBus, suppressions, metrics, modules, pipeline);
+    const gw = gateway;
+    lifecycle.add('gateway', () => gw.stop());
     await gateway.init();
     gateway.start();
     const gwHost = config.gateway.bindHost === '0.0.0.0' ? lanIPv4() : config.gateway.bindHost;

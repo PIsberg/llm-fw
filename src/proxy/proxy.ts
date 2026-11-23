@@ -332,6 +332,7 @@ export class ProxyServer {
   // can never turn the proxy into an anonymous open relay.
   private authPolicy: AuthPolicy
   private modules: ModuleManager
+  private readonly ownsPipeline: boolean
 
   // Optional so every existing call site (tests, scripts) that doesn't care
   // about sharing the suppression store across Pipeline instances is
@@ -339,9 +340,13 @@ export class ProxyServer {
   // this proxy's live-traffic pipeline and the dashboard's playground
   // pipeline, so a false-positive marked from the dashboard actually
   // suppresses future real traffic, not just the dashboard's own test runs.
-  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager) {
+  // `pipeline`, when given, is owned by the caller (cli/start.ts shares one
+  // with the dashboard and the gateway, #863): this proxy neither initialises
+  // nor closes it.
+  constructor(config: Config, eventBus: EventBus, suppressions?: SuppressionStore, metrics?: MetricsRegistry, moduleManager?: ModuleManager, pipeline?: Pipeline) {
     this.config = config
     this.eventBus = eventBus
+    this.ownsPipeline = pipeline === undefined
     this.metrics = metrics
     this.modules = moduleManager ?? new ModuleManager(config)
     // The CRL distribution point baked into every certificate has to be
@@ -349,7 +354,7 @@ export class ProxyServer {
     // configured address rather than assuming loopback on the default port.
     this.certFactory = new CertFactory(crlUrlFor(config.dashboard?.bindHost, config.dashboard?.port))
     this.resolver = new UpstreamResolver(config.proxy)
-    this.pipeline = new Pipeline(config, partial => eventBus.emit(partial), suppressions)
+    this.pipeline = pipeline ?? new Pipeline(config, partial => eventBus.emit(partial), suppressions)
     this.urlClassifier = new UrlClassifier(config.proxy.urlFilter)
     this.dlp = new DlpScanner(config.dlp)
     this.quota = new QuotaManager(config.dos)
@@ -403,7 +408,7 @@ export class ProxyServer {
     // Generate the shared host key now, while startup is already slow, so the
     // first intercepted hostname never pays the blocking RSA keygen mid-request.
     this.certFactory.warmHostKey()
-    await this.pipeline.init()
+    if (this.ownsPipeline) await this.pipeline.init()
     await this.outputClassifier.init() // no-op unless responseScan.classifier is enabled
   }
 
@@ -484,8 +489,9 @@ export class ProxyServer {
     const closes: Promise<void>[] = [
       new Promise(resolve => this.server.close(() => resolve())),
       // Task C3 — terminates the shared inference worker thread if one was
-      // ever spawned (detection.workerInference); no-op otherwise.
-      this.pipeline.close(),
+      // ever spawned (detection.workerInference); no-op otherwise. A shared
+      // pipeline is its owner's to close.
+      this.ownsPipeline ? this.pipeline.close() : Promise.resolve(),
     ]
     if (this.sinkholeServer) {
       closes.push(new Promise(resolve => this.sinkholeServer!.close(() => resolve())))
