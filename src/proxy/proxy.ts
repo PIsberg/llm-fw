@@ -2019,6 +2019,13 @@ export class ProxyServer {
         } else {
           if (mode === 'sse') {
             if (cut) return
+            // A last event no blank line closed (#859). Its text was forwarded,
+            // so block mode resets the connection: atEventBoundary is false
+            // there, and a client drops an unterminated event.
+            if (watch?.flush()) {
+              this.emitCanary(canaryBlocks, req, hostname)
+              if (canaryBlocks) { cutStream(CANARY_CUT); return }
+            }
             if (hold) {
               const rest = hold.end()
               if (rest === null) { cutStream(EXFIL_CUT); return }

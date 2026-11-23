@@ -35,9 +35,6 @@ const SCHEME_RE = /^[a-z][a-z\d+.-]*:/i
 // at every `[` and ran to the end of the text when the markup never closed, on
 // the thread serving every client: 6 s on 200 KB (GHSA-ggrw-cm2f-mh3c).
 const BRACKET_RE = /!\[|\[|\]\(?/g
-// A destination, after whitespace and an optional `<`. It stops at whitespace,
-// ')' or '>'. Nothing follows the run, so it never backtracks.
-const DEST_RE = /\s*<?([^\s)>]*)/y
 // Deep enough for any real nesting, and it keeps `[[[[...` from filling memory.
 // Past it an inner bracket is not tracked, which can only mislabel a finding.
 const MAX_BRACKET_DEPTH = 1024
@@ -95,17 +92,71 @@ function decodeJsonEscape(_all: string, hex: string | undefined, short: string |
  * CommonMark reads before any entity is decoded. An attribute value keeps its
  * whitespace to the quote, and the URL parser strips tabs and line breaks from
  * it. A backslash that survives is a slash for http(s), and a CommonMark escape
- * is unescaped first. Linear in `raw`.
+ * is unescaped first. A markdown destination in `<...>` (`angle`) keeps its
+ * spaces, which the URL parser encodes (#859). Linear in `raw`.
  */
-export function normalizeDestination(raw: string, attribute: boolean): string {
+export function normalizeDestination(raw: string, attribute: boolean, angle = false): string {
   let s = raw.replace(JSON_ESCAPE_RE, decodeJsonEscape)
-  if (!attribute) {
+  if (!attribute && !angle) {
     const end = s.search(WHITESPACE_RE)
     if (end >= 0) s = s.slice(0, end)
   }
   s = s.replace(ENTITY_RE, decodeEntity)
   if (!attribute) s = s.replace(CM_ESCAPE_RE, '$1')
   return s.replace(STRIPPED_RE, '').replace(/\\/g, '/')
+}
+
+const OPEN_PAREN = 40
+const CLOSE_PAREN = 41
+const LESS_THAN = 60
+const GREATER_THAN = 62
+const BACKSLASH = 92
+
+function isSpace(code: number): boolean {
+  return code === 32 || (code >= 9 && code <= 13)
+}
+
+function isControl(code: number): boolean {
+  return code < 32 || code === 127
+}
+
+/**
+ * The destination that starts at `from` (just after a `](`), read as
+ * CommonMark 6.3 reads it, and the index after it. Leading whitespace is
+ * skipped. `<...>` runs to its first unescaped `>`, spaces and parentheses
+ * included, and stops at a line ending or `<`; `angle` says so, since its
+ * spaces are part of the URL. Bare, it runs to whitespace, a control
+ * character or the `)` that closes the link, past balanced pairs, `>` and
+ * backslash-escaped characters (#859: stopping at the first `)` left
+ * `p(1)?secret=...` unread). One pass, so linear.
+ */
+function readDestination(text: string, from: number): { url: string; end: number; angle: boolean } {
+  let i = from
+  while (i < text.length && isSpace(text.charCodeAt(i))) i++
+  if (text.charCodeAt(i) === LESS_THAN) {
+    const start = ++i
+    for (; i < text.length; i++) {
+      const c = text.charCodeAt(i)
+      if (c === GREATER_THAN || c === LESS_THAN || c === 10 || c === 13) break
+      if (c === BACKSLASH && i + 1 < text.length && text.charCodeAt(i + 1) !== 10 && text.charCodeAt(i + 1) !== 13) i++
+    }
+    return { url: text.slice(start, i), end: i, angle: true }
+  }
+  const start = i
+  let depth = 0
+  for (; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (isSpace(c) || isControl(c)) break
+    if (c === BACKSLASH) {
+      if (i + 1 < text.length && !isSpace(text.charCodeAt(i + 1))) i++
+    } else if (c === OPEN_PAREN) {
+      depth++
+    } else if (c === CLOSE_PAREN) {
+      if (depth === 0) break
+      depth--
+    }
+  }
+  return { url: text.slice(start, i), end: i, angle: false }
 }
 
 /**
@@ -115,8 +166,8 @@ export function normalizeDestination(raw: string, attribute: boolean): string {
  * still render the inner, and rereading from each `](` to the end of the run
  * would be quadratic. An image is one whose own opening bracket is `![`.
  */
-function inlineDestinations(text: string): { url: string; image: boolean }[] {
-  const found: { url: string; image: boolean }[] = []
+function inlineDestinations(text: string): { url: string; image: boolean; angle: boolean }[] {
+  const found: { url: string; image: boolean; angle: boolean }[] = []
   const open: boolean[] = []
   BRACKET_RE.lastIndex = 0
   for (let m = BRACKET_RE.exec(text); m !== null; m = BRACKET_RE.exec(text)) {
@@ -127,12 +178,15 @@ function inlineDestinations(text: string): { url: string; image: boolean }[] {
     }
     const image = open.pop() === true
     if (token === ']') continue
-    DEST_RE.lastIndex = BRACKET_RE.lastIndex
-    const url = DEST_RE.exec(text)?.[1] ?? ''
-    BRACKET_RE.lastIndex = DEST_RE.lastIndex
-    found.push({ url, image })
+    const { url, end, angle } = readDestination(text, BRACKET_RE.lastIndex)
+    BRACKET_RE.lastIndex = end
+    found.push({ url, image, angle })
     if (url.includes('](')) {
-      for (const inner of url.split('](')) found.push({ url: inner.replace(/^</, ''), image })
+      // Each piece is read on its own, so the pieces together are read once.
+      for (const inner of url.split('](')) {
+        const piece = readDestination(inner, 0)
+        found.push({ url: piece.url, image, angle: piece.angle })
+      }
     }
   }
   return found
@@ -158,10 +212,10 @@ function mediaTags(text: string): string[] {
 }
 
 /** The host and path a client would fetch for `raw`, or null when it is not http(s). */
-function resolveDestination(raw: string, attribute: boolean): { hostname: string; path: string } | null {
+function resolveDestination(raw: string, attribute: boolean, angle = false): { hostname: string; path: string } | null {
   // Most destinations in a long body are empty or relative, and a parse that
   // throws costs far more than one that does not, so both are decided first.
-  const text = normalizeDestination(raw, attribute)
+  const text = normalizeDestination(raw, attribute, angle)
   if (!text) return null
   try {
     // Absolute first: `https:/host` with no base is https://host, while resolved
@@ -193,8 +247,8 @@ export function scanResponseExfil(
   const findings: ExfilFinding[] = []
   const seen = new Set<string>()
 
-  const judge = (url: string, kind: ExfilFinding['kind'], attribute = kind === 'html-image') => {
-    const parsed = resolveDestination(url, attribute)
+  const judge = (url: string, kind: ExfilFinding['kind'], attribute = kind === 'html-image', angle = false) => {
+    const parsed = resolveDestination(url, attribute, angle)
     if (parsed && isExfil(parsed.hostname, parsed.path)) {
       const key = kind + '|' + url
       if (!seen.has(key)) {
@@ -232,10 +286,10 @@ export function scanResponseExfil(
   }
 
   const inline = inlineDestinations(text)
-  for (const d of inline) if (d.image) judge(d.url, 'markdown-image')
+  for (const d of inline) if (d.image) judge(d.url, 'markdown-image', false, d.angle)
   scan(MD_DEF_RE, 'markdown-image')
   for (const tag of mediaTags(text)) scanAttributes(tag)
-  for (const d of inline) if (!d.image) judge(d.url, 'markdown-link')
+  for (const d of inline) if (!d.image) judge(d.url, 'markdown-link', false, d.angle)
   return findings
 }
 
