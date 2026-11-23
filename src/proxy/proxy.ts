@@ -18,7 +18,8 @@ import { getParser, CohereParser } from '../detection/parsers.js'
 import { canonicalPath } from '../detection/canonicalPath.js'
 import { TaintTracker, maskToken } from '../detection/taint.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
-import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate } from '../detection/mcp/responseGate.js'
+import { inspectJsonResponse, rewriteBlockedJsonResponse, createSseGate, SseGate, type ToolDecision } from '../detection/mcp/responseGate.js'
+import { createEventStreamGate, type BinaryGate } from '../detection/mcp/eventStreamGate.js'
 import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
@@ -1320,6 +1321,13 @@ export class ProxyServer {
   // result to the agent, emit audit events, and return the bytes forwarded.
   private gateSse(gate: SseGate, text: string, res: http.ServerResponse, req: http.IncomingMessage, hostname: string): number {
     const { forward, decisions } = gate.push(text)
+    this.reportGateDecisions(decisions, forward, req, hostname)
+    if (forward) { res.write(Buffer.from(forward, 'utf8')); return Buffer.byteLength(forward) }
+    return 0
+  }
+
+  /** Report a stream gate's tool decisions as MCP events. */
+  private reportGateDecisions(decisions: ToolDecision[], forward: string, req: http.IncomingMessage, hostname: string): void {
     for (const d of decisions) {
       if (d.action === 'block') {
         const preview = d.reason ? `Blocked tool invocation: ${d.toolName} (${d.reason})` : `Blocked tool invocation: ${d.toolName}`
@@ -1331,8 +1339,6 @@ export class ProxyServer {
         this.emitMcp('passed', `Tool invoked by LLM: ${d.toolName}`, forward, req, hostname, d.toolName)
       }
     }
-    if (forward) { res.write(Buffer.from(forward, 'utf8')); return Buffer.byteLength(forward) }
-    return 0
   }
 
   private emitMcp(action: 'blocked' | 'warned' | 'passed', preview: string, full: string, req: http.IncomingMessage, hostname: string, toolName?: string, mcpRule?: string): void {
@@ -1769,7 +1775,9 @@ export class ProxyServer {
       let wireBodyBytes = 0
       // 'raw-stream' is the fail-open passthrough after an oversized inspected body.
       // 'sniff' waits for the first body bytes of an untyped response.
-      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' = 'passthrough'
+      let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' | 'eventstream' = 'passthrough'
+      // Bedrock's binary event stream, read by its MCP gate (#882).
+      let binGate: BinaryGate | null = null
       let sniffBuf: Buffer = Buffer.alloc(0)
       let status = 200
       const respHeaders: Record<string, string | string[]> = {}
@@ -1840,6 +1848,14 @@ export class ProxyServer {
         forwardSse(out)
       }
 
+      // Bedrock event-stream bytes through the gate, binary throughout (#882).
+      const feedFrames = (bytes: Buffer) => {
+        if (!binGate || !bytes.length) return
+        const { forward, decisions } = binGate.push(bytes)
+        this.reportGateDecisions(decisions, '', req, hostname)
+        if (forward.length) { res.write(forward); respBodyBytes += forward.length }
+      }
+
       // Start writing the body in the chosen mode, from its first decoded bytes.
       const begin = (initial: Buffer) => {
         if (mode === 'sse') {
@@ -1851,6 +1867,9 @@ export class ProxyServer {
           feedSse(decoder.write(initial))
         } else if (mode === 'json') {
           if (initial.length) { jsonChunks.push(initial); jsonRawLen += initial.length }
+        } else if (mode === 'eventstream') {
+          res.writeHead(status, inspectedHeaders())
+          feedFrames(initial)
         } else {
           // Passthrough. Keep content-encoding (failoverHeaders) when we had to
           // dechunk; else forward bytes + original headers verbatim. Binary-safe
@@ -1908,12 +1927,20 @@ export class ProxyServer {
           const compressed = cenc !== '' && cenc !== 'identity'
 
           const ctype = hdr('content-type').toLowerCase()
+          // #882: Bedrock's converse-stream and invoke-with-response-stream
+          // answer in binary frames, which went through unread.
+          const eventGate = wantInspect && mcpActive && !compressed && ctype.includes('application/vnd.amazon.eventstream')
+            ? createEventStreamGate(req.url ?? '', this.mcp)
+            : null
           if (wantInspect && ctype.includes('text/event-stream')) {
             // Streaming decompression is unsupported — a compressed SSE stream
             // falls back to untouched passthrough rather than risk corruption.
             mode = compressed ? 'passthrough' : 'sse'
           } else if (wantInspect && ctype.includes('application/json')) {
             mode = 'json'
+          } else if (eventGate) {
+            binGate = eventGate
+            mode = 'eventstream'
           } else if (wantInspect && !compressed && parser instanceof CohereParser && /stream\+json|ndjson/.test(ctype)) {
             // #881: Cohere v1 streams newline-delimited JSON, which went
             // through as passthrough, unread. Its gate (createSseGate) reads
@@ -1941,6 +1968,8 @@ export class ProxyServer {
           sniff(dechunker ? dechunker.push(chunk) : chunk)
         } else if (mode === 'sse') {
           feedSse(decoder.write(dechunker ? dechunker.push(chunk) : chunk))
+        } else if (mode === 'eventstream') {
+          feedFrames(dechunker ? dechunker.push(chunk) : chunk)
         } else if (mode === 'json') {
           const b = dechunker ? dechunker.push(chunk) : chunk
           if (b.length) { jsonChunks.push(b); jsonRawLen += b.length }
@@ -2021,6 +2050,10 @@ export class ProxyServer {
           }
           respBodyBytes = await this.deliverInspectedJson(text, status, inspectedHeaders(), req, res, hostname, parser, mcpActive)
         } else {
+          if (mode === 'eventstream' && binGate) {
+            const tail = binGate.flush()
+            if (tail.length) { res.write(tail); respBodyBytes += tail.length }
+          }
           if (mode === 'sse') {
             if (cut) return
             // A last event no blank line closed (#859). Its text was forwarded,

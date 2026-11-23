@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ProxyServer } from '../../src/proxy/proxy.js'
+import { encodeFrame } from '../../src/detection/mcp/eventStream.js'
 import { EventBus } from '../../src/dashboard/eventBus.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 import { UpstreamResolver } from '../../src/proxy/upstream.js'
@@ -291,6 +292,18 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
           res.write(line({ is_finished: false, event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, parameters: 'f /"}' } }))
           res.write(line({ is_finished: false, event_type: 'tool-calls-generation', text: 'Cleaning.', tool_calls: [call] }))
           res.end(line({ is_finished: true, event_type: 'stream-end', finish_reason: 'COMPLETE', response: { text: 'Cleaning.', tool_calls: [call] } }))
+        } else if (scenario === 'bedrock-converse-destructive') {
+          // #882: Bedrock's converse-stream answers in binary event-stream frames.
+          const frame = (type: string, payload: unknown) => encodeFrame({ ':event-type': type, ':content-type': 'application/json', ':message-type': 'event' }, Buffer.from(JSON.stringify(payload)))
+          res.writeHead(200, { 'Content-Type': 'application/vnd.amazon.eventstream' })
+          res.write(frame('messageStart', { role: 'assistant' }))
+          res.write(frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'Cleaning.' } }))
+          res.write(frame('contentBlockStop', { contentBlockIndex: 0 }))
+          res.write(frame('contentBlockStart', { contentBlockIndex: 1, start: { toolUse: { toolUseId: 'tooluse_1', name: 'Bash' } } }))
+          res.write(frame('contentBlockDelta', { contentBlockIndex: 1, delta: { toolUse: { input: '{"command":"rm -r' } } }))
+          res.write(frame('contentBlockDelta', { contentBlockIndex: 1, delta: { toolUse: { input: 'f /"}' } } }))
+          res.write(frame('contentBlockStop', { contentBlockIndex: 1 }))
+          res.end(frame('messageStop', { stopReason: 'tool_use' }))
         } else if (scenario === 'untyped-text') {
           res.writeHead(200, {})
           res.end('plain words, not a stream')
@@ -479,6 +492,16 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     expect(res.body).toContain('Cleaning.')
     expect(res.body).not.toContain('rm -r')
     expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'bash' && e.path === '/v1/chat')).toBe(true)
+  })
+
+  it('gates a destructive command out of a Bedrock converse-stream (#882)', async () => {
+    const body = JSON.stringify({ scenario: 'bedrock-converse-destructive', messages: [{ role: 'user', content: [{ text: 'tidy up' }] }], toolConfig: { tools: [{ toolSpec: { name: 'Bash', inputSchema: { json: { type: 'object', properties: {} } } } }] } })
+    const res = await send('/model/anthropic.claude-sonnet-4/converse-stream', body)
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -r')
+    expect(res.body).toContain('end_turn')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'Bash' && e.path === '/model/anthropic.claude-sonnet-4/converse-stream')).toBe(true)
   })
 
   it('blocks a destructive command that streams after the tool name (#529)', async () => {

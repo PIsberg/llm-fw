@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.97 (#882: the MCP gate reads Bedrock event streams; requests unchanged).
   // Held at ruleset 2026.11.96 (#881: the response-side MCP gate reads Cohere streams; requests unchanged).
   // Held at ruleset 2026.11.95 (#860: observe mode and per-session event reporting; no verdict changes).
   // Held at ruleset 2026.11.94 (#859: response-side scans only; the request pipeline is unchanged).
