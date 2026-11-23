@@ -18,6 +18,50 @@ const log = createLogger('realtime')
  */
 const REALTIME_AUDIO_WINDOW_S = 15
 
+/** Largest handshake answer head read from the provider before the session is refused (#867). */
+const MAX_HANDSHAKE_HEAD = 64 * 1024
+
+/**
+ * Client bytes waiting for their scans before the client is paused (#867):
+ * the relay read on while a slow scan (a transcription) held the queue, and a
+ * fast client could fill memory with frames waiting their turn.
+ */
+const MAX_WAITING_BYTES = 4 * 1024 * 1024
+
+/** Largest provider frame forwarded; the provider streams its own events, so this is generous. */
+const MAX_PROVIDER_FRAME = 64 * 1024 * 1024
+
+/**
+ * Runs each piece of work in order, one at a time, and pauses `source` while
+ * more than `limit` bytes wait, resuming it once the backlog is under half.
+ */
+export class OrderedFeed {
+  private queue: Promise<void> = Promise.resolve()
+  private waiting = 0
+  private paused = false
+
+  constructor(
+    private readonly source: { pause(): unknown; resume(): unknown },
+    private readonly limit: number,
+    private readonly onError: (err: unknown) => void,
+  ) {}
+
+  push(bytes: number, work: () => Promise<void> | void): void {
+    this.waiting += bytes
+    if (!this.paused && this.waiting > this.limit) {
+      this.paused = true
+      this.source.pause()
+    }
+    this.queue = this.queue.then(work).catch(this.onError).then(() => {
+      this.waiting -= bytes
+      if (this.paused && this.waiting <= this.limit / 2) {
+        this.paused = false
+        this.source.resume()
+      }
+    })
+  }
+}
+
 /** What a relay needs from the listener it runs under (the proxy or the gateway). */
 export interface RealtimeRelayDeps {
   config: Config
@@ -100,17 +144,64 @@ export function relayRealtimeSession(
   const onHead = (chunk: Buffer): void => {
     headBuf = Buffer.concat([headBuf, chunk])
     const end = headBuf.indexOf('\r\n\r\n')
-    if (end < 0) return
+    if (end < 0) {
+      // A head that never ends was buffered without a bound (#867).
+      if (headBuf.length > MAX_HANDSHAKE_HEAD) {
+        answered = true
+        endDeadline()
+        upstream.off('data', onHead)
+        client.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+        upstream.destroy()
+      }
+      return
+    }
     endDeadline()
     upstream.off('data', onHead)
     client.write(headBuf.subarray(0, end + 4))
     const rest = headBuf.subarray(end + 4)
-    if (rest.length) client.write(rest)
-    upstream.pipe(client)
-    if (!headBuf.subarray(0, headBuf.indexOf('\r\n')).toString('latin1').startsWith('HTTP/1.1 101')) return
-    relayClient(deps, session, client, upstream, head)
+    if (!headBuf.subarray(0, headBuf.indexOf('\r\n')).toString('latin1').startsWith('HTTP/1.1 101')) {
+      // Not a WebSocket: an HTTP body follows, passed on as it is.
+      if (rest.length) client.write(rest)
+      upstream.pipe(client)
+      return
+    }
+    const downstream = relayProvider(client, upstream, rest)
+    relayClient(deps, session, client, upstream, head, downstream)
   }
   upstream.on('data', onHead)
+}
+
+/**
+ * Provider-to-client half of a session: whole frames only, so a refusal is
+ * always written between two of them. Piped bytes were cut wherever a read
+ * ended, and a refusal written then landed inside a frame and corrupted the
+ * stream (#867). Stopping drops the frame in progress, which never reached the
+ * client. Backpressure as a pipe applies it.
+ */
+function relayProvider(client: Duplex, upstream: Duplex, rest: Buffer): { stop(): void } {
+  const reader = new FrameReader(MAX_PROVIDER_FRAME)
+  let open = true
+  const forward = (chunk: Buffer): void => {
+    if (!open) return
+    let frames: Frame[]
+    try { frames = reader.push(chunk) }
+    catch (err) {
+      log.warn(`provider stream closed: ${(err as Error).message}`)
+      client.destroy(); upstream.destroy()
+      return
+    }
+    for (const f of frames) if (!client.write(f.raw)) upstream.pause()
+  }
+  client.on('drain', () => { if (open) upstream.resume() })
+  if (rest.length) forward(rest)
+  upstream.on('data', forward)
+  return {
+    stop() {
+      open = false
+      upstream.off('data', forward)
+      upstream.resume()
+    },
+  }
 }
 
 /** The handshake headers a relay never forwards upstream. */
@@ -119,7 +210,7 @@ export const WS_SKIPPED_HEADERS = new Set(['host', 'proxy-authorization', 'proxy
   'sec-websocket-extensions'])
 
 /** Client-to-upstream half of a session: inspect, then forward each message in order. */
-function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: Duplex, upstream: Duplex, head: Buffer): void {
+function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: Duplex, upstream: Duplex, head: Buffer, downstream: { stop(): void }): void {
   const { config, pipeline, dlp, eventBus } = deps
   const { protocol, target, path, sessionKey, tenant } = session
   const observing = isObserving(config.enforcement, tenant?.enforcement)
@@ -130,11 +221,11 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
   let fragmentBytes = 0
   const maxMessage = config.proxy.maxBodyBytes
   let refused = false
-  let queue: Promise<void> = Promise.resolve()
 
   const endSession = (message: string, eventId: string, code?: number): void => {
     if (refused) return
     refused = true
+    downstream.stop()
     const errorEvent = protocol.errorEvent(message, eventId)
     // The close reason is all a Gemini Live client sees, and it is capped at
     // 123 bytes, so it carries the event id rather than the explanation.
@@ -304,6 +395,11 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
     }
   }
 
+  // One message at a time, in order: a held event must not be overtaken.
+  const queue = new OrderedFeed(client, MAX_WAITING_BYTES, (err) => {
+    log.error(`${protocol.label} relay error`, { err })
+    client.destroy(); upstream.destroy()
+  })
   const feed = (chunk: Buffer): void => {
     let frames: Frame[]
     try { frames = reader.push(chunk) }
@@ -312,11 +408,7 @@ function relayClient(deps: RealtimeRelayDeps, session: RealtimeSession, client: 
       client.destroy(); upstream.destroy()
       return
     }
-    // One message at a time, in order: a held event must not be overtaken.
-    queue = queue.then(() => handle(frames)).catch(err => {
-      log.error(`${protocol.label} relay error`, { err })
-      client.destroy(); upstream.destroy()
-    })
+    queue.push(chunk.length, () => handle(frames))
   }
   if (head.length) feed(head)
   client.on('data', feed)

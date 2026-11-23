@@ -50,14 +50,27 @@ export function encodeFrame(opcode: number, payload: Buffer, mask: boolean, fin 
  */
 export class FrameReader {
   private buf: Buffer = Buffer.alloc(0)
+  // Chunks not yet joined to buf, and the bytes buf needs before the next
+  // frame can be read. Joining every chunk as it came copied a large frame
+  // once per chunk: 8 MiB in 4 KiB chunks took 2.4 s (#867).
+  private pending: Buffer[] = []
+  private pendingBytes = 0
+  private need = 0
 
   constructor(private readonly maxPayload = 16 * 1024 * 1024) {}
 
   push(chunk: Buffer): Frame[] {
-    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk
+    if (chunk.length) { this.pending.push(chunk); this.pendingBytes += chunk.length }
+    if (this.buf.length + this.pendingBytes < this.need) return []
+    if (this.pending.length) {
+      this.buf = this.buf.length || this.pending.length > 1 ? Buffer.concat([this.buf, ...this.pending]) : this.pending[0]!
+      this.pending = []
+      this.pendingBytes = 0
+    }
+    this.need = 0
     const frames: Frame[] = []
     for (;;) {
-      if (this.buf.length < 2) break
+      if (this.buf.length < 2) { this.need = 2; break }
       const b0 = this.buf[0] ?? 0
       const b1 = this.buf[1] ?? 0
       if (b0 & 0x70) throw new Error('websocket frame uses an extension that was not negotiated')
@@ -65,11 +78,11 @@ export class FrameReader {
       let len = b1 & 0x7f
       let offset = 2
       if (len === 126) {
-        if (this.buf.length < 4) break
+        if (this.buf.length < 4) { this.need = 4; break }
         len = this.buf.readUInt16BE(2)
         offset = 4
       } else if (len === 127) {
-        if (this.buf.length < 10) break
+        if (this.buf.length < 10) { this.need = 10; break }
         const big = this.buf.readBigUInt64BE(2)
         if (big > BigInt(this.maxPayload)) throw new Error('websocket frame too large')
         len = Number(big)
@@ -77,7 +90,7 @@ export class FrameReader {
       }
       if (len > this.maxPayload) throw new Error('websocket frame too large')
       const total = offset + (masked ? 4 : 0) + len
-      if (this.buf.length < total) break
+      if (this.buf.length < total) { this.need = total; break }
       const raw = this.buf.subarray(0, total)
       const payload = Buffer.from(this.buf.subarray(offset + (masked ? 4 : 0), total))
       if (masked) {
@@ -215,14 +228,16 @@ export const GEMINI_LIVE: RealtimeProtocol = {
   label: 'Gemini Live',
   jsonInBinary: true,
   plan(event, audioBuffered) {
+    // The fields are a oneof, but every one present is read (#867): returning
+    // at realtimeInput let `{ realtimeInput: {}, clientContent: ... }` through.
     const ri = asRecord(event.realtimeInput)
-    if (ri) return geminiRealtimeInput(ri, audioBuffered)
-    const scans: RealtimeScan[] = []
+    const plan: ClientMessagePlan = ri ? geminiRealtimeInput(ri, audioBuffered) : { audio: [], clearAudio: false, dlp: true, scans: [] }
     const cc = asRecord(event.clientContent)
-    if (cc && Array.isArray(cc.turns)) scans.push(...geminiClientContent(cc.turns))
     const tr = asRecord(event.toolResponse)
-    if (tr && Array.isArray(tr.functionResponses)) scans.push(...geminiToolResponse(tr.functionResponses))
-    return { audio: [], clearAudio: false, dlp: true, scans }
+    if (cc && Array.isArray(cc.turns)) plan.scans.push(...geminiClientContent(cc.turns))
+    if (tr && Array.isArray(tr.functionResponses)) plan.scans.push(...geminiToolResponse(tr.functionResponses))
+    if (cc || tr || event.setup !== undefined) plan.dlp = true
+    return plan
   },
   errorEvent() {
     return null
@@ -239,6 +254,7 @@ function geminiRealtimeInput(ri: Record<string, unknown>, audioBuffered: boolean
     if (typeof m.data !== 'string' || typeof m.mimeType !== 'string') continue
     if (m.mimeType.startsWith('audio/pcm')) audio.push({ data: m.data, sampleRate: pcmRate(m.mimeType) })
     else if (m.mimeType.startsWith('image/')) images.push(imagePart(m.mimeType, m.data))
+    else images.push(filePart(m.mimeType, m.data))
   }
   const text = typeof ri.text === 'string' && ri.text ? ri.text : null
   const scans: RealtimeScan[] = []
@@ -270,6 +286,8 @@ function geminiClientContent(turns: unknown[]): RealtimeScan[] {
         hasAudio = true
       } else if (inline.mimeType.startsWith('image/')) {
         content.push(imagePart(inline.mimeType, inline.data))
+      } else {
+        content.push(filePart(inline.mimeType, inline.data))
       }
     }
     if (content.length) messages.push({ role: 'user', content })
@@ -313,6 +331,15 @@ function geminiToolResponse(responses: unknown[]): RealtimeScan[] {
 
 function imagePart(mimeType: string, data: string): unknown {
   return { type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } }
+}
+
+/**
+ * Any other inline data (a PDF, text, audio that is not PCM), as a chat file
+ * part, so the media stage reads it as it reads an upload: only PCM audio and
+ * images were read, and the rest went to the model unscanned (#867).
+ */
+function filePart(mimeType: string, data: string): unknown {
+  return { type: 'file', file: { filename: 'inline', file_data: `data:${mimeType};base64,${data}` } }
 }
 
 const GEMINI_LIVE_PATH_RE = /^\/ws\/google\.ai\.generativelanguage\.v1(?:alpha|beta)?\.GenerativeService\.BidiGenerateContent(?:Constrained)?(?:[/?]|$)/
@@ -410,6 +437,8 @@ function itemScan(item: Record<string, unknown> | undefined): RealtimeScan {
   const parts: unknown[] = []
   for (const part of item.content as Array<Record<string, unknown>>) {
     if (part?.type === 'input_text' && typeof part.text === 'string') parts.push({ type: 'text', text: part.text })
+    // An image attached to an item (#867): read by the media stage as a chat image.
+    if (part?.type === 'input_image' && typeof part.image_url === 'string') parts.push({ type: 'image_url', image_url: { url: part.image_url } })
     // A whole clip attached to an item: PCM16, which the transcriber reads as WAV.
     if (part?.type === 'input_audio' && typeof part.audio === 'string') {
       const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY)
@@ -428,6 +457,23 @@ export function audioScanBody(wav: Buffer): string {
 }
 
 /**
+ * The longest prefix of `s` that fits in `max` bytes of UTF-8, cut between
+ * characters. The close reason was cut at 120 UTF-16 code units, which is up
+ * to 360 bytes: a close frame past RFC 6455's 125 (#867).
+ */
+function utf8Prefix(s: string, max: number): Buffer {
+  let bytes = 0
+  let end = 0
+  for (const ch of s) {
+    const n = Buffer.byteLength(ch)
+    if (bytes + n > max) break
+    bytes += n
+    end += ch.length
+  }
+  return Buffer.from(s.slice(0, end), 'utf8')
+}
+
+/**
  * Write an unmasked (server-to-client) error event when the protocol has one,
  * and a close frame whose reason is capped at the 123 bytes RFC 6455 allows,
  * then end the socket.
@@ -435,9 +481,10 @@ export function audioScanBody(wav: Buffer): string {
 export function refuseRealtime(client: Duplex, errorEvent: Record<string, unknown> | null, reason: string, code = 1008): void {
   try {
     if (errorEvent) client.write(encodeFrame(OPCODE.text, Buffer.from(JSON.stringify(errorEvent)), false))
-    const close = Buffer.alloc(2 + Buffer.byteLength(reason.slice(0, 120)))
+    const text = utf8Prefix(reason, 123)
+    const close = Buffer.alloc(2 + text.length)
     close.writeUInt16BE(code, 0) // 1008 policy violation, 1009 message too big
-    close.write(reason.slice(0, 120), 2)
+    text.copy(close, 2)
     client.write(encodeFrame(OPCODE.close, close, false))
   } catch { /* client already gone */ }
   client.end()
