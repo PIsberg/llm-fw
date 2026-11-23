@@ -230,13 +230,22 @@ export const GEMINI_LIVE: RealtimeProtocol = {
   plan(event, audioBuffered) {
     // The fields are a oneof, but every one present is read (#867): returning
     // at realtimeInput let `{ realtimeInput: {}, clientContent: ... }` through.
-    const ri = asRecord(event.realtimeInput)
-    const plan: ClientMessagePlan = ri ? geminiRealtimeInput(ri, audioBuffered) : { audio: [], clearAudio: false, dlp: true, scans: [] }
-    const cc = asRecord(event.clientContent)
-    const tr = asRecord(event.toolResponse)
-    if (cc && Array.isArray(cc.turns)) plan.scans.push(...geminiClientContent(cc.turns))
-    if (tr && Array.isArray(tr.functionResponses)) plan.scans.push(...geminiToolResponse(tr.functionResponses))
-    if (cc || tr || event.setup !== undefined) plan.dlp = true
+    // So is every spelling (see fields()).
+    const plan: ClientMessagePlan = { audio: [], clearAudio: false, dlp: false, scans: [] }
+    for (const ri of records(fields(event, 'realtimeInput', 'realtime_input'))) {
+      const p = geminiRealtimeInput(ri, audioBuffered)
+      plan.audio.push(...p.audio)
+      plan.scans.push(...p.scans)
+      if (p.dlp) plan.dlp = true
+    }
+    for (const cc of records(fields(event, 'clientContent', 'client_content'))) {
+      for (const turns of fields(cc, 'turns', 'turns')) if (Array.isArray(turns)) plan.scans.push(...geminiClientContent(turns))
+    }
+    for (const tr of records(fields(event, 'toolResponse', 'tool_response'))) {
+      for (const frs of fields(tr, 'functionResponses', 'function_responses')) if (Array.isArray(frs)) plan.scans.push(...geminiToolResponse(frs))
+    }
+    // Only a message that is nothing but realtime media skips DLP.
+    if (Object.keys(event).some(k => k !== 'realtimeInput' && k !== 'realtime_input')) plan.dlp = true
     return plan
   },
   errorEvent() {
@@ -244,26 +253,54 @@ export const GEMINI_LIVE: RealtimeProtocol = {
   },
 }
 
+/**
+ * Every value a Gemini message gives one field (security review of #867).
+ * Protobuf's JSON mapping accepts a field's proto name (`client_content`) as
+ * well as its lowerCamelCase one (`clientContent`), and the relay read only
+ * the second, so the same message in snake_case went through unscanned. A
+ * message that carries both is read in both, whichever the server takes.
+ */
+function fields(obj: Record<string, unknown> | null | undefined, camel: string, snake: string): unknown[] {
+  if (!obj) return []
+  const out: unknown[] = []
+  if (obj[camel] !== undefined) out.push(obj[camel])
+  if (snake !== camel && obj[snake] !== undefined) out.push(obj[snake])
+  return out
+}
+
+function records(values: unknown[]): Array<Record<string, unknown>> {
+  return values.map(v => asRecord(v)).filter((r): r is Record<string, unknown> => r !== null)
+}
+
+/** A blob's mime type; when its two spellings disagree, one the media stage reads as opaque. */
+function mimeOf(blob: Record<string, unknown>): string | null {
+  const types = fields(blob, 'mimeType', 'mime_type').filter((t): t is string => typeof t === 'string')
+  if (types.length === 0) return null
+  return types.every(t => t === types[0]) ? types[0]! : 'application/octet-stream'
+}
+
 function geminiRealtimeInput(ri: Record<string, unknown>, audioBuffered: boolean): ClientMessagePlan {
   const media: Array<Record<string, unknown>> = []
-  if (Array.isArray(ri.mediaChunks)) for (const c of ri.mediaChunks) { const r = asRecord(c); if (r) media.push(r) }
-  for (const key of ['audio', 'video'] as const) { const r = asRecord(ri[key]); if (r) media.push(r) }
+  for (const chunks of fields(ri, 'mediaChunks', 'media_chunks')) if (Array.isArray(chunks)) media.push(...records(chunks))
+  for (const key of ['audio', 'video'] as const) media.push(...records(fields(ri, key, key)))
   const audio: AudioChunk[] = []
   const images: unknown[] = []
   for (const m of media) {
-    if (typeof m.data !== 'string' || typeof m.mimeType !== 'string') continue
-    if (m.mimeType.startsWith('audio/pcm')) audio.push({ data: m.data, sampleRate: pcmRate(m.mimeType) })
-    else if (m.mimeType.startsWith('image/')) images.push(imagePart(m.mimeType, m.data))
-    else images.push(filePart(m.mimeType, m.data))
+    const mime = mimeOf(m)
+    if (typeof m.data !== 'string' || mime === null) continue
+    if (mime.startsWith('audio/pcm')) audio.push({ data: m.data, sampleRate: pcmRate(mime) })
+    else if (mime.startsWith('image/')) images.push(imagePart(mime, m.data))
+    else images.push(filePart(mime, m.data))
   }
-  const text = typeof ri.text === 'string' && ri.text ? ri.text : null
+  const texts = fields(ri, 'text', 'text').filter((t): t is string => typeof t === 'string' && t.length > 0)
   const scans: RealtimeScan[] = []
   // The turn ends: scan what was buffered, plus this message's own audio.
-  if ((ri.activityEnd || ri.audioStreamEnd) && (audioBuffered || audio.length > 0)) scans.push({ kind: 'audio' })
+  const ends = [...fields(ri, 'activityEnd', 'activity_end'), ...fields(ri, 'audioStreamEnd', 'audio_stream_end')].some(Boolean)
+  if (ends && (audioBuffered || audio.length > 0)) scans.push({ kind: 'audio' })
   if (images.length) scans.push({ kind: 'body', surface: 'video', body: chatBody([{ role: 'user', content: images }]) })
-  if (text !== null) scans.push({ kind: 'body', surface: 'prompt', body: chatBody([{ role: 'user', content: [{ type: 'text', text }] }]) })
+  for (const text of texts) scans.push({ kind: 'body', surface: 'prompt', body: chatBody([{ role: 'user', content: [{ type: 'text', text }] }]) })
   // Only media: DLP would read base64, and a random run of it can look like a key.
-  return { audio, clearAudio: false, dlp: text !== null, scans }
+  return { audio, clearAudio: false, dlp: texts.length > 0, scans }
 }
 
 function geminiClientContent(turns: unknown[]): RealtimeScan[] {
@@ -272,22 +309,32 @@ function geminiClientContent(turns: unknown[]): RealtimeScan[] {
   for (const t of turns) {
     const turn = asRecord(t)
     // Model turns are history, skipped like assistant messages on the HTTP path.
-    if (!turn || turn.role === 'model' || !Array.isArray(turn.parts)) continue
+    if (!turn || turn.role === 'model') continue
     const content: unknown[] = []
-    for (const p of turn.parts) {
-      const part = asRecord(p)
-      if (typeof part?.text === 'string') content.push({ type: 'text', text: part.text })
-      const inline = asRecord(part?.inlineData)
-      if (!inline || typeof inline.data !== 'string' || typeof inline.mimeType !== 'string') continue
-      if (inline.mimeType.startsWith('audio/pcm')) {
-        const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY, pcmRate(inline.mimeType))
-        buf.append(inline.data)
-        content.push({ type: 'input_audio', input_audio: { data: buf.toWav().toString('base64'), format: 'wav' } })
-        hasAudio = true
-      } else if (inline.mimeType.startsWith('image/')) {
-        content.push(imagePart(inline.mimeType, inline.data))
-      } else {
-        content.push(filePart(inline.mimeType, inline.data))
+    for (const parts of fields(turn, 'parts', 'parts')) {
+      if (!Array.isArray(parts)) continue
+      for (const part of records(parts)) {
+        if (typeof part.text === 'string') content.push({ type: 'text', text: part.text })
+        // A file the client points at (a Cloud Storage URI): not readable
+        // here, so the media stage weighs it as an opaque upload.
+        for (const fd of records(fields(part, 'fileData', 'file_data'))) {
+          const uri = fields(fd, 'fileUri', 'file_uri').find((u): u is string => typeof u === 'string')
+          if (uri) content.push({ type: 'file', file: { file_id: uri } })
+        }
+        for (const inline of records(fields(part, 'inlineData', 'inline_data'))) {
+          const mime = mimeOf(inline)
+          if (typeof inline.data !== 'string' || mime === null) continue
+          if (mime.startsWith('audio/pcm')) {
+            const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY, pcmRate(mime))
+            buf.append(inline.data)
+            content.push({ type: 'input_audio', input_audio: { data: buf.toWav().toString('base64'), format: 'wav' } })
+            hasAudio = true
+          } else if (mime.startsWith('image/')) {
+            content.push(imagePart(mime, inline.data))
+          } else {
+            content.push(filePart(mime, inline.data))
+          }
+        }
       }
     }
     if (content.length) messages.push({ role: 'user', content })

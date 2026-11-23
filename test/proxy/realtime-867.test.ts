@@ -28,6 +28,52 @@ describe('#867 Gemini Live: every field of a message is read', () => {
   })
 })
 
+// Security review of #867: protobuf's JSON mapping accepts each field's proto
+// name as well as its lowerCamelCase one, and the relay read only the latter,
+// so the same message in snake_case went through unscanned.
+describe('#867 Gemini Live: both spellings of every field', () => {
+  const text = (s: string) => s
+  it('reads client_content, tool_response, realtime_input text and inline_data', () => {
+    expect(bodies(GEMINI_LIVE.plan({ client_content: { turns: [{ role: 'user', parts: [{ text: text('snake turn text') }] }] } }, false))).toContain('snake turn text')
+    expect(bodies(GEMINI_LIVE.plan({ tool_response: { function_responses: [{ id: 'f', name: 'n', response: { output: 'snake tool text' } }] } }, false))).toContain('snake tool text')
+    expect(bodies(GEMINI_LIVE.plan({ realtime_input: { text: 'snake realtime text' } }, false))).toContain('snake realtime text')
+    const pdf = Buffer.from('%PDF-1.4').toString('base64')
+    expect(bodies(GEMINI_LIVE.plan({ client_content: { turns: [{ role: 'user', parts: [{ inline_data: { mime_type: 'application/pdf', data: pdf } }] }] } }, false))).toContain(pdf)
+  })
+
+  it('buffers realtime_input media_chunks audio and ends the turn on activity_end', () => {
+    const pcm = Buffer.alloc(320).toString('base64')
+    const plan = GEMINI_LIVE.plan({ realtime_input: { media_chunks: [{ mime_type: 'audio/pcm;rate=16000', data: pcm }], activity_end: {} } }, false)
+    expect(plan.audio).toHaveLength(1)
+    expect(plan.scans).toContainEqual({ kind: 'audio' })
+  })
+
+  it('reads both spellings when a message carries both', () => {
+    const plan = GEMINI_LIVE.plan({
+      clientContent: { turns: [{ role: 'user', parts: [{ text: 'camel copy' }] }] },
+      client_content: { turns: [{ role: 'user', parts: [{ text: 'snake copy' }] }] },
+    }, false)
+    expect(bodies(plan)).toContain('camel copy')
+    expect(bodies(plan)).toContain('snake copy')
+  })
+
+  it('reads an inline part whose two mime types disagree as an opaque file', () => {
+    const plan = GEMINI_LIVE.plan({ clientContent: { turns: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/pcm', mime_type: 'text/plain', data: 'aGk=' } }] }] } }, false)
+    expect(bodies(plan)).toContain('data:application/octet-stream;base64,aGk=')
+  })
+
+  it('reads a fileData part as a file it cannot open', () => {
+    const plan = GEMINI_LIVE.plan({ clientContent: { turns: [{ role: 'user', parts: [{ file_data: { file_uri: 'gs://bucket/notes.pdf', mime_type: 'application/pdf' } }] }] } }, false)
+    expect(bodies(plan)).toContain('gs://bucket/notes.pdf')
+  })
+
+  it('runs DLP whenever the message holds anything but media-only realtime input', () => {
+    const pcm = Buffer.alloc(32).toString('base64')
+    expect(GEMINI_LIVE.plan({ realtimeInput: { audio: { mimeType: 'audio/pcm', data: pcm } } }, false).dlp).toBe(false)
+    expect(GEMINI_LIVE.plan({ realtimeInput: { audio: { mimeType: 'audio/pcm', data: pcm } }, extra_field: 'x' }, false).dlp).toBe(true)
+  })
+})
+
 describe('#867 OpenAI Realtime: images in a conversation item', () => {
   it('scans an input_image part', () => {
     const url = 'data:image/png;base64,iVBORw0KGgo='
