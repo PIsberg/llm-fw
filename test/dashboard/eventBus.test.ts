@@ -256,3 +256,70 @@ describe('EventBus: blocked events outlive the ring in the event list', () => {
     bus.destroy()
   })
 })
+
+// #862: a subscriber whose write threw aborted emit() before the metric and
+// the durable audit record were written, so one broken dashboard tab could
+// drop the audit trail; a subscriber that stopped reading held every event
+// in memory; and nothing bounded how many subscribed.
+describe('EventBus subscribers that fail or fall behind (#862)', () => {
+  const sub = (overrides: Record<string, unknown> = {}) => ({
+    writeHead: vi.fn(), write: vi.fn(), on: vi.fn(), end: vi.fn(), destroy: vi.fn(),
+    writableEnded: false, destroyed: false, writableLength: 0, ...overrides,
+  }) as any
+
+  it('records the metric and the audit event when a subscriber write throws, and still serves the others', () => {
+    const recordEvent = vi.fn()
+    const bus = new EventBus(DEFAULT_CONFIG.dashboard, { recordEvent } as any)
+    const audit = { write: vi.fn() }
+    bus.setAuditSinks(audit as any)
+    const broken = sub()
+    const healthy = sub()
+    bus.subscribe(broken)
+    bus.subscribe(healthy)
+    broken.write.mockImplementation(() => { throw new Error('write after end') })
+    healthy.write.mockClear()
+    expect(() => seedEvent(bus)).not.toThrow()
+    expect(recordEvent).toHaveBeenCalledOnce()
+    expect(audit.write).toHaveBeenCalledOnce()
+    expect(healthy.write).toHaveBeenCalledOnce()
+    // A subscriber that failed is let go.
+    broken.write.mockClear()
+    seedEvent(bus)
+    expect(broken.write).not.toHaveBeenCalled()
+    bus.destroy()
+  })
+
+  it('lets go of a subscriber that has stopped reading', () => {
+    const bus = new EventBus(DEFAULT_CONFIG.dashboard)
+    const stalled = sub()
+    bus.subscribe(stalled)
+    stalled.writableLength = 2 * 1024 * 1024
+    stalled.write.mockClear()
+    seedEvent(bus)
+    expect(stalled.write).not.toHaveBeenCalled()
+    expect(stalled.destroy).toHaveBeenCalled()
+    bus.destroy()
+  })
+
+  it('answers 503 to a subscriber past the cap', () => {
+    const bus = new EventBus(DEFAULT_CONFIG.dashboard)
+    for (let i = 0; i < EventBus.MAX_SUBSCRIBERS; i++) bus.subscribe(sub())
+    const extra = sub()
+    bus.subscribe(extra)
+    expect(extra.writeHead).toHaveBeenCalledWith(503, expect.anything())
+    const traffic = sub()
+    for (let i = 0; i < EventBus.MAX_SUBSCRIBERS; i++) bus.subscribeTraffic(sub())
+    bus.subscribeTraffic(traffic)
+    expect(traffic.writeHead).toHaveBeenCalledWith(503, expect.anything())
+    bus.destroy()
+  })
+
+  it('a traffic subscriber whose write throws does not break emitTraffic', () => {
+    const bus = new EventBus(DEFAULT_CONFIG.dashboard)
+    const broken = sub()
+    bus.subscribeTraffic(broken)
+    broken.write.mockImplementation(() => { throw new Error('EPIPE') })
+    expect(() => bus.emitTraffic({ target: 'x', method: 'GET', path: '/', status: 200, latencyMs: 1 } as any)).not.toThrow()
+    bus.destroy()
+  })
+})

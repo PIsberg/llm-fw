@@ -324,7 +324,8 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
   })
 
   it('POST /api/test with an empty body returns 400, not 500', async () => {
-    const res = await req(server, 'POST', '/api/test', '')
+    // Sent as JSON: since #862 a body of any other type is refused with 415.
+    const res = await rawPost('/api/test', '', { 'Content-Type': 'application/json' })
     expect(res.status).toBe(400)
   })
 
@@ -844,6 +845,33 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.status).toBe(403)
   })
 
+  // #862: /api/test and /api/translate skipped this check, so any page the
+  // operator visited could post to them (a text/plain POST needs no
+  // preflight) and run scans, flood the event ring or reach Google Translate.
+  it.each(['/api/test', '/api/translate'])('POST %s rejects text/plain (415) and a cross-origin request (403)', async (path) => {
+    expect((await rawPost(path, '{"prompt":"hi","text":"hi","target":"de"}', { 'Content-Type': 'text/plain' })).status).toBe(415)
+    expect((await rawPost(path, '{"prompt":"hi","text":"hi","target":"de"}', { 'Content-Type': 'application/json', Origin: 'http://evil.example.com' })).status).toBe(403)
+  })
+
+  // #862: every POST route but /api/test read its body without a bound.
+  it.each(['/api/settings', '/api/modules', '/api/whitelist', '/api/feedback', '/api/translate'])('POST %s refuses a body over 1 MiB with 413', async (path) => {
+    const big = JSON.stringify({ pad: 'a'.repeat(1024 * 1024 + 16) })
+    expect((await rawPost(path, big, { 'Content-Type': 'application/json' })).status).toBe(413)
+  })
+
+  it('POST /api/modules answers 400 to a body that is not JSON (#862)', async () => {
+    expect((await rawPost('/api/modules', '{not json', { 'Content-Type': 'application/json' })).status).toBe(400)
+  })
+
+  // #862: limit=abc made the slice NaN, and so did a negative one.
+  it.each(['/api/events?limit=abc&page=xyz', '/api/events?limit=-5', '/api/metrics/traffic?limit=abc'])('GET %s reads a bad limit as a usable one', async (path) => {
+    eventBus.emit({ stage: 'heuristic', score: 1, similarity: 0, target: 't', method: 'POST', path: '/v1/messages', payload_preview: 'x', payload_full: 'x', action: 'warned' })
+    eventBus.emitTraffic({ target: 't', method: 'POST', path: '/v1/messages', status: 200, latencyMs: 1 } as never)
+    const res = await req(server, 'GET', path)
+    expect(res.status).toBe(200)
+    expect((JSON.parse(res.body) as unknown[]).length).toBeGreaterThan(0)
+  })
+
   it('GET / HTML exposes the Settings tab and the ASCII Smuggling defense', async () => {
     const res = await req(server, 'GET', '/')
     expect(res.status).toBe(200)
@@ -862,5 +890,60 @@ describe('dashboard server integration', { timeout: 10000 }, () => {
     expect(res.body).toContain('Bug or problem')
     expect(res.body).toContain('Wrong verdict')
     expect(res.body).not.toContain('Report on GitHub')
+  })
+})
+
+// #862: an export from the audit log read both generations (64 MB each) into
+// memory before filtering. It is now read a line at a time and written as it
+// is read, so the count of rows comes after them, as a trailer.
+describe('event export from the audit log (#862)', () => {
+  let server: http.Server
+  let dir: string
+
+  beforeAll(async () => {
+    dir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-export-audit-'))
+    const file = join(dir, 'audit.jsonl')
+    const ev = (id: string, kind: string, ts: string) => JSON.stringify({ schema: 1, id, timestamp: ts, stage: 'heuristic', score: 60, similarity: 0, target: 't', method: 'POST', path: '/v1/messages', payload_preview: '=x', payload_full: '', action: 'blocked', kind })
+    fs.writeFileSync(`${file}.1`, [ev('a', 'mcp', '2026-11-01 08:00:00Z'), ev('b', 'dlp', '2026-11-01 09:00:00Z')].join('\n') + '\n')
+    fs.writeFileSync(file, [ev('c', 'mcp', '2026-11-02 08:00:00Z'), '{"torn', ev('d', 'mcp', '2026-11-03 08:00:00Z')].join('\n') + '\n')
+    const config = { ...DEFAULT_CONFIG, audit: { ...DEFAULT_CONFIG.audit, enabled: true, file } }
+    server = createDashboardServer(config as never, new EventBus(DEFAULT_CONFIG.dashboard), new Pipeline(DEFAULT_CONFIG), new SuppressionStore())
+    await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()) })
+  })
+
+  afterAll(async () => {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => { server.close(() => resolve()) })
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  function get(path: string): Promise<{ status: number; headers: http.IncomingHttpHeaders; trailers: NodeJS.Dict<string>; body: string }> {
+    const addr = server.address() as { port: number }
+    return new Promise((resolve, reject) => {
+      http.get({ hostname: '127.0.0.1', port: addr.port, path }, (res) => {
+        let body = ''
+        res.setEncoding('utf8')
+        res.on('data', (c) => { body += c })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, trailers: res.trailers, body }))
+      }).on('error', reject)
+    })
+  }
+
+  it('streams the matching rows of both generations in order, with the count as a trailer', async () => {
+    const res = await get('/api/events/export?kind=mcp&until=2026-11-02T12:00:00Z')
+    expect(res.status).toBe(200)
+    expect(res.headers['x-llm-fw-export-source']).toBe('audit')
+    expect(res.body.trimEnd().split('\n').map(l => (JSON.parse(l) as { id: string }).id)).toEqual(['a', 'c'])
+    expect(res.trailers['x-llm-fw-export-count']).toBe('2')
+  })
+
+  it('streams CSV with its header row first', async () => {
+    const res = await get('/api/events/export?format=csv&kind=dlp')
+    const rows = res.body.trimEnd().split('\r\n')
+    expect(rows[0]).toBe('timestamp,id,action,stage,kind,score,similarity,target,method,path,mcpTool,payload_preview')
+    expect(rows).toHaveLength(2)
+    expect(rows[1]).toContain(",b,")
+    expect(rows[1]).toContain("'=x")
+    expect(res.trailers['x-llm-fw-export-count']).toBe('1')
   })
 })

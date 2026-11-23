@@ -12,7 +12,8 @@
  * a formula (a leading =, +, -, @, tab or carriage return) are prefixed with a
  * quote, so an exported prompt cannot become a live formula in Excel.
  */
-import { readFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { createInterface } from 'node:readline'
 import type { BlockEvent } from '../types.js'
 
 export interface ExportQuery {
@@ -47,21 +48,29 @@ export function eventTime(e: Pick<BlockEvent, 'timestamp'>): number {
   return Date.parse(String(e.timestamp).replace(' ', 'T'))
 }
 
+/** Whether an event is inside the range (inclusive) and of the asked kinds. */
+export function matchesExport(e: BlockEvent, q: ExportQuery): boolean {
+  if (q.since !== undefined || q.until !== undefined) {
+    const t = eventTime(e)
+    if (Number.isNaN(t)) return false
+    if (q.since !== undefined && t < q.since) return false
+    if (q.until !== undefined && t > q.until) return false
+  }
+  return !q.kinds || q.kinds.has(e.kind ?? 'prompt')
+}
+
 /** The events inside the range (inclusive) and of the asked kinds, in their order. */
 export function filterEvents(events: readonly BlockEvent[], q: ExportQuery): BlockEvent[] {
-  return events.filter(e => {
-    if (q.since !== undefined || q.until !== undefined) {
-      const t = eventTime(e)
-      if (Number.isNaN(t)) return false
-      if (q.since !== undefined && t < q.since) return false
-      if (q.until !== undefined && t > q.until) return false
-    }
-    return !q.kinds || q.kinds.has(e.kind ?? 'prompt')
-  })
+  return events.filter(e => matchesExport(e, q))
 }
 
 export function toJsonl(events: readonly BlockEvent[]): string {
-  return events.map(e => JSON.stringify(e)).join('\n') + (events.length ? '\n' : '')
+  return events.map(jsonlRow).join('')
+}
+
+/** One event as a JSONL line, its line break included. */
+export function jsonlRow(e: BlockEvent): string {
+  return JSON.stringify(e) + '\n'
 }
 
 const CSV_COLUMNS = ['timestamp', 'id', 'action', 'stage', 'kind', 'score', 'similarity', 'target', 'method', 'path', 'mcpTool', 'payload_preview'] as const
@@ -76,28 +85,42 @@ function csvCell(value: unknown): string {
 }
 
 export function toCsv(events: readonly BlockEvent[]): string {
-  const rows = [CSV_COLUMNS.join(',')]
-  for (const e of events) rows.push(CSV_COLUMNS.map(c => csvCell((e as unknown as Record<string, unknown>)[c])).join(','))
-  return rows.join('\r\n') + '\r\n'
+  return CSV_HEADER + events.map(csvRow).join('')
 }
 
-async function readLines(file: string): Promise<string[]> {
+/** The CSV header row, its line break included. */
+export const CSV_HEADER = CSV_COLUMNS.join(',') + '\r\n'
+
+/** One event as a CSV row, its line break included. */
+export function csvRow(e: BlockEvent): string {
+  return CSV_COLUMNS.map(c => csvCell((e as unknown as Record<string, unknown>)[c])).join(',') + '\r\n'
+}
+
+/** One file's events, a line at a time; nothing when the file does not exist. */
+async function* fileEvents(file: string): AsyncGenerator<BlockEvent> {
+  const stream = createReadStream(file, { encoding: 'utf8' })
   try {
-    return (await readFile(file, 'utf8')).split('\n')
-  } catch {
-    return []
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+      if (!line.trim()) continue
+      try {
+        const rec = JSON.parse(line) as BlockEvent & { schema?: number }
+        if (rec && typeof rec === 'object' && typeof rec.id === 'string') yield rec
+      } catch { /* a torn line while the log is being written */ }
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  } finally {
+    stream.destroy()
   }
 }
 
-/** Events in the audit log, its rotated generation first; lines that do not parse are skipped. */
-export async function readAuditEvents(file: string): Promise<BlockEvent[]> {
-  const out: BlockEvent[] = []
-  for (const line of [...await readLines(`${file}.1`), ...await readLines(file)]) {
-    if (!line.trim()) continue
-    try {
-      const rec = JSON.parse(line) as BlockEvent & { schema?: number }
-      if (rec && typeof rec === 'object' && typeof rec.id === 'string') out.push(rec)
-    } catch { /* a torn line while the log is being written */ }
-  }
-  return out
+/**
+ * Events in the audit log, its rotated generation first; lines that do not
+ * parse are skipped. Read a line at a time (#862): both generations together
+ * are up to 128 MB, and reading them whole held the file, its lines and every
+ * parsed event in memory before the first was filtered.
+ */
+export async function* auditEvents(file: string): AsyncGenerator<BlockEvent> {
+  yield* fileEvents(`${file}.1`)
+  yield* fileEvents(file)
 }
