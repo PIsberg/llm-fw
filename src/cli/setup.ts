@@ -510,9 +510,9 @@ export async function run(args: string[]): Promise<void> {
       const kind = os === 'darwin' ? `pf anchor ${PF_ANCHOR}` : 'iptables';
       try {
         addPortRedirect(os, config.proxy.httpsPort);
-        console.log(`${kind} redirect: lo:443 → ${config.proxy.httpsPort}`);
+        console.log('%s redirect: lo:443 → %d', kind, config.proxy.httpsPort);
       } catch (err) {
-        console.warn(`Could not add ${kind} redirect (requires sudo):`, (err as Error).message);
+        console.warn('Could not add %s redirect (requires sudo):', kind, (err as Error).message);
       }
     }
 
