@@ -585,7 +585,7 @@ _121 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_INDIRECT_UNTARGETED_IMPERATIVE` | `indirectInstruction.untargetedImperative` | `block` |
 | `LLM_FW_INSPECT_CHATGPT_BACKEND` | `proxy.inspectChatgptBackend` | `true` |
 | `LLM_FW_INTENT_MENTION_ENABLED` | `detection.intentMention` | `true` |
-| `LLM_FW_INTERCEPT_DOMAINS` | `proxy.interceptDomains` | `2 entries` |
+| `LLM_FW_INTERCEPT_DOMAINS` | `proxy.interceptDomains` | `4 entries` |
 | `LLM_FW_JUDGE_BLOCK` | `detection.judgeBlock` | `false` |
 | `LLM_FW_JUDGE_ENABLED` | `detection.judgeEnabled` | `false` |
 | `LLM_FW_JUDGE_MODEL` | `detection.judgeModel` | `qwen2.5:3b` |
