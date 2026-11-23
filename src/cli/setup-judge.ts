@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { getLlmFwDir } from '../config/paths.js'
 import { JudgeClient } from '../detection/judge.js'
-import { loadConfig } from '../config/config.js'
+import { loadConfig, readUserConfigFile } from '../config/config.js'
 
 // Ordered best-first; RECOMMENDED[0] is the default. qwen2.5 leads because it is
 // strongly multilingual — the judge is the only language-general detection stage,
@@ -145,10 +145,8 @@ export async function run(): Promise<void> {
   const llmfwDir = getLlmFwDir()
   fs.mkdirSync(llmfwDir, { recursive: true })
   const configPath = join(llmfwDir, 'config.json')
-  let existing: Record<string, unknown> = {}
-  if (fs.existsSync(configPath)) {
-    try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown> } catch {}
-  }
+  // Throws on a file it cannot read rather than writing over it (#853).
+  const existing = readUserConfigFile(configPath)
 
   const updated = {
     ...existing,

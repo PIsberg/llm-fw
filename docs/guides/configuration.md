@@ -26,7 +26,14 @@ LLM_FW_CONFIG=/path/to/.llm-fw.json llm-fw start
 ```
 
 `LLM_FW_CONFIG` must name a `.json` file; a missing or unparsable file stops
-startup rather than falling back to defaults. JavaScript and YAML config files
+startup rather than falling back to defaults. `<LLM_FW_DIR>/config.json` may be
+absent, but one that is not valid JSON, does not hold a JSON object, or cannot
+be read stops startup the same way, with a message naming the file. A config
+reload keeps the running settings and logs the error, and `setup`,
+`setup-judge` and a dashboard toggle refuse to write over such a file (the
+toggle still applies until restart and answers `500` saying it was not saved).
+Read as empty, a trailing comma used to start the firewall on the defaults,
+and the next toggle wrote a one-key file over the rest (#853). JavaScript and YAML config files
 are not supported. Like `LLM_FW_DIR`, it is read from the process environment
 only, so no config file can redirect it.
 

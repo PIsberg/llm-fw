@@ -236,6 +236,25 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
     expect((await pipeline.run('/v1/messages', ATTACK, META)).action).toBe('block')
   }, 10000)
 
+  // #853: a save with a typo was read as {}, so the reload applied the
+  // DEFAULTS to the running firewall: every hot key the file had set (a
+  // threshold, trusted paths, a stage mode) silently went back.
+  it('keeps the live config when the saved file is not valid JSON', async () => {
+    tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-hotreload-broken-'))
+    process.env.LLM_FW_DIR = tempDir
+    const configPath = join(tempDir, 'config.json')
+    fs.writeFileSync(configPath, JSON.stringify({ detection: { heuristicBlockThreshold: 77 } }), 'utf8')
+
+    const live = await loadConfig()
+    const messages: string[] = []
+    handle = startConfigHotReload(live, { debounceMs: 30, log: (m) => messages.push(m) })
+
+    fs.writeFileSync(configPath, '{ "detection": { "heuristicBlockThreshold": 77 }, }', 'utf8')
+    await waitFor(() => messages.some(m => m.includes('not valid JSON')), 'a message that the file is not valid JSON')
+
+    expect(live.detection.heuristicBlockThreshold).toBe(77)
+  }, 10000)
+
   it('does not apply a cold-key (proxy.port) change and logs restart-required', async () => {
     tempDir = fs.mkdtempSync(join(tmpdir(), 'llm-fw-hotreload-cold-'))
     process.env.LLM_FW_DIR = tempDir
