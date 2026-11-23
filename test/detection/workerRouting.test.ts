@@ -11,7 +11,7 @@ vi.mock('../../src/detection/modelLoad.js', async (importOriginal) => ({
 
 import { OutputModerationClassifier, DEFAULT_OUTPUT_CLASSIFIER_MODEL } from '../../src/detection/outputClassifier.js'
 import { transcribeAudio } from '../../src/detection/transcribe.js'
-import { WorkerUnavailableError, type InferenceWorkerClient } from '../../src/detection/inferenceWorker.js'
+import { WorkerUnavailableError, closeInferenceWorker, getInferenceWorkerClient, getTranscriptionWorkerClient, type InferenceWorkerClient } from '../../src/detection/inferenceWorker.js'
 import { DEFAULT_CONFIG } from '../../src/config/config.js'
 
 beforeEach(() => pipelineMock.mockReset())
@@ -63,6 +63,17 @@ describe('response moderation classifier in the inference worker (#869)', () => 
 })
 
 describe('transcription in the inference worker (#869)', () => {
+  it('has a worker thread of its own, closed with the shared one', async () => {
+    // A long clip on the shared worker queued every embedding and classifier
+    // pass behind it (security review of #869).
+    const own = getTranscriptionWorkerClient()
+    expect(own).not.toBe(getInferenceWorkerClient())
+    expect(getTranscriptionWorkerClient()).toBe(own)
+    await closeInferenceWorker()
+    expect(getTranscriptionWorkerClient()).not.toBe(own)
+    await closeInferenceWorker()
+  })
+
   it('transcribes in the worker, and never loads Whisper on this thread', async () => {
     const worker = fakeWorker({})
     expect(await transcribeAudio(wav(), 'audio/wav', 0, worker)).toBe('spoken words')

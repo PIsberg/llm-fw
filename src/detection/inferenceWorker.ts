@@ -276,10 +276,29 @@ export function getInferenceWorkerClient(): InferenceWorkerClient {
   return sharedClient
 }
 
-/** Terminate the shared worker (shutdown hook — see Pipeline.close()). */
+/**
+ * How long Whisper's worker may go without answering. A clip takes up to 15 s
+ * and a long one more, past the shared worker's bound.
+ */
+const TRANSCRIPTION_STALL_MS = 300_000
+
+let transcriptionClient: InferenceWorkerClient | null = null
+
+/**
+ * Speech transcription's own worker thread (security review of #869). On the
+ * shared one, a long clip queued every embedding and classifier pass behind
+ * it, and a pass past the shared stall bound had the watchdog end the worker
+ * and fail all of them.
+ */
+export function getTranscriptionWorkerClient(): InferenceWorkerClient {
+  if (!transcriptionClient) transcriptionClient = new InferenceWorkerClient(defaultWorkerFactory, TRANSCRIPTION_STALL_MS)
+  return transcriptionClient
+}
+
+/** Terminate the shared worker and the transcription one (shutdown hook — see Pipeline.close()). */
 export async function closeInferenceWorker(): Promise<void> {
-  if (!sharedClient) return
-  const client = sharedClient
+  const clients = [sharedClient, transcriptionClient].filter((c): c is InferenceWorkerClient => c !== null)
   sharedClient = null
-  await client.close()
+  transcriptionClient = null
+  await Promise.all(clients.map(c => c.close()))
 }
