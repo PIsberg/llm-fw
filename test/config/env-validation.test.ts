@@ -24,6 +24,7 @@ const TOUCHED = [
   'LLM_FW_EMBEDDING_WARN_THRESHOLD', 'LLM_FW_CLASSIFIER_THRESHOLD',
   'LLM_FW_DOS_MAX_RPM', 'LLM_FW_DOS_MAX_TOKENS_PER_SESSION',
   'LLM_FW_DOS_TOKEN_WINDOW_MS',
+  'LLM_FW_DLP_MODE', 'LLM_FW_PROXY_MODE', 'LLM_FW_GATEWAY_PORT',
 ]
 
 const saved: Record<string, string | undefined> = {}
@@ -83,5 +84,31 @@ describe('numeric environment overrides fail fast', () => {
     expect(err.isOperational).toBe(true)
     expect(err.errorCode).toBe('CONFIG_INVALID')
     expect(err.variable).toBe('LLM_FW_PROXY_PORT')
+  })
+})
+
+// #864: these were cast or parsed without a check. LLM_FW_DLP_MODE=blcok set
+// the mode to "blcok", which no comparison matches, so DLP neither blocked
+// nor redacted; a mistyped LLM_FW_PROXY_MODE did the same to the listener;
+// LLM_FW_GATEWAY_PORT=abc was skipped without a word.
+describe('enum and gateway-port environment overrides fail fast (#864)', () => {
+  it.each([
+    ['LLM_FW_DLP_MODE', 'blcok'],
+    ['LLM_FW_PROXY_MODE', 'sinkhol'],
+    ['LLM_FW_GATEWAY_PORT', 'eight-thousand'],
+    ['LLM_FW_GATEWAY_PORT', '70000'],
+  ])('refuses %s=%s', async (name, value) => {
+    process.env[name] = value
+    await expect(loadConfig()).rejects.toThrow(ConfigError)
+  })
+
+  it('still accepts every valid value', async () => {
+    process.env.LLM_FW_DLP_MODE = 'audit'
+    process.env.LLM_FW_PROXY_MODE = 'proxy'
+    process.env.LLM_FW_GATEWAY_PORT = '18081'
+    const c = await loadConfig()
+    expect(c.dlp.mode).toBe('audit')
+    expect(c.proxy.mode).toBe('proxy')
+    expect(c.gateway?.port).toBe(18081)
   })
 })
