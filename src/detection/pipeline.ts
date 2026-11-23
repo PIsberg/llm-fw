@@ -3,7 +3,7 @@ import { Config, PipelineResult, BlockEvent, ScanSource, PayloadParser } from '.
 import { isObserving, effectiveClassifierBlockThreshold } from '../config/config.js'
 import { getParser, extractToolDescriptions } from './parsers.js'
 import { HeuristicScorer } from './heuristic.js'
-import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles } from './clientEnvelopes.js'
+import { unwrapClaudeCodeMidTurn, unwrapCodexEnvelope, claudeCodeReminderFiles, codexRepositoryInstructions } from './clientEnvelopes.js'
 import { detectSecretFileExfil, DESTINATION_RE } from './secretFileExfil.js'
 import { detectPlantedInstruction } from './plantedInstruction.js'
 import { stripHarnessTemplate, HARNESS_TEMPLATES } from './harnessTemplates.js'
@@ -611,6 +611,20 @@ export class Pipeline {
       const trustedPath = f.kind === 'repository' ? trustedReadPath('Read', { file_path: f.path }, trustedRoots) : null
       return [{ text: f.body, source, reminderFile: true, ...(trustedPath ? { trustedPath } : {}) }]
     })
+    // Codex sends AGENTS.md as a user message in an envelope; its
+    // repository part gets the same two rules (#857). Before, the envelope
+    // was only unwrapped for the ordinary stages.
+    for (const text of userPromptTexts) {
+      const agents = codexRepositoryInstructions(text)
+      if (!agents || !agents.body.trim()) continue
+      const key = `document\0${agents.dir ?? ''}\0${agents.body}`
+      if (seenReminderFiles.has(key)) continue
+      seenReminderFiles.add(key)
+      let dir = agents.dir ?? ''
+      while (dir.endsWith('/') || dir.endsWith('\\')) dir = dir.slice(0, -1)
+      const trustedPath = dir ? trustedReadPath('Read', { file_path: `${dir}/AGENTS.md` }, trustedRoots) : null
+      reminderFiles.push({ text: agents.body, source: 'document', reminderFile: true, ...(trustedPath ? { trustedPath } : {}) })
+    }
     const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
