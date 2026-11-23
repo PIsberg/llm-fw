@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.96
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes the response-side MCP gate (`src/detection/mcp/responseGate.ts`: Cohere stream gates, linear SSE framing, #881), which never reads a request.
+
 ## Result, ruleset 2026.11.95
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). This ruleset changes when an event is reported, once per tenant and session, and `applyObserveMode` in `config.ts` (memory poisoning to audit, #860); no verdict changes.

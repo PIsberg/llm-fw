@@ -7,6 +7,8 @@ import {
   rewriteBlockedJsonResponse,
   SseToolGate,
   OpenAiSseToolGate,
+  CohereSseToolGate,
+  CohereNdjsonToolGate,
   createSseGate,
 } from '../../../src/detection/mcp/responseGate.js'
 import type { Config } from '../../../src/types.js'
@@ -1007,5 +1009,157 @@ describe('SSE gates at the end of a cut stream with two held blocks (#851)', () 
     expect(out).not.toContain('rm -rf')
     expect(out).toContain('"id":"a"')
     expect(out).toContain('message_stop')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #881: Cohere streams. v2 (/v2/chat) is SSE with tool-call-start, -delta and
+// -end events; v1 (/v1/chat) is newline-delimited JSON whose
+// tool-calls-generation event carries the whole calls. Both went to the
+// Anthropic gate, which matched neither, so a blocked tool or a destructive
+// command streamed by Cohere reached the agent unchecked.
+// ---------------------------------------------------------------------------
+
+function cohereV2Stream(name: string, args: string, splitAt = 9): string {
+  const ev = (data: Record<string, unknown>) => `event: ${data.type as string}\ndata: ${JSON.stringify(data)}\n\n`
+  return [
+    ev({ type: 'message-start', id: 'm1', delta: { message: { role: 'assistant', content: [], tool_plan: '', tool_calls: [], citations: [] } } }),
+    ev({ type: 'tool-plan-delta', delta: { message: { tool_plan: 'Cleaning up.' } } }),
+    ev({ type: 'tool-call-start', index: 0, delta: { message: { tool_calls: { id: 'c1', type: 'function', function: { name, arguments: '' } } } } }),
+    ev({ type: 'tool-call-delta', index: 0, delta: { message: { tool_calls: { function: { arguments: args.slice(0, splitAt) } } } } }),
+    ev({ type: 'tool-call-delta', index: 0, delta: { message: { tool_calls: { function: { arguments: args.slice(splitAt) } } } } }),
+    ev({ type: 'tool-call-end', index: 0 }),
+    ev({ type: 'message-end', delta: { finish_reason: 'TOOL_CALL', usage: { billed_units: { input_tokens: 5, output_tokens: 9 } } } }),
+  ].join('')
+}
+
+function cohereV1Stream(name: string, parameters: Record<string, unknown>): string {
+  const line = (data: Record<string, unknown>) => JSON.stringify({ is_finished: false, ...data }) + '\n'
+  const params = JSON.stringify(parameters)
+  const call = { name, parameters }
+  return [
+    line({ event_type: 'stream-start', generation_id: 'g1' }),
+    line({ event_type: 'text-generation', text: 'Cleaning up.' }),
+    line({ event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, name } }),
+    line({ event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, parameters: params.slice(0, 8) } }),
+    line({ event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, parameters: params.slice(8) } }),
+    line({ event_type: 'tool-calls-generation', text: 'Cleaning up.', tool_calls: [call] }),
+    JSON.stringify({ is_finished: true, event_type: 'stream-end', finish_reason: 'COMPLETE', response: { text: 'Cleaning up.', generation_id: 'g1', tool_calls: [call] } }) + '\n',
+  ].join('')
+}
+
+describe('Cohere v2 SSE stream gate (#881)', () => {
+  it('drops a tool blocked by name, keeps the rest, and ends the turn without it', () => {
+    const gate = new CohereSseToolGate(mcp)
+    const { forward, decisions } = gate.push(cohereV2Stream('execute_command', '{"command":"ls"}'))
+    expect(forward + gate.flush()).not.toContain('execute_command')
+    expect(forward).toContain('Cleaning up.')
+    expect(forward).toContain('"finish_reason":"COMPLETE"')
+    expect(forward).not.toContain('TOOL_CALL')
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'execute_command', action: 'block' })])
+  })
+
+  it('holds an execution tool until its end and drops it when the command is destructive', () => {
+    const gate = new CohereSseToolGate(makeScanner())
+    const forward = gate.push(cohereV2Stream('bash', JSON.stringify({ command: DESTRUCTIVE }))).forward + gate.flush()
+    expect(forward).not.toContain('rm -rf')
+    expect(forward).not.toContain('tool-call-start')
+    expect(forward).toContain('"finish_reason":"COMPLETE"')
+  })
+
+  it('passes a benign execution tool through byte for byte, also in 5-character slices', () => {
+    const stream = cohereV2Stream('bash', JSON.stringify({ command: 'ls -la src' }))
+    const gate = new CohereSseToolGate(makeScanner())
+    let forward = ''
+    const decisions: unknown[] = []
+    for (let i = 0; i < stream.length; i += 5) {
+      const r = gate.push(stream.slice(i, i + 5))
+      forward += r.forward
+      decisions.push(...r.decisions)
+    }
+    expect(forward + gate.flush()).toBe(stream)
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'bash', action: 'pass' })])
+  })
+
+  it('does not release a destructive command when the stream ends before tool-call-end', () => {
+    const gate = new CohereSseToolGate(makeScanner())
+    const stream = cohereV2Stream('bash', JSON.stringify({ command: DESTRUCTIVE }))
+    const cut = stream.slice(0, stream.indexOf('event: tool-call-end'))
+    expect(gate.push(cut).forward + gate.flush()).not.toContain('rm -rf')
+  })
+})
+
+describe('Cohere v1 NDJSON stream gate (#881)', () => {
+  it('drops a blocked call from its chunks, its generation event and the final response', () => {
+    const gate = new CohereNdjsonToolGate(mcp)
+    const { forward, decisions } = gate.push(cohereV1Stream('execute_command', { command: 'ls' }))
+    const all = forward + gate.flush()
+    expect(all).not.toContain('execute_command')
+    expect(all).toContain('Cleaning up.')
+    for (const line of all.trimEnd().split('\n')) expect(() => JSON.parse(line)).not.toThrow()
+    expect(decisions).toEqual([expect.objectContaining({ toolName: 'execute_command', action: 'block' })])
+  })
+
+  it('reads the command of an execution tool and drops it when destructive', () => {
+    const gate = new CohereNdjsonToolGate(makeScanner())
+    const all = gate.push(cohereV1Stream('bash', { command: DESTRUCTIVE })).forward + gate.flush()
+    expect(all).not.toContain('rm -rf')
+  })
+
+  it('passes a benign stream through byte for byte, also in 7-character slices', () => {
+    const stream = cohereV1Stream('bash', { command: 'ls -la src' })
+    const gate = new CohereNdjsonToolGate(makeScanner())
+    let forward = ''
+    for (let i = 0; i < stream.length; i += 7) forward += gate.push(stream.slice(i, i + 7)).forward
+    expect(forward + gate.flush()).toBe(stream)
+  })
+
+  it('decides on the chunks when the stream ends before tool-calls-generation', () => {
+    const gate = new CohereNdjsonToolGate(makeScanner())
+    const stream = cohereV1Stream('bash', { command: DESTRUCTIVE })
+    const cut = stream.slice(0, stream.indexOf('{"is_finished":false,"event_type":"tool-calls-generation"'))
+    expect(gate.push(cut).forward + gate.flush()).not.toContain('rm -rf')
+  })
+})
+
+describe('Cohere v1 line framing stays linear (#881)', () => {
+  // Appending each chunk to one string and searching it copied the line on
+  // every chunk: 12 MB in 4 KB chunks took seconds.
+  it('reads a 12 MB line sent in 4 KB chunks in linear time', { timeout: LINEAR_TIME_TIMEOUT }, () => {
+    const line = JSON.stringify({ is_finished: false, event_type: 'text-generation', text: 'a'.repeat(12 * 1024 * 1024) }) + '\n'
+    const ms = underMs(500, () => {
+      const gate = new CohereNdjsonToolGate(mcp)
+      let out = ''
+      for (let i = 0; i < line.length; i += 4096) out += gate.push(line.slice(i, i + 4096)).forward
+      expect(out.length).toBe(line.length)
+    })
+    expect(ms).toBeLessThan(500)
+  })
+})
+
+// Found while fixing #881: the SSE framing appended every chunk to one
+// string and searched it, copying the event on every chunk. One 12 MB event
+// in 4 KB chunks held the thread serving every client for 4.1 s (measured),
+// and a Gemini event carries a whole call's arguments, a file included.
+describe('SSE framing of one large event stays linear (#881)', () => {
+  it.each([
+    ['Anthropic', () => new SseToolGate(mcp), (t: string) => `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } })}\n\n`],
+    ['Cohere v2', () => new CohereSseToolGate(mcp), (t: string) => `event: content-delta\ndata: ${JSON.stringify({ type: 'content-delta', index: 0, delta: { message: { content: { text: t } } } })}\r\n\r\n`],
+  ])('%s: a 12 MB event in 4 KB chunks', { timeout: LINEAR_TIME_TIMEOUT }, (_name, make, event) => {
+    const ev = event('a'.repeat(12 * 1024 * 1024))
+    const ms = underMs(500, () => {
+      const gate = make()
+      let out = ''
+      for (let i = 0; i < ev.length; i += 4096) out += gate.push(ev.slice(i, i + 4096)).forward
+      expect(out).toBe(ev)
+    })
+    expect(ms).toBeLessThan(500)
+  })
+})
+
+describe('createSseGate picks the Cohere gates (#881)', () => {
+  it('by the API version in the path', () => {
+    expect(createSseGate(getParser('/v2/chat')!, mcp, '/v2/chat')).toBeInstanceOf(CohereSseToolGate)
+    expect(createSseGate(getParser('/v1/chat')!, mcp, '/v1/chat')).toBeInstanceOf(CohereNdjsonToolGate)
   })
 })

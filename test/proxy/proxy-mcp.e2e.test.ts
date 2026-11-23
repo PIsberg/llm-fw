@@ -267,6 +267,30 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
           res.write(crlf(sse('content_block_start', { index: 0, content_block: { type: 'tool_use', id: 'toolu_crlf', name: 'execute_command', input: {} } })))
           res.write(crlf(sse('content_block_stop', { index: 0 })))
           res.end(crlf(sse('message_delta', { delta: { stop_reason: 'tool_use' } })))
+        } else if (scenario === 'cohere-v2-destructive') {
+          // #881: Cohere v2 streams SSE with its own tool-call events.
+          const ev = (data: Record<string, unknown>) => `event: ${data.type as string}\ndata: ${JSON.stringify(data)}\n\n`
+          const fn = (f: Record<string, unknown>) => ({ message: { tool_calls: { id: 'c1', type: 'function', function: f } } })
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          res.write(ev({ type: 'message-start', id: 'm1', delta: { message: { role: 'assistant' } } }))
+          res.write(ev({ type: 'tool-plan-delta', delta: { message: { tool_plan: 'Cleaning.' } } }))
+          res.write(ev({ type: 'tool-call-start', index: 0, delta: fn({ name: 'bash', arguments: '' }) }))
+          res.write(ev({ type: 'tool-call-delta', index: 0, delta: fn({ arguments: '{"command":"rm -r' }) }))
+          res.write(ev({ type: 'tool-call-delta', index: 0, delta: fn({ arguments: 'f /"}' }) }))
+          res.write(ev({ type: 'tool-call-end', index: 0 }))
+          res.end(ev({ type: 'message-end', delta: { finish_reason: 'TOOL_CALL' } }))
+        } else if (scenario === 'cohere-v1-destructive') {
+          // #881: Cohere v1 streams newline-delimited JSON, not SSE.
+          const line = (data: Record<string, unknown>) => JSON.stringify(data) + '\n'
+          const call = { name: 'bash', parameters: { command: 'rm -rf /' } }
+          res.writeHead(200, { 'Content-Type': 'application/stream+json' })
+          res.write(line({ is_finished: false, event_type: 'stream-start', generation_id: 'g1' }))
+          res.write(line({ is_finished: false, event_type: 'text-generation', text: 'Cleaning.' }))
+          res.write(line({ is_finished: false, event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, name: 'bash' } }))
+          res.write(line({ is_finished: false, event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, parameters: '{"command":"rm -r' } }))
+          res.write(line({ is_finished: false, event_type: 'tool-calls-chunk', tool_call_delta: { index: 0, parameters: 'f /"}' } }))
+          res.write(line({ is_finished: false, event_type: 'tool-calls-generation', text: 'Cleaning.', tool_calls: [call] }))
+          res.end(line({ is_finished: true, event_type: 'stream-end', finish_reason: 'COMPLETE', response: { text: 'Cleaning.', tool_calls: [call] } }))
         } else if (scenario === 'untyped-text') {
           res.writeHead(200, {})
           res.end('plain words, not a stream')
@@ -436,6 +460,25 @@ describe('Proxy MCP interception (E2E)', { timeout: 20000 }, () => {
     expect(res.body).toContain('Cleaning.')
     expect(res.body).not.toContain('rm -rf')
     expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'run_shell_command')).toBe(true)
+  })
+
+  it('gates a destructive command out of a Cohere v2 stream (#881)', async () => {
+    const body = JSON.stringify({ model: 'command-a', scenario: 'cohere-v2-destructive', stream: true, messages: [{ role: 'user', content: 'tidy up' }], tools: [{ type: 'function', function: { name: 'bash', parameters: { type: 'object', properties: {} } } }] })
+    const res = await send('/v2/chat', body)
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -r')
+    expect(res.body).toContain('"finish_reason":"COMPLETE"')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'bash' && e.path === '/v2/chat')).toBe(true)
+  })
+
+  it('gates a destructive command out of a Cohere v1 NDJSON stream (#881)', async () => {
+    const body = JSON.stringify({ model: 'command-r', scenario: 'cohere-v1-destructive', stream: true, message: 'tidy up', tools: [{ name: 'bash', description: 'run a command', parameter_definitions: {} }] })
+    const res = await send('/v1/chat', body)
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Cleaning.')
+    expect(res.body).not.toContain('rm -r')
+    expect(mcpEvents().some((e) => e.action === 'blocked' && e.mcpTool === 'bash' && e.path === '/v1/chat')).toBe(true)
   })
 
   it('blocks a destructive command that streams after the tool name (#529)', async () => {

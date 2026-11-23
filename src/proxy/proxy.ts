@@ -14,7 +14,7 @@ import { DlpScanner } from '../detection/dlp/scanner.js'
 import { locateDlpFindings, locationSummary } from './dlpLocation.js'
 import { QuotaManager } from '../detection/dos/quota.js'
 import { LoopDetector } from '../detection/dos/loopDetector.js'
-import { getParser } from '../detection/parsers.js'
+import { getParser, CohereParser } from '../detection/parsers.js'
 import { canonicalPath } from '../detection/canonicalPath.js'
 import { TaintTracker, maskToken } from '../detection/taint.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
@@ -1786,6 +1786,8 @@ export class ProxyServer {
       // #551: block mode holds a streamed line that opens markup until it is
       // complete and scanned; see streamExfil.ts.
       let hold: ExfilStreamHold | null = null
+      // A newline-delimited JSON stream (Cohere v1, #881), read by its MCP gate only.
+      let lineStream = false
       let dechunker: ChunkedDecoder | null = null
       const decoder = new StringDecoder('utf8')
 
@@ -1842,7 +1844,7 @@ export class ProxyServer {
       const begin = (initial: Buffer) => {
         if (mode === 'sse') {
           gate = mcpActive ? createSseGate(parser!, this.mcp, req.url ?? '') : null
-          if (responseScanActive && this.gateMode(this.config.responseScan?.mode) === 'block') {
+          if (responseScanActive && this.gateMode(this.config.responseScan?.mode) === 'block' && !lineStream) {
             hold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
           }
           res.writeHead(status, inspectedHeaders())
@@ -1912,6 +1914,12 @@ export class ProxyServer {
             mode = compressed ? 'passthrough' : 'sse'
           } else if (wantInspect && ctype.includes('application/json')) {
             mode = 'json'
+          } else if (wantInspect && !compressed && parser instanceof CohereParser && /stream\+json|ndjson/.test(ctype)) {
+            // #881: Cohere v1 streams newline-delimited JSON, which went
+            // through as passthrough, unread. Its gate (createSseGate) reads
+            // lines; the SSE-only readers below are not used on it.
+            mode = 'sse'
+            lineStream = true
           } else if (wantInspect && ctype === '' && !compressed && parser) {
             // ChatGPT's /backend-api/codex/responses streams with no
             // Content-Type, which left every Codex response unread: no MCP
@@ -2142,7 +2150,8 @@ export class ProxyServer {
     const parser = getParser(req.url ?? '/')
     const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
     const ctype = (stored.headers['content-type'] ?? '').toLowerCase()
-    const sse = ctype.includes('text/event-stream')
+    // A stored Cohere v1 stream is newline-delimited JSON, gated line by line (#881).
+    const sse = ctype.includes('text/event-stream') || (parser instanceof CohereParser && /stream\+json|ndjson/.test(ctype))
     if (!(mcpActive || this.config.responseScan?.enabled) || (!sse && !ctype.includes('application/json'))) {
       writeCapturedResponse(res, stored)
       return stored.body.length
