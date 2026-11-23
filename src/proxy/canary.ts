@@ -162,10 +162,13 @@ export function sseStreamText(sse: string): string {
 
 // The blank line that ends an SSE event, with either line ending (#859).
 const EVENT_END = /\r?\n\r?\n/g
-// An event longer than this with no end in sight is read as raw text and
-// dropped, so a stream that never sends a blank line cannot grow the buffer
-// without bound. The token is hex, so JSON does not escape it in the raw text.
+// An event longer than this with no end in sight is read as raw text from
+// then on, to its end, and not kept, so a stream that never sends a blank
+// line cannot grow the buffer without bound. The token is hex, so JSON does
+// not escape it in the raw text.
 const MAX_EVENT_CHARS = 256 * 1024
+// Kept back from a raw read, so a CRLF blank line split across chunks is seen.
+const EVENT_END_LOOKBACK = 3
 
 /**
  * Watches a streamed (SSE) response for the canary. The token arrives in
@@ -183,38 +186,50 @@ export class CanaryWatch {
   // Where the search for the next event end resumes: a chunk is scanned once,
   // with three characters back for a CRLF blank line split across chunks.
   private scanned = 0
+  // The event being read passed MAX_EVENT_CHARS: the rest of it is read raw.
+  private raw = false
 
   constructor(private readonly token: string) {}
 
   push(raw: string): boolean {
     this.buf += raw
     for (;;) {
-      EVENT_END.lastIndex = Math.max(0, this.scanned - 3)
+      EVENT_END.lastIndex = Math.max(0, this.scanned - EVENT_END_LOOKBACK)
       const m = EVENT_END.exec(this.buf)
       if (m === null) break
       const event = this.buf.slice(0, m.index)
       this.buf = this.buf.slice(m.index + m[0].length)
       this.scanned = 0
-      if (this.check(sseEventText(event, CONTENT_KEYS) ?? eventData(event))) return true
+      if (this.check(this.textOf(event))) return true
+      this.raw = false
+    }
+    if (!this.raw && this.buf.length > MAX_EVENT_CHARS) this.raw = true
+    if (this.raw && this.buf.length > EVENT_END_LOOKBACK) {
+      // Read and let go, but for the end of it, which may begin a blank line.
+      const read = this.buf.slice(0, -EVENT_END_LOOKBACK)
+      this.buf = this.buf.slice(-EVENT_END_LOOKBACK)
+      if (this.check(read)) return true
     }
     this.scanned = this.buf.length
-    if (this.buf.length > MAX_EVENT_CHARS) {
-      const raw = this.buf
-      this.buf = ''
-      this.scanned = 0
-      return this.check(raw)
-    }
     return false
   }
 
   /** At the end of the stream: true when a last, unterminated event completes the token. */
   flush(): boolean {
     const rest = this.buf
+    const raw = this.raw
     this.buf = ''
     this.scanned = 0
+    this.raw = false
     if (!rest.trim()) return false
+    if (raw) return this.check(rest)
     const tail = this.tail
-    return this.check(sseEventText(rest, CONTENT_KEYS) ?? eventData(rest)) || (tail + rest).includes(this.token)
+    return this.check(this.textOf(rest)) || (tail + rest).includes(this.token)
+  }
+
+  /** An event's content strings, or, past the cap, its raw text. */
+  private textOf(event: string): string {
+    return this.raw ? event : (sseEventText(event, CONTENT_KEYS) ?? eventData(event))
   }
 
   private check(text: string): boolean {

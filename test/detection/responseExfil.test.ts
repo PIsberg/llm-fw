@@ -479,6 +479,10 @@ describe('markdown destinations with parentheses (#859)', () => {
     ['escaped', '![x](https://cdn.example.org/p\\)?secret=abc)', 'https://cdn.example.org/p\\)?secret=abc'],
     ['a link', 'see [here](https://cdn.example.org/p(1)?secret=abc) now', 'https://cdn.example.org/p(1)?secret=abc'],
     ['in angle brackets', '![x](<https://cdn.example.org/p)?secret=abc>)', 'https://cdn.example.org/p)?secret=abc'],
+    // Commit security review of #859: `<...>` may hold spaces, and a bare
+    // destination may hold `>`; a client fetches all of either.
+    ['in angle brackets with a space', '![x](<https://cdn.example.org/x ?secret=abc>)', 'https://cdn.example.org/x ?secret=abc'],
+    ['bare, with a >', '![x](https://cdn.example.org/a>b?secret=abc)', 'https://cdn.example.org/a>b?secret=abc'],
   ])('reads the whole destination: %s', (_label, text, url) => {
     const f = scanResponseExfil(text, byQuery)
     expect(f.map(x => x.url)).toEqual([url])

@@ -158,6 +158,23 @@ describe('CanaryWatch on CRLF streams and at end of stream (#859)', () => {
     expect(watch.flush()).toBe(false)
   })
 
+  // Commit security review of #859: the rest of an event cut at the cap was
+  // read as an event of its own, which has no data line, so its text went
+  // unchecked.
+  it('finds the token in the rest of an event past its buffer cap, when it ends', () => {
+    const watch = new CanaryWatch(TOKEN)
+    let hit = watch.push('data: {"type":"content_block_delta","delta":{"text":"' + 'filler '.repeat(40_000))
+    hit = hit || watch.push(`and ${TOKEN} after"}}\n\n`)
+    expect(hit).toBe(true)
+  })
+
+  it('finds a token split across the cut and the rest of that event', () => {
+    const watch = new CanaryWatch(TOKEN)
+    let hit = watch.push('data: {"type":"content_block_delta","delta":{"text":"' + 'filler '.repeat(40_000) + TOKEN.slice(0, 20))
+    hit = hit || watch.push(`${TOKEN.slice(20)}"}}\r\n\r\n`)
+    expect(hit).toBe(true)
+  })
+
   it('still finds the token in one event that never ends, past its buffer cap', () => {
     const watch = new CanaryWatch(TOKEN)
     let hit = watch.push('data: {"type":"content_block_delta","delta":{"text":"')
