@@ -4,6 +4,7 @@ import { getInferenceWorkerClient, InferenceWorkerClient, WorkerUnavailableError
 import { compactTokenizer } from './compactTokenizer.js'
 import { ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, isClaudeCodePromptNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
+import { classifierWindows } from './classifierWindows.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -59,7 +60,9 @@ export async function loadInjectionClassifier(): Promise<ClassifyFn> {
 export class InjectionClassifier {
   private classifier: ClassifyFn | null = null
   private config: DetectionConfig
-  private cache = new Map<string, ClassifierVerdict>()
+  // Scores, not verdicts: the threshold is applied on every call, so a
+  // hot-reloaded one also applies to a text scored before it changed (#858).
+  private cache = new Map<string, number>()
   private initAttempted = false
   // Task C3 — mirrors EmbeddingChecker's `ready` flag: true once the worker
   // has confirmed it can classify, decoupled from `classifier` (which stays
@@ -190,25 +193,25 @@ export class InjectionClassifier {
   private async classifyOne(scored: string, threshold: number): Promise<ClassifierVerdict | null> {
     const key = createHash('sha256').update(scored).digest('hex')
     const cached = this.cache.get(key)
-    if (cached) return cached
+    if (cached !== undefined) return { injection: cached >= threshold, score: cached }
 
     try {
-      // DeBERTa-v3-base has a 512-token window; truncate very long inputs so a
-      // huge tool-result blob can't blow up latency or overflow the model.
-      const input = scored.length > 4000 ? scored.slice(0, 4000) : scored
-      const out = await this.classifyRaw(input)
-      const top = out[0]
-      const injScore = top && top.label.toUpperCase() === 'INJECTION'
-        ? top.score
-        : (top ? 1 - top.score : 0)
-      const verdict: ClassifierVerdict = { injection: injScore >= threshold, score: injScore }
+      // DeBERTa-v3-base reads 512 tokens: a long text is read in bounded
+      // windows across its whole length, and the highest score counts (#858).
+      let injScore = 0
+      for (const input of classifierWindows(scored)) {
+        const out = await this.classifyRaw(input)
+        const top = out[0]
+        const s = top && top.label.toUpperCase() === 'INJECTION' ? top.score : (top ? 1 - top.score : 0)
+        if (s > injScore) injScore = s
+      }
 
       if (this.cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = this.cache.keys().next().value
         if (oldest !== undefined) this.cache.delete(oldest)
       }
-      this.cache.set(key, verdict)
-      return verdict
+      this.cache.set(key, injScore)
+      return { injection: injScore >= threshold, score: injScore }
     } catch {
       return null
     }

@@ -1,4 +1,5 @@
 import { ResponseScanConfig } from '../types.js'
+import { classifierWindows } from './classifierWindows.js'
 import { createHash } from 'node:crypto'
 import { createLogger } from '../logger.js';
 import { compactTokenizer } from './compactTokenizer.js';
@@ -60,7 +61,8 @@ const CACHE_MAX_ENTRIES = 512
 export class OutputModerationClassifier {
   private classifier: ClassifyFn | null = null
   private config: ResponseScanConfig | undefined
-  private cache = new Map<string, OutputClassifierVerdict>()
+  // Scores, not verdicts: the threshold is applied on every call (#858).
+  private cache = new Map<string, number>()
   private initAttempted = false
 
   constructor(config: ResponseScanConfig | undefined, private readonly modelLoadTimeoutMs = 0) {
@@ -112,25 +114,25 @@ export class OutputModerationClassifier {
 
     const key = createHash('sha256').update(text).digest('hex')
     const cached = this.cache.get(key)
-    if (cached) return cached
+    if (cached !== undefined) return { flagged: cached >= threshold, score: cached }
 
     try {
-      // DistilRoBERTa has a 512-token window; truncate very long responses so a
-      // huge generation can't blow up latency or overflow the model.
-      const input = text.length > 4000 ? text.slice(0, 4000) : text
-      const out = await this.classifier(input)
-      const top = out[0]
-      const flaggedScore = top && !BENIGN_LABELS.has(top.label.toUpperCase())
-        ? top.score
-        : (top ? 1 - top.score : 0)
-      const verdict: OutputClassifierVerdict = { flagged: flaggedScore >= threshold, score: flaggedScore }
+      // DistilRoBERTa reads 512 tokens: a long response is read in bounded
+      // windows across its whole length, and the highest score counts (#858).
+      let flaggedScore = 0
+      for (const input of classifierWindows(text)) {
+        const out = await this.classifier(input)
+        const top = out[0]
+        const s = top && !BENIGN_LABELS.has(top.label.toUpperCase()) ? top.score : (top ? 1 - top.score : 0)
+        if (s > flaggedScore) flaggedScore = s
+      }
 
       if (this.cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = this.cache.keys().next().value
         if (oldest !== undefined) this.cache.delete(oldest)
       }
-      this.cache.set(key, verdict)
-      return verdict
+      this.cache.set(key, flaggedScore)
+      return { flagged: flaggedScore >= threshold, score: flaggedScore }
     } catch {
       return null
     }

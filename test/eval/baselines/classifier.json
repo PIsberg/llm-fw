@@ -1,5 +1,5 @@
 {
-  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-11-11 on ruleset 2026.11.59 (every split) with jailbreak-classification re-measured on 2026.11.60, the only split that ruleset moved (docs/BENCHMARK.md classifier column, #533), at the shipped defaults (tool_result classifierBlockThreshold 0.999). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554).",
+  "_source": "scripts/run-benchmark.ts classifier --json, measured 2026-11-11 on ruleset 2026.11.59 (every split) with jailbreak-classification re-measured on 2026.11.60, the only split that ruleset moved (docs/BENCHMARK.md classifier column, #533), at the shipped defaults (tool_result classifierBlockThreshold 0.999). Re-measured weekly by .github/workflows/classifier-benchmark.yml (#554). The three multi-turn splits (#540) were added on 2026-11-23, measured on ruleset 2026.11.93 with the windowed classifier (#858), after the weekly job had failed since 2026-11-22 for lacking them.",
   "ruleset": "2026.11.60",
   "measured": "2026-11-11",
   "preset": "classifier",
@@ -1100,6 +1100,106 @@
           "n": 650,
           "blocked": 608,
           "rate": 0.9353846153846154
+        }
+      }
+    },
+    {
+      "name": "multiturn-cipher",
+      "threat": "multi-turn",
+      "revision": "e3b30257c4d6be5438ea19f0989ac82c24234fe4",
+      "n": 817,
+      "tp": 479,
+      "fn": 38,
+      "tn": 66,
+      "fp": 234,
+      "recall": 0.9264990328820116,
+      "fpr": 0.78,
+      "p50Ms": 145,
+      "perClass": {
+        "attack:harmful": {
+          "n": 517,
+          "blocked": 479,
+          "rate": 0.9264990328820116
+        },
+        "benign:benign": {
+          "n": 150,
+          "blocked": 108,
+          "rate": 0.72
+        },
+        "benign:semi-benign": {
+          "n": 150,
+          "blocked": 126,
+          "rate": 0.84
+        }
+      }
+    },
+    {
+      "name": "oasst1-multiturn",
+      "threat": "multi-turn",
+      "revision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",
+      "n": 1000,
+      "tp": 0,
+      "fn": 0,
+      "tn": 715,
+      "fp": 285,
+      "recall": 0,
+      "fpr": 0.285,
+      "p50Ms": 202,
+      "perClass": {
+        "benign:en": {
+          "n": 419,
+          "blocked": 22,
+          "rate": 0.05250596658711217
+        },
+        "benign:other": {
+          "n": 581,
+          "blocked": 263,
+          "rate": 0.45266781411359724
+        }
+      }
+    },
+    {
+      "name": "safemt-attack-600",
+      "threat": "multi-turn",
+      "revision": "04af7bd0b6b6044e797e936d79674e348316b9b8",
+      "n": 600,
+      "tp": 99,
+      "fn": 501,
+      "tn": 0,
+      "fp": 0,
+      "recall": 0.165,
+      "fpr": null,
+      "p50Ms": 204,
+      "perClass": {
+        "attack:chemical_biological": {
+          "n": 84,
+          "blocked": 13,
+          "rate": 0.15476190476190477
+        },
+        "attack:illegal": {
+          "n": 174,
+          "blocked": 28,
+          "rate": 0.16091954022988506
+        },
+        "attack:misinformation_disinformation": {
+          "n": 102,
+          "blocked": 6,
+          "rate": 0.058823529411764705
+        },
+        "attack:harmful": {
+          "n": 63,
+          "blocked": 10,
+          "rate": 0.15873015873015872
+        },
+        "attack:harassment_bullying": {
+          "n": 57,
+          "blocked": 4,
+          "rate": 0.07017543859649122
+        },
+        "attack:cybercrime_intrusion": {
+          "n": 120,
+          "blocked": 38,
+          "rate": 0.31666666666666665
         }
       }
     }
