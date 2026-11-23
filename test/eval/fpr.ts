@@ -176,6 +176,8 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.92 (#857: Gemini, Cloud Code, Bedrock and Cohere yield the conversation; these
+  // rows go through /v1/messages, so none can move; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.91 (#857: images and files in Responses and Gemini tool outputs are media; no row
   // holds one; 7 of 356 benign rows, as before).
   // Held at ruleset 2026.11.90 (#857: tool definitions read at any depth and for title, default, examples,
