@@ -163,7 +163,10 @@ describe('applyHotReload (pure diff/apply, no fs)', () => {
     expect(live.mcp.guardrailsEnabled).toBe(false)
   })
 
-  it('leaves keys outside both the hot and cold lists untouched (e.g. dlp.detectors)', () => {
+  // #864: a key in neither list used to be dropped without a word, so an
+  // edit to it looked applied and was not. Every changed key that is not hot
+  // is now reported as needing a restart.
+  it('reports a changed key it does not apply as restart-required (e.g. dlp.detectors)', () => {
     const live: Config = structuredClone(DEFAULT_CONFIG)
     const incoming: Config = structuredClone(DEFAULT_CONFIG)
     incoming.dlp.detectors = ['aws']
@@ -171,8 +174,56 @@ describe('applyHotReload (pure diff/apply, no fs)', () => {
     const { applied, restartRequired } = applyHotReload(live, incoming, () => {})
 
     expect(applied).not.toContain('dlp.detectors')
-    expect(restartRequired).not.toContain('dlp.detectors')
+    expect(restartRequired).toContain('dlp.detectors')
     expect(live.dlp.detectors).toEqual(DEFAULT_CONFIG.dlp.detectors)
+  })
+})
+
+// #864: the lists drifted from what is read live. The dashboard already
+// toggles these at runtime, and each is read on every request, yet an edit
+// to config.json left them as they were; workerInference was listed hot but
+// whether a worker exists is decided at start.
+describe('hot and restart-required keys (#864)', () => {
+  const set = (c: Config, path: string, value: unknown) => {
+    const keys = path.split('.')
+    let o = c as unknown as Record<string, unknown>
+    for (const k of keys.slice(0, -1)) { o[k] ??= {}; o = o[k] as Record<string, unknown> }
+    o[keys.at(-1)!] = value
+  }
+  it.each([
+    ['asciiSmuggling.enabled', false],
+    ['memoryPoisoning.enabled', false],
+    ['memoryPoisoning.mode', 'audit'],
+    ['taint.enabled', false],
+    ['taint.mode', 'block'],
+    ['proxy.urlFilter.enabled', false],
+    ['dos.maxRequestsPerMinute', 7],
+    ['dos.maxTokensPerSession', 1234],
+    ['responseScan.classifier.blockThreshold', 0.5],
+  ])('applies %s live', (path, value) => {
+    const live: Config = structuredClone(DEFAULT_CONFIG)
+    const incoming: Config = structuredClone(DEFAULT_CONFIG)
+    set(incoming, path, value)
+    const { applied, restartRequired } = applyHotReload(live, incoming, () => {})
+    expect(applied).toContain(path)
+    expect(restartRequired).not.toContain(path)
+  })
+
+  it.each([
+    ['detection.workerInference', false],
+    ['audit.enabled', true],
+    ['gateway.port', 18999],
+    ['enforcement', 'observe'],
+    ['proxy.authToken', 'tok'],
+  ])('reports %s as restart-required and leaves it', (path, value) => {
+    const live: Config = structuredClone(DEFAULT_CONFIG)
+    const incoming: Config = structuredClone(DEFAULT_CONFIG)
+    set(incoming, path, value)
+    const before = structuredClone(live)
+    const { applied, restartRequired } = applyHotReload(live, incoming, () => {})
+    expect(applied).not.toContain(path)
+    expect(restartRequired).toContain(path)
+    expect(live).toEqual(before)
   })
 })
 
@@ -358,5 +409,71 @@ describe('Config hot-reload (real fs.watch, temp LLM_FW_DIR)', () => {
     fs.writeFileSync(configPath, JSON.stringify({ dlp: { mode: 'redact' }, detection: { heuristicBlockThreshold: 78 } }), 'utf8')
     await waitFor(() => live.detection.heuristicBlockThreshold === 78, 'the second canary to be applied')
     expect(live.dlp.mode).toBe('audit')
+  }, 10000)
+})
+
+// #864: the watcher looked only at <LLM_FW_DIR>/config.json, so an edit to the
+// file LLM_FW_CONFIG names (a mounted Kubernetes ConfigMap) never reloaded;
+// it gave up for good when LLM_FW_DIR did not exist yet; and an edit landing
+// while a reload was still reading started a second one beside it.
+describe('the config watcher (#864)', () => {
+  let dirs: string[] = []
+  let handle: HotReloadHandle | undefined
+  const saved = { dir: process.env.LLM_FW_DIR, config: process.env.LLM_FW_CONFIG }
+  afterEach(() => {
+    handle?.stop()
+    handle = undefined
+    if (saved.dir === undefined) delete process.env.LLM_FW_DIR
+    else process.env.LLM_FW_DIR = saved.dir
+    if (saved.config === undefined) delete process.env.LLM_FW_CONFIG
+    else process.env.LLM_FW_CONFIG = saved.config
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true })
+    dirs = []
+  })
+  const mk = (p: string) => { const d = fs.mkdtempSync(join(tmpdir(), p)); dirs.push(d); return d }
+
+  it('reloads when the file LLM_FW_CONFIG names changes', async () => {
+    process.env.LLM_FW_DIR = mk('llm-fw-hr-dir-')
+    const mounted = join(mk('llm-fw-hr-mount-'), 'llm-fw.json')
+    fs.writeFileSync(mounted, JSON.stringify({ detection: { heuristicBlockThreshold: 1000 } }))
+    process.env.LLM_FW_CONFIG = mounted
+    const live = await loadConfig()
+    handle = startConfigHotReload(live, { debounceMs: 30 })
+    fs.writeFileSync(mounted, JSON.stringify({ detection: { heuristicBlockThreshold: 11 } }))
+    await waitFor(() => live.detection.heuristicBlockThreshold === 11, 'the mounted file edit to be applied')
+  }, 10000)
+
+  it('watches a data directory that does not exist yet', async () => {
+    const dir = join(mk('llm-fw-hr-parent-'), 'not-yet')
+    process.env.LLM_FW_DIR = dir
+    const live = await loadConfig()
+    handle = startConfigHotReload(live, { debounceMs: 30 })
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(join(dir, 'config.json'), JSON.stringify({ detection: { heuristicBlockThreshold: 12 } }))
+    await waitFor(() => live.detection.heuristicBlockThreshold === 12, 'the edit in the new directory to be applied')
+  }, 10000)
+
+  it('never runs two reloads at once, and reads again after one that was overtaken', async () => {
+    const dir = mk('llm-fw-hr-serial-')
+    process.env.LLM_FW_DIR = dir
+    const live: Config = structuredClone(DEFAULT_CONFIG)
+    let running = 0
+    let most = 0
+    let calls = 0
+    const reload = async (): Promise<Config> => {
+      calls++
+      running++
+      most = Math.max(most, running)
+      await wait(120)
+      running--
+      return loadConfig()
+    }
+    handle = startConfigHotReload(live, { debounceMs: 10, reload })
+    fs.writeFileSync(join(dir, 'config.json'), JSON.stringify({ detection: { heuristicBlockThreshold: 13 } }))
+    await wait(60)
+    fs.writeFileSync(join(dir, 'config.json'), JSON.stringify({ detection: { heuristicBlockThreshold: 14 } }))
+    await waitFor(() => live.detection.heuristicBlockThreshold === 14, 'the second edit to be applied')
+    expect(most).toBe(1)
+    expect(calls).toBeGreaterThanOrEqual(2)
   }, 10000)
 })

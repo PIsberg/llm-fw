@@ -23,9 +23,11 @@ A new key is not one edit. It is five, and reviewers will look for all of them:
 1. The type in `src/types.ts`.
 2. The default in `DEFAULT_CONFIG`.
 3. An entry in `ENV_OVERRIDES` if it should be settable from the environment.
-4. Hot-reload classification: warm keys apply live; cold keys must be listed as
-   restart-required. Ports, bind hosts, `proxy.mode`, `bypass`, `targets` and
-   `interceptDomains` are cold.
+4. Hot-reload classification: a key that is read live goes in `HOT_PATHS`
+   (`src/config/hotReload.ts`); every other changed key is reported as
+   restart-required automatically (#864), so there is no cold list to keep in
+   step. Only mark a key hot after checking it is read per request, not
+   captured at construction or `init()`.
 5. Documentation in [docs/guides/configuration.md](../../docs/guides/configuration.md),
    plus a `CHANGELOG.md` entry. The environment-variable table there is
    GENERATED: run `npm run config:reference` rather than editing it, and note

@@ -1,6 +1,6 @@
 import { Config, ScanSource } from '../types.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, extname, join, resolve } from 'node:path';
 import { AI_PROVIDER_HOSTS, AI_PROVIDER_DOMAINS, AI_PROVIDER_INTERCEPT_DOMAINS } from './providers.js';
 import { getLlmFwDir } from './paths.js';
 
@@ -697,6 +697,24 @@ export function checkConfigFile(settings: Record<string, unknown>, file: string)
     }
   };
   walk(settings, DEFAULT_CONFIG, '');
+}
+
+/**
+ * Write `settings` to a config file: to a temporary file beside it, then
+ * renamed over it (#864). Written in place, the hot-reload watcher could read
+ * it half written, and it took the default 0644 mode while it can hold the
+ * proxy and gateway tokens; it is the owner's alone now (0600).
+ */
+export function writeUserConfigFile(file: string, settings: Record<string, unknown>, trailingNewline = false): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(settings, null, 2) + (trailingNewline ? '\n' : ''), { encoding: 'utf8', mode: 0o600 });
+    renameSync(tmp, file);
+  } catch (err) {
+    try { rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
+    throw err;
+  }
 }
 
 function buildConfig(): Config {

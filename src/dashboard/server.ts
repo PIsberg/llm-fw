@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { getLlmFwDir } from '../config/paths.js'
 import { join } from 'node:path'
 import { Config, PipelineResult } from '../types.js'
-import { deepMerge, effectiveClassifierBlockThreshold, readUserConfigFile } from '../config/config.js'
+import { deepMerge, effectiveClassifierBlockThreshold, readUserConfigFile, writeUserConfigFile } from '../config/config.js'
 import { triageRow } from './triage.js'
 import { EventBus } from './eventBus.js'
 import { MetricsRegistry } from './metrics.js'
@@ -2906,8 +2906,8 @@ function persistSettings(config: Config, before: Record<string, unknown>): void 
   // file over a configuration it could not parse (#853).
   const existing = readUserConfigFile(file)
   const merged = deepMerge<Record<string, unknown>>(existing, changed)
-  fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(merged, null, 2), 'utf8')
+  // Atomic, 0600 (#864): the hot-reload watcher reads this file.
+  writeUserConfigFile(file, merged)
 }
 
 // CSRF guard for state-changing POSTs. The dashboard has no auth/cookies, but it

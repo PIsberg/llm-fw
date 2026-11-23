@@ -1,6 +1,6 @@
 import { CertFactory, crlUrlFor, type CaReplaceReason, type EnsureCaResult } from '../proxy/certs.js';
 import { EmbeddingChecker } from '../detection/embedding.js';
-import { loadConfig, readUserConfigFile } from '../config/config.js';
+import { loadConfig, readUserConfigFile, writeUserConfigFile } from '../config/config.js';
 import { installSinkholeHosts } from './hosts.js';
 import { serializeLike } from './jsonFormat.js';
 import { getLlmFwDir } from '../config/paths.js';
@@ -399,11 +399,7 @@ function persistProxyMode(llmfwDir: string, mode: 'sinkhole' | 'proxy'): void {
   const proxy = (existing.proxy && typeof existing.proxy === 'object')
     ? existing.proxy as Record<string, unknown>
     : {};
-  fs.writeFileSync(
-    configPath,
-    JSON.stringify({ ...existing, proxy: { ...proxy, mode } }, null, 2),
-    'utf8'
-  );
+  writeUserConfigFile(configPath, { ...existing, proxy: { ...proxy, mode } });
 }
 
 export async function run(args: string[]): Promise<void> {

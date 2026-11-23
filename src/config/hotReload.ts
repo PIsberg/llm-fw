@@ -1,4 +1,5 @@
-import { watch, FSWatcher } from 'node:fs'
+import { watch, mkdirSync, FSWatcher } from 'node:fs'
+import { basename, dirname, resolve } from 'node:path'
 import { Config } from '../types.js'
 import { getLlmFwDir } from './paths.js'
 import { applyObserveMode, loadConfig } from './config.js'
@@ -25,16 +26,43 @@ export interface HotReloadOptions {
 }
 
 // Keys that resolve to Object.prototype — refuse to traverse or write through
-// them so a config path can never pollute the prototype. HOT_PATHS/COLD_PATHS
-// are static allowlists (never attacker-derived), so this is belt-and-braces,
-// but it keeps the walker safe if a dynamic path is ever passed in.
+// them so a config path can never pollute the prototype. Values are written
+// only along the static HOT_PATHS allowlist; the paths read for the
+// restart-required report come from the config's own keys, which is why
+// changedLeaves and getPath skip these.
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+}
+
+/** The paths where `a` and `b` differ, a list or a value counting as one leaf. */
+function changedLeaves(a: unknown, b: unknown, path: Path = [], out: Path[] = []): Path[] {
+  if (isPlainObject(a) && isPlainObject(b)) {
+    for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (UNSAFE_KEYS.has(key)) continue
+      changedLeaves(a[key], b[key], [...path, key], out)
+    }
+  } else if (differs(a, b)) {
+    out.push(path)
+  }
+  return out
+}
+
+/** Whether `path` is applied live: under a hot path, or a section holding one. */
+function coveredByHot(path: Path): boolean {
+  return HOT_PATHS.some(hot => {
+    const n = Math.min(hot.length, path.length)
+    for (let i = 0; i < n; i++) if (hot[i] !== path[i]) return false
+    return true
+  })
+}
 
 function getPath(obj: unknown, path: Path): unknown {
   let cur: unknown = obj
   for (const key of path) {
     if (cur === null || typeof cur !== 'object' || UNSAFE_KEYS.has(key)) return undefined
-    // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop -- keys are the static HOT_PATHS/COLD_PATHS allowlist and __proto__/constructor/prototype are rejected above; read-only traversal.
+    // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop -- read-only traversal; __proto__/constructor/prototype are rejected above.
     cur = (cur as Record<string, unknown>)[key]
   }
   return cur
@@ -110,7 +138,6 @@ const HOT_PATHS: Path[] = [
   ['detection', 'intentMention'],
   ['detection', 'suppressions'],
   ['detection', 'failMode'],
-  ['detection', 'workerInference'],
   ['detection', 'classifier', 'enabled'],
   ['detection', 'classifier', 'blockThreshold'],
   ['detection', 'classifier', 'escalateThreshold'],
@@ -131,6 +158,16 @@ const HOT_PATHS: Path[] = [
   ['detection', 'surfaces', 'prompt', 'highConfidenceMargin'],
   ['dlp', 'enabled'],
   ['dlp', 'mode'],
+  // Read on every request; the dashboard already toggles them live (#864).
+  ['asciiSmuggling', 'enabled'],
+  ['memoryPoisoning', 'enabled'],
+  ['memoryPoisoning', 'mode'],
+  ['taint', 'enabled'],
+  ['taint', 'mode'],
+  ['proxy', 'urlFilter', 'enabled'],
+  ['dos', 'maxRequestsPerMinute'],
+  ['dos', 'maxTokensPerSession'],
+  ['responseScan', 'classifier', 'blockThreshold'],
   ['dos', 'enabled'],
   ['dos', 'loopDetectionEnabled'],
   ['rag', 'enabled'],
@@ -221,30 +258,16 @@ const HOT_PATHS: Path[] = [
   ['modules', 'promptMonitor', 'maxChars'],
 ]
 
-// COLD keys (Task C5) — changing any of these while the process is running
-// would either desync a listening socket (proxy/dashboard ports+binds), leave
-// stale hosts-file/portproxy state (targets/interceptDomains — see
-// cli/start.ts's sinkhole setup, which only runs once at boot), or silently
-// stop covering a provider host mid-flight. Detected and reported, never
-// applied.
-const COLD_PATHS: Path[] = [
-  ['proxy', 'port'],
-  ['proxy', 'httpsPort'],
-  ['proxy', 'mode'],
-  ['proxy', 'bindHost'],
-  ['proxy', 'bypass'],
-  ['dashboard', 'port'],
-  ['dashboard', 'bindHost'],
-  ['targets'],
-  ['extraTargets'],
-  ['proxy', 'interceptDomains'],
-  ['proxy', 'inspectChatgptBackend'],
-  // Read once, after the listeners bind.
-  ['updateCheck'],
-  // Read once, when the model session is built.
-  ['detection', 'embedding', 'spinWait'],
-  ['detection', 'embedding', 'threads'],
-]
+// Restart-required keys. Every changed key that is not in HOT_PATHS is
+// reported as needing a restart and left as it was (#864): a static list of
+// cold keys drifted from the config, and a key in neither list was dropped
+// without a word, so an edit to it looked applied and was not. Changing a
+// cold key while running would desync a listening socket (ports, binds),
+// leave stale hosts-file or portproxy state (targets, interceptDomains: the
+// sinkhole is set up once, at boot), or change something built once at start
+// (the model session, the inference worker, the audit log, the gateway's
+// tenants and tokens, `enforcement`, whose observe relaxation cannot be
+// undone in place).
 
 /**
  * Diff `incoming` (a freshly loaded config) against `live` (the config object
@@ -285,10 +308,9 @@ export function applyHotReload(
   const applied = touched.filter(t => differs(t.was, getPath(live, t.path))).map(t => pathStr(t.path))
 
   const restartRequired: string[] = []
-  for (const path of COLD_PATHS) {
-    const next = getPath(incoming, path)
-    const cur = getPath(live, path)
-    if (changedSinceLastLoad(path, next) && differs(cur, next)) restartRequired.push(pathStr(path))
+  for (const path of changedLeaves(live, incoming)) {
+    if (coveredByHot(path)) continue
+    if (changedSinceLastLoad(path, getPath(incoming, path))) restartRequired.push(pathStr(path))
   }
 
   if (restartRequired.length) {
@@ -325,8 +347,13 @@ export function startConfigHotReload(live: Config, options: HotReloadOptions = {
   const dir = getLlmFwDir()
 
   let timer: NodeJS.Timeout | null = null
-  let watcher: FSWatcher | null = null
+  const watchers: FSWatcher[] = []
   let stopped = false
+  // One reload at a time (#864): an edit landing while a reload still reads
+  // used to start a second beside it, and the two applied in either order.
+  // One that arrives meanwhile is read once the running one ends.
+  let running = false
+  let again = false
   // The baseline each reload is diffed against (see applyHotReload): live
   // config as it stands when watching starts, which is loadConfig()'s result
   // plus any CLI flags. Taken synchronously, so an edit that lands right after
@@ -336,6 +363,8 @@ export function startConfigHotReload(live: Config, options: HotReloadOptions = {
 
   const runReload = (): void => {
     timer = null
+    if (running) { again = true; return }
+    running = true
     reload()
       .then((incoming) => {
         if (stopped) return
@@ -347,6 +376,10 @@ export function startConfigHotReload(live: Config, options: HotReloadOptions = {
         // let a hot-reload hiccup take down the running proxy.
         log(`llm-fw: config hot-reload failed: ${err instanceof Error ? err.message : String(err)}`)
       })
+      .finally(() => {
+        running = false
+        if (again && !stopped) { again = false; runReload() }
+      })
   }
 
   const schedule = (): void => {
@@ -354,27 +387,40 @@ export function startConfigHotReload(live: Config, options: HotReloadOptions = {
     timer = setTimeout(runReload, debounceMs)
   }
 
-  try {
-    watcher = watch(dir, (_eventType, filename) => {
-      // `filename` is null on some platforms/filesystems for directory
-      // watches — treat that as "might be config.json" and reload anyway
-      // rather than risk silently missing the change.
-      if (filename !== null && filename !== CONFIG_FILENAME) return
-      schedule()
-    })
-    watcher.on('error', (err) => {
-      log(`llm-fw: config hot-reload watcher error: ${err.message}`)
-    })
-  } catch (err) {
-    log(`llm-fw: config hot-reload disabled — could not watch ${dir}: ${err instanceof Error ? err.message : String(err)}`)
+  // The files a reload reads, by the directory each is in: config.json, and
+  // the file LLM_FW_CONFIG names (a mounted Kubernetes ConfigMap, #864).
+  const watched = new Map<string, Set<string>>([[dir, new Set([CONFIG_FILENAME])]])
+  const project = process.env.LLM_FW_CONFIG
+  if (project) {
+    const projectDir = dirname(resolve(project))
+    watched.set(projectDir, new Set([...(watched.get(projectDir) ?? []), basename(project)]))
+  }
+  // A data directory that does not exist yet is created, not given up on
+  // (#864): watching it failed once and the watcher never came back.
+  try { mkdirSync(dir, { recursive: true }) } catch { /* reported by watch below */ }
+  for (const [where, names] of watched) {
+    try {
+      const w = watch(where, (_eventType, filename) => {
+        // `filename` is null on some platforms/filesystems for directory
+        // watches — treat that as "might be ours" and reload anyway rather
+        // than risk silently missing the change.
+        if (filename !== null && !names.has(filename)) return
+        schedule()
+      })
+      w.on('error', (err) => {
+        log(`llm-fw: config hot-reload watcher error: ${err.message}`)
+      })
+      watchers.push(w)
+    } catch (err) {
+      log(`llm-fw: config hot-reload disabled for ${where} — could not watch it: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   return {
     stop(): void {
       stopped = true
       if (timer) clearTimeout(timer)
-      watcher?.close()
-      watcher = null
+      for (const w of watchers.splice(0)) w.close()
     },
   }
 }

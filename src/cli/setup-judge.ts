@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { getLlmFwDir } from '../config/paths.js'
 import { JudgeClient } from '../detection/judge.js'
-import { loadConfig, readUserConfigFile } from '../config/config.js'
+import { loadConfig, readUserConfigFile, writeUserConfigFile } from '../config/config.js'
 
 // Ordered best-first; RECOMMENDED[0] is the default. qwen2.5 leads because it is
 // strongly multilingual — the judge is the only language-general detection stage,
@@ -157,7 +157,7 @@ export async function run(): Promise<void> {
       judgeBlock,
     },
   }
-  fs.writeFileSync(configPath, JSON.stringify(updated, null, 2) + '\n', 'utf8')
+  writeUserConfigFile(configPath, updated, true)
   ok(`Wrote ${configPath} (applies machine-wide)`)
 
   // ── Summary ────────────────────────────────────────────────────────────────

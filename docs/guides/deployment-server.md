@@ -753,7 +753,11 @@ Check that `LLM_FW_BYPASS` is not set. Check that enforcement is not `observe`.
 
 **A config change did nothing.** Ports, bind hosts, `proxy.mode`, `bypass`,
 `targets` and `interceptDomains` are cold. Restart. Detection toggles and
-thresholds hot-reload from `<LLM_FW_DIR>/config.json`. A reload applies only
+thresholds hot-reload from `<LLM_FW_DIR>/config.json`, and from the file
+`LLM_FW_CONFIG` names, so a mounted ConfigMap reloads too (#864). Every changed
+key that does not apply live (`enforcement`, `audit.*`, `gateway.*`, tokens,
+`detection.workerInference` and the rest) is logged as "restart required", where
+a key in neither list used to be dropped without a word. A reload applies only
 the keys whose loaded value changed since the previous load, so editing a key
 that an `LLM_FW_*` variable also sets does nothing until the variable is
 unset: the variable wins on every load. While observing, a mode edited on
