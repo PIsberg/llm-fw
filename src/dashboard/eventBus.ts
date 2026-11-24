@@ -235,7 +235,12 @@ export class EventBus {
     entries.push(entry)
 
     fs.mkdirSync(getLlmFwDir(), { recursive: true })
-    fs.writeFileSync(EventBus.WHITELIST_PATH, JSON.stringify(entries, null, 2))
+    // Whole and private (#865): it holds the full text of every marked event,
+    // and was written in place with the default 0644.
+    const file = EventBus.WHITELIST_PATH
+    const tmp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(entries, null, 2), { mode: 0o600 })
+    fs.renameSync(tmp, file)
     return entry
   }
 

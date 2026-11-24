@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.100
+
+Unchanged from 2026.11.99: `src/config/config.ts` gained the `audit.webhookHeaders` default and its variable (#865); no detection default or verdict changes.
+
 ## Result, ruleset 2026.11.99
 
 Unchanged from 2026.11.98: `src/config/config.ts` gained the atomic config-file writer (#864); no default or verdict changes.

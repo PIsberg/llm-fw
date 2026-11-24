@@ -204,6 +204,7 @@ export const DEFAULT_CONFIG: Config = {
     enabled: false,
     maxFileBytes: 64 * 1024 * 1024,
     includePayloads: false,
+    webhookHeaders: {},
   },
   // Reverse-proxy deployment. OFF by default — a package upgrade must never
   // start opening listeners on its own. `llm-fw start --gateway` (or
@@ -1008,6 +1009,13 @@ const ENV_OVERRIDES: Record<string, (config: Config, value: string) => void> = {
   LLM_FW_AUDIT_FILE: (c, v) => { if (c.audit) c.audit.file = v; },
   LLM_FW_AUDIT_PAYLOADS: (c, v) => { if (c.audit) c.audit.includePayloads = v === 'true'; },
   LLM_FW_AUDIT_WEBHOOK: (c, v) => { if (c.audit) c.audit.webhookUrl = v; },
+  // One "Name: value" header for the audit webhook (#865).
+  LLM_FW_AUDIT_WEBHOOK_HEADER: (c, v) => {
+    const colon = v.indexOf(':');
+    const name = colon > 0 ? v.slice(0, colon).trim() : '';
+    if (!name || !/^[!#$%&'*+.^`|~\w-]+$/.test(name)) throw new ConfigError('LLM_FW_AUDIT_WEBHOOK_HEADER', v, 'a "Name: value" header');
+    if (c.audit) c.audit.webhookHeaders = { ...c.audit.webhookHeaders, [name]: v.slice(colon + 1).trim() };
+  },
   LLM_FW_GATEWAY_ENABLED: (c, v) => { if (c.gateway) c.gateway.enabled = v === 'true'; },
   LLM_FW_GATEWAY_PORT: (c, v) => { const n = envPort('LLM_FW_GATEWAY_PORT', v); if (c.gateway) c.gateway.port = n; },
   LLM_FW_GATEWAY_BIND: (c, v) => { if (c.gateway) c.gateway.bindHost = v; },

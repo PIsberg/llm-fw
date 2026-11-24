@@ -2,7 +2,7 @@ import { loadConfig, applyObserveMode } from '../config/config.js';
 import { Config } from '../types.js';
 import { ProxyServer } from '../proxy/proxy.js';
 import { GatewayServer } from '../gateway/gateway.js';
-import { AuditLog, AuditWebhook } from '../dashboard/auditLog.js';
+import { AuditLog, AuditWebhook, auditWebhookFor } from '../dashboard/auditLog.js';
 import { CertFactory, crlUrlFor, parseCertificateExtensions } from '../proxy/certs.js';
 import { createDashboardServer } from '../dashboard/server.js';
 import { EventBus } from '../dashboard/eventBus.js';
@@ -314,9 +314,9 @@ export async function run(args: string[] = []): Promise<void> {
   // funnel every block/warn/audit event already passes through, so nothing can
   // appear on the dashboard and be missing from the record.
   auditLog = config.audit?.enabled ? new AuditLog(config.audit) : null;
-  auditWebhook = config.audit?.enabled && config.audit.webhookUrl
-    ? new AuditWebhook(config.audit.webhookUrl, undefined, undefined, undefined, config.audit.includePayloads)
-    : null;
+  auditWebhook = auditWebhookFor(config.audit);
+  // Their failure counts, on /metrics (#865).
+  metrics.setAuditSinks(auditLog ?? undefined, auditWebhook ?? undefined);
   if (auditLog) {
     const log = auditLog;
     lifecycle.add('audit log', () => log.close());

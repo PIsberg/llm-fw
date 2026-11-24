@@ -768,6 +768,10 @@ export interface AuditConfig {
   // the durable record; this shipper drops rather than backlogs when the
   // collector is unavailable. Also LLM_FW_AUDIT_WEBHOOK.
   webhookUrl?: string;
+  // Headers sent with every webhook POST, for a collector that needs a token
+  // (Splunk HEC, Datadog, Elastic). Also LLM_FW_AUDIT_WEBHOOK_HEADER, one
+  // "Name: value" header (#865).
+  webhookHeaders?: Record<string, string>;
 }
 /**
  * Reverse-proxy ("gateway") deployment — clients point their SDK `base_url` at

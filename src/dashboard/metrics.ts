@@ -49,6 +49,16 @@ export class MetricsRegistry {
   private durationBucketCounts = Array.from({ length: DURATION_BUCKETS_MS.length }, () => 0)
   private durationSum = 0
   private durationCount = 0
+  // The audit sinks, read at scrape time (#865): their failure counts were
+  // kept, and named in a log line, but never exported.
+  private auditLog: { readonly failures: number } | undefined
+  private auditWebhook: { readonly droppedCount: number; readonly failureCount: number } | undefined
+
+  /** Attach the audit sinks whose failure counts /metrics reports. */
+  setAuditSinks(log?: { readonly failures: number }, webhook?: { readonly droppedCount: number; readonly failureCount: number }): void {
+    this.auditLog = log
+    this.auditWebhook = webhook
+  }
 
   private static bump(map: Map<string, number>, key: string): void {
     map.set(key, (map.get(key) ?? 0) + 1)
@@ -125,6 +135,16 @@ export class MetricsRegistry {
     lines.push('# TYPE llmfw_model_loaded gauge')
     lines.push(`llmfw_model_loaded{model="embedding"} ${modelStatus.embedding ? 1 : 0}`)
     lines.push(`llmfw_model_loaded{model="classifier"} ${modelStatus.classifier ? 1 : 0}`)
+
+    lines.push('# HELP llmfw_audit_write_failures_total Audit log writes that failed, events dropped during a rotation included.')
+    lines.push('# TYPE llmfw_audit_write_failures_total counter')
+    lines.push(`llmfw_audit_write_failures_total ${this.auditLog?.failures ?? 0}`)
+    lines.push('# HELP llmfw_audit_webhook_dropped_total Audit records dropped because the webhook queue was full.')
+    lines.push('# TYPE llmfw_audit_webhook_dropped_total counter')
+    lines.push(`llmfw_audit_webhook_dropped_total ${this.auditWebhook?.droppedCount ?? 0}`)
+    lines.push('# HELP llmfw_audit_webhook_failures_total Audit webhook batches that failed to deliver.')
+    lines.push('# TYPE llmfw_audit_webhook_failures_total counter')
+    lines.push(`llmfw_audit_webhook_failures_total ${this.auditWebhook?.failureCount ?? 0}`)
 
     return lines.join('\n') + '\n'
   }
