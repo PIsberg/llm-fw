@@ -39,7 +39,7 @@ function dechunk(body: string): string {
 }
 
 /** POST through the proxy; resolves however the response ends (clean end or cut). */
-function send(proxyPort: number, upstreamPort: number, body: string): Promise<{ statusCode: number; body: string; complete: boolean }> {
+function send(proxyPort: number, upstreamPort: number, body: string, extraHeaders = ''): Promise<{ statusCode: number; body: string; complete: boolean }> {
   return new Promise((resolve, reject) => {
     const host = 'api.anthropic.com'
     const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort }, () => {
@@ -52,7 +52,7 @@ function send(proxyPort: number, upstreamPort: number, body: string): Promise<{ 
       if (buf.indexOf('\r\n\r\n') === -1) return
       socket.removeListener('data', onConnect)
       const t = tls.connect({ socket, servername: host, ca: proxyCaPem, rejectUnauthorized: true }, () => {
-        t.write(`POST /v1/messages HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n`)
+        t.write(`POST /v1/messages HTTP/1.1\r\nHost: ${host}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n${extraHeaders}Connection: close\r\n\r\n`)
         t.write(body)
       })
       let res = ''
@@ -209,6 +209,29 @@ describe('Proxy system-prompt canary (#539, E2E)', { timeout: 30000 }, () => {
     expect(res.statusCode).toBe(502)
     expect(res.body).not.toMatch(CANARY_RE)
     expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+  })
+
+  // #920: the response cache stored a leaked answer while the canary only
+  // audited, and a hit replayed it with no canary check after block was on.
+  it('checks a response cache hit for the canary too', async () => {
+    const cache = config.modules!.responseCache!
+    const before = { enabled: cache.enabled, mode: config.responseScan.canary!.mode }
+    try {
+      cache.enabled = true
+      config.responseScan.canary!.mode = 'audit'
+      const body = request('json-leak', 'You are the cached release assistant.')
+      const first = await send(config.proxy.port, upstreamPort, body, 'x-api-key: sk-test\r\n')
+      expect(first.statusCode).toBe(200)
+      config.responseScan.canary!.mode = 'block'
+      events.length = 0
+      const hit = await send(config.proxy.port, upstreamPort, body, 'x-api-key: sk-test\r\n')
+      expect(hit.statusCode).toBe(502)
+      expect(hit.body).not.toMatch(CANARY_RE)
+      expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+    } finally {
+      cache.enabled = before.enabled
+      config.responseScan.canary!.mode = before.mode
+    }
   })
 
   it('cuts a CRLF stream that repeats the canary (#859)', async () => {

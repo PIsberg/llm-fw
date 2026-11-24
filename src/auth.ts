@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
-import { isIP } from 'node:net';
+import { isIP, isIPv4, isIPv6 } from 'node:net';
 
 /**
  * Shared credential handling for every listener that can be exposed off-host:
@@ -12,8 +12,23 @@ import { isIP } from 'node:net';
 /** True for the loopback addresses, including the IPv4-mapped IPv6 form. */
 export function isLoopbackAddr(addr: string | undefined): boolean {
   if (!addr) return false;
-  const a = addr.replace(/^::ffff:/, '');
-  return a === '127.0.0.1' || a === '::1' || a.startsWith('127.');
+  // Any spelling of the loopback addresses (#920): the IPv4-mapped prefix in
+  // either case, brackets, and IPv6 written out in full or compressed
+  // differently. ::FFFF:127.0.0.1 and 0:0:0:0:0:0:0:1 used to read as remote.
+  let a = addr.trim().toLowerCase();
+  if (a.startsWith('[') && a.endsWith(']')) a = a.slice(1, -1);
+  a = a.replace(/^::ffff:(?=\d)/, '');
+  if (isIPv4(a)) return a.startsWith('127.');
+  if (!isIPv6(a)) return false;
+  const [head = '', tail] = a.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const groups = tail === undefined ? left : [...left, ...Array<string>(8 - left.length - right.length).fill('0'), ...right];
+  // An IPv4-mapped address written in hex (::ffff:7f00:1) is loopback too.
+  if (groups.length === 8 && groups.slice(0, 5).every(g => /^0+$/.test(g)) && /^0*ffff$/.test(groups[5] ?? '')) {
+    return (parseInt(groups[6] ?? '0', 16) >> 8) === 127;
+  }
+  return groups.length === 8 && groups.slice(0, 7).every(g => /^0+$/.test(g)) && parseInt(groups[7] ?? '', 16) === 1;
 }
 
 /**
@@ -41,7 +56,9 @@ export function isLoopbackHostHeader(host: string | undefined): boolean {
  * An unset bindHost means the caller has not overridden the local-only default.
  */
 export function isLocalBind(bindHost: string | undefined): boolean {
-  return bindHost === undefined || isLoopbackAddr(bindHost);
+  // 'localhost' too (#920): it binds loopback, and read as remote it turned
+  // auth on for a listener nothing off this machine can reach.
+  return bindHost === undefined || bindHost.trim().toLowerCase() === 'localhost' || isLoopbackAddr(bindHost);
 }
 
 /**

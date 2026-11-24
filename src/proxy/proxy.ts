@@ -2014,7 +2014,11 @@ export class ProxyServer {
           const out = dechunker ? dechunker.push(chunk) : chunk
           if (out.length) { res.write(out); respBodyBytes += out.length }
         }
-        if (poolKey !== null && !released && !cut && messageRead()) releaseKept()
+        // Finished at the end of its framing whether or not the connection is
+        // kept (#920): with keep-alive off, a provider that kept the connection
+        // open after a complete answer held the client to the idle timeout and
+        // then 502. releaseKept closes a connection it does not pool.
+        if (!released && !cut && messageRead()) releaseKept()
       }
       upstream.on('data', onData)
       // What the connection ending means, when it cannot be the response's end.
@@ -2112,7 +2116,12 @@ export class ProxyServer {
       }
       // Rejected, not thrown into the void: a scan that throws here used to leave
       // an unhandled rejection and a client waiting for ever.
-      const onEnd = (): void => { onUpstreamEnd().catch(reject) }
+      const onEnd = (): void => {
+        // The response is over: the client closing after it is no reason to
+        // tear anything down (#920).
+        res.removeListener('close', onClientClose)
+        onUpstreamEnd().catch(reject)
+      }
       upstream.on('end', onEnd)
 
       // #670: under keep-alive the provider does not close the connection
@@ -2207,6 +2216,25 @@ export class ProxyServer {
    * as stored. Returns the bytes written.
    */
   private async replayStoredResponse(stored: CapturedResponse, req: http.IncomingMessage, res: http.ServerResponse, hostname: string, mcpInspect: boolean): Promise<number> {
+    // A stored answer that repeated the system-prompt canary, when it was
+    // stored while the canary only audited, is checked again on a hit (#920):
+    // the replay never reached the canary check the live path runs.
+    if (this.config.responseScan?.canary?.enabled && this.config.enforcement !== 'observe') {
+      const token = canaryToken(getLlmFwDir())
+      let raw: string
+      try { raw = decodeContentEncoding(stored.body, stored.headers['content-encoding'] ?? '', decodeCap(this.config.proxy.maxBodyBytes)).toString('utf8') } catch { raw = stored.body.toString('utf8') }
+      const isStream = (stored.headers['content-type'] ?? '').toLowerCase().includes('text/event-stream')
+      if ((isStream ? sseStreamText(raw) : raw).includes(token)) {
+        const blocks = this.gateMode(this.config.responseScan.canary.mode) === 'block'
+        this.emitCanary(blocks, req, hostname)
+        if (blocks) {
+          const refusal = JSON.stringify({ error: 'llm-fw withheld this response: the model repeated its system prompt (canary)' })
+          res.writeHead(502, { 'Content-Type': 'application/json' })
+          res.end(refusal)
+          return Buffer.byteLength(refusal)
+        }
+      }
+    }
     const parser = getParser(req.url ?? '/')
     const mcpActive = !!(this.config.mcp.enabled && mcpInspect && parser)
     const ctype = (stored.headers['content-type'] ?? '').toLowerCase()
