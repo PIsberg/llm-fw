@@ -237,6 +237,19 @@ describe('ToolResultDedupModule after detection withheld a tool result (#708)', 
     expect(msgs[3].content[0].content).toBe(file)
   })
 
+  it('restores pointers only in tool results, never a message that reads the same (#917)', () => {
+    const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
+    const c: GatewayModuleContext = { ...anthropic }
+    const pointer = '[llm-fw: identical to the earlier tool result t1]'
+    const out = (mod.transformRequest(JSON.stringify({ messages: [
+      assistantCall('t1'), userResult('t1', file), assistantCall('t2'), userResult('t2', file),
+      { role: 'user', content: pointer },
+    ] }), c) as { body: string }).body
+    const restored = JSON.parse(mod.restoreWithheld(withhold(out, 't1'), c)!).messages
+    expect(restored[3].content[0].content).toBe(file)
+    expect(restored[4].content).toBe(pointer)
+  })
+
   it('leaves a pointer alone when its earlier copy was not withheld', () => {
     const mod = new ToolResultDedupModule({ enabled: true, minLength: 200 })
     const c: GatewayModuleContext = { ...anthropic }

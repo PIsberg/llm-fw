@@ -116,6 +116,14 @@ function message(m: unknown, out: TextSlot[], calls: Calls): void {
     } else if (part.type === 'tool_addition') {
       // A tool added mid-conversation (Claude Code on a server-side thread).
       toolDefinition(part.tool, out)
+    } else if (isObj(part.toolUse)) {
+      // Bedrock Converse (#917): a call, a result, and untyped text blocks.
+      const tu = part.toolUse
+      if (typeof tu.toolUseId === 'string' && typeof tu.name === 'string') calls.set(tu.toolUseId, { name: tu.name, input: tu.input })
+    } else if (isObj(part.toolResult)) {
+      if (Array.isArray(part.toolResult.content)) textParts('tool_result', part.toolResult.content, out, ref(part.toolResult.toolUseId, calls))
+    } else if (part.type === undefined && typeof part.text === 'string' && Object.keys(part).length === 1) {
+      out.push(fieldSlot(kind, part, 'text', tool))
     } else if (typeof part.text === 'string' && TEXT_PARTS.has(part.type as string)) {
       out.push(fieldSlot(kind, part, 'text', tool))
     }
@@ -144,9 +152,12 @@ function toolDefinition(tool: unknown, out: TextSlot[]): void {
     for (const decl of tool.functionDeclarations) toolDefinition(decl, out)
     return
   }
-  const fn = isObj(tool.function) ? tool.function : tool
+  // OpenAI chat nests the function; Bedrock Converse a toolSpec (#917).
+  const fn = isObj(tool.function) ? tool.function : isObj(tool.toolSpec) ? tool.toolSpec : tool
   if (typeof fn.description === 'string') out.push(fieldSlot('tool_definition', fn, 'description'))
-  schemaDescriptions(fn.input_schema ?? fn.parameters, out)
+  // Bedrock's schema is under inputSchema.json, Cohere v1's parameters under parameter_definitions.
+  const bedrockSchema = isObj(fn.inputSchema) ? fn.inputSchema.json : undefined
+  schemaDescriptions(fn.input_schema ?? fn.parameters ?? bedrockSchema ?? fn.parameter_definitions, out)
 }
 
 /**
@@ -158,10 +169,12 @@ export function collectTextSlots(payload: unknown): TextSlot[] {
   const out: TextSlot[] = []
 
   if (Array.isArray(payload.tools)) for (const tool of payload.tools) toolDefinition(tool, out)
+  if (isObj(payload.toolConfig) && Array.isArray(payload.toolConfig.tools)) for (const tool of payload.toolConfig.tools) toolDefinition(tool, out)
 
   if (typeof payload.system === 'string') out.push(fieldSlot('system', payload, 'system'))
   else if (Array.isArray(payload.system)) textParts('system', payload.system, out)
   if (typeof payload.instructions === 'string') out.push(fieldSlot('system', payload, 'instructions'))
+  if (typeof payload.preamble === 'string') out.push(fieldSlot('system', payload, 'preamble'))
   const si = payload.systemInstruction
   if (typeof si === 'string') out.push(fieldSlot('system', payload, 'systemInstruction'))
   else if (isObj(si) && Array.isArray(si.parts)) textParts('system', si.parts, out)
@@ -177,6 +190,29 @@ export function collectTextSlots(payload: unknown): TextSlot[] {
     }
   }
   if (typeof payload.prompt === 'string') out.push(fieldSlot('prompt', payload, 'prompt', { role: 'user' }))
+  cohereV1(payload, out)
 
   return out
+}
+
+// Cohere v1 chat (#917): the history, then the newest message, then the
+// results of the calls the last answer made, each with its call.
+const COHERE_ROLES: Record<string, string> = { user: 'user', chatbot: 'assistant' }
+function cohereV1(payload: Obj, out: TextSlot[]): void {
+  if (Array.isArray(payload.chat_history)) {
+    for (const turn of payload.chat_history) {
+      if (!isObj(turn) || typeof turn.message !== 'string') continue
+      const role = typeof turn.role === 'string' ? turn.role.toLowerCase() : ''
+      if (role === 'system') out.push(fieldSlot('system', turn, 'message'))
+      else if (role !== 'tool') out.push(fieldSlot('prompt', turn, 'message', { role: COHERE_ROLES[role] ?? role }))
+    }
+  }
+  if (typeof payload.message === 'string') out.push(fieldSlot('prompt', payload, 'message', { role: 'user' }))
+  if (Array.isArray(payload.tool_results)) {
+    for (const tr of payload.tool_results) {
+      if (!isObj(tr) || !Array.isArray(tr.outputs)) continue
+      const call = isObj(tr.call) ? tr.call : {}
+      textParts('tool_result', tr.outputs, out, { toolName: typeof call.name === 'string' ? call.name : undefined, toolInput: call.parameters })
+    }
+  }
 }

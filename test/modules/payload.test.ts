@@ -163,3 +163,71 @@ describe('collectTextSlots — writing back', () => {
     expect(collectTextSlots([1, 2])).toEqual([])
   })
 })
+
+// #917 part 3: the token-saving modules and the dedup restore read text slots,
+// and Bedrock Converse and Cohere v1 had none, so every module passed them by.
+describe('collectTextSlots — Bedrock Converse (#917)', () => {
+  const body = {
+    system: [{ text: 'sys' }],
+    toolConfig: { tools: [{ toolSpec: { name: 'search', description: 'Search the docs', inputSchema: { json: { type: 'object', properties: { q: { type: 'string', description: 'the query' } } } } } }] },
+    messages: [
+      { role: 'user', content: [{ text: 'find it' }] },
+      { role: 'assistant', content: [{ text: 'searching' }, { toolUse: { toolUseId: 'tu1', name: 'search', input: { q: 'x' } } }] },
+      { role: 'user', content: [{ toolResult: { toolUseId: 'tu1', content: [{ text: 'result text' }, { json: { n: 1 } }] } }] },
+    ],
+  }
+
+  it('reads tool specs, system blocks, text blocks and tool results, in render order', () => {
+    expect(kinds(body)).toEqual([
+      'tool_definition:Search the docs', 'tool_definition:the query', 'system:sys',
+      'prompt:find it', 'prompt:searching', 'tool_result:result text',
+    ])
+  })
+
+  it('carries the tool call a result answers, and roles', () => {
+    const slots = collectTextSlots(structuredClone(body))
+    expect(slots.find(s => s.kind === 'tool_result')).toMatchObject({ toolCallId: 'tu1', toolName: 'search', toolInput: { q: 'x' } })
+    expect(slots.filter(s => s.kind === 'prompt').map(s => s.role)).toEqual(['user', 'assistant'])
+  })
+
+  it('writes back', () => {
+    const copy = structuredClone(body)
+    collectTextSlots(copy).find(s => s.kind === 'tool_result')!.set('short')
+    expect(copy.messages[2]!.content[0]).toEqual({ toolResult: { toolUseId: 'tu1', content: [{ text: 'short' }, { json: { n: 1 } }] } })
+  })
+})
+
+describe('collectTextSlots — Cohere v1 (#917)', () => {
+  const body = {
+    preamble: 'pre',
+    tools: [{ name: 'search', description: 'Search the docs', parameter_definitions: { q: { type: 'str', description: 'the query', required: true } } }],
+    chat_history: [
+      { role: 'USER', message: 'first' },
+      { role: 'CHATBOT', message: 'answer' },
+      { role: 'SYSTEM', message: 'be brief' },
+    ],
+    message: 'newest',
+    tool_results: [{ call: { name: 'search', parameters: { q: 'x' } }, outputs: [{ text: 'found it' }, { n: 2 }] }],
+  }
+
+  it('reads tools, the preamble, the history, the newest message and tool outputs, in render order', () => {
+    expect(kinds(body)).toEqual([
+      'tool_definition:Search the docs', 'tool_definition:the query', 'system:pre',
+      'prompt:first', 'prompt:answer', 'system:be brief', 'prompt:newest', 'tool_result:found it',
+    ])
+  })
+
+  it('names the roles as the other formats do, and the call a result answers', () => {
+    const slots = collectTextSlots(structuredClone(body))
+    expect(slots.filter(s => s.kind === 'prompt').map(s => s.role)).toEqual(['user', 'assistant', 'user'])
+    expect(slots.find(s => s.kind === 'tool_result')).toMatchObject({ toolName: 'search', toolInput: { q: 'x' } })
+  })
+
+  it('writes back', () => {
+    const copy = structuredClone(body)
+    for (const s of collectTextSlots(copy)) s.set(s.text.toUpperCase())
+    expect(copy.message).toBe('NEWEST')
+    expect(copy.chat_history[0]!.message).toBe('FIRST')
+    expect(copy.tool_results[0]!.outputs[0]).toEqual({ text: 'FOUND IT' })
+  })
+})
