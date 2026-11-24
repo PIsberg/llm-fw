@@ -60,6 +60,7 @@ import { normalizeSemantic } from './normalize.js'
 import { DESTINATION_RE, detectSecretFileExfil } from './secretFileExfil.js'
 import { detectIndirectInstruction, type IndirectInstructionOptions } from './indirectInstruction.js'
 import type { ScanSource } from '../types.js'
+import { writePrivateFile } from '../privateFile.js'
 
 export interface SuppressionEntry {
   /** sha256 hex digest of the semantically-normalized prompt text. */
@@ -411,6 +412,7 @@ export class SuppressionStore {
   private write(entries: SuppressionEntry[]): void {
     const dir = getLlmFwDir()
     fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(SuppressionStore.filePath(), JSON.stringify(entries, null, 2), 'utf8')
+    // Private and whole (#921), as config.json is.
+    writePrivateFile(SuppressionStore.filePath(), JSON.stringify(entries, null, 2))
   }
 }

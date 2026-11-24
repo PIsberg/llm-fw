@@ -41,6 +41,24 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
  * True when the `start` args request shared-server mode. `--standalone` is the
  * canonical spelling; `--stand-alone` is accepted as an alias.
  */
+/**
+ * Which of the sinkhole's two Windows portproxy rules (127.0.0.1:443 and
+ * [::1]:443 to the sinkhole port) are not in `netsh interface portproxy show`
+ * output yet. A row counts only when its listen address, listen port 443 and
+ * connect port are all llm-fw's: the old `includes('443')` took any rule
+ * holding those digits (8443, 1443, 4430) for its own and added nothing (#921).
+ */
+export function portproxyRulesToAdd(v4: string, v6: string, httpsPort: number): ('v4' | 'v6')[] {
+  const has = (out: string, listen: string): boolean => out.split(/\r?\n/).some(line => {
+    const cols = line.trim().split(/\s+/);
+    return cols[0] === listen && cols[1] === '443' && cols[3] === String(httpsPort);
+  });
+  const missing: ('v4' | 'v6')[] = [];
+  if (!has(v4, '127.0.0.1')) missing.push('v4');
+  if (!has(v6, '::1')) missing.push('v6');
+  return missing;
+}
+
 export function isStandalone(args: string[]): boolean {
   return args.includes('--standalone') || args.includes('--stand-alone');
 }
@@ -198,15 +216,16 @@ export async function run(args: string[] = []): Promise<void> {
       } catch { /* no admin rights or already running */ }
       try {
         const existingV4 = execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'show', 'v4tov4'], { encoding: 'utf8' });
-        if (!existingV4.includes('443')) {
+        const existingV6 = execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'show', 'v6tov4'], { encoding: 'utf8' });
+        const missing = portproxyRulesToAdd(existingV4, existingV6, config.proxy.httpsPort);
+        if (missing.includes('v4')) {
           execFileSync(systemTool('netsh'), [
             'interface', 'portproxy', 'add', 'v4tov4',
             'listenport=443', 'listenaddress=127.0.0.1',
             `connectport=${config.proxy.httpsPort}`, 'connectaddress=127.0.0.1',
           ], { stdio: 'ignore' });
         }
-        const existingV6 = execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'show', 'v6tov4'], { encoding: 'utf8' });
-        if (!existingV6.includes('443')) {
+        if (missing.includes('v6')) {
           execFileSync(systemTool('netsh'), [
             'interface', 'portproxy', 'add', 'v6tov4',
             'listenport=443', 'listenaddress=::1',
