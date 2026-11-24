@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
-import { isIP } from 'node:net';
+import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net';
 
 /**
  * Shared credential handling for every listener that can be exposed off-host:
@@ -12,9 +12,26 @@ import { isIP } from 'node:net';
 /** True for the loopback addresses, including the IPv4-mapped IPv6 form. */
 export function isLoopbackAddr(addr: string | undefined): boolean {
   if (!addr) return false;
-  const a = addr.replace(/^::ffff:/, '');
-  return a === '127.0.0.1' || a === '::1' || a.startsWith('127.');
+  // Any spelling of the loopback addresses (#920): the IPv4-mapped prefix in
+  // either case, brackets, and IPv6 written out in full or compressed
+  // differently. ::FFFF:127.0.0.1 and 0:0:0:0:0:0:0:1 used to read as remote.
+  // Node's own address parser decides, through a BlockList (security review
+  // of #920: a hand-rolled IPv6 expansion is a parser differential waiting
+  // to happen). It reads IPv4-mapped addresses against the IPv4 rule.
+  let a = addr.trim();
+  if (a.startsWith('[') && a.endsWith(']')) a = a.slice(1, -1);
+  const family = isIPv4(a) ? 'ipv4' : isIPv6(a) ? 'ipv6' : null;
+  if (family === null) return false;
+  try {
+    return LOOPBACK.check(a, family);
+  } catch {
+    return false;
+  }
 }
+
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
+LOOPBACK.addAddress('::1', 'ipv6');
 
 /**
  * True when an HTTP `Host` header names this machine's loopback: `localhost`,
@@ -41,7 +58,9 @@ export function isLoopbackHostHeader(host: string | undefined): boolean {
  * An unset bindHost means the caller has not overridden the local-only default.
  */
 export function isLocalBind(bindHost: string | undefined): boolean {
-  return bindHost === undefined || isLoopbackAddr(bindHost);
+  // 'localhost' too (#920): it binds loopback, and read as remote it turned
+  // auth on for a listener nothing off this machine can reach.
+  return bindHost === undefined || bindHost.trim().toLowerCase() === 'localhost' || isLoopbackAddr(bindHost);
 }
 
 /**

@@ -82,7 +82,10 @@ Rules that must not regress:
   request's response. A kept connection that fails before any byte of its
   answer is sent once more on a new one and never shown to the client. Pinned
   by `test/proxy/proxy-upstream-keepalive.e2e.test.ts` and
-  `test/proxy/upstreamPool.test.ts`.
+  `test/proxy/upstreamPool.test.ts`. With the switch off a response still
+  ends at the end of its framing, and the connection is closed (#920): a
+  provider that kept it open held the client to the timeout. Pinned by
+  `test/proxy/proxy-framing-920.e2e.test.ts`.
 - The gateway does not read that switch. Its `http`/`https.request` goes
   through Node's global agent, which keeps connections alive by default
   (Node 19+, 5 s idle), so it reuses them already. A request on a kept

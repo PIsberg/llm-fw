@@ -302,6 +302,11 @@ export class GatewayServer {
         // included (#871): drop the chunk as the live path does, and learn the calls.
         if (decision.stripStreamUsage) stripUsageChunk(res);
         if (this.pipeline.wantsCalls()) this.pipeline.learnCalls(answer.response);
+        // A stored answer that repeated the canary while it only audited is
+        // checked on a hit too (#920): it went straight to the client.
+        if (this.config.responseScan?.canary?.enabled && !isObserving(this.config.enforcement, tenant?.enforcement)) {
+          guardCanary(res, canaryToken(getLlmFwDir()), bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req, route, tenant), route.upstreamPath);
+        }
         writeCapturedResponse(res, answer.response);
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev);
         return;

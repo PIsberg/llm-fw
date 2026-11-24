@@ -189,6 +189,27 @@ describe('Gateway system-prompt canary E2E (#552)', { timeout: 30000 }, () => {
     expect(JSON.parse(clean.text).choices[0].message.content).toBe('Two fixes and a new flag.')
   })
 
+  // #920: a cache hit was written straight to the client, with no canary check.
+  it('checks a response cache hit for the canary too', async () => {
+    const cache = cfg.modules!.responseCache!
+    const before = cache.enabled
+    try {
+      cache.enabled = true
+      cfg.responseScan!.canary!.mode = 'audit'
+      const body = request('json-leak', 'You are the cached release assistant.')
+      expect((await post(body)).status).toBe(200)
+      cfg.responseScan!.canary!.mode = 'block'
+      events.length = 0
+      const hit = await post(body)
+      expect(hit.status).toBe(502)
+      expect(hit.text).not.toMatch(CANARY_RE)
+      expect(events.find(e => e.stage === 'response-canary')?.action).toBe('blocked')
+    } finally {
+      cache.enabled = before
+      cfg.responseScan!.canary!.mode = 'block'
+    }
+  })
+
   it('only reports the leak in audit mode', async () => {
     events.length = 0
     cfg.responseScan!.canary!.mode = 'audit'
