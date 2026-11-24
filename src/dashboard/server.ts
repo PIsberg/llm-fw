@@ -3397,9 +3397,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
       readBody(req, res, PLAYGROUND_BODY_LIMIT, (body) => {
         void (async () => {
         try {
-          let parsed: { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
+          let parsed: { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string; record?: boolean }
           try {
-            parsed = JSON.parse(body) as { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string }
+            parsed = JSON.parse(body) as { prompt?: string; url?: string; category?: string; text?: string; dataUrl?: string; record?: boolean }
           } catch {
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'invalid JSON body' }))
@@ -3457,8 +3457,9 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               '/v1/messages',
               imageBody,
               // Silent: a test prompt is no traffic, so it reaches neither the event
-              // feed nor the metrics nor the audit trail (#918).
-              { target: 'playground', method: 'POST', path: '/v1/messages', silent: true }
+              // feed nor the metrics nor the audit trail (#918), unless the caller
+              // asks for an event with `record: true` (a test of the audit sinks).
+              { target: 'playground', method: 'POST', path: '/v1/messages', silent: parsed.record !== true }
             )
             metricsRegistry.recordScan('playground', Date.now() - imageScanStart)
 
@@ -3613,7 +3614,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
           const result = await pipeline.run(
             '/v1/messages',
             anthropicBody,
-            { target: 'playground', method: 'POST', path: '/v1/messages', silent: true }
+            { target: 'playground', method: 'POST', path: '/v1/messages', silent: parsed.record !== true }
           )
           metricsRegistry.recordScan('playground', Date.now() - textScanStart)
           res.writeHead(200, { 'Content-Type': 'application/json' })
