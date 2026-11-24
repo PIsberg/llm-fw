@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.110
+
+Unchanged from 2026.11.109: what a warn event carries (#918: the text the stage scanned and its suppression key, where a late warn carried its display line) and a silent run for the dashboard playground; no verdict changes.
+
 ## Result, ruleset 2026.11.109
 
 Unchanged from 2026.11.108: `src/config/config.ts` gained `proxy.enabled`, `dashboard.enabled` and `dashboard.requireAuth` (#870); no detection default or verdict changes.

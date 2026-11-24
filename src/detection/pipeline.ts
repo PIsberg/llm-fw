@@ -346,6 +346,8 @@ export class Pipeline {
       // event id back to the blocked client instead of guessing it from the
       // shared event ring, which two concurrent requests would race on.
       onEvent?: (event: BlockEvent) => void;
+      // Report nothing: no event, metric or audit line (the playground, #918).
+      silent?: boolean;
       // Per-request override of the deployment's enforcement setting, used by
       // the gateway so one tenant can observe while the rest enforce.
       enforcement?: 'enforce' | 'observe';
@@ -439,6 +441,8 @@ export class Pipeline {
       target: string; method: string; path: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number;
       sessionKey?: string;
       onEvent?: (event: BlockEvent) => void;
+      // Report nothing: no event, metric or audit line (the playground, #918).
+      silent?: boolean;
       withholding?: boolean;
       withholdingPrompts?: boolean;
       newestPrompt?: string;
@@ -1376,6 +1380,10 @@ export class Pipeline {
       }
 
       if (!pendingWarn) pendingWarn = nearWarn
+      // A warn decided in this item is about this item's text, as sent, whatever
+      // its display line says (#918): it is what the event carries and what a
+      // false-positive mark is keyed on.
+      if (pendingWarn && pendingWarn.scanned === undefined) pendingWarn = { ...pendingWarn, scanned: prompt }
 
       // This item did not block. Remember its outcome, then merge it back. Not
       // when the budget cut it short: a later request must read it in full.
@@ -1405,8 +1413,14 @@ export class Pipeline {
     if (pendingWarn) {
       // Reported once per tenant and session. A repeat still counts toward
       // the session's probes; noteProbe ignores a text it has seen (#860).
-      if (this.firstReport(this.warnKey(pendingWarn, meta))) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, pendingWarn.scanned ?? null)
-      else this.noteProbe(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, pendingWarn.scanned ?? null)
+      // The text the stage scored (#918): `prompt` is often a display line, and
+      // with no scanned text the event carried that line as its payload and no
+      // suppression key, so marking it a false positive matched nothing.
+      const scannedText = pendingWarn.scanned ?? pendingWarn.result.prompt ?? null
+      // A silent run (the playground) reports nothing, and spends no first report.
+      if (meta.silent) { /* nothing reported */ }
+      else if (this.firstReport(this.warnKey(pendingWarn, meta))) this.emit(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, scannedText)
+      else this.noteProbe(pendingWarn.result, meta, pendingWarn.prompt, pendingWarn.source, scannedText)
       return pendingWarn.result
     }
 
@@ -1649,7 +1663,10 @@ export class Pipeline {
     })
   }
 
-  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sessionKey?: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; withholdingPrompts?: boolean; newestPrompt?: string; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
+  private emit(result: Pick<PipelineResult, 'action'|'stage'|'score'|'similarity'|'heuristicMatches'|'nearestTemplate'|'ragTag'|'smuggleRanges'> & { verdict?: string; prompt?: string; mediaSummary?: string; withheld?: boolean }, meta: { target: string; method: string; path: string; sessionKey?: string; sandboxClient?: string; isSandboxed?: boolean; sandboxConfidence?: number; onEvent?: (event: BlockEvent) => void; enforcement?: 'enforce' | 'observe'; tenant?: string; withholding?: boolean; withholdingPrompts?: boolean; newestPrompt?: string; silent?: boolean; }, prompt: string, source: ScanSource = 'prompt', scanned: string | null = prompt): void {
+    // The playground asks for a verdict, not an event (#918): its test prompts
+    // went into the live feed, Prometheus and the audit trail.
+    if (meta.silent) return
     this.noteProbe(result, meta, prompt, source, scanned)
     if (!this.onBlock) return
     const observing = isObserving(this.config.enforcement, meta.enforcement)

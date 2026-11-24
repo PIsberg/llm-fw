@@ -913,7 +913,8 @@ describe('Pipeline', () => {
       expect(result.stage).toBe('heuristic')
       expect(onBlock).toHaveBeenCalledOnce()
       expect(onBlock.mock.calls[0][0].action).toBe('warned')
-      expect(onBlock.mock.calls[0][0].payload_full).toContain('[suppressed-fp]')
+      // The label is the preview; the payload is the text itself, which a mark is keyed on (#918).
+      expect(onBlock.mock.calls[0][0].payload_preview).toContain('[suppressed-fp]')
     })
 
     it('an UNsuppressed prompt still blocks as usual (suppression list is opt-in per exact text)', async () => {
@@ -967,7 +968,7 @@ describe('Pipeline', () => {
       onBlock.mockClear()
       const again = await pipeline.run('/v1/messages', body, META)
       expect(again.action).toBe('warn')
-      expect(onBlock.mock.calls[0]![0].payload_full).toContain('[suppressed-fp]')
+      expect(onBlock.mock.calls[0]![0].payload_preview).toContain('[suppressed-fp]')
     })
 
     it('a key marked on a tool result does not suppress the same text arriving as a document', async () => {
@@ -1469,12 +1470,13 @@ describe('trusted paths on the tool_result surface (#391, #349, #405)', () => {
 
   it('a heuristic match in a file read from a trusted root warns, however high it scores, and says why', async () => {
     mockScore.mockImplementation(heuristicOf(380))
-    const events: { action: string; stage: string; payload_full?: string }[] = []
+    const events: { action: string; stage: string; payload_full?: string; payload_preview?: string }[] = []
     const result = await new Pipeline(trusting(), e => { events.push(e) }).run('/v1/messages', anthropicRead(`${ROOT}/game/ai.gd`, TEXT), META)
     expect(result.action).toBe('warn')
     expect(result.stage).toBe('heuristic')
     expect(events).toEqual([expect.objectContaining({ action: 'warned', stage: 'heuristic' })])
-    expect(events[0]!.payload_full).toContain(`[trusted-path] ${ROOT}/game/ai.gd:`)
+    // The label is the preview; the payload is the file's text (#918).
+    expect(events[0]!.payload_preview).toContain(`[trusted-path] ${ROOT}/game/ai.gd:`)
   })
 
   it('an embedding match in a trusted file read is not refused', async () => {
