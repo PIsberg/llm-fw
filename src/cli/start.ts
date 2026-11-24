@@ -46,6 +46,15 @@ export function isStandalone(args: string[]): boolean {
 }
 
 /** True when the `start` args ask for the gateway (reverse-proxy) listener. */
+/**
+ * The listeners `start` opens (#870): the forward proxy and the dashboard
+ * unless switched off (`proxy.enabled`, `dashboard.enabled`), the gateway when
+ * on. A gateway-only container used to bind the proxy and dashboard anyway.
+ */
+export function listenersToStart(config: Config): { proxy: boolean; dashboard: boolean; gateway: boolean } {
+  return { proxy: config.proxy.enabled !== false, dashboard: config.dashboard.enabled !== false, gateway: config.gateway?.enabled === true }
+}
+
 export function isGateway(args: string[]): boolean {
   return args.includes('--gateway');
 }
@@ -127,11 +136,13 @@ export async function run(args: string[] = []): Promise<void> {
   if (replaced !== null) {
     console.log(`Replaced the running llm-fw (PID ${replaced}): one instance runs at a time, and this one takes over its ports.`);
   }
-  const listeners: [number, string][] = [
-    [config.proxy.port, config.proxy.bindHost ?? '127.0.0.1'],
-    [config.dashboard.port, config.dashboard.bindHost ?? '127.0.0.1'],
+  // Only the ports this run will bind (#870).
+  const opens = listenersToStart(config);
+  const ports: [number, string][] = [
+    ...(opens.proxy ? [[config.proxy.port, config.proxy.bindHost ?? '127.0.0.1'] as [number, string]] : []),
+    ...(opens.dashboard ? [[config.dashboard.port, config.dashboard.bindHost ?? '127.0.0.1'] as [number, string]] : []),
   ];
-  for (const [port, host] of listeners) {
+  for (const [port, host] of ports) {
     if (await waitForPortFree(port, host, 500)) continue;
     // Only an earlier llm-fw is stopped (#863): this used to kill whatever
     // held the port, an unrelated dev server included.
@@ -394,24 +405,26 @@ export async function run(args: string[] = []): Promise<void> {
   usageMeter = (modules.getModule('usage-meter') as UsageMeterModule | undefined) ?? null;
   usageMeter?.persistTo(join(getLlmFwDir(), 'usage-clients.json'));
   if (usageMeter) { const um = usageMeter; lifecycle.add('usage by client', () => um.flush()); }
-  const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
-  // A dashboard that cannot listen used to be an unhandled 'error' event (#863).
-  dashboardServer.on('error', (err: NodeJS.ErrnoException) => {
-    console.error(`Dashboard could not listen on ${config.dashboard.bindHost}:${config.dashboard.port}: ${err.message}`);
-    lifecycle.stop(1);
-  });
-  lifecycle.add('dashboard', () => new Promise<void>(resolve => {
-    dashboardServer.closeAllConnections();
-    dashboardServer.close(() => resolve());
-  }));
-  dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
-    // listening
-  });
+  if (opens.dashboard) {
+    const dashboardServer = createDashboardServer(config, eventBus, pipeline, suppressions, metrics, modules);
+    // A dashboard that cannot listen used to be an unhandled 'error' event (#863).
+    dashboardServer.on('error', (err: NodeJS.ErrnoException) => {
+      console.error(`Dashboard could not listen on ${config.dashboard.bindHost}:${config.dashboard.port}: ${err.message}`);
+      lifecycle.stop(1);
+    });
+    lifecycle.add('dashboard', () => new Promise<void>(resolve => {
+      dashboardServer.closeAllConnections();
+      dashboardServer.close(() => resolve());
+    }));
+    dashboardServer.listen(config.dashboard.port, config.dashboard.bindHost, () => {
+      // listening
+    });
+  }
 
   const proxy = new ProxyServer(config, eventBus, suppressions, metrics, modules, pipeline);
   lifecycle.add('proxy', () => proxy.stop());
   await proxy.init();
-  proxy.start();
+  if (opens.proxy) proxy.start();
 
   // Gateway (reverse-proxy) listener — opt-in, and additive: it runs alongside
   // the forward proxy rather than replacing it, so a team can migrate clients
@@ -502,8 +515,8 @@ export async function run(args: string[] = []): Promise<void> {
   if (standalone) {
     const ip = lanIPv4();
     console.log(`llm-fw running in STANDALONE server mode.`);
-    console.log(`  Proxy:      http://${ip}:${config.proxy.port}  (listening on ${config.proxy.bindHost}:${config.proxy.port})`);
-    console.log(`  Dashboard:  http://${ip}:${config.dashboard.port}`);
+    console.log(opens.proxy ? `  Proxy:      http://${ip}:${config.proxy.port}  (listening on ${config.proxy.bindHost}:${config.proxy.port})` : '  Proxy:      off (proxy.enabled is false)');
+    console.log(opens.dashboard ? `  Dashboard:  http://${ip}:${config.dashboard.port}` : '  Dashboard:  off (dashboard.enabled is false)');
     console.log('');
     console.log('  Configure each client machine:');
     console.log(`    1. Download & trust the CA cert:  http://${ip}:${config.dashboard.port}/ca.crt?download`);
@@ -535,9 +548,13 @@ export async function run(args: string[] = []): Promise<void> {
     console.log('    LLM_FW_DASHBOARD_BIND=127.0.0.1.');
   } else {
     console.log(`llm-fw running.`);
-    console.log(`  Proxy port:  ${config.proxy.port}`);
-    console.log(`  HTTPS_PROXY: http://127.0.0.1:${config.proxy.port}`);
-    console.log(`  Dashboard:   http://127.0.0.1:${config.dashboard.port}`);
+    if (opens.proxy) {
+      console.log(`  Proxy port:  ${config.proxy.port}`);
+      console.log(`  HTTPS_PROXY: http://127.0.0.1:${config.proxy.port}`);
+    } else {
+      console.log('  Proxy:       off (proxy.enabled is false)');
+    }
+    console.log(opens.dashboard ? `  Dashboard:   http://127.0.0.1:${config.dashboard.port}` : '  Dashboard:   off (dashboard.enabled is false)');
     // Local mode only: a standalone server's clients are other machines, and
     // its own trust store says nothing about theirs. Never fatal (#775).
     try {

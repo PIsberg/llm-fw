@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.109 (#870: listener switches and dashboard.requireAuth; no detection change).
   // Held at ruleset 2026.11.108 (#869: response classifier and Whisper in the worker; same models, same scores).
   // Held at ruleset 2026.11.107 (#869: failed model loads are retried; scoring unchanged).
   // Held at ruleset 2026.11.106 (#917: withholding structured and multi-part tool results; no verdict change).

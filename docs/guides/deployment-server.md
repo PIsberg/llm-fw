@@ -427,7 +427,10 @@ Four things to set deliberately:
    Secret to serve the gateway over HTTPS; it is mounted at `/tls` and the
    probes switch to HTTPS. `proxy.port` and `dashboard.port` now reach the
    process too (`LLM_FW_PROXY_PORT`, `LLM_FW_DASHBOARD_PORT`), not only the
-   Service.
+   Service, and so do `proxy.enabled` and `dashboard.enabled`: a listener
+   switched off is not bound at all (`LLM_FW_PROXY_ENABLED`,
+   `LLM_FW_DASHBOARD_ENABLED`, config keys `proxy.enabled` and
+   `dashboard.enabled`, both on by default outside the chart).
 
 The dashboard is deliberately **not** exposed through the ingress. It renders
 captured request payloads. Reach it with `kubectl port-forward`.
@@ -489,7 +492,7 @@ Shared behaviour worth knowing:
 - **Loopback callers bypass the dashboard token** when their `Host` header names
   loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Anyone with a
   shell on the server, or any process on it, reads every captured payload and can
-  toggle defenses. There is no `dashboard.requireAuth` to close this. A loopback
+  toggle defenses, unless `dashboard.requireAuth: true` (`LLM_FW_DASHBOARD_REQUIRE_AUTH=true`, #870) asks every caller, one on this machine too, for the token: set it when a sidecar or a local reverse proxy forwards with `Host: localhost`. `false` admits every caller and is logged as a warning. A loopback
   request with any other `Host` must present the token, which shuts out web pages
   that rebind their domain to `127.0.0.1` and means a reverse proxy on the same
   host must forward the token (set `LLM_FW_DASHBOARD_TOKEN`). The gateway applies

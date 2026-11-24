@@ -13,6 +13,10 @@ export interface UrlFilterConfig {
 }
 
 export interface ProxyConfig {
+  // Whether `llm-fw start` opens the forward proxy at all (default true). Off
+  // for a gateway-only deployment, where the Helm chart's proxy.enabled used
+  // to drop only the Service port while the listener still bound (#870).
+  enabled?: boolean;
   mode: 'proxy' | 'sinkhole';
   // FAIL-SAFE kill switch. When true the proxy becomes a transparent pass-through
   // tunnel: NO TLS interception, NO detection, NO blocking — every CONNECT is piped
@@ -293,6 +297,12 @@ export interface ClassifierConfig {
 }
 
 export interface DashboardConfig {
+  // Whether `llm-fw start` opens the dashboard (default true); see ProxyConfig.enabled (#870).
+  enabled?: boolean;
+  // As ProxyConfig.requireAuth (#870): true asks every caller for the token,
+  // one on this machine too; false admits every caller; unset requires it
+  // only when the dashboard is bound off-host, with loopback exempt.
+  requireAuth?: boolean;
   port: number;
   maxEvents: number;
   // Interface the dashboard listens on. Defaults to '127.0.0.1' (local-only).

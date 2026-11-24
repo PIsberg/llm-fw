@@ -19,7 +19,7 @@ import { playgroundExamplesScript } from './playgroundExamples.js'
 import { McpScanner } from '../detection/mcp/scanner.js'
 import { CommandScanner } from '../detection/mcp/commands.js'
 import { TRANSLATE_LANGUAGES, translateText } from './translate.js'
-import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, isLoopbackHostHeader, tokenMatches as matchesToken, generateToken } from '../auth.js'
+import { credentialFromAuthHeader, isLoopbackAddr as isLoopback, isLoopbackHostHeader, resolveAuthPolicy, tokenMatches as matchesToken } from '../auth.js'
 import { ModuleManager, TOKEN_ECONOMY_ID } from '../modules/registry.js'
 import { PromptMonitorModule } from '../modules/builtin/promptMonitor.js'
 import { readRuntimeState } from '../cli/runtimeState.js'
@@ -3024,28 +3024,40 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
   // Effective auth token: configured value, else a generated one so a
   // remotely-reachable dashboard is never left open. Loopback callers bypass auth
   // entirely, so a purely local dashboard never needs the token.
-  const bindHost = config.dashboard.bindHost as string | undefined
-  const bindLocal = bindHost === undefined || isLoopback(bindHost)
-  const authToken = config.dashboard.authToken || generateToken()
-  if (!bindLocal) {
+  // The same policy the proxy and the gateway resolve (#870): dashboard.requireAuth
+  // true asks a caller on this machine for the token too, false admits every
+  // caller, and unset requires it only off-host. Loopback trust still needs a
+  // Host that names loopback: a page that rebinds its own domain to 127.0.0.1
+  // arrives from loopback too (GHSA-c725-vwcm-h8rr).
+  const policy = resolveAuthPolicy({ requireAuth: config.dashboard.requireAuth, authToken: config.dashboard.authToken, bindHost: config.dashboard.bindHost })
+  if (policy.open) {
+    log.warn('dashboard authentication is OFF (dashboard.requireAuth=false): every caller that can reach it reads captured payloads and changes settings.')
+  } else if (policy.required) {
     if (config.dashboard.authToken) {
-      log.info('remote access requires the configured auth token (Authorization: Bearer <token>, or Basic with the token as the password).')
+      log.info('access requires the configured auth token (Authorization: Bearer <token>, or Basic with the token as the password).')
     } else {
-      log.info(`reachable remotely — auth token (no LLM_FW_DASHBOARD_TOKEN set): ${authToken}`)
+      log.info(`auth token (no LLM_FW_DASHBOARD_TOKEN set): ${policy.token}`)
     }
   }
 
+  // Loopback is exempt only for a caller that is on loopback AND names it in
+  // Host, whatever the bind: the dashboard always checked both, where the
+  // shared authorizeClient trusts the bind for a listener that needs no token.
   const isAuthorized = (req: http.IncomingMessage, url: URL, path: string): boolean => {
-    // Loopback trust needs a Host that names loopback: a page that rebinds
-    // its own domain to 127.0.0.1 arrives from loopback too (GHSA-c725-vwcm-h8rr).
-    if (isLoopback(req.socket.remoteAddress) && isLoopbackHostHeader(req.headers.host)) return true
-    if (AUTH_EXEMPT_PATHS.has(path)) return true
-    return matchesToken(presentedToken(req, url), authToken)
+    if (AUTH_EXEMPT_PATHS.has(path) || policy.open) return true
+    if (policy.exemptLoopback && isLoopback(req.socket.remoteAddress) && isLoopbackHostHeader(req.headers.host)) return true
+    return policy.token !== '' && matchesToken(presentedToken(req, url), policy.token)
   }
 
-  const urlClassifier = config.proxy.urlFilter.enabled
-    ? new UrlClassifier(config.proxy.urlFilter)
-    : null
+  // Built from the URL filter as it is when the playground asks, not as it was
+  // at startup (#870): a live toggle or list change never reached it.
+  let urlClassifierFor: { key: string; classifier: UrlClassifier } | null = null
+  const liveUrlClassifier = (): UrlClassifier | null => {
+    if (!config.proxy.urlFilter.enabled) return null
+    const key = JSON.stringify(config.proxy.urlFilter)
+    if (urlClassifierFor?.key !== key) urlClassifierFor = { key, classifier: new UrlClassifier(config.proxy.urlFilter) }
+    return urlClassifierFor.classifier
+  }
   // Playground detectors — stateless, so always available regardless of whether
   // the corresponding stage is enabled for live traffic (the response notes the
   // configured enabled/mode so the UI can flag a disabled stage).
@@ -3574,6 +3586,7 @@ export function createDashboardServer(config: Config, eventBus: EventBus, pipeli
               res.end(JSON.stringify({ error: 'invalid url' }))
               return
             }
+            const urlClassifier = liveUrlClassifier()
             const urlResult = urlClassifier
               ? urlClassifier.classifyDetailed(hostname, urlPath)
               : { action: 'pass' as const, reason: 'url-filter-disabled', checks: [] }

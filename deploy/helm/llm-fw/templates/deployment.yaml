@@ -71,6 +71,12 @@ spec:
               value: {{ .Values.proxy.port | quote }}
             - name: LLM_FW_DASHBOARD_PORT
               value: {{ .Values.dashboard.port | quote }}
+            # And a listener switched off is not bound at all (#870): it used
+            # to lose only its Service port.
+            - name: LLM_FW_PROXY_ENABLED
+              value: {{ .Values.proxy.enabled | quote }}
+            - name: LLM_FW_DASHBOARD_ENABLED
+              value: {{ .Values.dashboard.enabled | quote }}
             {{- if .Values.gateway.tls.secretName }}
             - name: LLM_FW_GATEWAY_TLS_CERT
               value: /tls/tls.crt

@@ -159,7 +159,9 @@ that needs a changelog entry, not a cleanup.
   Claude Code's own reminders were scored as typed text there. Pinned by
   `test/gateway/gateway-client-detection.e2e.test.ts`.
 - **The dashboard exempts loopback only when `Host` names loopback**
-  (`isLoopbackHostHeader` in `src/auth.ts`), and has no `requireAuth`. The
+  (`isLoopbackHostHeader` in `src/auth.ts`); since #870 it resolves
+  `dashboard.requireAuth` through `resolveAuthPolicy` like the proxy and the
+  gateway, so `true` removes the loopback exemption. The
   gateway's loopback trust follows the same rule. Without it, any web page
   that rebinds its domain to 127.0.0.1 drove both. Pinned by
   `test/dashboard/host-rebinding.test.ts` and

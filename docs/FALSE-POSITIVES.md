@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.109
+
+Unchanged from 2026.11.108: `src/config/config.ts` gained `proxy.enabled`, `dashboard.enabled` and `dashboard.requireAuth` (#870); no detection default or verdict changes.
+
 ## Result, ruleset 2026.11.108
 
 Unchanged from 2026.11.107: the response moderation classifier and speech transcription run in the inference worker under `detection.workerInference` (#869); the same models give the same scores.
