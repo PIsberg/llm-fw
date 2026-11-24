@@ -1255,6 +1255,11 @@ export class ProxyServer {
       let bytesReceived: number
       if (answer) {
         for (const ev of answer.events ?? []) this.eventBus.emitModuleEvent(ev)
+        // A hit is the provider's answer as stored, usage chunk and tool calls
+        // included (#871): drop the chunk as the live path does, and learn the
+        // calls, which a thread continuation's results are paired with.
+        if (moduleCtx?.stripStreamUsage) stripUsageChunk(innerRes)
+        if (isLlmRequest && (this.pipeline.wantsCalls() || mcpInspectResponse)) this.pipeline.learnCalls(answer.response)
         bytesReceived = await this.replayStoredResponse(answer.response, innerReq, innerRes, hostname, mcpInspectResponse)
       } else {
         // Before the tap, so the Usage Meter still sees the usage chunk (#421).

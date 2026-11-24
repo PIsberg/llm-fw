@@ -45,6 +45,9 @@ const RETRY_MS = 60_000
 // it, so a lean-ctx with nothing to do for this long is stopped (#368).
 const IDLE_MS = 10 * 60_000
 const MAX_REMEMBERED = 4096
+// And at most this many characters of them (#871): 4,096 large shell outputs
+// were hundreds of MB.
+const MAX_REMEMBERED_CHARS = 64 * 1024 * 1024
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -199,6 +202,7 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
   private readonly calls = new RememberedCalls()
   // Job key to lean-ctx's output, or null for "forward as is", oldest first.
   private readonly decided = new Map<string, string | null>()
+  private decidedChars = 0
   private sidecar: Promise<Sidecar | null> | null = null
   private retryAt = 0
   // The last reason lean-ctx stopped, logged once rather than on every
@@ -247,9 +251,25 @@ export class LeanCtxModule extends SlotModule<LeanCtxConfig> {
   }
 
   private remember(key: string, out: string | null): void {
-    this.decided.delete(key)
+    this.forget(key)
     this.decided.set(key, out)
-    if (this.decided.size > MAX_REMEMBERED) this.decided.delete(this.decided.keys().next().value!)
+    this.decidedChars += out?.length ?? 0
+    while (this.decided.size > MAX_REMEMBERED || this.decidedChars > MAX_REMEMBERED_CHARS) {
+      const oldest = this.decided.keys().next().value
+      if (oldest === undefined) break
+      this.forget(oldest)
+    }
+  }
+
+  private forget(key: string): void {
+    const old = this.decided.get(key)
+    if (old !== undefined) this.decidedChars -= old?.length ?? 0
+    this.decided.delete(key)
+  }
+
+  /** Characters of output remembered, for the budget above. */
+  rememberedBytes(): number {
+    return this.decidedChars
   }
 
   private async client(deadline: number): Promise<Sidecar | null> {

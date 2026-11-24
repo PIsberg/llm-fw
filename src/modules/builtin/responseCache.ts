@@ -25,6 +25,8 @@ const KEY_HEADERS = [
 // Framing is recomputed for the replayed body, and a session cookie the
 // provider set for the first caller is never handed to the next.
 const DROPPED_HEADERS = new Set(['content-length', 'transfer-encoding', 'connection', 'keep-alive', 'set-cookie'])
+// The most response bytes the cache holds, whatever maxEntries allows (#871).
+const MAX_STORED_BYTES = 64 * 1024 * 1024
 
 function hasCredential(ctx: GatewayModuleContext): boolean {
   if (ctx.tenant) return true
@@ -54,6 +56,9 @@ export class ResponseCacheModule implements GatewayModule {
   private readonly cfg: ResponseCacheConfig
   private readonly now: () => number
   private entries = new Map<string, Entry>()
+  // Bytes of stored bodies, held to MAX_STORED_BYTES (#871): maxEntries times
+  // maxEntryBytes had no bound of its own.
+  private storedBytes = 0
   private hits = 0
   private misses = 0
   private tokensSaved = 0
@@ -91,7 +96,7 @@ export class ResponseCacheModule implements GatewayModule {
     const key = this.key(requestBody, ctx)
     const entry = this.entries.get(key)
     if (!entry || this.now() - entry.storedAt > this.cfg.ttlSeconds * 1000) {
-      if (entry) this.entries.delete(key)
+      if (entry) this.drop(key)
       this.misses++
       return undefined
     }
@@ -125,13 +130,25 @@ export class ResponseCacheModule implements GatewayModule {
       }
     }
     const key = this.key(requestBody, ctx)
-    this.entries.delete(key)
+    this.drop(key)
     this.entries.set(key, { response: { status: 200, headers, body: response.body }, storedAt: this.now(), billedTokens })
-    while (this.entries.size > Math.max(0, this.cfg.maxEntries)) {
+    this.storedBytes += response.body.length
+    while (this.entries.size > Math.max(0, this.cfg.maxEntries) || this.storedBytes > MAX_STORED_BYTES) {
       const oldest = this.entries.keys().next().value
       if (oldest === undefined) break
-      this.entries.delete(oldest)
+      this.drop(oldest)
     }
+  }
+
+  private drop(key: string): void {
+    const entry = this.entries.get(key)
+    if (entry) this.storedBytes -= entry.response.body.length
+    this.entries.delete(key)
+  }
+
+  /** Bytes of response bodies held, for the budget above. */
+  heldBytes(): number {
+    return this.storedBytes
   }
 
   private event(ctx: GatewayModuleContext, saved: number): ModuleEvent {
