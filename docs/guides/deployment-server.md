@@ -358,7 +358,7 @@ the suppression list, the licence and the audit log. The compose file uses a
 named volume `llm-fw-data` for exactly this. Do **not** mount over `/models`,
 which is the baked-in read-only model cache.
 
-The image ships a `HEALTHCHECK` that polls `/readyz` on the gateway port.
+The image ships a `HEALTHCHECK` that polls `/readyz` on the gateway port (`docker/healthcheck.mjs`). With `LLM_FW_GATEWAY_TLS_CERT` and `LLM_FW_GATEWAY_TLS_KEY` set it speaks HTTPS and trusts exactly that certificate file; before #870 it spoke plain HTTP whatever the gateway served, so a TLS gateway never reported healthy. The image also sets `LLM_FW_AUDIT_ENABLED=true`.
 
 **lean-ctx, opt-in at build time.** The
 [lean-ctx shell output compressor](token-savings.md#lean-ctx-shell-output-compressor)
@@ -419,6 +419,15 @@ Four things to set deliberately:
    limits are per-process and in-memory. Three replicas with a 60/min tenant
    quota admit up to 180/min. The chart defaults to 1 for this reason, and to
    the `Recreate` strategy when persistence is on, because the claim is RWO.
+   More than one replica needs `persistence.enabled: false`: the chart refuses
+   to render otherwise (#870), since the pods would share one RWO volume and
+   its pid file, audit log and tool usage; ship audit events with
+   `audit.webhookUrl` instead.
+5. **Gateway TLS.** Set `gateway.tls.secretName` to a `kubernetes.io/tls`
+   Secret to serve the gateway over HTTPS; it is mounted at `/tls` and the
+   probes switch to HTTPS. `proxy.port` and `dashboard.port` now reach the
+   process too (`LLM_FW_PROXY_PORT`, `LLM_FW_DASHBOARD_PORT`), not only the
+   Service.
 
 The dashboard is deliberately **not** exposed through the ingress. It renders
 captured request payloads. Reach it with `kubectl port-forward`.

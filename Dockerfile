@@ -106,6 +106,9 @@ ENV LLM_FW_GATEWAY_ENABLED=true
 ENV LLM_FW_GATEWAY_BIND=0.0.0.0
 ENV LLM_FW_PROXY_BIND=0.0.0.0
 ENV LLM_FW_DASHBOARD_BIND=0.0.0.0
+# The durable audit trail, which config.ts documents the image as turning on:
+# an in-memory ring answers no retention question (#870).
+ENV LLM_FW_AUDIT_ENABLED=true
 
 COPY package.json package-lock.json ./
 
@@ -142,6 +145,7 @@ RUN npm ci --omit=dev \
 COPY --from=build /app/dist ./dist
 COPY --from=models /models /models
 COPY data ./data
+COPY docker/healthcheck.mjs ./docker/healthcheck.mjs
 # lean-ctx, when the build asked for it (see the leanctx stage), on PATH where
 # the module looks by default, with the trust store it needs to start; both
 # folders are empty otherwise.
@@ -161,10 +165,11 @@ USER node
 # gateway, forward proxy, dashboard
 EXPOSE 8081 8080 7731
 
-# The kubelet/compose probe. /readyz reports 503 until the embedding model is
-# loaded, so traffic is never routed to an instance that cannot scan yet.
+# The compose probe. /readyz reports 503 until the embedding model is loaded,
+# so traffic is never routed to an instance that cannot scan yet; with gateway
+# TLS on, the probe speaks HTTPS (docker/healthcheck.mjs, #870).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD node -e "const p=process.env.LLM_FW_GATEWAY_PORT||8081;fetch('http://127.0.0.1:'+p+'/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node docker/healthcheck.mjs
 
 ENTRYPOINT ["node", "dist/cli/index.js"]
 CMD ["start", "--gateway"]

@@ -1,3 +1,10 @@
+{{- /*
+One ReadWriteOnce volume cannot serve two pods, and replicas sharing /data
+would fight over llm-fw.pid, audit.jsonl rotation and tool-usage.json (#870).
+*/}}
+{{- if and (gt (int .Values.replicaCount) 1) .Values.persistence.enabled }}
+{{- fail "replicaCount > 1 needs persistence.enabled=false: the replicas would share one ReadWriteOnce volume and its llm-fw.pid, audit.jsonl and tool-usage.json. Ship audit events with audit.webhookUrl instead." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -58,6 +65,18 @@ spec:
               value: {{ .Values.gateway.port | quote }}
             - name: LLM_FW_GATEWAY_BIND
               value: "0.0.0.0"
+            # Every listener gets its port from the values, as the gateway did:
+            # a custom proxy or dashboard port only moved the Service (#870).
+            - name: LLM_FW_PROXY_PORT
+              value: {{ .Values.proxy.port | quote }}
+            - name: LLM_FW_DASHBOARD_PORT
+              value: {{ .Values.dashboard.port | quote }}
+            {{- if .Values.gateway.tls.secretName }}
+            - name: LLM_FW_GATEWAY_TLS_CERT
+              value: /tls/tls.crt
+            - name: LLM_FW_GATEWAY_TLS_KEY
+              value: /tls/tls.key
+            {{- end }}
             - name: LLM_FW_GATEWAY_DEFAULT_PROVIDER
               value: {{ .Values.gateway.defaultProvider | quote }}
             - name: LLM_FW_DASHBOARD_BIND
@@ -86,21 +105,27 @@ spec:
           # the gateway, so with it off these would probe a closed port and the
           # kubelet would restart the pod forever — a crash loop caused entirely
           # by the health check.
+          # With gateway TLS on the probes speak HTTPS: plain HTTP to a TLS
+          # listener never reported ready (#870). The kubelet does not verify
+          # the certificate.
           startupProbe:
             httpGet:
               path: /readyz
               port: {{ .Values.gateway.port }}
+              scheme: {{ if .Values.gateway.tls.secretName }}HTTPS{{ else }}HTTP{{ end }}
             failureThreshold: 30
             periodSeconds: 5
           readinessProbe:
             httpGet:
               path: /readyz
               port: {{ .Values.gateway.port }}
+              scheme: {{ if .Values.gateway.tls.secretName }}HTTPS{{ else }}HTTP{{ end }}
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
               port: {{ .Values.gateway.port }}
+              scheme: {{ if .Values.gateway.tls.secretName }}HTTPS{{ else }}HTTP{{ end }}
             periodSeconds: 20
           {{- end }}
           resources:
@@ -113,7 +138,17 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- if .Values.gateway.tls.secretName }}
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            {{- end }}
       volumes:
+        {{- if .Values.gateway.tls.secretName }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.gateway.tls.secretName }}
+        {{- end }}
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:

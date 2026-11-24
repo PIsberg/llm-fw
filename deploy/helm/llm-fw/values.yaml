@@ -3,8 +3,10 @@ image:
   tag: ""            # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
-# More than one replica is safe: the gateway holds no cross-request state that
-# a second pod would need. The features that DO keep per-client state
+# More than one replica needs persistence.enabled: false (the chart refuses
+# otherwise, #870): the pods would share one ReadWriteOnce volume and its pid
+# file, audit log and tool usage. Beyond that the gateway holds no
+# cross-request state that a second pod would need. The features that DO keep per-client state
 # (cross-request crescendo memory, DoS quotas, per-tenant quotas) are
 # per-process, so each pod enforces its own share of the limit: three replicas
 # with a 60/min tenant quota admit up to 180/min in the worst case. Enable
@@ -17,6 +19,10 @@ gateway:
   port: 8081
   # Provider serving bare /v1/... paths that carry no /<provider>/ prefix.
   defaultProvider: openai
+  # A kubernetes.io/tls Secret (tls.crt, tls.key) to serve the gateway over
+  # HTTPS. Mounted at /tls; the probes then speak HTTPS too.
+  tls:
+    secretName: ""
 
 # The forward proxy (clients set HTTPS_PROXY and trust the firewall CA). Off by
 # default in Kubernetes: the gateway is the deployment that does not require
