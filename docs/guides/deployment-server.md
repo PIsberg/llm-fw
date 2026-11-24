@@ -454,6 +454,15 @@ ssh -L 7731:127.0.0.1:7731 user@server
 > there. Set the port before running `setup`, or re-run `setup`, which replaces the
 > CA for exactly this reason, and re-trust it on every client. Windows clients in particular depend on that URL resolving.
 
+**Outbound DNS.** The forward proxy looks up an intercepted host on public
+resolvers first, `proxy.dnsServers` (1.1.1.1 and 8.8.8.8 by default), because in
+sinkhole mode the hosts file points every provider host at 127.0.0.1. Then it
+asks for an AAAA record (an IPv6-only host), then the system resolver, for a name
+only a private zone knows or a network that blocks outbound UDP 53; a loopback
+answer from the system resolver is refused, since it would reach the proxy
+itself. An IP literal is used as it is. Every address of a host is kept, and one
+that refuses or times out the connection is skipped by the next request (#866).
+
 ---
 
 ## Authentication reference

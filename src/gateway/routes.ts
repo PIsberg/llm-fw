@@ -122,13 +122,16 @@ export interface RouteOptions {
  * matches (the caller answers 404 rather than guessing an upstream).
  */
 export function resolveRoute(pathname: string, opts: RouteOptions): GatewayRoute | null {
-  const providers = opts.providers;
+  // Own keys only (#866): `providers.constructor` is Object's, and
+  // /constructor/v1/messages consumed quota, ran detection and ended in 502.
+  const lookup = (slug: string): GatewayProvider | undefined =>
+    Object.hasOwn(opts.providers, slug) ? opts.providers[slug] : undefined;
 
   // 1. Explicit `/<slug>/...` prefix.
   const firstSlash = pathname.indexOf('/', 1);
   if (firstSlash > 1) {
     const slug = pathname.slice(1, firstSlash).toLowerCase();
-    const provider = providers[slug];
+    const provider = lookup(slug);
     if (provider) {
       return { slug, provider, upstreamPath: pathname.slice(firstSlash) || '/' };
     }
@@ -137,7 +140,7 @@ export function resolveRoute(pathname: string, opts: RouteOptions): GatewayRoute
   // 2. Bare provider-specific path.
   const bare = bareProviderFor(pathname);
   if (bare) {
-    const provider = providers[bare];
+    const provider = lookup(bare);
     if (provider) return { slug: bare, provider, upstreamPath: pathname };
   }
 
@@ -145,7 +148,7 @@ export function resolveRoute(pathname: string, opts: RouteOptions): GatewayRoute
   //    `/v1/…` so an arbitrary path (a typo, a probe, a health check that lost
   //    its route) is a 404 instead of being forwarded to a provider.
   if (pathname.startsWith('/v1/')) {
-    const provider = providers[opts.defaultProvider];
+    const provider = lookup(opts.defaultProvider);
     if (provider) return { slug: opts.defaultProvider, provider, upstreamPath: pathname };
   }
 
@@ -205,6 +208,15 @@ const CREDENTIAL_QUERY_PARAMS = new Set(['key', 'api-key', 'api_key', 'access_to
  * the client's own credential is what should reach the provider, in the URL
  * exactly as in the header.
  */
+/** A query name decoded, or as it is when its percent-encoding is malformed (#866: URIError, 502). */
+function decodedName(name: string): string {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
 export function stripCredentialQuery(query: string): string {
   if (!query) return query;
   const raw = query.startsWith('?') ? query.slice(1) : query;
@@ -212,7 +224,7 @@ export function stripCredentialQuery(query: string): string {
   const segments = raw.split('&');
   const kept = segments.filter(segment => {
     const name = segment.split('=')[0] ?? '';
-    return !CREDENTIAL_QUERY_PARAMS.has(decodeURIComponent(name).toLowerCase());
+    return !CREDENTIAL_QUERY_PARAMS.has(decodedName(name).toLowerCase());
   });
   if (kept.length === segments.length) return query;
   return kept.length ? '?' + kept.join('&') : '';

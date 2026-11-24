@@ -190,3 +190,25 @@ describe('upstreamHostHeader', () => {
     expect(upstreamHostHeader({ name: 'x', host: '[::1]', auth: 'bearer', protocol: 'http', port: 8000 })).toBe('[::1]:8000')
   })
 })
+
+// #866: a slug was looked up on a plain object, so /constructor/... matched
+// Object.prototype.constructor: the request consumed tenant quota, ran
+// detection and failed with 502 in upstreamHostHeader.
+describe('resolveRoute — inherited names are not providers (#866)', () => {
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf'])('does not route /%s/v1/messages', (slug) => {
+    expect(resolveRoute(`/${slug}/v1/messages`, opts)).toBeNull()
+  })
+
+  it('does not route bare /v1 paths to an inherited default provider', () => {
+    expect(resolveRoute('/v1/chat/completions', { ...opts, defaultProvider: 'constructor' })).toBeNull()
+  })
+})
+
+// #866: a query name with malformed percent-encoding threw URIError out of
+// decodeURIComponent, which surfaced as a 502 on key-custody routes.
+describe('stripCredentialQuery — malformed encoding (#866)', () => {
+  it('keeps a parameter whose name it cannot decode, and still strips the credential', () => {
+    expect(stripCredentialQuery('?%ZZ=1&key=secret&model=x')).toBe('?%ZZ=1&model=x')
+    expect(stripCredentialQuery('?a%=2')).toBe('?a%=2')
+  })
+})

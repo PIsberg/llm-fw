@@ -32,6 +32,7 @@ import { relayRealtimeSession, WS_SKIPPED_HEADERS } from '../proxy/realtimeRelay
 import { canaryToken, injectCanary, guardCanary } from '../proxy/canary.js';
 import { locateDlpFindings, locationSummary } from '../proxy/dlpLocation.js';
 import { getLlmFwDir } from '../config/paths.js';
+import { sniName } from '../proxy/sni.js';
 
 const log = createLogger('gateway');
 
@@ -446,7 +447,7 @@ export class GatewayServer {
       const port = route.provider.port ?? (plain ? 80 : 443);
       const upstream = plain
         ? net.connect({ host: route.provider.host, port })
-        : tls.connect({ host: route.provider.host, port, servername: route.provider.host });
+        : tls.connect({ host: route.provider.host, port, servername: sniName(route.provider.host) });
       relayRealtimeSession(
         { config: this.config, pipeline: this.pipeline, dlp: this.dlp, eventBus: this.eventBus, dashboardUrl: () => this.dashboardUrl() },
         {

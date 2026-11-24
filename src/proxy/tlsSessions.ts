@@ -1,4 +1,5 @@
 import tls from 'node:tls'
+import { sniName } from './sni.js'
 
 /**
  * The last TLS session per upstream host and port, offered on the next
@@ -43,7 +44,9 @@ export class TlsSessionCache {
   connect(options: tls.ConnectionOptions & { servername: string; port: number }, onConnect?: () => void): tls.TLSSocket {
     const { servername, port } = options
     const session = this.get(servername, port)
-    const socket = tls.connect(session ? { ...options, session } : options, onConnect)
+    // The host keys the session cache; an IP literal is not sent as SNI (#866).
+    const sent = { ...options, servername: sniName(servername) }
+    const socket = tls.connect(session ? { ...sent, session } : sent, onConnect)
     socket.on('session', (s: Buffer) => this.set(servername, port, s))
     socket.on('error', () => this.forget(servername, port))
     return socket

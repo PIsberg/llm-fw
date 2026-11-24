@@ -30,6 +30,8 @@ const HOST = 'api.anthropic.com'
 const PROXY_PORT = 18_295
 const UPSTREAM_TIMEOUT_MS = 4_000
 let answer = ''
+// When set, upstream connections go to this port, where nothing listens (#866).
+let refusePort = 0
 // Write the answer and keep the connection open, as a stuck upstream would.
 let keepOpen = false
 
@@ -115,7 +117,7 @@ describe('Proxy: the provider response head (#855)', { timeout: 30_000 }, () => 
     const realConnect = tls.connect
     vi.spyOn(tls, 'connect').mockImplementation(((options: tls.ConnectionOptions, cb?: () => void) => {
       if (options.socket) return realConnect(options, cb)
-      return realConnect({ ...options, port: upstreamPort }, cb)
+      return realConnect({ ...options, port: refusePort || upstreamPort }, cb)
     }) as typeof tls.connect)
 
     const config = structuredClone(DEFAULT_CONFIG)
@@ -185,5 +187,21 @@ describe('Proxy: the provider response head (#855)', { timeout: 30_000 }, () => 
     const seen = await send(caPem).finally(() => { keepOpen = false })
     expect(seen.status).toBe(502)
     expect(seen.ms).toBeLessThan(UPSTREAM_TIMEOUT_MS / 2)
+  })
+
+  // #866: the resolver kept one address per host. A connection the upstream
+  // refuses now reports that address, so the next request goes to another.
+  it('reports an address that refuses the connection to the resolver (#866)', async () => {
+    const markFailed = vi.spyOn(UpstreamResolver.prototype, 'markFailed')
+    const probe = net.createServer()
+    await new Promise<void>(r => probe.listen(0, '127.0.0.1', () => r()))
+    refusePort = (probe.address() as { port: number }).port
+    await new Promise<void>(r => probe.close(() => r()))
+    try {
+      await send(caPem)
+    } finally {
+      refusePort = 0
+    }
+    expect(markFailed).toHaveBeenCalledWith(HOST, '127.0.0.1')
   })
 })
