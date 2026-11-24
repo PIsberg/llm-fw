@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.103
+
+Unchanged from 2026.11.102: this ruleset changes DLP patterns only (#915), which redact and never decide a detection verdict. Over 761,113 local transcript lines, 169 redact differently: 96 float fractions are no longer redacted as card numbers, and no redacted line is left unparseable (93 were).
+
 ## Result, ruleset 2026.11.102
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The seven domain detectors now read text with its default-ignorable characters removed, joined words split on any of them, and the homoglyph fold maps uppercase Greek and folds runs of look-alike words between Latin ones (#914). `npm run verdicts:diff` moved 0 of 31,323 eval verdicts, and a replay of the 745 local Claude Code and Codex items from the last 60 days that hold an invisible, Greek or Cyrillic character moved 0.

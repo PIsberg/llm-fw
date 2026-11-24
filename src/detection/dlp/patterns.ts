@@ -34,15 +34,19 @@ export const DLP_RULES: DlpRule[] = [
     type: 'AWS_SECRET_KEY',
     label: 'AWS Secret Access Key',
     // 40-char base64 secret, only matched when adjacent to an aws-secret keyword
-    // (a bare 40-char base64 string is far too common to flag on its own).
-    regex: /aws.{0,20}(?:secret|sk).{0,20}["' :=]+([a-z0-9/+]{40})\b/gi,
+    // (a bare 40-char base64 string is far too common to flag on its own). Group 1
+    // is the secret, and only it is redacted: the keyword, quotes and colon stay,
+    // so a JSON body still parses (#915). It ends where the base64 run does, not
+    // at a word boundary, which a secret ending in "+" or "/" never has.
+    regex: /aws.{0,20}(?:secret|sk).{0,20}["' :=]+([a-z0-9/+]{40})(?![a-z0-9/+=_-])/gi,
     marker: '[REDACTED_AWS_SECRET]',
   },
   {
     detector: 'aws',
     type: 'AWS_SESSION_TOKEN',
     label: 'AWS Session Token',
-    regex: /\bFwoG[A-Za-z0-9/+=_-]{50,}\b/g,
+    // Ends where the token does: a word boundary left a trailing "=" behind (#915).
+    regex: /\bFwoG[A-Za-z0-9/+=_-]{50,}(?![A-Za-z0-9/+=_-])/g,
     marker: '[REDACTED_AWS_SESSION_TOKEN]',
   },
   {
@@ -57,7 +61,7 @@ export const DLP_RULES: DlpRule[] = [
     detector: 'google',
     type: 'GOOGLE_API_KEY',
     label: 'Google API Key (Cloud / Gemini / Maps / Firebase)',
-    regex: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    regex: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g,
     marker: '[REDACTED_GOOGLE_API_KEY]',
   },
   {
@@ -321,7 +325,7 @@ export const DLP_RULES: DlpRule[] = [
     detector: 'telegram',
     type: 'TELEGRAM_BOT_TOKEN',
     label: 'Telegram Bot Token',
-    regex: /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g,
+    regex: /\b\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/g,
     marker: '[REDACTED_TELEGRAM_TOKEN]',
   },
   {
@@ -394,7 +398,7 @@ export const DLP_RULES: DlpRule[] = [
     detector: 'mongodb',
     type: 'MONGODB_URI',
     label: 'MongoDB SRV Connection URI',
-    regex: /mongodb\+srv:\/\/[^\s:@/]+:[^\s:@/]+@[^\s/"']+/g,
+    regex: /mongodb\+srv:\/\/[^\s:@/]+:[^\s:@/]+@[^\s/"'\\,})\];>]+/g,
     marker: '[REDACTED_MONGODB_URI]',
   },
   {
@@ -403,8 +407,11 @@ export const DLP_RULES: DlpRule[] = [
     label: 'Connection String with Embedded Credentials',
     // scheme://user:password@host — covers DB URIs (Postgres/MySQL/Redis/AMQP/
     // mongodb) and HTTP(S)/FTP basic-auth credentials. Password segment must be
-    // non-empty so `scheme://user@host` (no secret) does not match.
-    regex: /\b(?:https?|ftp|postgres(?:ql)?|mysql|mariadb|rediss?|amqps?|mongodb):\/\/[^\s:@/]+:[^\s:@/]+@[^\s/"']+/gi,
+    // non-empty so `scheme://user@host` (no secret) does not match. The host
+    // stops at a backslash, a comma or a closing bracket (#915): in a JSON body
+    // a quote or newline after the URI is an escape (\" or \n), and taking its
+    // backslash left the redacted body unparseable.
+    regex: /\b(?:https?|ftp|postgres(?:ql)?|mysql|mariadb|rediss?|amqps?|mongodb):\/\/[^\s:@/]+:[^\s:@/]+@[^\s/"'\\,})\];>]+/gi,
     marker: '[REDACTED_CONNECTION_URI]',
   },
   {
@@ -491,8 +498,11 @@ export const GENERIC_SECRET_MARKER = '[REDACTED_SECRET]'
 export const BEARER_TOKEN_MARKER = '[REDACTED_BEARER_TOKEN]'
 
 // Candidate credit-card numbers: 13–19 digits, optionally separated by single
-// spaces or hyphens. Validation via Luhn happens in the scanner.
-export const CREDIT_CARD_CANDIDATE = /\b(?:\d[ -]?){12,18}\d\b/g
+// spaces or hyphens. Validation via Luhn happens in the scanner. Not the
+// fraction of a decimal number (#915): a JSON float such as 0.4111111111111111
+// passed Luhn one time in ten, and its digits were replaced by an unquoted
+// marker, so the body no longer parsed (48 of 760,911 local transcript lines).
+export const CREDIT_CARD_CANDIDATE = /(?<!\d\.)\b(?:\d[ -]?){12,18}\d\b/g
 
 /**
  * Luhn checksum validation for a string of digits (separators allowed and

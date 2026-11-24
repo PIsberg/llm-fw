@@ -94,14 +94,21 @@ export class DlpScanner {
       let m = rule.regex.exec(text)
       while (m !== null) {
         let match = m[0]
+        let index = m.index
         if (rule.extend) {
           // Resume after the extended match, so a block is walked only once.
           const end = rule.extend(text, m.index + match.length)
           match = text.slice(m.index, end)
           rule.regex.lastIndex = end
+        } else if (m[1]) {
+          // A rule with a group matches context around the secret (AWS_SECRET_KEY's
+          // keyword): the group, which ends the match, is the secret. Redacting
+          // the whole match took the JSON key and quotes with it (#915).
+          match = m[1]
+          index = m.index + m[0].length - m[1].length
         }
         if (!isDocumentedExample(rule.type, match)) {
-          findings.push({ type: rule.type, label: rule.label, match, index: m.index })
+          findings.push({ type: rule.type, label: rule.label, match, index })
         }
         if (m.index === rule.regex.lastIndex) rule.regex.lastIndex++
         m = rule.regex.exec(text)

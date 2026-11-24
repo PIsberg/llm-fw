@@ -10,7 +10,7 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 
 | Detector key | What it catches |
 |--------------|-----------------|
-| `aws` | Amazon access key IDs (`AKIA…`/`ASIA…` + the other 20-char AWS prefixes), keyword-adjacent secret access keys, STS session tokens (`FwoG…`), and MWS auth tokens (`amzn.mws.…`) |
+| `aws` | Amazon access key IDs (`AKIA…`/`ASIA…` + the other 20-char AWS prefixes), keyword-adjacent secret access keys (only the 40-character value is redacted; the keyword and the quotes around it stay), STS session tokens (`FwoG…`), and MWS auth tokens (`amzn.mws.…`) |
 | `google` | Google API keys (`AIza…` — Cloud / Gemini / Maps / Firebase) and OAuth access/refresh tokens (`ya29.…`, `1//0…`) |
 | `openai` | OpenAI API keys (`sk-proj-`/`sk-svcacct-`/`sk-admin-…` and legacy `sk-` + 48 chars) |
 | `anthropic` | Anthropic API keys (`sk-ant-…`) |
@@ -38,10 +38,10 @@ The scan only runs on recognised LLM JSON requests (e.g. Anthropic `/v1/messages
 | `newrelic` / `sentry` | New Relic API keys (`NRAK-…`) and Sentry DSNs with embedded secret |
 | `private_keys` | Private key blocks of any `BEGIN ... PRIVATE KEY` type (RSA, EC, OpenSSH, DSA, PKCS#8 and encrypted PKCS#8) and OpenPGP private key blocks. Redaction covers the whole block, header through END; a block with no END line is redacted through its last key-looking line |
 | `mongodb` | MongoDB SRV connection URIs with embedded credentials |
-| `connection_uri` | Any `scheme://user:password@host` connection string (Postgres/MySQL/Redis/AMQP/HTTP basic-auth) |
+| `connection_uri` | Any `scheme://user:password@host` connection string (Postgres/MySQL/Redis/AMQP/HTTP basic-auth). The host ends at a backslash, a comma or a closing bracket, so a JSON escape (`\"`, `\n`) after the URI is left intact |
 | `jwt` | JSON Web Tokens (`eyJ….eyJ….…`) |
 | `entropy` | High-entropy generic secrets adjacent to credential keywords (`password=`/`pwd=`/`secret:`/`token=`/`api_key=`/`access_key=`/`auth:`/`credential=`/`key=`, Shannon entropy > 4.0, length > 20; an unquoted value written as a call, such as `token = canaryToken(dir)`, or as a member chain, such as `apiKey: process.env.OPENAI_KEY`, is judged one name at a time, so source code is not redacted while a random piece inside a call still is; the key and the value may be quoted, with the quotes JSON-escaped as `\"` inside a prompt string, so `{"api_key": "..."}` pasted into a prompt is found) **and** `Authorization: Bearer <token>` headers (the `Bearer` keyword alone is sufficient, no entropy gate) |
-| `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm, and starting with a card-network digit 2 to 6, so epoch timestamps and snowflake ids, which start with 1, are left alone) |
+| `pii` | US SSNs and credit-card numbers (validated with the Luhn algorithm, and starting with a card-network digit 2 to 6, so epoch timestamps and snowflake ids, which start with 1, are left alone; the fraction digits of a decimal number such as `0.4111111111111111` are not a card) |
 
 Each detected secret maps to a provider-specific redaction marker such as `[REDACTED_OPENAI_KEY]`, `[REDACTED_ANTHROPIC_KEY]`, `[REDACTED_GOOGLE_API_KEY]`, `[REDACTED_AWS_KEY]`, `[REDACTED_GITHUB_TOKEN]`, `[REDACTED_CREDIT_CARD]`, `[REDACTED_BEARER_TOKEN]`, or `[REDACTED_SECRET]`. Redaction patches each secret **at its exact matched offset** (not a global string replace), so a token that also appears elsewhere as benign data is never redacted by coincidence.
 
@@ -54,7 +54,7 @@ Each detected secret maps to a provider-specific redaction marker such as `[REDA
 | Mode | Behaviour |
 |------|-----------|
 | `block` | Aborts the request with `422` and `{ "error": "sensitive data detected", "type": "…" }`. |
-| `redact` (default) | Rewrites the JSON payload, replacing each secret with its marker, then forwards the request transparently. JSON structure and escaping are preserved (the raw string is patched in place — no re-serialisation). |
+| `redact` (default) | Rewrites the JSON payload, replacing each secret with its marker, then forwards the request transparently. JSON structure and escaping are preserved (the raw string is patched in place — no re-serialisation). Every pattern ends where its secret does, never on a JSON escape's backslash, so the redacted body still parses (#915). |
 | `audit` | Forwards the request unmodified, but logs a high-priority `dlp` event to the dashboard. |
 
 ### Configuration
