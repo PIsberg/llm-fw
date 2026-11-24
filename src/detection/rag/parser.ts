@@ -23,6 +23,65 @@ const TAG_BLOCKS: { tag: string; re: RegExp }[] = [
   { tag: 'source', re: /<source(?:\s[^>]*)?>([\s\S]*?)(?:<\/source>|$)/gi },
 ]
 
+interface TagSpan { tag: string; start: number; innerStart: number; innerEnd: number; end: number }
+
+/**
+ * Every tag block's span. A block runs from its opening tag to the LAST
+ * closing tag before the next opening tag of the same name, or to the end of
+ * the text when there is none (#919): ended at the first closer, a retrieved
+ * document that wrote "</document>" itself put everything after it outside
+ * the block, where it read as the user's own text. Found with index scans, so
+ * the cost is the text's length.
+ */
+function tagSpans(prompt: string): TagSpan[] {
+  // ASCII letters only, so every offset in the copy is an offset in the
+  // prompt: toLowerCase() turns some characters into two (U+0130 into "i"
+  // and a combining dot), and the spans it found landed beside the text they
+  // named (security review of #919). Tags and closers are ASCII.
+  const lower = prompt.replace(/[A-Z]/g, c => c.toLowerCase())
+  const spans: TagSpan[] = []
+  for (const { tag } of TAG_BLOCKS) {
+    // An opener is "<tag>" or "<tag" then whitespace, any attributes and ">",
+    // as the old pattern read it, attributes of any length (security review
+    // of #919: a 512-character cap left a longer opener unread). Found with
+    // forward scans: the next "<tag", then the next ">", so every character
+    // is passed once however many openers lack their ">".
+    const open = `<${tag}`
+    const closer = `</${tag}>`
+    const opens: Array<{ start: number; innerStart: number }> = []
+    for (let p = lower.indexOf(open); p !== -1; ) {
+      const next = lower.charCodeAt(p + open.length)
+      if (next === 0x3e /* > */) {
+        opens.push({ start: p, innerStart: p + open.length + 1 })
+        p = lower.indexOf(open, p + open.length + 1)
+        continue
+      }
+      if (!/\s/.test(lower[p + open.length] ?? '')) { p = lower.indexOf(open, p + open.length); continue }
+      const gt = lower.indexOf('>', p + open.length)
+      if (gt === -1) break
+      opens.push({ start: p, innerStart: gt + 1 })
+      p = lower.indexOf(open, gt + 1)
+    }
+    if (opens.length === 0) continue
+    const closers: number[] = []
+    for (let k = lower.indexOf(closer); k !== -1; k = lower.indexOf(closer, k + closer.length)) closers.push(k)
+    // Openers never overlap (each match starts where the last ended), so a
+    // block's region ends at the next opener; both lists are walked once.
+    let c = 0
+    for (let i = 0; i < opens.length; i++) {
+      const o = opens[i]!
+      const limit = opens[i + 1]?.start ?? prompt.length
+      while (c < closers.length && closers[c]! < o.innerStart) c++
+      let last = -1
+      while (c < closers.length && closers[c]! + closer.length <= limit) last = closers[c++]!
+      const innerEnd = last === -1 ? limit : last
+      const end = last === -1 ? limit : last + closer.length
+      spans.push({ tag, start: o.start, innerStart: o.innerStart, innerEnd, end })
+    }
+  }
+  return spans
+}
+
 // Triple-backtick fenced code block (GitHub-Flavored-Markdown style): an opening
 // fence of 3+ backticks at the start of a line (optionally indented up to 3
 // spaces) with an optional info string, content, then a closing fence of at
@@ -51,14 +110,9 @@ export function extractRagContext(prompt: string): RagContextBlock[] {
   const blocks: RagContextBlock[] = []
   if (!prompt) return blocks
 
-  for (const { tag, re } of TAG_BLOCKS) {
-    re.lastIndex = 0
-    for (let m = re.exec(prompt); m !== null; m = re.exec(prompt)) {
-      const inner = (m[1] ?? '').trim()
-      if (inner.length > 0) blocks.push({ block: inner, tag })
-      // Guard against zero-width matches looping forever.
-      if (m.index === re.lastIndex) re.lastIndex++
-    }
+  for (const span of tagSpans(prompt)) {
+    const inner = prompt.slice(span.innerStart, span.innerEnd).trim()
+    if (inner.length > 0) blocks.push({ block: inner, tag: span.tag })
   }
 
   FENCE_RE.lastIndex = 0
@@ -88,10 +142,15 @@ export function extractRagContext(prompt: string): RagContextBlock[] {
  * inside data blocks (which is the structural-poisoning signal).
  */
 function stripRagContext(prompt: string): string {
-  let stripped = prompt
-  for (const { re } of TAG_BLOCKS) {
-    stripped = stripped.replace(re, ' ')
+  // Tag blocks out first, in one pass: a block of one tag may hold another's.
+  const parts: string[] = []
+  let at = 0
+  for (const s of tagSpans(prompt).sort((a, b) => a.start - b.start)) {
+    if (s.start >= at) parts.push(prompt.slice(at, s.start), ' ')
+    at = Math.max(at, s.end)
   }
+  parts.push(prompt.slice(at))
+  let stripped = parts.join('')
   stripped = stripped.replace(FENCE_RE, ' ')
   stripped = stripped.replace(BLOCKQUOTE_RE, ' ')
   return stripped
@@ -103,6 +162,16 @@ function stripRagContext(prompt: string): string {
 // clear the 50-point block threshold even for the weakest single rule (10pt
 // soft-signal → 30), so we use 3x.
 const RAG_BOUNDARY_MULTIPLIER = 3
+
+// The score at which the user's own text is a direct injection the standard
+// heuristic stage blocks, so the boundary check defers to it.
+const DIRECT_INJECTION_SCORE = 50
+
+// Rules too weak to escalate a block on their own when the user's text carries
+// signals of its own: ordinary markdown and documentation match them.
+const WEAK_RULES: ReadonlySet<string> = new Set(['soft-signal', 'delimiter-break'])
+
+const TAG_NAMES: ReadonlySet<string> = new Set(TAG_BLOCKS.map(t => t.tag))
 
 /**
  * Structural RAG-poisoning score.
@@ -129,21 +198,41 @@ export function ragInjectionScore(prompt: string, scorer: HeuristicScorer): Heur
   // clears it on its own (entropy 5.03 to 5.06 against the 5.0 line), so
   // tripling it blocked ordinary "is my config right?" questions. An encoded
   // instruction is still caught here through its decoded candidate.
+  // Tag blocks (<document>, <context>, ...) are retrieved data by their
+  // markup. Code fences and blockquotes are ordinary markdown as often as not.
   let maxBlockScore = 0
+  let maxTagScore = 0
   const matches = new Set<string>()
-  for (const { block } of blocks) {
+  const tagMatches = new Set<string>()
+  for (const { block, tag } of blocks) {
     const h = scorer.scoreRules(block, 'document')
     if (h.score > maxBlockScore) maxBlockScore = h.score
     for (const m of h.matches) matches.add(m)
+    if (TAG_NAMES.has(tag)) {
+      if (h.score > maxTagScore) maxTagScore = h.score
+      for (const m of h.matches) tagMatches.add(m)
+    }
   }
 
   if (maxBlockScore <= 0) return { score: 0, matches: [] }
 
-  // Do the same keywords appear OUTSIDE the data blocks? If so it is direct
-  // injection, not data-channel poisoning — defer to the standard stage.
+  // Is the user's own text an injection the standard stage blocks? Then it is
+  // direct injection, not data-channel poisoning: defer to that stage. Rules
+  // only, at the block line (#919).
   const outside = stripRagContext(prompt)
-  const outsideScore = scorer.score(outside, undefined, undefined, 'prompt').score
-  if (outsideScore > 0) return { score: 0, matches: [] }
+  if (scorer.scoreRules(outside, 'prompt').score >= DIRECT_INJECTION_SCORE) return { score: 0, matches: [] }
+  // User text that scores nothing keeps the escalation it always had. User
+  // text with only weak signals of its own (a formatting request, the entropy
+  // bonus) used to switch the check off for every block (#919); now a tag
+  // block is still escalated when it holds a rule stronger than the weak ones.
+  // Code fences and blockquotes keep the old deferral: lifted for them, the
+  // fence in a repository's CLAUDE.md (a directory listing) and Claude Code's
+  // own skill text in a reminder both blocked.
+  if (scorer.score(outside, undefined, undefined, 'prompt').score > 0) {
+    if (maxTagScore <= 0 || ![...tagMatches].some(m => !WEAK_RULES.has(m))) return { score: 0, matches: [] }
+    tagMatches.add('rag-boundary-violation')
+    return { score: maxTagScore * RAG_BOUNDARY_MULTIPLIER, matches: Array.from(tagMatches) }
+  }
 
   matches.add('rag-boundary-violation')
   return { score: maxBlockScore * RAG_BOUNDARY_MULTIPLIER, matches: Array.from(matches) }
