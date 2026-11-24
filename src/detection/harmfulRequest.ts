@@ -23,7 +23,7 @@
 // stated threat model is injection-first, so operators who want a pure
 // injection firewall can disable it (config or LLM_FW_HARMFUL_REQUEST_ENABLED).
 
-import { foldApostrophes } from './normalize.js'
+import { stripInvisibles, foldApostrophes } from './normalize.js'
 
 export interface HarmfulRequestFinding {
   /** Which rule fired: operational how-to vs harmful-intent content. */
@@ -284,8 +284,8 @@ function snippetAround(text: string, index: number, len: number): string {
  */
 export function detectHarmfulRequest(input: string): HarmfulRequestFinding | null {
   if (!input || input.length < 8) return null
-  // A typographic apostrophe reads as an ASCII one (#802).
-  const text = foldApostrophes(input)
+  // A typographic apostrophe reads as an ASCII one (#802); invisibles go (#914).
+  const text = foldApostrophes(stripInvisibles(input))
 
   const hasHowto = HOWTO_RE.test(text)
   const hasProduce = PRODUCE_RE.test(text)

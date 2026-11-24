@@ -20,6 +20,8 @@
 // literal), then fixed-size work on a sentence of at most 2 * SENTENCE_REACH
 // characters around each path, skipping paths inside a sentence already read.
 
+import { stripInvisibles } from './normalize.js'
+
 export interface SecretFileExfilFinding {
   /** The credential file the sentence names. */
   path: string
@@ -113,8 +115,10 @@ function sendsToDestination(sentence: string, firstSendEnd: number): boolean {
 }
 
 /** The first sentence that orders a credential file sent out or hidden; null when none does. */
-export function detectSecretFileExfil(text: string): SecretFileExfilFinding | null {
-  if (!text || text.length < 8) return null
+export function detectSecretFileExfil(input: string): SecretFileExfilFinding | null {
+  if (!input || input.length < 8) return null
+  // A zero-width character inside ".ssh" or "curl" is not there to a model (#914).
+  const text = stripInvisibles(input)
   let readTo = -1
   SECRET_PATH_RE.lastIndex = 0
   for (let m = SECRET_PATH_RE.exec(text); m !== null; m = SECRET_PATH_RE.exec(text)) {

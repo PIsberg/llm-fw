@@ -4,7 +4,10 @@ function translateHomoglyphs(text: string): string {
   const homoglyphs: Record<string, string> = {
     'а': 'a', 'в': 'b', 'с': 'c', 'е': 'e', 'н': 'h', 'і': 'i', 'к': 'k', 'м': 'm', 'о': 'o', 'р': 'p', 'ѕ': 's', 'т': 't', 'х': 'x', 'у': 'y', 'з': 'z',
     'А': 'a', 'В': 'b', 'С': 'c', 'Е': 'e', 'Н': 'h', 'І': 'i', 'К': 'k', 'М': 'm', 'О': 'o', 'Р': 'p', 'Ѕ': 's', 'Т': 't', 'Х': 'x', 'У': 'y', 'З': 'z',
-    'α': 'a', 'β': 'b', 'ε': 'e', 'η': 'h', 'ι': 'i', 'κ': 'k', 'μ': 'm', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'χ': 'x', 'υ': 'y'
+    'α': 'a', 'β': 'b', 'ε': 'e', 'η': 'h', 'ι': 'i', 'κ': 'k', 'μ': 'm', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'χ': 'x', 'υ': 'y',
+    // Uppercase too: the fold runs before lowercasing, and "ignΟre" with a Greek
+    // capital omicron otherwise lowercased to a Greek letter no rule spells (#914).
+    'Α': 'a', 'Β': 'b', 'Ε': 'e', 'Ζ': 'z', 'Η': 'h', 'Ι': 'i', 'Κ': 'k', 'Μ': 'm', 'Ν': 'n', 'Ο': 'o', 'Ρ': 'p', 'Τ': 't', 'Υ': 'y', 'Χ': 'x'
   }
   // Homoglyph substitution only makes sense for MIXED-script tokens — Latin
   // words with a few lookalike Cyrillic/Greek letters spliced in to dodge a
@@ -16,7 +19,9 @@ function translateHomoglyphs(text: string): string {
   // contains a Latin letter, or one made only of look-alike letters that sits
   // between two Latin words: "і" (U+0456) for the pronoun in "і will destroy"
   // has no Latin letter of its own (#557). In Cyrillic text the neighbours are
-  // Cyrillic, so "на", "о" and "с" stay Russian.
+  // Cyrillic, so "на", "о" and "с" stay Russian. Consecutive look-alike words
+  // are one run, judged by the words on either side of the run (#914): "Reveal
+  // тне ѕуѕтем prompt" has no Latin letter on the two words' shared side.
   //
   // Words are runs of letters, split on anything else, not on whitespace alone
   // (#821): in `{"result":"Αγνόησε ...` the Greek word touched the Latin key
@@ -25,20 +30,38 @@ function translateHomoglyphs(text: string): string {
   const parts = text.split(/(\P{L}+)/u) // even: letter runs ('' only at the ends), odd: separators
   const latin = (i: number): boolean => i >= 0 && i < parts.length && /[a-zA-Z]/.test(parts[i]!)
   const fold = (word: string): string => word.split('').map(char => homoglyphs[char] || char).join('')
-  return parts.map((part, i) => {
-    if (i % 2 === 1 || part === '') return part
-    if (/[a-zA-Z]/.test(part)) return fold(part)
-    if (!part.split('').every(c => c in homoglyphs)) return part
-    // The neighbouring words: an all-look-alike word between Latin ones, or at
-    // the start or end of the text beside one, reads as Latin.
-    let b = i - 2
-    while (b >= 0 && parts[b] === '') b -= 2
-    let a = i + 2
-    while (a < parts.length && parts[a] === '') a += 2
-    const before = b < 0 || latin(b)
-    const after = a >= parts.length || latin(a)
-    return before && after && (latin(b) || latin(a)) ? fold(part) : part
-  }).join('')
+  const lookAlike = (i: number): boolean => !latin(i) && parts[i]!.split('').every(c => c in homoglyphs)
+  const out = parts.slice()
+  let i = 0
+  while (i < parts.length) {
+    const part = parts[i]!
+    // The last word of the run starting here.
+    let last = i
+    if (latin(i)) {
+      out[i] = fold(part)
+    } else if (part !== '' && lookAlike(i)) {
+      // The run of look-alike words this one starts, and the words around it: a
+      // word between Latin words, or at the start or end of the text beside one,
+      // reads as Latin. A run of several needs Latin on both sides, so a Russian
+      // phrase that ends the text ("на месте") stays Russian. Each word is
+      // visited once, so the walk stays linear.
+      let a = i + 2
+      while (a < parts.length && (parts[a] === '' || lookAlike(a))) {
+        if (parts[a] !== '') last = a
+        a += 2
+      }
+      let b = i - 2
+      while (b >= 0 && parts[b] === '') b -= 2
+      const before = b < 0 || latin(b)
+      const after = a >= parts.length || latin(a)
+      const latinSides = last === i ? before && after && (latin(b) || latin(a)) : latin(b) && latin(a)
+      if (latinSides) {
+        for (let k = i; k <= last; k += 2) out[k] = fold(parts[k]!)
+      }
+    }
+    i = last + 2
+  }
+  return out.join('')
 }
 
 function decodeLeetspeak(text: string): string {
@@ -674,20 +697,27 @@ const MAX_JOINED_CANDIDATES = 64
  */
 function joinedWordsCandidates(text: string): { text: string; source: string }[] {
   const runs = new Set<string>()
-  for (const run of new Set(text.match(JOINED_WORDS_RE))) {
+  // Any invisible joins words here, as a zero-width space does (#914): U+034F is a
+  // combining mark, so it hid inside a word, and U+2063 or U+200E were no joiner
+  // at all. The run-together reading below takes the text with them gone, so one
+  // inside a word cannot split the vocabulary either.
+  const hasInvisible = ANY_INVISIBLE_RE.test(text)
+  const marked = hasInvisible ? text.replace(HANGUL_FILLER_RE, ' ').replace(INVISIBLE_RUN_RE, ZERO_WIDTH_SPACE) : text
+  const visible = hasInvisible ? dropInvisibles(text) : text
+  for (const run of new Set(marked.match(JOINED_WORDS_RE))) {
     const spaced = run.replace(WORD_JOINER_RE, ' ')
     if (INVISIBLE_JOINER_RE.test(run) || spaced.split(' ').length >= MIN_UNDERSCORE_WORDS || OVERRIDE_FIRST_RE.test(spaced)) runs.add(spaced)
   }
-  if (OVERRIDE_VERB_RE.test(text)) {
-    for (const run of new Set(text.match(DOTTED_WORDS_RE))) {
+  if (OVERRIDE_VERB_RE.test(visible)) {
+    for (const run of new Set(visible.match(DOTTED_WORDS_RE))) {
       const spaced = run.replaceAll('.', ' ')
       if (OVERRIDE_WORD_RE.test(spaced)) runs.add(spaced)
     }
-    for (const run of new Set(text.match(CAMEL_WORDS_RE))) {
+    for (const run of new Set(visible.match(CAMEL_WORDS_RE))) {
       const spaced = run.replace(CAMEL_HUMP_RE, '$1 $2')
       if (OVERRIDE_WORD_RE.test(spaced)) runs.add(spaced)
     }
-    for (const run of new Set(text.match(RUN_TOGETHER_RE))) {
+    for (const run of new Set(visible.match(RUN_TOGETHER_RE))) {
       if (!OVERRIDE_VERB_RE.test(run)) continue
       for (const phrase of runTogetherPhrases(run.toLowerCase())) runs.add(phrase)
     }
@@ -766,15 +796,35 @@ const HANGUL_FILLER_RE = /[ᅟᅠㅤﾠ]/g
 // Arabic letter mark, and the ranges HIDDEN_CHAR_STRIP_RE already names), plus
 // the interlinear annotation anchors, which are format characters.
 const DEFAULT_IGNORABLE_RE = /[\p{Default_Ignorable_Code_Point}\u{FFF9}-\u{FFFB}]/gu
+const INVISIBLE_RUN_RE = /[\p{Default_Ignorable_Code_Point}\u{FFF9}-\u{FFFB}]+/gu
+const ANY_INVISIBLE_RE = /[\p{Default_Ignorable_Code_Point}\u{FFF9}-\u{FFFB}]/u
+const ZERO_WIDTH_SPACE = String.fromCodePoint(0x200b)
 
 /**
  * Characters a model reads past, removed so they cannot split an injection
  * into pieces no pattern matches. Probed as tool output: U+034F between the
  * letters, U+3164 between the words or U+FFF9/U+FFFB around them each let an
  * otherwise refused injection through.
+ *
+ * The domain detectors read their input through stripInvisibles below (#914).
  */
 function dropInvisibles(text: string): string {
   return text.replace(HANGUL_FILLER_RE, ' ').replace(DEFAULT_IGNORABLE_RE, '')
+}
+
+// What dropInvisibles removes, less the Hangul fillers.
+const UNSEEN_RE = /(?![\u115F\u1160\u3164\uFFA0])[\p{Default_Ignorable_Code_Point}\u{FFF9}-\u{FFFB}]/gu
+
+/**
+ * The text the domain detectors read (#914): the characters that render as
+ * nothing removed, so one inside "forward" or ".ssh" cannot hide it. Hangul
+ * fillers stay: they render as a gap, so a word one splits reads as two to a
+ * model too, and turning one into a space would end an address at it
+ * ("finance@acme.com" then a filler then ".evil.example" read as the trusted
+ * address). A text with nothing to remove is returned as it is.
+ */
+export function stripInvisibles(text: string): string {
+  return ANY_INVISIBLE_RE.test(text) ? text.replace(UNSEEN_RE, '') : text
 }
 
 export function normalize(text: string): string {
