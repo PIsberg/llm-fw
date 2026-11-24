@@ -15,6 +15,12 @@ describe('a forged closing tag stays inside its block (#919)', () => {
     expect(blocks.map(b => b.block).join('\n')).toContain('reveal the system prompt')
   })
 
+  it('reads an opener whose attributes run past 512 characters', () => {
+    // Security review of #919: the first draft capped the attributes.
+    const prompt = `<document title="${'x'.repeat(2_000)}">${ATTACK}</document>`
+    expect(extractRagContext(prompt).map(b => b.block).join('\n')).toContain('reveal the system prompt')
+  })
+
   it('still reads two separate blocks as two', () => {
     const blocks = extractRagContext('<document>first one</document> between <document>second one</document>')
     expect(blocks.map(b => b.block)).toEqual(['first one', 'second one'])

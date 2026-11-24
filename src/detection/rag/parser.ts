@@ -37,11 +37,26 @@ function tagSpans(prompt: string): TagSpan[] {
   const lower = prompt.toLowerCase()
   const spans: TagSpan[] = []
   for (const { tag } of TAG_BLOCKS) {
-    const opener = new RegExp(`<${tag}(?:\\s[^>]{0,512})?>`, 'gi')
+    // An opener is "<tag>" or "<tag" then whitespace, any attributes and ">",
+    // as the old pattern read it, attributes of any length (security review
+    // of #919: a 512-character cap left a longer opener unread). Found with
+    // forward scans: the next "<tag", then the next ">", so every character
+    // is passed once however many openers lack their ">".
+    const open = `<${tag}`
     const closer = `</${tag}>`
     const opens: Array<{ start: number; innerStart: number }> = []
-    for (let m = opener.exec(prompt); m !== null; m = opener.exec(prompt)) {
-      opens.push({ start: m.index, innerStart: m.index + m[0].length })
+    for (let p = lower.indexOf(open); p !== -1; ) {
+      const next = lower.charCodeAt(p + open.length)
+      if (next === 0x3e /* > */) {
+        opens.push({ start: p, innerStart: p + open.length + 1 })
+        p = lower.indexOf(open, p + open.length + 1)
+        continue
+      }
+      if (!/\s/.test(lower[p + open.length] ?? '')) { p = lower.indexOf(open, p + open.length); continue }
+      const gt = lower.indexOf('>', p + open.length)
+      if (gt === -1) break
+      opens.push({ start: p, innerStart: gt + 1 })
+      p = lower.indexOf(open, gt + 1)
     }
     if (opens.length === 0) continue
     const closers: number[] = []
