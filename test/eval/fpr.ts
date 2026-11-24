@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.101 (#866: the MCP request checks moved into a shared function; no verdict change).
   // Held at ruleset 2026.11.100 (#865: the audit.webhookHeaders default; no detection change).
   // Held at ruleset 2026.11.99 (#864: config hot reload and atomic config writes; no detection change).
   // Held at ruleset 2026.11.98 (#864: config files are checked at load; no detection change).

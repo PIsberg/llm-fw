@@ -60,6 +60,11 @@ export class McpScanner {
     this.dlp = dlp
   }
 
+  /** Whether MCP inspection is on, read live (hot reload toggles it). */
+  isEnabled(): boolean {
+    return this.config.enabled
+  }
+
   checkToolDefinitions(tools: unknown[]): McpCheckResult {
     if (!this.config.enabled) return { action: 'pass' }
 

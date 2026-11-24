@@ -33,6 +33,9 @@ import { canaryToken, injectCanary, guardCanary } from '../proxy/canary.js';
 import { locateDlpFindings, locationSummary } from '../proxy/dlpLocation.js';
 import { getLlmFwDir } from '../config/paths.js';
 import { sniName } from '../proxy/sni.js';
+import { McpScanner } from '../detection/mcp/scanner.js';
+import { checkMcpRequest } from '../detection/mcp/requestCheck.js';
+import { UrlClassifier } from '../detection/urlHeuristic.js';
 
 const log = createLogger('gateway');
 
@@ -72,6 +75,9 @@ export class GatewayServer {
   private readonly ownsPipeline: boolean;
   private readonly sandbox = new SandboxDetector();
   private dlp: DlpScanner;
+  // Request-side checks the proxy also runs (#866).
+  private mcp: McpScanner;
+  private urlClassifier: UrlClassifier;
   private eventBus: EventBus;
   private metrics?: MetricsRegistry | undefined;
   private config: Config;
@@ -97,6 +103,8 @@ export class GatewayServer {
     this.ownsPipeline = pipeline === undefined;
     this.pipeline = pipeline ?? new Pipeline(config, partial => eventBus.emit(partial), suppressions);
     this.dlp = new DlpScanner(config.dlp);
+    this.mcp = new McpScanner(config, this.dlp);
+    this.urlClassifier = new UrlClassifier(config.proxy.urlFilter);
 
     const gw = config.gateway;
     this.providers = { ...BUILTIN_PROVIDERS };
@@ -573,6 +581,32 @@ export class GatewayServer {
     const tenantTag = tenant ? { tenant: tenant.id } : {};
     const observedTag = observing ? { enforced: false } : {};
 
+    // Outbound URL exfiltration in the path and query, as the proxy screens
+    // it before reading the body (#866: the gateway skipped it).
+    if (this.config.proxy.urlFilter.enabled) {
+      const q = (req.url ?? '').indexOf('?');
+      const fullPath = path + (q === -1 ? '' : (req.url ?? '').slice(q));
+      const verdict = this.urlClassifier.classifyPath(fullPath);
+      if (verdict.action === 'block') {
+        const event = this.eventBus.emit({
+          stage: 'url-filter', score: 100, similarity: 0,
+          target, method, path,
+          payload_preview: fullPath.slice(0, 120), payload_full: fullPath,
+          action: 'blocked', kind: 'url', urlBlockReason: verdict.reason,
+          ...observedTag, ...tenantTag,
+        });
+        if (!observing) {
+          return {
+            blocked: true, status: this.config.blockStatus ?? 422,
+            body: explainGate({
+              eventId: event.id, error: 'url blocked',
+              stage: 'url-filter', kind: 'url', detail: verdict.reason ?? 'exfiltration in the URL', dashboardUrl,
+            }),
+          };
+        }
+      }
+    }
+
     const moduleCtx = this.moduleContext(req, route, tenant);
     if (moduleCtx) {
       const modRes = await this.modules.transformRequest(text, moduleCtx);
@@ -625,6 +659,27 @@ export class GatewayServer {
           text = this.dlp.redact(text, findings);
           bodyBuf = Buffer.from(text, 'utf-8');
         }
+      }
+    }
+
+    // MCP request checks, shared with the proxy (#866: the gateway ran none,
+    // so a blocked tool definition reached the provider).
+    const mcpParser = getParser(path);
+    if (mcpParser) {
+      const checked = checkMcpRequest(mcpParser, text, this.mcp, id => this.pipeline.learnedCall(id)?.name);
+      let refusalEventId = '';
+      for (const e of checked.events) {
+        const stored = this.eventBus.emit({ ...e, target, method, path, ...(e.action === 'blocked' ? observedTag : {}), ...tenantTag });
+        if (e.action === 'blocked') refusalEventId = stored.id;
+      }
+      if (checked.refusal !== null && !observing) {
+        return {
+          blocked: true, status: this.config.blockStatus ?? 422,
+          body: explainGate({
+            eventId: refusalEventId, error: checked.refusal,
+            stage: 'mcp-filter', kind: 'mcp', detail: checked.refusal, dashboardUrl,
+          }),
+        };
       }
     }
 
