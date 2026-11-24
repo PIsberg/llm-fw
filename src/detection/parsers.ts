@@ -57,7 +57,27 @@ function isBase64Image(b: any): boolean {
   return png || jpeg || gif || webp
 }
 
-function toolResultText(content: unknown): string {
+/**
+ * Whether `b` is exactly a Bedrock Converse image with its bytes inline: an
+ * `image` key and nothing else, holding only one of Bedrock's four formats and
+ * a `source` with base64 `bytes` that open as that format, as isBase64Image
+ * checks. extractMediaBlocks reads it from tool results, so its bytes are not
+ * text: as JSON they put megabytes of base64 through every text stage (#917).
+ * Documents and videos keep their JSON: not every document format is one the
+ * media path decodes, so their bytes stay where the text stages read them.
+ */
+function isBedrockInlineImage(b: any): boolean {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return false
+  if (Object.keys(b).length !== 1 || !b.image || typeof b.image !== 'object') return false
+  const m = b.image
+  if (Object.keys(m).some(k => k !== 'format' && k !== 'source') || !['png', 'jpeg', 'gif', 'webp'].includes(m.format)) return false
+  const s = m.source
+  if (!s || typeof s !== 'object' || Object.keys(s).length !== 1 || typeof s.bytes !== 'string') return false
+  return isBase64Image({ type: 'image', source: { type: 'base64', media_type: `image/${m.format}`, data: s.bytes } })
+}
+
+/** Bedrock Converse reads its own image shape as media; every other provider scans that shape as text. */
+function toolResultText(content: unknown, bedrock = false): string {
   if (typeof content === 'string') return content
   if (content === undefined) return ''
   if (!Array.isArray(content)) return JSON.stringify(content)
@@ -65,7 +85,7 @@ function toolResultText(content: unknown): string {
     if (typeof b === 'string') return b
     if (typeof b?.text === 'string') return b.text
     // A block's own title and context are text beside its content (#857).
-    if (Array.isArray(b?.content)) return [b.title, b.context].filter((s: unknown): s is string => typeof s === 'string' && s.length > 0).concat(toolResultText(b.content)).join('\n')
+    if (Array.isArray(b?.content)) return [b.title, b.context].filter((s: unknown): s is string => typeof s === 'string' && s.length > 0).concat(toolResultText(b.content, bedrock)).join('\n')
     // Images and files in a Responses tool output are read as media (#857).
     if (b?.type === 'input_image' || b?.type === 'input_file') return ''
     // Claude Code's tool search: a block that names a tool to load and holds
@@ -74,6 +94,7 @@ function toolResultText(content: unknown): string {
     // whole, as an unknown block is.
     if (b?.type === 'tool_reference' && typeof b.tool_name === 'string' && TOOL_NAME.test(b.tool_name) && Object.keys(b).length === 2) return b.tool_name
     if (isBase64Image(b)) return ''
+    if (bedrock && isBedrockInlineImage(b)) return ''
     return JSON.stringify(b)
   }).join('\n')
 }
@@ -660,6 +681,12 @@ class OpenAIParser implements PayloadParser {
  * gating is left as a best-effort stub (Cohere streams tool calls in its own
  * event shape, handled by the generic passthrough).
  */
+/** A Cohere v1 chat_history turn's role, lower-cased; '' when it has none. */
+function cohereRole(turn: unknown): string {
+  const role = (turn as Record<string, unknown> | null)?.role
+  return typeof role === 'string' ? role.toLowerCase() : ''
+}
+
 class CohereParser implements PayloadParser {
   supports(path: string): boolean {
     const p = (path.split('?')[0] ?? '')
@@ -671,16 +698,20 @@ class CohereParser implements PayloadParser {
       const data = JSON.parse(body)
       const results: string[] = []
 
-      // v1: { message, chat_history:[{role:'USER'|'CHATBOT', message}], preamble }
-      if (typeof data.message === 'string') results.push(data.message)
+      // v1: { preamble, chat_history:[{role, message}], message }. `message` is
+      // the newest user turn, so it goes last: the pipeline takes the last
+      // prompt for the newest, and with `message` first it withheld an
+      // injection there as an older turn instead of refusing it (#917). Every
+      // history turn but the model's own is scanned, SYSTEM ones included: the
+      // client sends them, and only the top-level preamble is the system
+      // prompt. Roles in any case.
       if (typeof data.preamble === 'string') results.push(data.preamble)
       if (Array.isArray(data.chat_history)) {
         for (const turn of data.chat_history) {
-          if (turn && turn.role !== 'CHATBOT' && typeof turn.message === 'string') {
-            results.push(turn.message)
-          }
+          if (cohereRole(turn) !== 'chatbot' && typeof turn?.message === 'string') results.push(turn.message)
         }
       }
+      if (typeof data.message === 'string') results.push(data.message)
 
       // v2: { messages:[{role, content}] } (OpenAI-like)
       if (Array.isArray(data.messages)) {
@@ -1228,7 +1259,7 @@ class BedrockParser implements PayloadParser {
               const call = typeof tr.toolUseId === 'string' ? calls.get(tr.toolUseId) : undefined
               results.push({
                 toolUseId: typeof tr.toolUseId === 'string' ? tr.toolUseId : 'unknown',
-                result: toolResultText(tr.content ?? tr),
+                result: toolResultText(tr.content ?? tr, true),
                 ...call,
               })
             }
