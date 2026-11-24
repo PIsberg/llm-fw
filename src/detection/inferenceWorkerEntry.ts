@@ -1,6 +1,7 @@
 import { parentPort } from 'node:worker_threads'
 import { embedRaw, loadEmbeddingExtractor, type FeatureExtractor } from './embedding.js'
 import { loadInjectionClassifier, type ClassifyFn } from './classifier.js'
+import { cachedLoad } from './modelLoad.js'
 
 /**
  * Task C3 — the code that actually runs INSIDE the persistent worker thread
@@ -21,17 +22,16 @@ if (!port) {
   throw new Error('inferenceWorkerEntry.ts must be run inside a worker_threads Worker')
 }
 
-let extractorPromise: Promise<FeatureExtractor> | null = null
+// One load each, shared by every request; a failed one is tried again after
+// LOAD_RETRY_MS rather than failing every request for the worker's life (#869).
+// The first request's options choose the extractor's, as before.
+let extractorLoad: (() => Promise<FeatureExtractor>) | null = null
 function getExtractor(spinWait: boolean, threads: number | undefined): Promise<FeatureExtractor> {
-  if (!extractorPromise) extractorPromise = loadEmbeddingExtractor(spinWait, threads)
-  return extractorPromise
+  extractorLoad ??= cachedLoad(() => loadEmbeddingExtractor(spinWait, threads))
+  return extractorLoad()
 }
 
-let classifierPromise: Promise<ClassifyFn> | null = null
-function getClassifier(): Promise<ClassifyFn> {
-  if (!classifierPromise) classifierPromise = loadInjectionClassifier()
-  return classifierPromise
-}
+const getClassifier: () => Promise<ClassifyFn> = cachedLoad(loadInjectionClassifier)
 
 interface WorkerRequest {
   id: number

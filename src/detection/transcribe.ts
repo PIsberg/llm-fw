@@ -1,4 +1,4 @@
-import { DEFAULT_LOAD_TIMEOUT_MS, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
+import { DEFAULT_LOAD_TIMEOUT_MS, LOAD_RETRY_MS, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 
 /**
  * Opt-in speech transcription for audio blocks (issue #82).
@@ -60,8 +60,14 @@ const baseMime = (mimeType: string | undefined) => (mimeType ?? '').split(';')[0
 type Transcriber = (audio: Float32Array, opts?: Record<string, unknown>) => Promise<{ text?: string } | { text?: string }[]>
 
 let transcriberPromise: Promise<Transcriber | null> | null = null
+// When the last load failed; the next use past LOAD_RETRY_MS loads again (#869).
+let transcriberFailedAt = 0
 
 async function getTranscriber(loadTimeoutMs: number): Promise<Transcriber | null> {
+  if (transcriberPromise && transcriberFailedAt > 0 && Date.now() - transcriberFailedAt >= LOAD_RETRY_MS) {
+    transcriberPromise = null
+    transcriberFailedAt = 0
+  }
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
       try {
@@ -77,6 +83,7 @@ async function getTranscriber(loadTimeoutMs: number): Promise<Transcriber | null
           { label: 'speech transcription model', timeoutMs: loadTimeoutMs },
         )
       } catch {
+        transcriberFailedAt = Date.now()
         return null // offline first run, install issue: degrade to opaque.
       }
     })()

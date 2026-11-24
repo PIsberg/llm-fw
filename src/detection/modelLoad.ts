@@ -112,3 +112,34 @@ export async function loadWithVisibility<T>(
 // onnxruntime's intra-op threads spin between work items by default, which holds
 // the process at about 1,190% of one core at any load reaching a model (#631).
 export const NO_SPINNING = { extra: { session: { intra_op: { allow_spinning: '0' } } } }
+
+/**
+ * How long a failed model load is remembered before the next use tries again
+ * (#869). Remembered for good, one Hugging Face 429 or dropped connection at
+ * startup turned a stage off until the process restarted; retried on every
+ * use, a model that cannot load would be fetched once per request.
+ */
+export const LOAD_RETRY_MS = 60_000
+
+/**
+ * One shared load: every caller gets the same promise, and a failure (a
+ * rejection, or a value `failed` calls one) is kept for LOAD_RETRY_MS, after
+ * which the next call loads again.
+ */
+export function cachedLoad<T>(load: () => Promise<T>, opts: { failed?: (value: T) => boolean } = {}): () => Promise<T> {
+  let promise: Promise<T> | null = null
+  let failedAt = 0
+  return () => {
+    if (promise && failedAt > 0 && Date.now() - failedAt >= LOAD_RETRY_MS) { promise = null; failedAt = 0 }
+    if (!promise) {
+      promise = load().then(
+        (value) => {
+          if (opts.failed?.(value)) { failedAt = Date.now() }
+          return value
+        },
+        (err: unknown) => { failedAt = Date.now(); throw err },
+      )
+    }
+    return promise
+  }
+}
