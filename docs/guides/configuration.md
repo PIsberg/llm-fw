@@ -370,7 +370,7 @@ commits them (`input_audio_buffer.commit`, or `response.create` with audio
 buffered) and scanned like an `input_audio` part, so `nonText.transcribe` and
 `nonText.mode` apply as above; user text, whether added with
 `conversation.item.create` or passed as `response.create` input, is scanned as
-a prompt and `function_call_output` as a tool result (honouring
+a prompt (with any `input_image` part read as an image, #867) and `function_call_output` as a tool result (honouring
 `detection.surfaces.tool_result.onBlock`, so under `'withhold'` its output is
 replaced with a notice and the session stays open). `session.update` and
 `response.create` instructions and `system`-role items are developer-authored
@@ -384,8 +384,9 @@ and grow one buffer until the process ran out of memory. With server-side voice
 activity detection the client never commits, so every 15 s of buffered audio is
 also scanned while it streams; a block there ends the session, but that audio
 has already reached the provider. A block sends the client an `error` event
-with `code: "llm_fw_blocked"` and closes the socket with 1008. Each scan is
-capped at 120 s of audio.
+with `code: "llm_fw_blocked"` and closes the socket with 1008, between two of the provider's frames: the relay forwards the provider's
+frames whole, so a refusal never lands inside one, and the frame in progress is dropped (#867). The close reason is cut at 123 bytes of UTF-8. Each scan is
+capped at 120 s of audio. Client messages are scanned one at a time, in order; while more than 4 MiB of them wait, the relay stops reading from the client until half of that has gone through. A provider whose handshake answer runs past 64 KiB without ending its head is answered 502.
 
 Gemini Live maps onto the same scan points. `realtimeInput` audio (PCM16 at the
 rate its `audio/pcm;rate=` mime type names, 16 kHz by default) is buffered and
@@ -393,7 +394,7 @@ scanned when the turn ends (`activityEnd` or `audioStreamEnd`), and every 15 s
 while it streams under automatic activity detection. `realtimeInput` text and
 the user turns of `clientContent` are scanned as a prompt (model turns are
 history and pass), `toolResponse` function responses as tool results, and video
-frames as images, so `nonText.mode` applies to them. `setup` is
+frames as images, so `nonText.mode` applies to them; other inline data (a PDF, text, audio that is not PCM) is read as an uploaded file, and a `fileData` part as a file it cannot open; a turn's `functionResponse` parts are read as tool results and its `functionCall`, `executableCode` and `codeExecutionResult` parts as text. A message that carries `realtimeInput` together with `clientContent` or `toolResponse` has every field read, in both spellings protobuf's JSON mapping accepts (`client_content`, `inline_data`, `mime_type` and so on), and in both when a message carries both (#867). `setup` is
 developer-authored and passes, but DLP reads it. A message that carries only
 media skips DLP, whose patterns would otherwise run over base64. Gemini clients
 read errors from the close frame, so a block closes the socket with 1008 and a

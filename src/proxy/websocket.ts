@@ -50,14 +50,27 @@ export function encodeFrame(opcode: number, payload: Buffer, mask: boolean, fin 
  */
 export class FrameReader {
   private buf: Buffer = Buffer.alloc(0)
+  // Chunks not yet joined to buf, and the bytes buf needs before the next
+  // frame can be read. Joining every chunk as it came copied a large frame
+  // once per chunk: 8 MiB in 4 KiB chunks took 2.4 s (#867).
+  private pending: Buffer[] = []
+  private pendingBytes = 0
+  private need = 0
 
   constructor(private readonly maxPayload = 16 * 1024 * 1024) {}
 
   push(chunk: Buffer): Frame[] {
-    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk
+    if (chunk.length) { this.pending.push(chunk); this.pendingBytes += chunk.length }
+    if (this.buf.length + this.pendingBytes < this.need) return []
+    if (this.pending.length) {
+      this.buf = this.buf.length || this.pending.length > 1 ? Buffer.concat([this.buf, ...this.pending]) : this.pending[0]!
+      this.pending = []
+      this.pendingBytes = 0
+    }
+    this.need = 0
     const frames: Frame[] = []
     for (;;) {
-      if (this.buf.length < 2) break
+      if (this.buf.length < 2) { this.need = 2; break }
       const b0 = this.buf[0] ?? 0
       const b1 = this.buf[1] ?? 0
       if (b0 & 0x70) throw new Error('websocket frame uses an extension that was not negotiated')
@@ -65,11 +78,11 @@ export class FrameReader {
       let len = b1 & 0x7f
       let offset = 2
       if (len === 126) {
-        if (this.buf.length < 4) break
+        if (this.buf.length < 4) { this.need = 4; break }
         len = this.buf.readUInt16BE(2)
         offset = 4
       } else if (len === 127) {
-        if (this.buf.length < 10) break
+        if (this.buf.length < 10) { this.need = 10; break }
         const big = this.buf.readBigUInt64BE(2)
         if (big > BigInt(this.maxPayload)) throw new Error('websocket frame too large')
         len = Number(big)
@@ -77,7 +90,7 @@ export class FrameReader {
       }
       if (len > this.maxPayload) throw new Error('websocket frame too large')
       const total = offset + (masked ? 4 : 0) + len
-      if (this.buf.length < total) break
+      if (this.buf.length < total) { this.need = total; break }
       const raw = this.buf.subarray(0, total)
       const payload = Buffer.from(this.buf.subarray(offset + (masked ? 4 : 0), total))
       if (masked) {
@@ -215,39 +228,79 @@ export const GEMINI_LIVE: RealtimeProtocol = {
   label: 'Gemini Live',
   jsonInBinary: true,
   plan(event, audioBuffered) {
-    const ri = asRecord(event.realtimeInput)
-    if (ri) return geminiRealtimeInput(ri, audioBuffered)
-    const scans: RealtimeScan[] = []
-    const cc = asRecord(event.clientContent)
-    if (cc && Array.isArray(cc.turns)) scans.push(...geminiClientContent(cc.turns))
-    const tr = asRecord(event.toolResponse)
-    if (tr && Array.isArray(tr.functionResponses)) scans.push(...geminiToolResponse(tr.functionResponses))
-    return { audio: [], clearAudio: false, dlp: true, scans }
+    // The fields are a oneof, but every one present is read (#867): returning
+    // at realtimeInput let `{ realtimeInput: {}, clientContent: ... }` through.
+    // So is every spelling (see fields()).
+    const plan: ClientMessagePlan = { audio: [], clearAudio: false, dlp: false, scans: [] }
+    for (const ri of records(fields(event, 'realtimeInput', 'realtime_input'))) {
+      const p = geminiRealtimeInput(ri, audioBuffered)
+      plan.audio.push(...p.audio)
+      plan.scans.push(...p.scans)
+      if (p.dlp) plan.dlp = true
+    }
+    for (const cc of records(fields(event, 'clientContent', 'client_content'))) {
+      for (const turns of fields(cc, 'turns', 'turns')) if (Array.isArray(turns)) plan.scans.push(...geminiClientContent(turns))
+    }
+    for (const tr of records(fields(event, 'toolResponse', 'tool_response'))) {
+      for (const frs of fields(tr, 'functionResponses', 'function_responses')) if (Array.isArray(frs)) plan.scans.push(...geminiToolResponse(frs))
+    }
+    // Only a message that is nothing but realtime media skips DLP.
+    if (Object.keys(event).some(k => k !== 'realtimeInput' && k !== 'realtime_input')) plan.dlp = true
+    return plan
   },
   errorEvent() {
     return null
   },
 }
 
+/**
+ * Every value a Gemini message gives one field (security review of #867).
+ * Protobuf's JSON mapping accepts a field's proto name (`client_content`) as
+ * well as its lowerCamelCase one (`clientContent`), and the relay read only
+ * the second, so the same message in snake_case went through unscanned. A
+ * message that carries both is read in both, whichever the server takes.
+ */
+function fields(obj: Record<string, unknown> | null | undefined, camel: string, snake: string): unknown[] {
+  if (!obj) return []
+  const out: unknown[] = []
+  if (obj[camel] !== undefined) out.push(obj[camel])
+  if (snake !== camel && obj[snake] !== undefined) out.push(obj[snake])
+  return out
+}
+
+function records(values: unknown[]): Array<Record<string, unknown>> {
+  return values.map(v => asRecord(v)).filter((r): r is Record<string, unknown> => r !== null)
+}
+
+/** A blob's mime type; when its two spellings disagree, one the media stage reads as opaque. */
+function mimeOf(blob: Record<string, unknown>): string | null {
+  const types = fields(blob, 'mimeType', 'mime_type').filter((t): t is string => typeof t === 'string')
+  if (types.length === 0) return null
+  return types.every(t => t === types[0]) ? types[0]! : 'application/octet-stream'
+}
+
 function geminiRealtimeInput(ri: Record<string, unknown>, audioBuffered: boolean): ClientMessagePlan {
   const media: Array<Record<string, unknown>> = []
-  if (Array.isArray(ri.mediaChunks)) for (const c of ri.mediaChunks) { const r = asRecord(c); if (r) media.push(r) }
-  for (const key of ['audio', 'video'] as const) { const r = asRecord(ri[key]); if (r) media.push(r) }
+  for (const chunks of fields(ri, 'mediaChunks', 'media_chunks')) if (Array.isArray(chunks)) media.push(...records(chunks))
+  for (const key of ['audio', 'video'] as const) media.push(...records(fields(ri, key, key)))
   const audio: AudioChunk[] = []
   const images: unknown[] = []
   for (const m of media) {
-    if (typeof m.data !== 'string' || typeof m.mimeType !== 'string') continue
-    if (m.mimeType.startsWith('audio/pcm')) audio.push({ data: m.data, sampleRate: pcmRate(m.mimeType) })
-    else if (m.mimeType.startsWith('image/')) images.push(imagePart(m.mimeType, m.data))
+    const mime = mimeOf(m)
+    if (typeof m.data !== 'string' || mime === null) continue
+    if (mime.startsWith('audio/pcm')) audio.push({ data: m.data, sampleRate: pcmRate(mime) })
+    else if (mime.startsWith('image/')) images.push(imagePart(mime, m.data))
+    else images.push(filePart(mime, m.data))
   }
-  const text = typeof ri.text === 'string' && ri.text ? ri.text : null
+  const texts = fields(ri, 'text', 'text').filter((t): t is string => typeof t === 'string' && t.length > 0)
   const scans: RealtimeScan[] = []
   // The turn ends: scan what was buffered, plus this message's own audio.
-  if ((ri.activityEnd || ri.audioStreamEnd) && (audioBuffered || audio.length > 0)) scans.push({ kind: 'audio' })
+  const ends = [...fields(ri, 'activityEnd', 'activity_end'), ...fields(ri, 'audioStreamEnd', 'audio_stream_end')].some(Boolean)
+  if (ends && (audioBuffered || audio.length > 0)) scans.push({ kind: 'audio' })
   if (images.length) scans.push({ kind: 'body', surface: 'video', body: chatBody([{ role: 'user', content: images }]) })
-  if (text !== null) scans.push({ kind: 'body', surface: 'prompt', body: chatBody([{ role: 'user', content: [{ type: 'text', text }] }]) })
+  for (const text of texts) scans.push({ kind: 'body', surface: 'prompt', body: chatBody([{ role: 'user', content: [{ type: 'text', text }] }]) })
   // Only media: DLP would read base64, and a random run of it can look like a key.
-  return { audio, clearAudio: false, dlp: text !== null, scans }
+  return { audio, clearAudio: false, dlp: texts.length > 0, scans }
 }
 
 function geminiClientContent(turns: unknown[]): RealtimeScan[] {
@@ -256,23 +309,47 @@ function geminiClientContent(turns: unknown[]): RealtimeScan[] {
   for (const t of turns) {
     const turn = asRecord(t)
     // Model turns are history, skipped like assistant messages on the HTTP path.
-    if (!turn || turn.role === 'model' || !Array.isArray(turn.parts)) continue
+    if (!turn || turn.role === 'model') continue
     const content: unknown[] = []
-    for (const p of turn.parts) {
-      const part = asRecord(p)
-      if (typeof part?.text === 'string') content.push({ type: 'text', text: part.text })
-      const inline = asRecord(part?.inlineData)
-      if (!inline || typeof inline.data !== 'string' || typeof inline.mimeType !== 'string') continue
-      if (inline.mimeType.startsWith('audio/pcm')) {
-        const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY, pcmRate(inline.mimeType))
-        buf.append(inline.data)
-        content.push({ type: 'input_audio', input_audio: { data: buf.toWav().toString('base64'), format: 'wav' } })
-        hasAudio = true
-      } else if (inline.mimeType.startsWith('image/')) {
-        content.push(imagePart(inline.mimeType, inline.data))
+    const toolOutputs: unknown[] = []
+    for (const parts of fields(turn, 'parts', 'parts')) {
+      if (!Array.isArray(parts)) continue
+      for (const part of records(parts)) {
+        if (typeof part.text === 'string') content.push({ type: 'text', text: part.text })
+        // Tool output in a turn is scored as a tool result, as on the HTTP
+        // path; a call's arguments and code parts are text the model reads
+        // (security review of #867: none of them were read).
+        for (const fr of records(fields(part, 'functionResponse', 'function_response'))) {
+          const id = typeof fr.id === 'string' ? fr.id : typeof fr.name === 'string' ? fr.name : 'gemini-live'
+          toolOutputs.push({ role: 'tool', tool_call_id: id, content: JSON.stringify(fr.response ?? {}) })
+        }
+        for (const fc of records(fields(part, 'functionCall', 'function_call'))) content.push({ type: 'text', text: JSON.stringify(fc.args ?? {}) })
+        for (const ec of records(fields(part, 'executableCode', 'executable_code'))) if (typeof ec.code === 'string') content.push({ type: 'text', text: ec.code })
+        for (const cr of records(fields(part, 'codeExecutionResult', 'code_execution_result'))) if (typeof cr.output === 'string') content.push({ type: 'text', text: cr.output })
+        // A file the client points at (a Cloud Storage URI): not readable
+        // here, so the media stage weighs it as an opaque upload.
+        for (const fd of records(fields(part, 'fileData', 'file_data'))) {
+          const uri = fields(fd, 'fileUri', 'file_uri').find((u): u is string => typeof u === 'string')
+          if (uri) content.push({ type: 'file', file: { file_id: uri } })
+        }
+        for (const inline of records(fields(part, 'inlineData', 'inline_data'))) {
+          const mime = mimeOf(inline)
+          if (typeof inline.data !== 'string' || mime === null) continue
+          if (mime.startsWith('audio/pcm')) {
+            const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY, pcmRate(mime))
+            buf.append(inline.data)
+            content.push({ type: 'input_audio', input_audio: { data: buf.toWav().toString('base64'), format: 'wav' } })
+            hasAudio = true
+          } else if (mime.startsWith('image/')) {
+            content.push(imagePart(mime, inline.data))
+          } else {
+            content.push(filePart(mime, inline.data))
+          }
+        }
       }
     }
     if (content.length) messages.push({ role: 'user', content })
+    messages.push(...toolOutputs)
   }
   return messages.length ? [{ kind: 'body', surface: hasAudio ? 'audio-item' : 'prompt', body: chatBody(messages) }] : []
 }
@@ -313,6 +390,15 @@ function geminiToolResponse(responses: unknown[]): RealtimeScan[] {
 
 function imagePart(mimeType: string, data: string): unknown {
   return { type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } }
+}
+
+/**
+ * Any other inline data (a PDF, text, audio that is not PCM), as a chat file
+ * part, so the media stage reads it as it reads an upload: only PCM audio and
+ * images were read, and the rest went to the model unscanned (#867).
+ */
+function filePart(mimeType: string, data: string): unknown {
+  return { type: 'file', file: { filename: 'inline', file_data: `data:${mimeType};base64,${data}` } }
 }
 
 const GEMINI_LIVE_PATH_RE = /^\/ws\/google\.ai\.generativelanguage\.v1(?:alpha|beta)?\.GenerativeService\.BidiGenerateContent(?:Constrained)?(?:[/?]|$)/
@@ -410,6 +496,8 @@ function itemScan(item: Record<string, unknown> | undefined): RealtimeScan {
   const parts: unknown[] = []
   for (const part of item.content as Array<Record<string, unknown>>) {
     if (part?.type === 'input_text' && typeof part.text === 'string') parts.push({ type: 'text', text: part.text })
+    // An image attached to an item (#867): read by the media stage as a chat image.
+    if (part?.type === 'input_image' && typeof part.image_url === 'string') parts.push({ type: 'image_url', image_url: { url: part.image_url } })
     // A whole clip attached to an item: PCM16, which the transcriber reads as WAV.
     if (part?.type === 'input_audio' && typeof part.audio === 'string') {
       const buf = new RealtimeAudioBuffer(Number.POSITIVE_INFINITY)
@@ -428,6 +516,23 @@ export function audioScanBody(wav: Buffer): string {
 }
 
 /**
+ * The longest prefix of `s` that fits in `max` bytes of UTF-8, cut between
+ * characters. The close reason was cut at 120 UTF-16 code units, which is up
+ * to 360 bytes: a close frame past RFC 6455's 125 (#867).
+ */
+function utf8Prefix(s: string, max: number): Buffer {
+  let bytes = 0
+  let end = 0
+  for (const ch of s) {
+    const n = Buffer.byteLength(ch)
+    if (bytes + n > max) break
+    bytes += n
+    end += ch.length
+  }
+  return Buffer.from(s.slice(0, end), 'utf8')
+}
+
+/**
  * Write an unmasked (server-to-client) error event when the protocol has one,
  * and a close frame whose reason is capped at the 123 bytes RFC 6455 allows,
  * then end the socket.
@@ -435,9 +540,10 @@ export function audioScanBody(wav: Buffer): string {
 export function refuseRealtime(client: Duplex, errorEvent: Record<string, unknown> | null, reason: string, code = 1008): void {
   try {
     if (errorEvent) client.write(encodeFrame(OPCODE.text, Buffer.from(JSON.stringify(errorEvent)), false))
-    const close = Buffer.alloc(2 + Buffer.byteLength(reason.slice(0, 120)))
+    const text = utf8Prefix(reason, 123)
+    const close = Buffer.alloc(2 + text.length)
     close.writeUInt16BE(code, 0) // 1008 policy violation, 1009 message too big
-    close.write(reason.slice(0, 120), 2)
+    text.copy(close, 2)
     client.write(encodeFrame(OPCODE.close, close, false))
   } catch { /* client already gone */ }
   client.end()
