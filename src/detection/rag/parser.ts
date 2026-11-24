@@ -34,7 +34,11 @@ interface TagSpan { tag: string; start: number; innerStart: number; innerEnd: nu
  * the cost is the text's length.
  */
 function tagSpans(prompt: string): TagSpan[] {
-  const lower = prompt.toLowerCase()
+  // ASCII letters only, so every offset in the copy is an offset in the
+  // prompt: toLowerCase() turns some characters into two (U+0130 into "i"
+  // and a combining dot), and the spans it found landed beside the text they
+  // named (security review of #919). Tags and closers are ASCII.
+  const lower = prompt.replace(/[A-Z]/g, c => c.toLowerCase())
   const spans: TagSpan[] = []
   for (const { tag } of TAG_BLOCKS) {
     // An opener is "<tag>" or "<tag" then whitespace, any attributes and ">",
