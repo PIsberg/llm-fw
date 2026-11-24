@@ -7,7 +7,12 @@ describe('loopback spellings (#920)', () => {
     expect(isLoopbackAddr(a)).toBe(true)
   })
 
-  it.each(['::2', '::ffff:10.0.0.1', '0:0:0:0:0:0:0:2', '1::1'])('%s is not', (a) => {
+  // ::0.0.0.1 is ::1 written with a dotted tail: the same 128 bits.
+  it.each(['::ffff:7f00:1', '::FFFF:7F00:0001', '::0.0.0.1'])('%s (another spelling) is loopback', (a) => {
+    expect(isLoopbackAddr(a)).toBe(true)
+  })
+
+  it.each(['::2', '::ffff:10.0.0.1', '0:0:0:0:0:0:0:2', '1::1', '::127.0.0.1', 'localhost', '127.0.0.1.evil', ''])('%s is not', (a) => {
     expect(isLoopbackAddr(a)).toBe(false)
   })
 

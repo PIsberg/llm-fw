@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
-import { isIP, isIPv4, isIPv6 } from 'node:net';
+import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net';
 
 /**
  * Shared credential handling for every listener that can be exposed off-host:
@@ -15,21 +15,23 @@ export function isLoopbackAddr(addr: string | undefined): boolean {
   // Any spelling of the loopback addresses (#920): the IPv4-mapped prefix in
   // either case, brackets, and IPv6 written out in full or compressed
   // differently. ::FFFF:127.0.0.1 and 0:0:0:0:0:0:0:1 used to read as remote.
-  let a = addr.trim().toLowerCase();
+  // Node's own address parser decides, through a BlockList (security review
+  // of #920: a hand-rolled IPv6 expansion is a parser differential waiting
+  // to happen). It reads IPv4-mapped addresses against the IPv4 rule.
+  let a = addr.trim();
   if (a.startsWith('[') && a.endsWith(']')) a = a.slice(1, -1);
-  a = a.replace(/^::ffff:(?=\d)/, '');
-  if (isIPv4(a)) return a.startsWith('127.');
-  if (!isIPv6(a)) return false;
-  const [head = '', tail] = a.split('::');
-  const left = head ? head.split(':') : [];
-  const right = tail ? tail.split(':') : [];
-  const groups = tail === undefined ? left : [...left, ...Array<string>(8 - left.length - right.length).fill('0'), ...right];
-  // An IPv4-mapped address written in hex (::ffff:7f00:1) is loopback too.
-  if (groups.length === 8 && groups.slice(0, 5).every(g => /^0+$/.test(g)) && /^0*ffff$/.test(groups[5] ?? '')) {
-    return (parseInt(groups[6] ?? '0', 16) >> 8) === 127;
+  const family = isIPv4(a) ? 'ipv4' : isIPv6(a) ? 'ipv6' : null;
+  if (family === null) return false;
+  try {
+    return LOOPBACK.check(a, family);
+  } catch {
+    return false;
   }
-  return groups.length === 8 && groups.slice(0, 7).every(g => /^0+$/.test(g)) && parseInt(groups[7] ?? '', 16) === 1;
 }
+
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
+LOOPBACK.addAddress('::1', 'ipv6');
 
 /**
  * True when an HTTP `Host` header names this machine's loopback: `localhost`,
