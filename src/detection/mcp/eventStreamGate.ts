@@ -123,6 +123,7 @@ class EventStreamToolGate implements BinaryGate {
       const r = this.inner.push(entry.sse)
       decisions.push(...r.decisions)
       this.match(r.forward)
+      if (!this.inner.isHolding()) this.settle()
     }
     if (failure !== null) {
       this.broken = true
@@ -136,7 +137,7 @@ class EventStreamToolGate implements BinaryGate {
   flush(): Buffer {
     if (!this.broken) this.match(this.inner.flush())
     // Whatever the gate never gave back was held and dropped.
-    for (const e of this.queue) if (e.sse !== undefined && e.out === undefined) e.out = null
+    this.settle()
     // A frame cut off by the end of the stream is never forwarded.
     return this.emitReady()
   }
@@ -162,10 +163,14 @@ class EventStreamToolGate implements BinaryGate {
    * frame's payload, the blocked call's arguments, went out). An event the
    * gate passes keeps its `id:` line, so it is that frame, byte for byte. The
    * one event the gate rewrites, the stop reason once a call was dropped,
-   * carries no id: it is paired only with an undecided stop frame. The gate
-   * keeps the order of its input, so any undecided frame before the one an
-   * event is paired with was dropped. An event that cannot be paired is not
-   * forwarded.
+   * carries no id: it is paired only with an undecided stop frame. An event
+   * that cannot be paired is not forwarded.
+   *
+   * The gate does not keep the order of its input across blocks: a held block
+   * released with a second held block inside it sends its own events first
+   * (#916). So a frame is never taken as dropped because a later one was
+   * paired, which dropped the inner block's start; it is dropped only by
+   * settle(), once the gate holds nothing.
    */
   private match(text: string): void {
     if (!text) return
@@ -175,10 +180,6 @@ class EventStreamToolGate implements BinaryGate {
         ? this.queue.findIndex(e => e.id === Number(idLine) && e.out === undefined && e.sse === sse)
         : this.queue.findIndex(e => e.sse !== undefined && e.out === undefined && e.type === 'message_delta')
       if (at === -1) continue
-      for (let i = 0; i < at; i++) {
-        const e = this.queue[i]!
-        if (e.sse !== undefined && e.out === undefined) e.out = null
-      }
       const e = this.queue[at]!
       if (idLine !== undefined) {
         e.out = e.frame.raw
@@ -187,6 +188,11 @@ class EventStreamToolGate implements BinaryGate {
         e.out = data ? this.adapter.fromEvent(e.frame, e.payload!, JSON.parse(data) as Record<string, unknown>) : null
       }
     }
+  }
+
+  /** With nothing held, the gate has forwarded or dropped every event pushed: what it did not forward was dropped. */
+  private settle(): void {
+    for (const e of this.queue) if (e.sse !== undefined && e.out === undefined) e.out = null
   }
 
   /** Forward, in order, every frame up to the first the gate has not decided. */

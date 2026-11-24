@@ -1,7 +1,7 @@
 import { McpScanner } from './scanner.js'
 import type { McpCheckResult } from './scanner.js'
 import { PayloadParser } from '../../types.js'
-import { CohereParser, GeminiParser, OpenAIParser, responsesToolCall } from '../parsers.js'
+import { CohereParser, GeminiParser, OpenAIParser, RESPONSES_ARGUMENT_DELTAS, responsesToolCall } from '../parsers.js'
 
 /**
  * Response-side (inbound) MCP interception.
@@ -400,6 +400,15 @@ export class SseToolGate extends BufferedSseGate {
     super()
   }
 
+  /**
+   * Whether a block is held. While none is, every complete event pushed so far
+   * has been forwarded or dropped, so a caller pairing output with input can
+   * treat what never came out as dropped (#916).
+   */
+  isHolding(): boolean {
+    return this.held !== null
+  }
+
   protected override releaseHeld(): string {
     return this.drain(() => this.held !== null, () => this.release())
   }
@@ -717,7 +726,7 @@ export class ResponsesSseToolGate extends BufferedSseGate {
     if (this.held) {
       this.held.events.push({ raw, index })
       if (index !== this.held.index) return NOTHING
-      if (typeof data?.delta === 'string' && (type === 'response.function_call_arguments.delta' || type === 'response.custom_tool_call_input.delta')) {
+      if (typeof data?.delta === 'string' && RESPONSES_ARGUMENT_DELTAS.has(type ?? '')) {
         this.held.args += data.delta
       }
       return type === 'response.output_item.done' ? this.release(data?.item ?? null) : NOTHING

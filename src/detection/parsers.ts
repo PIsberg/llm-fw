@@ -1349,6 +1349,9 @@ export const parsers: PayloadParser[] = [
  * (Codex's code-mode `exec`, `apply_patch`) carries free-text `input`;
  * `local_shell_call` carries its command in `action`.
  */
+/** The Responses API events that carry a call's arguments as they stream (#916: and a hosted MCP call's). */
+export const RESPONSES_ARGUMENT_DELTAS: ReadonlySet<string> = new Set(['response.function_call_arguments.delta', 'response.custom_tool_call_input.delta', 'response.mcp_call_arguments.delta'])
+
 export function responsesToolCall(item: unknown): { toolName: string; args: any } | null {
   if (!item || typeof item !== 'object') return null
   const it = item as Record<string, unknown>
@@ -1361,6 +1364,16 @@ export function responsesToolCall(item: unknown): { toolName: string; args: any 
   }
   if (it.type === 'custom_tool_call' && typeof it.name === 'string') return { toolName: it.name, args: it.input ?? '' }
   if (it.type === 'local_shell_call') return { toolName: 'local_shell', args: it.action ?? {} }
+  // A hosted MCP call, and the approval request that comes before one when the
+  // server asks for it (#916): the same name and JSON arguments as a function
+  // call. Skipped, every gate and tool-use scan passed them unread.
+  if ((it.type === 'mcp_call' || it.type === 'mcp_approval_request') && typeof it.name === 'string') {
+    let args: any = it.arguments ?? {}
+    if (typeof it.arguments === 'string') {
+      try { args = JSON.parse(it.arguments) } catch { /* raw */ }
+    }
+    return { toolName: it.name, args }
+  }
   return null
 }
 

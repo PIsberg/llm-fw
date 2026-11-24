@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.104
+
+Unchanged from 2026.11.103: response-side tool-call reading only (#916: Responses hosted MCP calls, Anthropic server and MCP tool blocks, Cohere streams in the tool-use scan, Bedrock frames inside a held block); requests are scored as before.
+
 ## Result, ruleset 2026.11.103
 
 Unchanged from 2026.11.102: this ruleset changes DLP patterns only (#915), which redact and never decide a detection verdict. Over 761,113 local transcript lines, 169 redact differently: 96 float fractions are no longer redacted as card numbers, and no redacted line is left unparseable (93 were).
