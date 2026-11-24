@@ -62,6 +62,11 @@ const log = createLogger('proxy');
  */
 // `expect` too: the proxy sends the whole body at once, so a 100-continue
 // handshake with the provider only adds an interim response to read (#855).
+/** Methods whose request has no body unless it says so. */
+const BODYLESS_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
+/** How long a direct tunnel stays open after its client half-closes. */
+const TUNNEL_HALF_CLOSE_GRACE_MS = 1000
+
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'content-length', 'accept-encoding', 'expect'])
 
 /**
@@ -505,7 +510,7 @@ export class ProxyServer {
     return Promise.all(closes).then(() => undefined)
   }
 
-  private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _head: Buffer): Promise<void> {
+  private async handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, head: Buffer): Promise<void> {
     const { hostname, port } = parseConnectTarget(req.url ?? '')
 
     // Client authentication FIRST — before the bypass tunnel, before taint,
@@ -668,15 +673,38 @@ export class ProxyServer {
       upstream.on('close', emitTunnelTraffic)
 
       clientSocket.on('error', () => upstream.destroy())
+      // A destination that never answers held the client with no bound (#868).
+      const connectMs = this.config.proxy.upstreamTimeoutMs
+      const connectTimer = connectMs > 0
+        ? setTimeout(() => {
+          upstream.destroy()
+          clientSocket.end('HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+        }, connectMs)
+        : null
+      connectTimer?.unref()
       upstream.on('error', (err) => {
+        if (connectTimer) clearTimeout(connectTimer)
         if (err instanceof TunnelRefused) refuseTunnel(err.address)
         else clientSocket.destroy()
       })
       upstream.once('connect', () => {
+        if (connectTimer) clearTimeout(connectTimer)
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        // Bytes the client sent along with its CONNECT were dropped (#868).
+        if (head.length) upstream.write(head)
         upstream.pipe(clientSocket)
         clientSocket.pipe(upstream)
       })
+      // Either side going away ends the tunnel (#868). A client that
+      // half-closes has its FIN passed on and a second for the rest of the
+      // answer: the connection the CONNECT arrived on allows half-open
+      // sockets, and one whose client disconnected only ever emits 'end', so
+      // its destination stayed open for good.
+      clientSocket.on('end', () => {
+        setTimeout(() => { upstream.destroy(); clientSocket.destroy() }, TUNNEL_HALF_CLOSE_GRACE_MS).unref()
+      })
+      clientSocket.on('close', () => upstream.destroy())
+      upstream.on('close', () => { if (!clientSocket.writableEnded) clientSocket.destroy() })
       return
     }
 
@@ -684,6 +712,9 @@ export class ProxyServer {
     try {
       const secureContext = this.certFactory.getHostSecureContext(hostname)
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+      // A ClientHello sent along with the CONNECT was dropped, and the
+      // handshake never finished (#868).
+      if (head.length) clientSocket.unshift(head)
 
       const tlsSocket = new tls.TLSSocket(clientSocket, {
         isServer: true,
@@ -1679,7 +1710,9 @@ export class ProxyServer {
         for (const [k, v] of Object.entries(headers)) {
           if (v && !HOP_BY_HOP.has(k.toLowerCase())) upstream.write(k + ': ' + (Array.isArray(v) ? v.join(', ') : v) + '\r\n')
         }
-        upstream.write('Content-Length: ' + body.length + '\r\n')
+        // A GET or HEAD without a body carries no Content-Length (#868), as the
+        // gateway sends it; any other method says its length, 0 included.
+        if (body.length > 0 || !BODYLESS_METHODS.has(req.method ?? '')) upstream.write('Content-Length: ' + body.length + '\r\n')
         upstream.write('Accept-Encoding: identity\r\n')
         upstream.write(poolKey === null ? 'Connection: close\r\n' : 'Connection: keep-alive\r\n')
         upstream.write('\r\n')

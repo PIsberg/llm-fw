@@ -1,4 +1,5 @@
 import tls from 'node:tls';
+import net from 'node:net';
 import { platform } from 'node:os';
 import { getLlmFwDir } from '../config/paths.js';
 import { reachableHost, urlHost } from '../config/net.js';
@@ -457,6 +458,9 @@ function issueHostCertFromLoadedCa(
   const now = new Date();
   const notAfter = new Date(now.getTime());
   notAfter.setFullYear(notAfter.getFullYear() + 1);
+  // Valid from a day back (#868): issued at "now", a leaf was not yet valid to
+  // a client whose clock ran even a second behind (CERT_NOT_YET_VALID).
+  const notBefore = new Date(now.getTime() - LEAF_BACKDATE_MS);
 
   const subjectDer = derName([{ oid: '2.5.4.3', value: hostname }]);
   const spkiDer = keys.publicKey.export({ type: 'spki', format: 'der' });
@@ -469,8 +473,11 @@ function issueHostCertFromLoadedCa(
     derImplicit(2, ca.serialBytes, false),
   );
 
-  // subjectAltName: dNSName [2] IA5String
-  const sanValue = derSeq(derImplicit(2, Buffer.from(hostname, 'ascii'), false));
+  // subjectAltName: dNSName [2] IA5String, or iPAddress [7] for an IP literal
+  // (#868): TLS verification checks an IP host against iPAddress entries only.
+  const sanValue = net.isIP(hostname)
+    ? derSeq(derImplicit(7, ipAddressBytes(hostname), false))
+    : derSeq(derImplicit(2, Buffer.from(hostname, 'ascii'), false));
 
   const exts: Buffer[] = [
     // basicConstraints: cA=FALSE (empty SEQUENCE per DER default)
@@ -491,7 +498,7 @@ function issueHostCertFromLoadedCa(
     derPositiveInteger(serial),
     derAlgSha256WithRsa(),
     ca.subjectDer,
-    derSeq(derTime(now), derTime(notAfter)),
+    derSeq(derTime(notBefore), derTime(notAfter)),
     subjectDer,
     spkiDer,
     derExplicit(3, derSeq(...exts)),
@@ -504,6 +511,44 @@ function issueHostCertFromLoadedCa(
 }
 
 const MAX_CACHED_CONTEXTS = 256;
+// The leaf certificates behind them, bounded the same way (#868): the sinkhole
+// names a host from a client's SNI, and this map had no bound at all.
+const MAX_CACHED_CERTS = 256;
+// A cached leaf is replaced this long before it expires, so a daemon that runs
+// past a year never serves an expired one.
+const RENEW_BEFORE_MS = 24 * 60 * 60 * 1000;
+const LEAF_BACKDATE_MS = 24 * 60 * 60 * 1000;
+
+/** The 4 or 16 bytes of an IP literal, for an iPAddress SAN. */
+function ipAddressBytes(ip: string): Buffer {
+  if (net.isIPv4(ip)) return Buffer.from(ip.split('.').map(Number));
+  let s = ip.split('%')[0] ?? ip;
+  // An embedded IPv4 tail (::ffff:1.2.3.4) becomes its two last groups.
+  const v4 = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(s);
+  if (v4) {
+    const [a = 0, b = 0, c = 0, d = 0] = v4[1]!.split('.').map(Number);
+    s = s.slice(0, -v4[1]!.length) + ((a << 8) | b).toString(16) + ':' + ((c << 8) | d).toString(16);
+  }
+  const [head = '', tail] = s.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const groups = tail === undefined ? left : [...left, ...Array<string>(8 - left.length - right.length).fill('0'), ...right];
+  const out = Buffer.alloc(16);
+  groups.forEach((g, i) => { out.writeUInt16BE(parseInt(g, 16), i * 2); });
+  return out;
+}
+
+/** Least recently used first: reading an entry moves it to the end. */
+function lruGet<V>(map: Map<string, V>, key: string): V | undefined {
+  const value = map.get(key);
+  if (value !== undefined) { map.delete(key); map.set(key, value); }
+  return value;
+}
+function lruSet<V>(map: Map<string, V>, key: string, value: V, max: number): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > max) map.delete(map.keys().next().value as string);
+}
 
 /** Why ensureCA replaced the CA: the first check the one on disk failed. */
 export type CaReplaceReason = 'missing' | 'unreadable' | 'key-mismatch' | 'expired' | 'crl-url';
@@ -537,8 +582,8 @@ function keepReplaced(files: readonly string[]): string[] {
 
 export class CertFactory {
   private caState: LoadedCaState | null = null;
-  private certCache = new Map<string, TLSCredentials>();
-  private contextCache = new Map<string, tls.SecureContext>();
+  private certCache = new Map<string, { credentials: TLSCredentials; renewAt: number }>();
+  private contextCache = new Map<string, { context: tls.SecureContext; renewAt: number }>();
   // Single shared key pair for all host certs — generated once, reused forever.
   private hostKeyPair: KeyPairState | null = null;
 
@@ -662,15 +707,19 @@ export class CertFactory {
   }
 
   getHostCert(hostname: string): TLSCredentials {
-    const cached = this.certCache.get(hostname);
-    if (cached) return cached;
+    return this.hostCertEntry(hostname).credentials;
+  }
+
+  private hostCertEntry(hostname: string): { credentials: TLSCredentials; renewAt: number } {
+    const cached = lruGet(this.certCache, hostname);
+    if (cached && Date.now() < cached.renewAt) return cached;
 
     const ca = this.getOrLoadCA();
     this.warmHostKey();
     const credentials = issueHostCertFromLoadedCa(hostname, ca, this.crlUrl, this.hostKeyPair!);
-    this.certCache.set(hostname, credentials);
-
-    return credentials;
+    const entry = { credentials, renewAt: Date.parse(new X509Certificate(credentials.cert).validTo) - RENEW_BEFORE_MS };
+    lruSet(this.certCache, hostname, entry, MAX_CACHED_CERTS);
+    return entry;
   }
 
   /**
@@ -680,14 +729,11 @@ export class CertFactory {
    * because the sinkhole takes the hostname from a client's SNI.
    */
   getHostSecureContext(hostname: string): tls.SecureContext {
-    const cached = this.contextCache.get(hostname);
-    if (cached) return cached;
-    const { key, cert } = this.getHostCert(hostname);
+    const cached = lruGet(this.contextCache, hostname);
+    if (cached && Date.now() < cached.renewAt) return cached.context;
+    const { credentials: { key, cert }, renewAt } = this.hostCertEntry(hostname);
     const context = tls.createSecureContext({ key, cert });
-    this.contextCache.set(hostname, context);
-    if (this.contextCache.size > MAX_CACHED_CONTEXTS) {
-      this.contextCache.delete(this.contextCache.keys().next().value as string);
-    }
+    lruSet(this.contextCache, hostname, { context, renewAt }, MAX_CACHED_CONTEXTS);
     return context;
   }
 }
