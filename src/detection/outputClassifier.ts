@@ -3,7 +3,8 @@ import { classifierWindows } from './classifierWindows.js'
 import { createHash } from 'node:crypto'
 import { createLogger } from '../logger.js';
 import { compactTokenizer } from './compactTokenizer.js';
-import { LOAD_RETRY_MS, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js';
+import { LOAD_RETRY_MS, ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js';
+import { getInferenceWorkerClient, WorkerUnavailableError, type InferenceWorkerClient } from './inferenceWorker.js';
 
 const log = createLogger('output-classifier');
 
@@ -58,6 +59,20 @@ export interface OutputClassifierVerdict {
 
 const CACHE_MAX_ENTRIES = 512
 
+/**
+ * Load a response moderation model. Shared with the inference worker, which
+ * loads it there when `detection.workerInference` is on (#869).
+ */
+export async function loadModerationClassifier(model: string): Promise<ClassifyFn> {
+  const { pipeline } = await loadTransformers()
+  // Spinning off with no switch: measured for #650, it is both cheaper and
+  // faster here (29 ms a pass against 43, 95% of one core at a light load
+  // against 1,105%), with the same output.
+  const classifier = (await pipeline('text-classification', model, { session_options: NO_SPINNING })) as unknown as ClassifyFn
+  compactTokenizer((classifier as unknown as { tokenizer?: unknown }).tokenizer)
+  return classifier
+}
+
 export class OutputModerationClassifier {
   private classifier: ClassifyFn | null = null
   private config: ResponseScanConfig | undefined
@@ -68,39 +83,52 @@ export class OutputModerationClassifier {
   private failedAt = 0
   private loading: Promise<void> | null = null
 
-  constructor(config: ResponseScanConfig | undefined, private readonly modelLoadTimeoutMs = 0) {
+  // The worker holds the model, or could not and this thread does.
+  private workerReady = false
+  private workerFailed = false
+  private readonly workerClient: InferenceWorkerClient
+
+  constructor(config: ResponseScanConfig | undefined, private readonly modelLoadTimeoutMs = 0, private readonly workerInference = false, workerClient?: InferenceWorkerClient) {
     this.config = config
+    this.workerClient = workerClient ?? getInferenceWorkerClient()
   }
 
   /** Lazy-load the ONNX model. No-op when the stage is disabled, so the
    *  ~330 MB download only happens for users who opt in. */
   async init(): Promise<void> {
-    if (!this.config?.classifier?.enabled || this.classifier) return
+    if (!this.config?.classifier?.enabled || this.isInitialized()) return
     if (this.initAttempted && !(this.failedAt > 0 && Date.now() - this.failedAt >= LOAD_RETRY_MS)) return
     if (this.loading) return this.loading
     this.initAttempted = true
     this.loading = this.load().finally(() => {
       // A failed load is tried again once LOAD_RETRY_MS has passed (#869).
-      this.failedAt = this.classifier ? 0 : Date.now()
+      this.failedAt = this.isInitialized() ? 0 : Date.now()
       this.loading = null
     })
     return this.loading
   }
 
   private async load(): Promise<void> {
+    const model = this.modelId()
+    // With detection.workerInference the model runs in the inference worker,
+    // not on the thread that serves every request (#869). A worker that cannot
+    // load it falls back to this thread, as the injection classifier does.
+    if (this.workerInference) {
+      try {
+        await loadWithVisibility(() => this.workerClient.ensure('moderate', undefined, model), { label: 'response moderation classifier', timeoutMs: this.modelLoadTimeoutMs })
+        this.workerReady = true
+        return
+      } catch (err) {
+        if (err instanceof ModelLoadTimeoutError) {
+          log.warn('could not load response moderation classifier — stage off until a retry a minute from now', { err: err.message })
+          return
+        }
+        log.warn('inference worker unavailable; running the response moderation classifier on the main thread', { err: (err as Error).message })
+        this.workerFailed = true
+      }
+    }
     try {
-      const model = this.config?.classifier?.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL
-      this.classifier = await loadWithVisibility(
-        // Spinning off with no switch: measured for #650, it is both cheaper and
-        // faster here (29 ms a pass against 43, 95% of one core at a light load
-        // against 1,105%), with the same output.
-        async () => {
-          const { pipeline } = await loadTransformers()
-          return (await pipeline('text-classification', model, { session_options: NO_SPINNING })) as unknown as ClassifyFn
-        },
-        { label: 'response moderation classifier', timeoutMs: this.modelLoadTimeoutMs },
-      )
-      compactTokenizer((this.classifier as unknown as { tokenizer?: unknown }).tokenizer)
+      this.classifier = await loadWithVisibility(() => loadModerationClassifier(model), { label: 'response moderation classifier', timeoutMs: this.modelLoadTimeoutMs })
     } catch (err) {
       // Best-effort, exactly like the input classifier: if the model can't be
       // fetched, leave the stage disabled rather than taking the firewall down.
@@ -109,8 +137,27 @@ export class OutputModerationClassifier {
     }
   }
 
+  private modelId(): string {
+    return this.config?.classifier?.model || DEFAULT_OUTPUT_CLASSIFIER_MODEL
+  }
+
+  /** One forward pass, in the worker when it holds the model, else on this thread. */
+  private async run(input: string): Promise<{ label: string; score: number }[]> {
+    if (this.workerReady && !this.workerFailed) {
+      try {
+        return await this.workerClient.moderate(input, this.modelId())
+      } catch (err) {
+        if (!(err instanceof WorkerUnavailableError)) throw err
+        // The worker is gone for good: load the model here, once.
+        this.workerFailed = true
+      }
+    }
+    if (!this.classifier) this.classifier = await loadWithVisibility(() => loadModerationClassifier(this.modelId()), { label: 'response moderation classifier', timeoutMs: this.modelLoadTimeoutMs })
+    return this.classifier(input)
+  }
+
   isInitialized(): boolean {
-    return this.classifier !== null
+    return this.workerReady || this.classifier !== null
   }
 
   /**
@@ -122,12 +169,12 @@ export class OutputModerationClassifier {
     if (!this.config?.classifier?.enabled || !text) return null
     // Lazy-load on first use so toggling the stage on from the dashboard
     // activates it without a restart (the first response pays the one-time load).
-    if (!this.classifier) {
+    if (!this.isInitialized()) {
       if (!this.initAttempted) await this.init()
       // Tried again behind this response, which skips the stage (#869).
       else if (this.failedAt > 0 && Date.now() - this.failedAt >= LOAD_RETRY_MS) void this.init()
     }
-    if (!this.classifier) return null
+    if (!this.isInitialized()) return null
     const threshold = this.config.classifier.blockThreshold ?? 0.9
 
     const key = createHash('sha256').update(text).digest('hex')
@@ -139,7 +186,7 @@ export class OutputModerationClassifier {
       // windows across its whole length, and the highest score counts (#858).
       let flaggedScore = 0
       for (const input of classifierWindows(text)) {
-        const out = await this.classifier(input)
+        const out = await this.run(input)
         const top = out[0]
         const s = top && !BENIGN_LABELS.has(top.label.toUpperCase()) ? top.score : (top ? 1 - top.score : 0)
         if (s > flaggedScore) flaggedScore = s

@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.108
+
+Unchanged from 2026.11.107: the response moderation classifier and speech transcription run in the inference worker under `detection.workerInference` (#869); the same models give the same scores.
+
 ## Result, ruleset 2026.11.107
 
 Unchanged from 2026.11.106: a model load that failed is tried again a minute later instead of never (#869); a loaded model scores as before.

@@ -90,6 +90,12 @@ each forward pass stops every other request. With 16 agent clients on an i7-1260
 event-loop p99 fell from about 1,450 ms to about 40 ms, and chat at 4 or more clients
 rose from about 49 to about 83 req/s, for about 30 MB more RSS at startup. Verdicts
 are the same either way. A worker that cannot start falls back to the main thread.
+The models are the embedder and the injection classifier and, since #869, the
+response moderation classifier (`responseScan.classifier`) and speech
+transcription (`nonText.transcribe`), which before ran on the main thread whatever
+the setting: Whisper takes 0.5 to 15 s a clip. Each loads in a worker the first
+time it is needed; transcription has a worker thread of its own, so a long clip
+queues no embedding or classifier pass behind it.
 
 `detection.embedding.spinWait` (default `false`, `LLM_FW_EMBEDDING_SPIN_WAIT`,
 restart required) lets the embedding model's threads spin between work items

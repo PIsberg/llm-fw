@@ -1,4 +1,5 @@
-import { DEFAULT_LOAD_TIMEOUT_MS, LOAD_RETRY_MS, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
+import { DEFAULT_LOAD_TIMEOUT_MS, LOAD_RETRY_MS, ModelLoadTimeoutError, NO_SPINNING, cachedLoad, loadTransformers, loadWithVisibility } from './modelLoad.js'
+import { WorkerUnavailableError, type InferenceWorkerClient } from './inferenceWorker.js'
 
 /**
  * Opt-in speech transcription for audio blocks (issue #82).
@@ -57,7 +58,27 @@ const AIFF_MIME_RE = /^audio\/(?:aiff|x-aiff|aif)$/i
 
 const baseMime = (mimeType: string | undefined) => (mimeType ?? '').split(';')[0]?.trim() ?? ''
 
-type Transcriber = (audio: Float32Array, opts?: Record<string, unknown>) => Promise<{ text?: string } | { text?: string }[]>
+export type Transcriber = (audio: Float32Array, opts?: Record<string, unknown>) => Promise<{ text?: string } | { text?: string }[]>
+
+/**
+ * Load the speech recognition model. Shared with the inference worker, which
+ * loads it there when `detection.workerInference` is on (#869).
+ */
+export async function loadTranscriber(): Promise<Transcriber> {
+  // Same cache as the embedding model, so a pre-warmed LLM_FW_MODEL_DIR serves
+  // both and an air-gapped host can carry it.
+  const { pipeline } = await loadTransformers()
+  // Spinning off with no switch: measured for #650 on a 3 s clip, 0.55 s against
+  // 1.25 s, and 6.5 s of CPU against 17.7 s, with the same text.
+  return await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8', session_options: NO_SPINNING })
+}
+
+/** The text of 16 kHz mono samples. */
+export async function runTranscriber(transcriber: Transcriber, audio: Float32Array): Promise<string> {
+  const out = await transcriber(audio, { chunk_length_s: 30, stride_length_s: 5 })
+  const text = Array.isArray(out) ? out.map(o => o.text ?? '').join(' ') : (out.text ?? '')
+  return text.trim()
+}
 
 let transcriberPromise: Promise<Transcriber | null> | null = null
 // When the last load failed; the next use past LOAD_RETRY_MS loads again (#869).
@@ -71,17 +92,9 @@ async function getTranscriber(loadTimeoutMs: number): Promise<Transcriber | null
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
       try {
-        // Same cache as the embedding model, so a pre-warmed LLM_FW_MODEL_DIR serves
-        // both and an air-gapped host can carry it.
-        const { pipeline } = await loadTransformers()
         // Bounded here, inside the one load every request shares: past the bound
         // it settles as unavailable for all of them, not once per request.
-        return await loadWithVisibility(
-          // Spinning off with no switch: measured for #650 on a 3 s clip, 0.55 s against
-          // 1.25 s, and 6.5 s of CPU against 17.7 s, with the same text.
-          async () => await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8', session_options: NO_SPINNING }) as unknown as Transcriber,
-          { label: 'speech transcription model', timeoutMs: loadTimeoutMs },
-        )
+        return await loadWithVisibility(loadTranscriber, { label: 'speech transcription model', timeoutMs: loadTimeoutMs })
       } catch {
         transcriberFailedAt = Date.now()
         return null // offline first run, install issue: degrade to opaque.
@@ -242,7 +255,7 @@ export function resampleTo16k(samples: Float32Array, rate: number): Float32Array
  * the payload is oversized or undecodable, the model is unavailable, or no
  * speech was recognised; callers then fall back to opaque handling.
  */
-export async function transcribeAudio(base64Data: string, mimeType: string | undefined, loadTimeoutMs = DEFAULT_LOAD_TIMEOUT_MS): Promise<string> {
+export async function transcribeAudio(base64Data: string, mimeType: string | undefined, loadTimeoutMs = DEFAULT_LOAD_TIMEOUT_MS, worker: InferenceWorkerClient | null = null): Promise<string> {
   if (!isTranscribeCandidate(mimeType)) return ''
   if (base64Data.length > MAX_TRANSCRIBE_BASE64) return ''
   const decode = AIFF_MIME_RE.test(baseMime(mimeType)) ? decodeAiff : decodeWav
@@ -254,13 +267,41 @@ export async function transcribeAudio(base64Data: string, mimeType: string | und
   }
   if (!decoded) return ''
   const audio = resampleTo16k(decoded.samples, decoded.sampleRate).subarray(0, TARGET_RATE * MAX_TRANSCRIBE_SECONDS)
+  // With detection.workerInference, Whisper runs in the inference worker, not
+  // on the thread that serves every request (#869). The model loads there once,
+  // bounded like the in-process load; a worker that cannot run it falls back
+  // to this thread, as the classifiers do.
+  if (worker) {
+    try {
+      await workerTranscriberReady(worker, loadTimeoutMs)
+      return (await worker.transcribe(audio)).trim()
+    } catch (err) {
+      if (err instanceof ModelLoadTimeoutError) return ''
+      if (!(err instanceof WorkerUnavailableError) && workerFailedAt === 0) return ''
+    }
+  }
   const transcriber = await getTranscriber(loadTimeoutMs)
   if (!transcriber) return ''
   try {
-    const out = await transcriber(audio, { chunk_length_s: 30, stride_length_s: 5 })
-    const text = Array.isArray(out) ? out.map(o => o.text ?? '').join(' ') : (out.text ?? '')
-    return text.trim()
+    return await runTranscriber(transcriber, audio)
   } catch {
     return ''
   }
+}
+
+// The worker's transcriber load: one per process, retried like the others.
+let workerLoad: (() => Promise<void>) | null = null
+let workerFailedAt = 0
+function workerTranscriberReady(worker: InferenceWorkerClient, loadTimeoutMs: number): Promise<void> {
+  workerLoad ??= cachedLoad(async () => {
+    try {
+      await loadWithVisibility(() => worker.ensure('transcribe'), { label: 'speech transcription model', timeoutMs: loadTimeoutMs })
+      workerFailedAt = 0
+    } catch (err) {
+      // A worker that could not load it: this thread loads it instead.
+      if (!(err instanceof ModelLoadTimeoutError)) workerFailedAt = Date.now()
+      throw err
+    }
+  })
+  return workerLoad()
 }

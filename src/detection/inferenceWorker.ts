@@ -30,8 +30,26 @@ export type WorkerFactory = (url: URL, options: { execArgv: string[] }) => Worke
 interface EmbedResponse { id: number; ok: true; kind: 'embed'; result: Float32Array }
 interface ClassifyResponse { id: number; ok: true; kind: 'classify'; result: { label: string; score: number }[] }
 interface EnsureResponse { id: number; ok: true; kind: 'ensure' }
+interface ModerateResponse { id: number; ok: true; kind: 'moderate'; result: { label: string; score: number }[] }
+interface TranscribeResponse { id: number; ok: true; kind: 'transcribe'; result: string }
 interface ErrorResponse { id: number; ok: false; error: string }
-type WorkerResponse = EmbedResponse | ClassifyResponse | EnsureResponse | ErrorResponse
+type WorkerResponse = EmbedResponse | ClassifyResponse | EnsureResponse | ModerateResponse | TranscribeResponse | ErrorResponse
+
+/** The models the worker can hold: the embedder, the injection classifier, a response moderation classifier and the transcriber (#869). */
+export type WorkerModel = 'embed' | 'classify' | 'moderate' | 'transcribe'
+
+/** One request to the worker thread. */
+export interface WorkerRequestMessage {
+  kind: 'embed' | 'classify' | 'ensure' | 'moderate' | 'transcribe'
+  text?: string
+  model?: WorkerModel
+  /** The response moderation model to load or run. */
+  modelId?: string
+  /** 16 kHz mono samples to transcribe. */
+  audio?: Float32Array
+  spinWait?: boolean
+  threads?: number
+}
 
 interface PendingRequest {
   resolve: (r: WorkerResponse) => void
@@ -176,7 +194,7 @@ export class InferenceWorkerClient {
     }
   }
 
-  private request(req: { kind: 'embed' | 'classify' | 'ensure'; text?: string; model?: 'embed' | 'classify'; spinWait?: boolean; threads?: number }): Promise<WorkerResponse> {
+  private request(req: WorkerRequestMessage): Promise<WorkerResponse> {
     if (this.permanentlyDisabled) return Promise.reject(new WorkerUnavailableError())
     const worker = this.getWorker()
     const id = this.nextId++
@@ -209,15 +227,29 @@ export class InferenceWorkerClient {
     throw new Error('unexpected inference worker response for classify')
   }
 
+  /** Run a response moderation model (`modelId`) on ONE text, in the worker (#869). */
+  async moderate(text: string, modelId: string): Promise<{ label: string; score: number }[]> {
+    const res = await this.request({ kind: 'moderate', text, modelId })
+    if (res.ok && res.kind === 'moderate') return res.result
+    throw new Error('unexpected inference worker response for moderate')
+  }
+
+  /** Transcribe 16 kHz mono samples in the worker (#869): Whisper took 0.5 to 15 s a clip on the thread that serves every request. */
+  async transcribe(audio: Float32Array): Promise<string> {
+    const res = await this.request({ kind: 'transcribe', audio })
+    if (res.ok && res.kind === 'transcribe') return res.result
+    throw new Error('unexpected inference worker response for transcribe')
+  }
+
   /** Lazily load a model in the worker without running inference on any
    *  text — used by init() to probe availability (mirrors the in-process
    *  catch-and-disable path around the initial pipeline() call). */
-  async ensure(model: 'embed' | 'classify', options?: { spinWait: boolean; threads?: number | undefined }): Promise<void> {
+  async ensure(model: WorkerModel, options?: { spinWait: boolean; threads?: number | undefined }, modelId?: string): Promise<void> {
     if (model === 'embed' && options) {
       this.embeddingSpinWait = options.spinWait
       this.embeddingThreads = options.threads
     }
-    const res = await this.request({ kind: 'ensure', model, ...this.embeddingOptions() })
+    const res = await this.request({ kind: 'ensure', model, ...(modelId ? { modelId } : {}), ...this.embeddingOptions() })
     if (!(res.ok && res.kind === 'ensure')) throw new Error('unexpected inference worker response for ensure')
   }
 
@@ -244,10 +276,29 @@ export function getInferenceWorkerClient(): InferenceWorkerClient {
   return sharedClient
 }
 
-/** Terminate the shared worker (shutdown hook — see Pipeline.close()). */
+/**
+ * How long Whisper's worker may go without answering. A clip takes up to 15 s
+ * and a long one more, past the shared worker's bound.
+ */
+const TRANSCRIPTION_STALL_MS = 300_000
+
+let transcriptionClient: InferenceWorkerClient | null = null
+
+/**
+ * Speech transcription's own worker thread (security review of #869). On the
+ * shared one, a long clip queued every embedding and classifier pass behind
+ * it, and a pass past the shared stall bound had the watchdog end the worker
+ * and fail all of them.
+ */
+export function getTranscriptionWorkerClient(): InferenceWorkerClient {
+  if (!transcriptionClient) transcriptionClient = new InferenceWorkerClient(defaultWorkerFactory, TRANSCRIPTION_STALL_MS)
+  return transcriptionClient
+}
+
+/** Terminate the shared worker and the transcription one (shutdown hook — see Pipeline.close()). */
 export async function closeInferenceWorker(): Promise<void> {
-  if (!sharedClient) return
-  const client = sharedClient
+  const clients = [sharedClient, transcriptionClient].filter((c): c is InferenceWorkerClient => c !== null)
   sharedClient = null
-  await client.close()
+  transcriptionClient = null
+  await Promise.all(clients.map(c => c.close()))
 }
