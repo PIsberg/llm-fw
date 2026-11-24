@@ -44,6 +44,9 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY data ./data
 COPY docker/warm-models.mjs ./docker/warm-models.mjs
+# Declared here, or --build-arg LLM_FW_WARM_CLASSIFIER=true never reaches the
+# script and the classifier is not baked in (#921).
+ARG LLM_FW_WARM_CLASSIFIER=false
 RUN node docker/warm-models.mjs
 
 # ---------- lean-ctx (opt-in) ----------
@@ -71,10 +74,20 @@ RUN node docker/warm-models.mjs
 FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS leanctx
 ARG LEAN_CTX_VERSION=
 ARG LEAN_CTX_SHA256=
-ARG LEAN_CTX_TARGET=x86_64-unknown-linux-gnu
+# The image's own architecture unless set (#921): an arm64 build fetched the
+# x86_64 binary, which cannot run there.
+ARG TARGETARCH
+ARG LEAN_CTX_TARGET=
 COPY scripts/fetch-release-asset.mjs /tmp/fetch-release-asset.mjs
 RUN mkdir -p /opt/lean-ctx/bin /opt/lean-ctx/certs \
  && if [ -n "$LEAN_CTX_VERSION" ]; then \
+      if [ -z "$LEAN_CTX_TARGET" ]; then \
+        case "$TARGETARCH" in \
+          arm64) LEAN_CTX_TARGET=aarch64-unknown-linux-gnu ;; \
+          amd64|"") LEAN_CTX_TARGET=x86_64-unknown-linux-gnu ;; \
+          *) echo "no lean-ctx build for $TARGETARCH; set LEAN_CTX_TARGET" >&2; exit 1 ;; \
+        esac; \
+      fi; \
       test -n "$LEAN_CTX_SHA256" || { echo "LEAN_CTX_SHA256 is required with LEAN_CTX_VERSION" >&2; exit 1; }; \
       node /tmp/fetch-release-asset.mjs yvgude/lean-ctx "v${LEAN_CTX_VERSION}" "lean-ctx-${LEAN_CTX_TARGET}.tar.gz" /tmp/lean-ctx.tar.gz \
       && echo "${LEAN_CTX_SHA256}  /tmp/lean-ctx.tar.gz" | sha256sum -c - \

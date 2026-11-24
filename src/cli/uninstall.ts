@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { removePortRedirect as removeRedirect, PF_ANCHOR } from './portRedirect.js';
 import { systemTool } from '../systemTool.js';
 import { createInterface } from 'node:readline/promises';
@@ -12,6 +12,7 @@ import { serializeLike } from './jsonFormat.js';
 import { loadConfig, writeUserConfigFile } from '../config/config.js';
 import { getLlmFwDir } from '../config/paths.js';
 import { run as stopFirewall } from './stop.js';
+import { serviceInstalled, uninstallService } from './service.js';
 
 /**
  * `llm-fw uninstall` — reverse every change `setup` (and `setup-judge`) made,
@@ -120,45 +121,85 @@ export async function stopRunningProxy(llmfwDir: string): Promise<void> {
   await stopFirewall({ dir: llmfwDir, log: ok });
 }
 
-/** Remove the root CA from the OS trust store. Needs elevation on every OS. */
+const CA_NAME = 'llm-fw Local CA';
+const MAC_SECURITY = '/usr/bin/security';
+const MAC_KEYCHAIN = '/Library/Keychains/System.keychain';
+/** Copies of the CA a macOS delete loop removes at most: one per CA regeneration. */
+const MAX_MAC_COPIES = 50;
+
+/**
+ * Where the CA can be on Windows: the machine Root store (an elevated setup)
+ * and the user's own (a non-elevated setup follows the `certutil -user`
+ * advice in setup and doctor). Uninstall used to look in the machine store
+ * only and left the user-store copy trusted (#921).
+ */
+const WINDOWS_STORES: { label: string; flags: string[]; manual: string }[] = [
+  { label: 'machine', flags: [], manual: `certutil -delstore -f Root "${CA_NAME}"   (run elevated)` },
+  { label: 'user', flags: ['-user'], manual: `certutil -user -delstore -f Root "${CA_NAME}"` },
+];
+
+/** Remove the root CA from the OS trust store. Needs elevation, except a Windows user store. */
 export function removeCaFromTrustStore(os: NodeJS.Platform = platform()): void {
   // Look first: a non-elevated setup never installed the CA, and reporting a
   // failed delete of something absent sends the user off to re-run elevated
   // for nothing. Reading the store needs no elevation on any OS.
+  if (os === 'win32') {
+    const certutil = systemTool('certutil', os);
+    const present = WINDOWS_STORES.filter(s => probe(() => execFileSync(certutil, [...s.flags, '-store', 'Root', CA_NAME], { stdio: 'ignore' })));
+    if (present.length === 0) {
+      skip('CA not in the OS trust store — nothing to remove');
+      return;
+    }
+    for (const store of present) {
+      if (probe(() => execFileSync(certutil, [...store.flags, '-delstore', '-f', 'Root', CA_NAME], { stdio: 'ignore' }))) {
+        ok(`CA removed from the ${store.label} trust store`);
+      } else {
+        warn(`Could not remove the CA from the ${store.label} trust store automatically. Remove it manually:`);
+        warn(`  ${store.manual}`);
+      }
+    }
+    return;
+  }
   if (!caInTrustStore(os)) {
     skip('CA not in the OS trust store — nothing to remove');
     return;
   }
   try {
-    if (os === 'win32') {
-      // delstore matches the cert by its common name.
-      execFileSync(systemTool('certutil', os), ['-delstore', '-f', 'Root', 'llm-fw Local CA'], { stdio: 'ignore' });
-    } else if (os === 'darwin') {
-      execSync('security delete-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain', { stdio: 'ignore' });
+    if (os === 'darwin') {
+      // delete-certificate removes one match per call, and every CA
+      // regeneration left another copy: delete until none is found (#921).
+      let copies = 0;
+      while (caInTrustStore(os)) {
+        if (++copies > MAX_MAC_COPIES) throw new Error('the CA is still there');
+        execFileSync(MAC_SECURITY, ['delete-certificate', '-c', CA_NAME, MAC_KEYCHAIN], { stdio: 'ignore' });
+      }
     } else {
       const installed = '/usr/local/share/ca-certificates/llm-fw-ca.crt';
       if (fs.existsSync(installed)) fs.unlinkSync(installed);
-      execSync('update-ca-certificates --fresh', { stdio: 'ignore' });
+      execFileSync('/usr/sbin/update-ca-certificates', ['--fresh'], { stdio: 'ignore' });
     }
     ok('CA removed from OS trust store');
   } catch {
     warn('Could not remove the CA from the OS trust store automatically. Remove it manually:');
-    if (os === 'win32') warn('  certutil -delstore -f Root "llm-fw Local CA"   (run elevated)');
-    else if (os === 'darwin') warn('  sudo security delete-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain');
+    if (os === 'darwin') warn(`  sudo security delete-certificate -c "${CA_NAME}" ${MAC_KEYCHAIN}   (once per copy)`);
     else warn(`  sudo rm -f /usr/local/share/ca-certificates/llm-fw-ca.crt && sudo update-ca-certificates --fresh`);
   }
 }
 
-/** Whether the llm-fw CA is installed. Errs towards true, so a failed probe still attempts the delete. */
-function caInTrustStore(os: NodeJS.Platform): boolean {
-  if (os !== 'win32' && os !== 'darwin') return fs.existsSync('/usr/local/share/ca-certificates/llm-fw-ca.crt');
+/** True when the command ran without an error. */
+function probe(run: () => unknown): boolean {
   try {
-    if (os === 'win32') execFileSync(systemTool('certutil', os), ['-store', 'Root', 'llm-fw Local CA'], { stdio: 'ignore' });
-    else execSync('security find-certificate -c "llm-fw Local CA" /Library/Keychains/System.keychain', { stdio: 'ignore' });
+    run();
     return true;
   } catch {
     return false;
   }
+}
+
+/** Whether the llm-fw CA is installed on macOS or Linux. */
+function caInTrustStore(os: NodeJS.Platform): boolean {
+  if (os !== 'darwin') return fs.existsSync('/usr/local/share/ca-certificates/llm-fw-ca.crt');
+  return probe(() => execFileSync(MAC_SECURITY, ['find-certificate', '-c', CA_NAME, MAC_KEYCHAIN], { stdio: 'ignore' }));
 }
 
 /** Restore the hosts file by stripping the sinkhole block, then drop the backup. */
@@ -187,15 +228,20 @@ function restoreHostsFile(targets: string[]): void {
 }
 
 /** Delete the OS-level :443 → httpsPort redirect that the sinkhole installs. */
-function removePortRedirect(httpsPort: number): void {
-  const os = platform();
+export function removePortRedirect(httpsPort: number, os: NodeJS.Platform = platform()): void {
   try {
     if (os === 'win32') {
-      execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'delete', 'v4tov4', 'listenport=443', 'listenaddress=127.0.0.1'], { stdio: 'ignore' });
-      try {
-        execFileSync(systemTool('netsh'), ['interface', 'portproxy', 'delete', 'v6tov4', 'listenport=443', 'listenaddress=::1'], { stdio: 'ignore' });
-      } catch { /* v6 rule may not exist */ }
-      ok('Removed netsh port redirect (127.0.0.1:443)');
+      // Each rule on its own (#921): with the IPv4 rule already gone, its
+      // failed delete used to skip the IPv6 one, which kept [::1]:443 pointing
+      // at a sinkhole that no longer runs.
+      const removed = ([['v4tov4', '127.0.0.1', '127.0.0.1:443'], ['v6tov4', '::1', '[::1]:443']] as const).filter(([kind, listen]) => {
+        try {
+          execFileSync(systemTool('netsh', os), ['interface', 'portproxy', 'delete', kind, 'listenport=443', `listenaddress=${listen}`], { stdio: 'ignore' });
+          return true;
+        } catch { return false; }
+      });
+      if (removed.length === 0) throw new Error('no portproxy rule');
+      ok(`Removed netsh port redirect (${removed.map(r => r[2]).join(', ')})`);
     } else {
       // Only llm-fw's own pf anchor on macOS, where `pfctl -F nat` flushed
       // every NAT rule on the host; every copy of the iptables rule on Linux (#863).
@@ -400,6 +446,7 @@ export async function run(args: string[]): Promise<void> {
   console.log(purge
     ? '  • --purge: also deletes your settings, false-positive lists and audit log (keeps the licence key)'
     : '  • keeps your settings, false-positive lists, audit log and licence key (--purge deletes all but the licence)');
+  console.log('  • removes the auto-start entry install-service registered, if there is one');
   console.log('  • restores the hosts file and removes the :443 port redirect (sinkhole)');
   console.log('  • removes judge settings written to .llm-fw.json');
   console.log(keepModel ? '  • keeps the cached embedding model' : '  • deletes the cached embedding model');
@@ -413,7 +460,9 @@ export async function run(args: string[]): Promise<void> {
 
   console.log('\nUninstalling...');
 
-  // 1. Stop the proxy first so nothing is mid-flight.
+  // 1. Remove the auto-start entry, so nothing starts the firewall again, then
+  // stop the proxy so nothing is mid-flight. The entry used to stay (#921).
+  if (serviceInstalled()) uninstallService();
   await stopRunningProxy(llmfwDir);
 
   // 2. OS trust store + sinkhole — all need elevation. Warn once if we lack it.

@@ -45,3 +45,27 @@ describe('Docker image CI job', () => {
     expect(wf).toContain('.github/workflows/ci.yml')
   })
 })
+
+// #921: build arguments the Dockerfile documented but never let through.
+describe('Dockerfile build arguments (#921)', () => {
+  const stage = (name: string): string => {
+    const df = read('Dockerfile')
+    const start = df.indexOf(` AS ${name}\n`)
+    const next = df.indexOf('\nFROM ', start + 1)
+    return df.slice(start, next === -1 ? undefined : next)
+  }
+
+  it('the models stage declares LLM_FW_WARM_CLASSIFIER before it warms the models', () => {
+    const models = stage('models')
+    const arg = models.search(/^ARG LLM_FW_WARM_CLASSIFIER\b/m)
+    expect(arg).toBeGreaterThan(-1)
+    expect(arg).toBeLessThan(models.indexOf('RUN node docker/warm-models.mjs'))
+  })
+
+  it('the lean-ctx archive follows the image architecture unless LEAN_CTX_TARGET is set', () => {
+    const leanctx = stage('leanctx')
+    expect(leanctx).toMatch(/^ARG TARGETARCH$/m)
+    expect(leanctx).not.toMatch(/^ARG LEAN_CTX_TARGET=x86_64/m)
+    expect(leanctx).toMatch(/arm64\) LEAN_CTX_TARGET=aarch64-unknown-linux-gnu/)
+  })
+})

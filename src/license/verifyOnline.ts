@@ -68,6 +68,12 @@ export async function verifyOnline(key: string, timeoutMs = DEFAULT_TIMEOUT_MS):
     return { valid: null, detail: `Keygen replied ${response.status} with a body that was not JSON.` }
   }
 
+  // A server error or a rate limit says nothing about the key (#921): unknown,
+  // as an unreachable Keygen is, never invalid.
+  if (response.status >= 500 || response.status === 429) {
+    return { valid: null, detail: `Keygen replied ${response.status}; the key could not be checked now.` }
+  }
+
   if (body.errors?.length) {
     return { valid: false, detail: body.errors.map(e => e.detail).filter(Boolean).join('; ') || `Keygen replied ${response.status}.` }
   }

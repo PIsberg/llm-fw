@@ -378,6 +378,19 @@ export function installService(_args: string[] = []): void {
  * step is attempted independently (e.g. it's fine if the task/agent/unit was
  * never installed) and a warning is printed rather than aborting the rest.
  */
+/**
+ * Whether install-service left an auto-start entry for this user: the logon
+ * task on Windows, the LaunchAgent or the user unit file elsewhere. `llm-fw
+ * uninstall` asks before it removes one (#921): it used to leave it, so the
+ * next login started the firewall the user had just uninstalled.
+ */
+export function serviceInstalled(os: NodeJS.Platform = platform(), home: string = homedir()): boolean {
+  if (!isSupportedOs(os)) return false
+  if (os === 'darwin') return fs.existsSync(launchdPlistPath(home))
+  if (os === 'linux') return fs.existsSync(systemdUnitPath(home))
+  return execCommand({ cmd: 'schtasks', args: ['/Query', '/TN', TASK_NAME] }, os).ok
+}
+
 export function uninstallService(_args: string[] = []): void {
   const os = platform()
   if (!isSupportedOs(os)) {

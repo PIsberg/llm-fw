@@ -13,6 +13,7 @@ import { addPortRedirect, PF_ANCHOR } from './portRedirect.js';
 import { systemTool } from '../systemTool.js';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { writePrivateFile } from '../privateFile.js';
 
 /** True when the current process can modify the hosts file / OS port redirects. */
 export function isElevated(): boolean {
@@ -333,7 +334,8 @@ export function readPriorEnv(dir: string): EnvSnapshot {
 }
 
 export function writePriorEnv(dir: string, snap: EnvSnapshot): void {
-  fs.writeFileSync(join(dir, PRIOR_ENV_FILE), JSON.stringify(snap, null, 2) + '\n', 'utf8');
+  // Private and whole (#921): a prior HTTPS_PROXY can carry credentials.
+  writePrivateFile(join(dir, PRIOR_ENV_FILE), JSON.stringify(snap, null, 2) + '\n');
 }
 
 /**

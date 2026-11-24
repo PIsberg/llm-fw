@@ -38,17 +38,24 @@ describe('removeCaFromTrustStore', () => {
     expect(output()).toMatch(/not in the OS trust store/)
   })
 
-  it('removes an installed CA', () => {
-    removeCaFromTrustStore('win32')
-    expect(deleteCalls()).toHaveLength(1)
-    expect(output()).toContain('CA removed from OS trust store')
+  // In the machine store only: the user-store lookup fails (#921 reads both).
+  const machineOnly = () => execFileSync.mockImplementation((_cmd: string, args: string[]) => {
+    if (args.includes('-user')) throw new Error('CRYPT_E_NOT_FOUND')
   })
 
-  it('runs certutil by its absolute path and without a shell, for the lookup and the delete', () => {
+  it('removes an installed CA', () => {
+    machineOnly()
+    removeCaFromTrustStore('win32')
+    expect(deleteCalls()).toHaveLength(1)
+    expect(output()).toContain('CA removed from the machine trust store')
+  })
+
+  it('runs certutil by its absolute path and without a shell, for the lookups and the delete', () => {
+    machineOnly()
     removeCaFromTrustStore('win32')
     expect(execSync).not.toHaveBeenCalled()
-    expect(execFileSync.mock.calls.map(c => c[0])).toEqual([systemTool('certutil', 'win32'), systemTool('certutil', 'win32')])
-    expect(execFileSync.mock.calls.map(c => c[1])).toEqual([['-store', 'Root', 'llm-fw Local CA'], ['-delstore', '-f', 'Root', 'llm-fw Local CA']])
+    expect(execFileSync.mock.calls.map(c => c[0])).toEqual(Array(3).fill(systemTool('certutil', 'win32')))
+    expect(execFileSync.mock.calls.map(c => c[1])).toEqual([['-store', 'Root', 'llm-fw Local CA'], ['-user', '-store', 'Root', 'llm-fw Local CA'], ['-delstore', '-f', 'Root', 'llm-fw Local CA']])
   })
 
   it('still warns when an installed CA cannot be removed', () => {

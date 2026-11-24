@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.112
+
+Unchanged from 2026.11.111: `suppressions.json` is written to a temporary file and renamed, readable by its owner only (#921); no verdict changes.
+
 ## Result, ruleset 2026.11.111
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). The RAG boundary check reads a block to its last closing tag and defers only to user text that is an injection itself (#919). `npm run verdicts:diff` moved 0 of 31,323 eval verdicts. Replaying the 2,406 local Claude Code and Codex items from the last 30 days that hold a code fence, a RAG tag or a quote line: 2 moved between pass and warn and none was newly blocked; a first draft that escalated weak signals blocked 1 (a Claude Code skill text in a reminder), and a second blocked this repository's CLAUDE.md sent as a Codex AGENTS.md, so the narrowed veto applies to tag blocks only.
