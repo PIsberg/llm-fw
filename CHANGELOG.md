@@ -9,6 +9,8 @@ Releases 0.1.0 to 0.8.0 are in [docs/CHANGELOG-ARCHIVE.md](docs/CHANGELOG-ARCHIV
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-11-25
+
 ### Added
 
 - **`proxy.upstreamKeepAlive` reuses the connection to the provider instead of opening one per request (#670).** Each proxied request paid a TCP and a TLS round trip to the provider. With the switch on (`LLM_FW_UPSTREAM_KEEPALIVE=true`, hot-reloaded), the proxy keeps the connection and sends the next request to the same host on it. Measured through the proxy against api.anthropic.com, two alternating runs of 20 requests each: median 210 ms off, 147 ms on. A connection is reused only after its response was read to the end of its framing with nothing after it, from an HTTP/1.1 provider that did not ask to close it; an idle one closes after 30 s or as soon as the provider writes to it or closes it. A kept connection that dies before any byte of the answer is retried once on a new one, so a provider that dropped a request without answering gets it twice. The client is still told `Connection: close`, as before. Off by default until it has run on live traffic (#843). The gateway already reused its connections through Node's agent; see the #842 entry under Fixed. Verified by 8 e2e cases and 6 pool unit tests, and by the whole e2e suite with the switch forced on (273 tests). See [Upstream keep-alive](docs/guides/configuration.md#configuration).
@@ -815,7 +817,8 @@ Prepared on 2026-10-24 and never tagged or published to npm. Its changes ship in
   security review, testing on a remote server, and the GA accuracy bar. Each item
   is ticked as it is verified.
 
-[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/PIsberg/llm-fw/compare/v0.9.8...HEAD
+[0.9.8]: https://github.com/PIsberg/llm-fw/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/PIsberg/llm-fw/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/PIsberg/llm-fw/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/PIsberg/llm-fw/compare/v0.9.4...v0.9.5
