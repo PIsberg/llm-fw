@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.113
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Only the opt-in classifier (Stage 2.5) reads Claude Code's reminders differently (#858): a block in a text part with other text beside it is scored whole, and the git status in the context block is scored as one part. The cheap pipeline this gate runs does not include that stage, so it cannot move. Measured on the real model instead: of the parts the change produces from 983 distinct git statuses in local Claude Code transcripts, 1 scores 0.9 or more, a status listing dozens of changed test files; with `requireCorroboration` on (the default) that is a warn.
+
 ## Result, ruleset 2026.11.112
 
 Unchanged from 2026.11.111: `suppressions.json` is written to a temporary file and renamed, readable by its owner only (#921); no verdict changes.

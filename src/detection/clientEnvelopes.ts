@@ -352,9 +352,26 @@ const HARNESS_OPENERS: readonly RegExp[] = [
 // Inside a harness block, "Contents of <path> (<what it is>):" opens a file
 // the user or a repository wrote, which runs to the next such line.
 const isFileHeader = (line: string): boolean => line.startsWith('Contents of ') && line.trimEnd().endsWith('):')
+// The git status in a context block names what anyone who pushed to the
+// repository wrote: branch names, commit subjects, file names. It runs from
+// this line to the next "# " heading of the block (git prints none: each of
+// its lines starts with a label, a status code or a hash) and is scored as
+// one part, without the fixed lines around the values (#858).
+const GIT_STATUS_OPENER = 'This is the git status at the start of the conversation.'
+const GIT_STATUS_FIXED: ReadonlySet<string> = new Set([
+  'Status:',
+  'Recent commits:',
+  "Claude Code attached this context automatically; it isn't part of the user's message. It describes the user's own account and workspace, so they don't need it reported back.",
+])
+const GIT_MAIN_BRANCH = 'Main branch (you will usually use this for PRs): '
 
-/** The file bodies of a harness block, or the whole block when it is not one. */
-function reminderParts(inner: string): string[] {
+/**
+ * The file bodies of a harness block, or the whole block when it is not one.
+ * `harness` is false when the text part the block came in holds anything but
+ * reminders and Claude Code's markup: then the block is scored whole, its
+ * harness sentences included (#858).
+ */
+function reminderParts(inner: string, harness: boolean): string[] {
   // A block that is only one of Claude Code's envelopes (a message sent
   // mid-turn) or only its markup (<total_tokens>, about 100 of 116 blocked
   // reminders in a replay of real transcripts, 2026-10-31) is scored for what
@@ -366,18 +383,31 @@ function reminderParts(inner: string): string[] {
   if (markup !== null) return markup
   const lines = inner.split('\n')
   const first = lines.find(l => l.trim() !== '')?.trim() ?? ''
-  if (!HARNESS_OPENERS.some(re => re.test(first))) return inner.trim() ? [inner.trim()] : []
+  if (!harness || !HARNESS_OPENERS.some(re => re.test(first))) return inner.trim() ? [inner.trim()] : []
   const parts: string[] = []
   let body: string[] | null = null
+  let git: string[] | null = null
+  const flush = (): void => {
+    if (body) parts.push(body.join('\n'))
+    if (git) parts.push(git.join('\n'))
+    body = git = null
+  }
   for (const line of lines) {
     if (isFileHeader(line)) {
-      if (body) parts.push(body.join('\n'))
+      flush()
       body = []
     } else if (body) {
       body.push(line)
+    } else if (line.trimStart().startsWith(GIT_STATUS_OPENER)) {
+      // Only outside a file: in a CLAUDE.md the line is the file's text.
+      flush()
+      git = []
+    } else if (git) {
+      if (line.startsWith('# ')) flush()
+      else if (!GIT_STATUS_FIXED.has(line.trim())) git.push(line.startsWith(GIT_MAIN_BRANCH) ? `Main branch: ${line.slice(GIT_MAIN_BRANCH.length)}` : line)
     }
   }
-  if (body) parts.push(body.join('\n'))
+  flush()
   return parts.map(p => p.trim()).filter(Boolean)
 }
 
@@ -387,23 +417,35 @@ function reminderParts(inner: string): string[] {
  * each block Claude Code did not write. Whole blocks only, found with indexOf
  * (a text can hold thousands of unclosed openers; a lazy regex rescans to the
  * end from each); an unclosed tag stays in the typed text.
+ *
+ * Claude Code sends each reminder as a text part of its own, apart from what
+ * the user typed (captured 2026-11-26 with a stub server as
+ * ANTHROPIC_BASE_URL), or after its own task notification in one text (the
+ * background security review). Only in those shapes are the harness's
+ * sentences dropped; a part with any other text beside the blocks was not
+ * written that way, so each block in it is scored whole and a forged opener
+ * line hides nothing (#858). Text outside the blocks that is only Claude
+ * Code's markup is scored for what it carries, as a turn of markup is.
  */
 export function unwrapClaudeCodeReminders(text: string): string[] {
   let open = text.indexOf(REMINDER_OPEN)
   if (open < 0) return text.trim() ? [text] : []
-  const parts: string[] = []
+  const inners: string[] = []
   let outside = ''
   let last = 0
   while (open >= 0) {
     const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length)
     if (close < 0) break
     outside += text.slice(last, open)
-    parts.push(...reminderParts(text.slice(open + REMINDER_OPEN.length, close)))
+    inners.push(text.slice(open + REMINDER_OPEN.length, close))
     last = close + REMINDER_CLOSE.length
     open = text.indexOf(REMINDER_OPEN, last)
   }
   outside = (outside + text.slice(last)).trim()
-  return outside ? [outside, ...parts] : parts
+  const markup = markupParts(outside, 0)
+  const typed = markup ?? [outside]
+  const parts = inners.flatMap(inner => reminderParts(inner, markup !== null))
+  return [...typed.map(t => t.trim()).filter(Boolean), ...parts]
 }
 
 export interface ReminderFile {
