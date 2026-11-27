@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
  * a green run there is evidence about those corpora and nothing else. Only the
  * held-out splits answer "did this cost recall".
  */
-export const RULESET_VERSION = '2026.11.118';
+export const RULESET_VERSION = '2026.11.119';
 
 /**
  * sha256 over RULESET_FILES (path + content, sorted, newlines normalised).

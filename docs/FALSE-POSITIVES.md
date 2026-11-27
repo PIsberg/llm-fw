@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.119
+
+Unchanged from 2026.11.118: the #943 harness templates lose their last free slots (one tool name or heading per line, a changed file's path, the sign-in notice's server name), all in the opt-in Stage 2.5. Measured with the real model on 7,147 real reminder texts against 2026.11.117: 928 parts newly scored, 68 at 0.9 or more, all notification summaries, as with 2026.11.118.
+
 ## Result, ruleset 2026.11.118
 
 **Unchanged: the cheap pipeline this gate runs does not include Stage 2.5** (`npm run fpr`, exit 0). Claude Code's reminder blocks keep only the lines Claude Code writes before the opt-in classifier reads them; any other line in a harness block is scored (#943). Measured with the real model on 7,147 real reminder texts from local transcripts: 928 parts newly scored, 68 at 0.9 or more, all the agent's own background-command descriptions in task-notification summaries; a classifier hit alone is a warn with `requireCorroboration` on (the default).
