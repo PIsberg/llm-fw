@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.116
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Stage 2.5 and the response classifier now size their windows by an estimate of the tokenizer's count and add up to two windows on instruction-like markers in unread text (#898); both are off in this run's default configuration. The classifier preset, measured with `bench:compare` against the published column: every split within tolerance, jailbreak-classification recall 82.3%, oasst1-sample FPR 11.7%, safeguard FPR 0.2%.
+
 ## Result, ruleset 2026.11.115
 
 Unchanged from 2026.11.114: the Gemini and Cloud Code parsers read both JSON spellings of every field (#929). No benign corpus holds a Gemini request, so no row can move; `npm run fpr` re-run, exit 0.

@@ -151,13 +151,13 @@ describe('OutputModerationClassifier', () => {
     warn.mockRestore()
   })
 
-  it('reads very long responses in at most four windows of 2,000 characters', async () => {
+  it('reads very long responses in at most four windows the model reads whole', async () => {
     fakeClassify.mockResolvedValue([{ label: 'NORMAL', score: 0.99 }])
     const c = new OutputModerationClassifier(cfg())
     await c.init()
     await c.classify('x'.repeat(9000))
     expect(fakeClassify.mock.calls.length).toBe(4)
-    for (const [input] of fakeClassify.mock.calls) expect((input as string).length).toBe(2000)
+    for (const [input] of fakeClassify.mock.calls) expect((input as string).length).toBeLessThanOrEqual(2000)
   })
 
   it('treats empty model output as not-flagged (score 0)', async () => {

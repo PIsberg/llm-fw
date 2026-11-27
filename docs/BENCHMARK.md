@@ -267,10 +267,16 @@ splits joined the baseline on 2026-11-23 (ruleset 2026.11.93, the job had failed
 since 2026-11-22 for lacking them): with the classifier preset, multiturn-cipher
 blocks 479 of 517 attacks and 234 of its 300 controls, safemt-attack-600 99 of
 600, and oasst1-multiturn 285 of 1,000 benign threads. Since #858 the classifier
-reads a long text in up to four 2,000-character windows (head, tail, evenly
-spaced between) instead of its first 4,000 characters (past 8 KB of prose it
-reads those four and no more, #898); that moved
-jailbreak-classification recall 82.7% to 82.3% and nothing else past 0.1 points.
+reads a long text in up to four windows (head, tail, evenly spaced between)
+instead of its first 4,000 characters; that moved jailbreak-classification
+recall 82.7% to 82.3% and nothing else past 0.1 points. Since #898 a window is
+sized by an estimate of the tokenizer's count (440 tokens, so the model reads
+it whole; a 2,000-character window of real tool output ran past 512 tokens
+1,464 times in 1,502), and up to two more windows go where the unread text
+holds the most instruction-like markers. Re-run with the classifier preset on
+2026-11-27, every split stayed within the gate's tolerance of the column
+below, with the same deltas as after #858 (jailbreak-classification recall
+82.3%, oasst1-sample FPR 11.7%) and safeguard FPR 0.1% to 0.2%.
 
 **Prompt injection**
 
