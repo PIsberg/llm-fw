@@ -200,6 +200,24 @@ describe('security review of #889', () => {
     expect((await new Pipeline(cfg).run('/v1/messages', body, meta)).action).toBe('block')
   })
 
+  it('still scans those bytes when control bytes are woven between them', async () => {
+    const woven = [...INJECTION].join('\x01')
+    const codes = [...new Set(woven)].map(c => `<${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}> <0078>`)
+    const cmap = `1 begincodespacerange <00> <FF> endcodespacerange\n${codes.length} beginbfchar\n${codes.join('\n')}\nendbfchar`
+    const data = pdf([
+      ...catalog([3]),
+      { num: 3, dict: '/Type /Page /Parent 2 0 R /Resources << /Font << /F1 10 0 R >> >> /Contents 4 0 R' },
+      content(4, `(${woven}) Tj`),
+      { num: 10, dict: '/Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 11 0 R' },
+      { num: 11, dict: '/Filter /FlateDecode', stream: flate(cmap) },
+    ])
+    const body = JSON.stringify({ messages: [{ role: 'user', content: [
+      { type: 'text', text: 'Please summarize the attached document.' },
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } },
+    ] }] })
+    expect((await new Pipeline(cfg).run('/v1/messages', body, meta)).action).toBe('block')
+  })
+
   it('walks a deep page tree once, however many pages hang under it', { timeout: LINEAR_TIME_TIMEOUT }, () => {
     const depth = 16
     const pad = `/Pad [${'0 '.repeat(15_000)}]`
