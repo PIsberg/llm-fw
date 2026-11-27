@@ -228,9 +228,12 @@ is scored whole too, and the text beside the blocks is scored on its own;
 the verdict is the highest part. Within a part of its own, a harness block
 keeps only the lines Claude Code writes, read from 3,300 real blocks: its
 fixed sentences with their slots (an email, a date, a model name, a session
-id), the tool names of a tools-available block, and its markup. Any other
-line in the block is scored (#943), so a forged block cannot hide a payload
-behind a copied opener. Two shapes still drop more: the security review
+id) and the tool names of a tools-available block. Its markup is scored for
+what it carries (a task notification's summary as the description its
+template quotes), and any other line in the block is scored (#943), so a
+forged block cannot hide a payload behind a copied opener. That costs warns
+on real traffic: 68 of 923 newly scored parts from 7,140 real reminders
+scored 0.9 or more, the agent's own background-command descriptions. Two shapes still drop more: the security review
 plugin's findings and the changed lines of a file changed on disk (#956);
 the heuristic and embedding stages read those too. Claude Code's
 slash-command envelopes (either tag order), the envelope of a skill the

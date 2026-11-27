@@ -448,6 +448,7 @@ function reminderParts(inner: string, harness: boolean): string[] {
   const review = REVIEW_OPENER_RE.test(first)
   const tools = TOOLS_OPENER_RE.test(first)
   const context = first === CONTEXT_OPENER
+  const notification = first === '[SYSTEM NOTIFICATION - NOT USER INPUT]'
   const residue: string[] = []
   let nested = false
   for (let i = 0; i < lines.length; i++) {
@@ -484,13 +485,20 @@ function reminderParts(inner: string, harness: boolean): string[] {
     // CLAUDE.md, code and notes), and the file is read in full when the
     // agent reads it again. A forged block's payload placed in them is a
     // known limit (#956).
-    if (changes) continue
+    if (changes) {
+      // Only the numbered lines of the change: any other line ends it.
+      if (/^\s*\d{1,7}\t/.test(line) || t === '...') continue
+      changes = null
+    }
     if (!t) continue
-    if (t === REMINDER_OPEN && REVIEW_OPENER_RE.test(lines.slice(i + 1).find(l => l.trim())?.trim() ?? '')) {
+    // The plugin's review nested in a notification, only with its escaped
+    // closer further on; without one the lines stay in (fail closed).
+    if (notification && t === REMINDER_OPEN && REVIEW_OPENER_RE.test(lines.slice(i + 1).find(l => l.trim())?.trim() ?? '') &&
+      lines.slice(i + 1).some(l => l.trim() === NESTED_REVIEW_CLOSE)) {
       nested = true
       continue
     }
-    if (CHANGED_ON_DISK_RE.test(t)) {
+    if (t === first && CHANGED_ON_DISK_RE.test(t)) {
       flush()
       if (t.endsWith(SHOWS_CHANGES)) changes = []
       continue
@@ -499,14 +507,13 @@ function reminderParts(inner: string, harness: boolean): string[] {
     residue.push(line)
   }
   flush()
-  // What is left is not one of Claude Code's lines. Its own markup (a task
-  // notification's fields, a Monitor event) stays dropped, as it was: the
-  // real classifier scored 68 of 865 real notification summaries 0.9 or more,
-  // the agent's own command descriptions. A line that is not markup either is
-  // scored with the rest, tags and all: that is where a forged block's
-  // payload goes.
+  // What is left is not one of Claude Code's lines. Its markup is scored for
+  // what it carries (a task notification's summary is read as the text its
+  // template quotes; ids, statuses and output paths are not scored), anything
+  // else whole. A forged block's payload goes there, in a tag or beside one
+  // (security review: dropping the markup hid a payload in a summary).
   const rest = residue.join('\n').trim()
-  if (rest && markupParts(rest, 0) === null) parts.push(rest)
+  if (rest) parts.push(...(markupParts(rest, 0) ?? [rest]))
   return parts.map(p => p.trim()).filter(Boolean)
 }
 
