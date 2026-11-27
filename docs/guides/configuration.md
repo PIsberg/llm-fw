@@ -225,10 +225,14 @@ Code on 2026-11-26). In a part with any other text, each block is scored
 whole, sentences included, so a reminder pasted into a prompt cannot hide
 the lines after its first. A reminder block that opens with anything else
 is scored whole too, and the text beside the blocks is scored on its own;
-the verdict is the highest part. A client that sends a forged block as a
-part of its own, under Claude Code's user agent, still has the lines after
-a harness opener left out of this stage; the heuristic and embedding stages
-read them. Claude Code's
+the verdict is the highest part. Within a part of its own, a harness block
+keeps only the lines Claude Code writes, read from 3,300 real blocks: its
+fixed sentences with their slots (an email, a date, a model name, a session
+id), the tool names of a tools-available block, and its markup. Any other
+line in the block is scored (#943), so a forged block cannot hide a payload
+behind a copied opener. Two shapes still drop more: the security review
+plugin's findings and the changed lines of a file changed on disk (#956);
+the heuristic and embedding stages read those too. Claude Code's
 slash-command envelopes (either tag order), the envelope of a skill the
 model invokes itself (with the fixed `<skill-format>true</skill-format>`
 line), its `<session>` envelope with or
