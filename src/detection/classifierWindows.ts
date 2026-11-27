@@ -40,6 +40,9 @@ const LETTER_RE = /[\p{L}\p{N}]/u
 // Estimated tokens are counted in sixteenths, so whitespace, which the
 // tokenizer reads as nothing, still spreads the windows over a long run of it.
 const UNIT = 16
+// Adjacent windows share this many tokens, so a payload on a boundary is
+// read whole by one of them.
+const OVERLAP_TOKENS = 32
 
 /**
  * 1 a digit, 2 an upper-case and 3 a lower-case ASCII letter; 4 a letter or
@@ -115,8 +118,10 @@ function indexAt(prefix: Uint32Array, tokens: number): number {
 /** The window of at most WINDOW_TOKENS that starts at `start`, as [start, end). */
 function windowFrom(prefix: Uint32Array, start: number): [number, number] {
   const limit = (prefix[start] ?? 0) + WINDOW_TOKENS * UNIT
-  // The last index whose prefix is within the budget.
-  let end = indexAt(prefix, limit + 1) - 1
+  // The last index whose prefix is within the budget: the end of the text
+  // when all of it is.
+  const len = prefix.length - 1
+  let end = (prefix[len] ?? 0) <= limit ? len : indexAt(prefix, limit + 1) - 1
   if (end <= start) end = Math.min(prefix.length - 1, start + 1)
   return [start, Math.min(end, start + MAX_WINDOW_CHARS)]
 }
@@ -133,7 +138,23 @@ export function classifierWindows(text: string): string[] {
   const budget = WINDOW_TOKENS * UNIT
   if (total <= budget && text.length <= MAX_WINDOW_CHARS) return [text]
 
-  const count = Math.min(MAX_CLASSIFIER_WINDOWS, Math.max(Math.ceil(total / budget), Math.ceil(text.length / MAX_WINDOW_CHARS)))
+  // A text that MAX_CLASSIFIER_WINDOWS windows can cover is read end to end:
+  // each window as long as both limits allow, the next starting
+  // OVERLAP_TOKENS before it ends. Laid out by both measures at once, so a
+  // window MAX_WINDOW_CHARS cuts short (whitespace, which the tokenizer reads
+  // as nothing) leaves no stretch unread (#898, third review).
+  const greedy: [number, number][] = []
+  for (let start = 0; greedy.length < MAX_CLASSIFIER_WINDOWS;) {
+    const span = windowFrom(prefix, start)
+    greedy.push(span)
+    if (span[1] >= text.length) return greedy.map(([s, e]) => text.slice(s, e))
+    const back = indexAt(prefix, Math.max(0, (prefix[span[1]] ?? 0) - OVERLAP_TOKENS * UNIT))
+    start = back > start ? Math.min(back, span[1]) : span[1]
+  }
+
+  // Longer: evenly spaced by tokens, the last ending at the end, then the
+  // marker windows below for what they leave unread.
+  const count = MAX_CLASSIFIER_WINDOWS
   const spans: [number, number][] = []
   for (let i = 0; i < count; i++) {
     if (i === count - 1) {

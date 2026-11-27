@@ -57,6 +57,20 @@ describe('classifierWindows (#898)', () => {
     for (const w of classifierWindows('\n'.repeat(50_000))) expect(w.length).toBeLessThanOrEqual(MAX_WINDOW_CHARS)
   })
 
+  // Third review: a window cut at MAX_WINDOW_CHARS no longer covers its
+  // token span, and windows placed by tokens alone stacked at the start of a
+  // text that is mostly whitespace. A payload with no marker word between
+  // two runs of padding must still be read.
+  it('reads a payload between runs of padding, with no marker word to draw a window', () => {
+    const quiet = 'PAYLOAD-SENTINEL the zebra crossed the meadow at noon'
+    for (const pad of [' '.repeat(3000), '\n'.repeat(3000), ' \t'.repeat(1500)]) {
+      const text = 'start ' + pad + quiet + pad + ' end'
+      const windows = classifierWindows(text)
+      expect(covered(windows, quiet), JSON.stringify(pad.slice(0, 2))).toBe(true)
+      expect(text.endsWith(windows.at(-1)!)).toBe(true)
+    }
+  })
+
   it('keeps a short text whole and is deterministic', () => {
     expect(classifierWindows('hello world')).toEqual(['hello world'])
     const text = prose(30_000) + PAYLOAD + prose(30_000)
