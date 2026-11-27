@@ -97,9 +97,12 @@ export function injectCanary(path: string, body: string, token: string): string 
   } else if (parser instanceof GeminiParser) {
     // Google's Cloud Code API wraps the Gemini request in `request` (#594).
     const req = parser instanceof CloudCodeParser && data.request && typeof data.request === 'object' && !Array.isArray(data.request) ? data.request as Json : data
-    const si = (req.systemInstruction ?? req.system_instruction) as Json | undefined
-    if (!si || !Array.isArray(si.parts) || !si.parts.length) return null
-    si.parts = [...(si.parts as unknown[]), { text: line }]
+    // Gemini reads either JSON spelling of a field; with both present the
+    // line goes into each, or the one the server reads could lack it (#929).
+    const sis = [req.systemInstruction, req.system_instruction]
+      .filter((si): si is Json => !!si && typeof si === 'object' && Array.isArray((si as Json).parts) && ((si as Json).parts as unknown[]).length > 0)
+    if (!sis.length) return null
+    for (const si of sis) si.parts = [...(si.parts as unknown[]), { text: line }]
   } else if (parser instanceof BedrockParser) {
     if (Array.isArray(data.system) && data.system.length) {
       // Converse blocks carry no `type`; a native Anthropic body's do.
