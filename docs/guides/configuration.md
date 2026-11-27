@@ -548,7 +548,22 @@ inbound `x-request-id` when the caller sends one and minting a UUID otherwise,
 and echoes it back in the `x-request-id` response header. Every log record
 written while serving that request carries it, however deep in the detection
 pipeline it was written. So "my request was blocked" has one token that appears
-both in what the caller holds and in what the operator greps.
+both in what the caller holds and in what the operator greps. The forward proxy
+gives each request it inspects an id too, for its log lines only: the client
+gets the provider's own `x-request-id` back, untouched.
+
+**Trace correlation.** When a request carries a W3C `traceparent` header,
+both surfaces put its `traceId` and `spanId` on every record that request
+writes, so a collector can join llm-fw's lines to the trace that made the
+call (#874). A header that is not valid Trace Context (upper-case hex, an
+all-zero id, version `ff`, over 512 characters) is ignored.
+
+**What a record keeps.** `level`, `time`, `scope`, `msg`, `requestId`,
+`traceId` and `spanId` are written after a call site's own fields, so no field
+can overwrite them. A field that cannot be serialised as it is never stops the
+record: a circular reference is written as `"[Circular]"`, a BigInt as its
+decimal string, an Error at any depth as its message, name and stack, and a
+value whose serialisation still throws is dropped with a `logError` note.
 
 **What is never logged.** Prompt text, tool results, retrieved documents and
 credentials. This is a firewall for traffic that contains exactly those things;

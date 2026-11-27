@@ -45,7 +45,7 @@ function dechunk(body: Buffer): Buffer {
   return Buffer.concat(out)
 }
 
-async function send(proxyPort: number, upstreamPort: number, path: string, body: string): Promise<{ status: number; frames: EventStreamFrame[] }> {
+async function send(proxyPort: number, upstreamPort: number, path: string, body: string, extraHeaders = ''): Promise<{ status: number; frames: EventStreamFrame[] }> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: '127.0.0.1', port: proxyPort }, () => {
       socket.write(`CONNECT api.anthropic.com:${upstreamPort} HTTP/1.1\r\nHost: api.anthropic.com:${upstreamPort}\r\n\r\n`)
@@ -57,7 +57,7 @@ async function send(proxyPort: number, upstreamPort: number, path: string, body:
       if (buf.indexOf('\r\n\r\n') === -1) return
       socket.removeListener('data', onConnect)
       const t = tls.connect({ socket, servername: 'api.anthropic.com', ca: proxyCaPem, rejectUnauthorized: true }, () => {
-        t.write(`POST ${path} HTTP/1.1\r\nHost: api.anthropic.com\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n`)
+        t.write(`POST ${path} HTTP/1.1\r\nHost: api.anthropic.com\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n${extraHeaders}Connection: close\r\n\r\n`)
         t.write(body)
       })
       const parts: Buffer[] = []
@@ -194,6 +194,26 @@ describe('Proxy response scans on Bedrock event streams (#906, E2E)', { timeout:
     expect(texts(res.frames)).toContain('first frame')
     expect(texts(res.frames)).not.toContain('second frame')
     expect(res.frames.at(-1)?.headers[':message-type']).toBe('exception')
+  })
+
+  // #874: the proxy's log lines carry a request id, and the caller's W3C
+  // traceparent ids when it sent one.
+  it('puts a request id and the caller\'s traceparent ids on the log lines a request writes', async () => {
+    const saved = process.env.LLM_FW_LOG_FORMAT
+    process.env.LLM_FW_LOG_FORMAT = 'json'
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/converse-stream', converse('converse-corrupt'), 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\r\n')
+      const records = spy.mock.calls.map(c => { try { return JSON.parse(String(c[0])) as Record<string, unknown> } catch { return null } }).filter(Boolean)
+      const line = records.find(r => String(r!.msg).startsWith('unreadable Bedrock event stream'))
+      expect(typeof line?.requestId).toBe('string')
+      expect(line?.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736')
+      expect(line?.spanId).toBe('00f067aa0ba902b7')
+    } finally {
+      spy.mockRestore()
+      if (saved === undefined) delete process.env.LLM_FW_LOG_FORMAT
+      else process.env.LLM_FW_LOG_FORMAT = saved
+    }
   })
 
   it('cuts a stream that repeats the canary at a frame boundary, ending with an exception frame', async () => {

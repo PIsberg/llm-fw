@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import http from 'node:http'
 import fs from 'node:fs'
 import { join } from 'node:path'
@@ -518,6 +518,28 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
       headers: { ...authed, 'x-request-id': 'caller-supplied-id' },
     })
     expect(res.headers?.['x-request-id']).toBe('caller-supplied-id')
+  })
+
+  // #874: a caller's W3C traceparent rides along, so the gateway's log lines
+  // join the trace that sent the request.
+  it('puts the caller\'s traceparent ids on the log lines a request writes', async () => {
+    const saved = process.env.LLM_FW_LOG_FORMAT
+    process.env.LLM_FW_LOG_FORMAT = 'json'
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await request({
+        path: '/deadprovider/v1/messages', body: benign,
+        headers: { ...authed, traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' },
+      })
+      const records = spy.mock.calls.map(c => { try { return JSON.parse(String(c[0])) as Record<string, unknown> } catch { return null } }).filter(Boolean)
+      const upstream = records.find(r => String(r!.msg).startsWith('upstream'))
+      expect(upstream?.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736')
+      expect(upstream?.spanId).toBe('00f067aa0ba902b7')
+    } finally {
+      spy.mockRestore()
+      if (saved === undefined) delete process.env.LLM_FW_LOG_FORMAT
+      else process.env.LLM_FW_LOG_FORMAT = saved
+    }
   })
 
   it('mints its own id rather than trusting an absurd one', async () => {
