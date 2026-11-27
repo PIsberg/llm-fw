@@ -56,6 +56,32 @@ describe('CacheControlModule', () => {
     expect(kpi(mod, 'marked')).toBe(0)
   })
 
+  // #873: only where the API reads a breakpoint counts. A tool argument or a
+  // tool schema property named cache_control is data, and it switched caching
+  // off for the whole request.
+  it('still marks a request whose tool arguments or schemas hold a key named cache_control', () => {
+    const toolUse = request({ messages: [
+      { role: 'user', content: 'configure it' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'set', input: { cache_control: { type: 'ephemeral' } } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'done' }] },
+    ] })
+    const out = JSON.parse(send(new CacheControlModule(cfg()), toolUse).body)
+    expect(out.cache_control).toEqual({ type: 'ephemeral' })
+    const schema = request({ tools: [{ name: 'set', description: 'x', input_schema: { type: 'object', properties: { cache_control: { type: 'object' } } } }] })
+    expect(JSON.parse(send(new CacheControlModule(cfg()), schema).body).cache_control).toEqual({ type: 'ephemeral' })
+  })
+
+  it('still treats a breakpoint the API reads as the client\'s own, in every place it reads one', () => {
+    const places = [
+      { cache_control: { type: 'ephemeral' } },
+      { tools: [{ name: 't', input_schema: { type: 'object' }, cache_control: { type: 'ephemeral' } }] },
+      { system: [{ type: 'text', text: 's', cache_control: { type: 'ephemeral' } }] },
+      { messages: [{ role: 'user', content: [{ type: 'text', text: 'hi', cache_control: { type: 'ephemeral' } }] }] },
+      { messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'text', text: 'r', cache_control: { type: 'ephemeral' } }] }] }] },
+    ]
+    for (const extra of places) expect(send(new CacheControlModule(cfg()), request(extra)).modified).toBe(false)
+  })
+
   it('accepts the query string Claude Code sends', () => {
     expect(send(new CacheControlModule(cfg()), request(), { ...anthropic, path: '/v1/messages?beta=true' }).modified).toBe(true)
   })

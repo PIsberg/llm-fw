@@ -134,8 +134,13 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     const kept = turns.slice(cut).map(m => structuredClone(m) as Obj)
     orphanText(kept)
     const first = kept[0]!
+    // A content that is neither text nor a list of blocks (null on a tool
+    // message, a lone object) takes no marker block: the marker goes in a
+    // message of its own, as windowInput does (#873). It threw here, and the
+    // request went out without a window.
     if (typeof first.content === 'string') first.content = `${marker(dropped)}\n\n${first.content}`
-    else (first.content as unknown[]).unshift({ type: 'text', text: marker(dropped) })
+    else if (Array.isArray(first.content)) first.content.unshift({ type: 'text', text: marker(dropped) })
+    else kept.unshift({ role: 'user', content: marker(dropped) })
     for (const m of kept) {
       if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
       const visible = m.content.filter(b => !(isObj(b) && (b.type === 'thinking' || b.type === 'redacted_thinking')))

@@ -8,6 +8,21 @@ const cfg = (maxMessages = 60, step = 20) => ({ enabled: true, maxMessages, step
 const send = (mod: HistoryWindowModule, payload: Record<string, unknown>) => JSON.parse(mod.transformRequest(JSON.stringify(payload), ctx).body)
 
 describe('HistoryWindowModule', () => {
+  // #873: a first kept message whose content is neither a string nor a list
+  // made the module throw, and so drop the whole window for that request.
+  it('windows a conversation whose first kept message has no content list, with the marker its own message', () => {
+    for (const content of [null, { type: 'text', text: 'odd' }]) {
+      const messages: unknown[] = chat(100)
+      messages[40] = { role: 'user', content }
+      const res = new HistoryWindowModule(cfg()).transformRequest(JSON.stringify({ messages }), ctx)
+      expect(res.modified).toBe(true)
+      const out = JSON.parse(res.body).messages as Array<{ role: string; content: unknown }>
+      expect(out[0]).toEqual({ role: 'user', content: 'm0' })
+      expect(out[1]).toEqual({ role: 'user', content: '[llm-fw: 39 earlier messages omitted]' })
+      expect(out[2]).toEqual({ role: 'user', content })
+    }
+  })
+
   it('leaves a conversation within the window untouched', () => {
     const mod = new HistoryWindowModule(cfg())
     expect(mod.transformRequest(JSON.stringify({ messages: chat(60) }), ctx).modified).toBe(false)

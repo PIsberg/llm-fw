@@ -988,7 +988,7 @@ Responses API, which this module does not touch.
 caches a prompt prefix only when the request asks for it, and a cached prefix
 is billed at a fraction of the input price on every later request that
 repeats it. For an Anthropic Messages request (`api.anthropic.com`,
-`/v1/messages`) that carries no `cache_control` anywhere, this adds the
+`/v1/messages`) that carries no `cache_control` breakpoint, this adds the
 top-level automatic breakpoint, which follows the end of the conversation
 turn by turn.
 
@@ -998,7 +998,11 @@ turn by turn.
 | `cacheSystem` | `true` | Also marks the last block of the system prompt (a string prompt becomes one text block), so separate conversations that share tools and system prompt share that entry. |
 
 A request that places any marker of its own is left alone: the client has
-already decided, and a request may hold at most four. Claude Code places its
+already decided, and a request may hold at most four. Only the places the API
+reads a breakpoint count (the top level, a tool, a system block, a message
+block, a block of a tool result): a tool's arguments or input schema holding a
+key named `cache_control` is data, and no longer turns caching off for the
+request (#873). Claude Code places its
 own, so this changes nothing for it unless you name it in `shortTtlClients`
 (below); the card counts both cases. Writing an
 entry costs more than an uncached read (1.25 times the input price for five
@@ -1247,7 +1251,8 @@ the model no longer sees the turns it drops.
 When a conversation is longer than `maxMessages`, the oldest turns are dropped
 in whole steps. The kept history starts at the step, or at the user turn right
 after it when the step lands on an assistant turn, and the first kept turn
-starts with `[llm-fw: N earlier messages omitted]`. A tool result whose call
+starts with `[llm-fw: N earlier messages omitted]` (a turn of its own when the
+first kept turn's content is neither text nor a list of blocks, #873). A tool result whose call
 was dropped is sent as user text behind `[llm-fw: result of an omitted tool
 call]`, because providers refuse a result whose call is not in the request.
 The cut therefore never waits for a plain user turn, which an agent loop may
