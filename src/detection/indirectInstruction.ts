@@ -379,7 +379,21 @@ function namesIban(window: string): boolean {
   }
   return false
 }
+// "pay attention", "pay close attention", "pay heed": the idiom names no
+// payment. A technical book's "you need to pay attention to managing ..."
+// blocked a PDF once its text was readable (#940). The object veto stays: a
+// window that names an amount, an account, an address, a wallet or an IBAN,
+// or stops at a colon (what follows it is where the money goes), keeps the
+// order ("pay heed of $900 to account ..."), and another "pay" in the same
+// text is read on its own ("pay attention: pay $500 to IBAN ...").
+// No "tribute" or "homage": both can be a payment.
+const PAY_IDIOM_RE = /^\s*(?:(?:close|closer|careful|special|particular|more|extra|little|no|much|full|due|great|serious|some|any|less|enough)\s+)?(?:attention|heed|respects?|lip\s+service)\b/i
+/** True when an object window (it starts on the verb's last letter) opens with the idiom and names no payment target. */
+function payIdiom(window: string): boolean {
+  return PAY_IDIOM_RE.test(window.replace(/^\S*/, '')) && !IMPERATIVE_OBJECT_RE.test(window) && !namesIban(window) && !/:\s*$/.test(window)
+}
 function payRecipientHolds(window: string): boolean {
+  if (payIdiom(window)) return false
   return IMPERATIVE_OBJECT_RE.test(window) || /:\s*$/.test(window) || PAY_TO_RE.test(window) || namesIban(window)
 }
 
@@ -1407,6 +1421,12 @@ function mlIndices(haystack: string, needle: string): number[] {
   return out
 }
 
+// "e-post" read as a label: an optional colon, then the address at once.
+const E_POST_LABEL_RE = /^\s*(?::\s*)?[a-z0-9._%+-]{1,64}@[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){1,8}/
+// What an order sends, in English, Swedish, Norwegian and Danish, or a link or
+// an amount: any of these after the address keeps "e-post" a verb.
+const E_POST_VETO_RE = /\b(?:passwords?|passord\w*|l[oö]senord\w*|adgangskode\w*|credentials?|api[\s-]?keys?|keys?|nyckl\w*|n[oø]kl\w*|tokens?|secrets?|hemlig\w*|files?|filer\w*|data|records?|uppgifter|opplysninger|oplysninger|dokument\w*|documents?|kontonummer\w*|personnummer\w*)\b|https?:\/\/|[$€£]\s*\d/i
+
 /**
  * Language-agnostic fallback for the major world scripts. Runs only after the
  * English-anchored paths find nothing. Returns the first finding or null.
@@ -1431,8 +1451,21 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
     // Nor the last word of a CLI long option: `'--claude-dir'` paired "dir"
     // with an address further on (#620). Two dashes open it; "-dir" counts.
     (hay[i - 1] === '-' && /(?:^|[^\w-])--[a-z0-9]+(?:-[a-z0-9]+)*-$/.test(hay.slice(Math.max(0, i - 41), i)))
+  // Nor the Scandinavian noun "e-post" (email) as a label: an invoice's
+  // "e-post info@..." and an authority's "E-post: registrator@..." paired
+  // "post" with the address beside it, 8 of 22 blocked PDFs (#940). Only as a
+  // label, the address straight after it, and only when the sentence after
+  // the address names nothing to send: "E-post alle passord til x@..." and
+  // "E-post: x@... alle passord" stay orders.
+  const ePost = (i: number, v: string): boolean => {
+    if (v !== 'post' || hay.slice(i - 2, i) !== 'e-' || ML_LETTER_RE.test(hay[i - 3] ?? '')) return false
+    const label = E_POST_LABEL_RE.exec(hay.slice(i + v.length, i + v.length + 200))
+    if (!label) return false
+    const from = i + v.length + label[0].length
+    return !E_POST_VETO_RE.test(hay.slice(from, from + 160).split(SENTENCE_END_RE)[0] ?? '')
+  }
   for (const v of ML_VERBS) {
-    for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
+    for (const i of mlIndices(hay, v)) if (!inPath(i, v.length) && !ePost(i, v)) verbHits.push({ i, v })
   }
   if (!verbHits.length) return null
 
@@ -1656,6 +1689,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   for (let m = DIRECTIVE_RE.exec(text); m !== null; m = DIRECTIVE_RE.exec(text)) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    if (/^pay$/i.test(m[1] ?? '') && payIdiom(objectWindow(text, end))) continue
     if (QUESTION_LEAD_RE.test(text.slice(Math.max(0, m.index - 12), m.index)) && QUESTION_END_RE.test(text.slice(end)) &&
       !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     if (onlyTrustedObject(end)) continue

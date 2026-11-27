@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.114
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` against 2026.11.113 moved 0 of 31,323 eval verdicts, and `recall:floor` and `fuzz:rules` are unchanged. Two document shapes stop reading as orders (#940): the Scandinavian noun "e-post" as the verb "post", and "pay attention" as a payment. None of the benign corpora above holds document text, so the measurement that moved is a separate one: 107 local PDFs read with the draft #889 reader and sent as an Anthropic document block of text, default config, judge off, blocked 22 before and 14 after. Of the 14, 8 fire on an imperative in a technical book ("Use ...", "you are required to use ..."), 5 on an address near a send verb (e-signature audit trails, a book quoting an attack, a header example), 1 on many-shot (a 20 MB book).
+
 ## Result, ruleset 2026.11.113
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Only the opt-in classifier (Stage 2.5) reads Claude Code's reminders differently (#858): a block in a text part with other text beside it is scored whole, and the git status in the context block is scored as one part. The cheap pipeline this gate runs does not include that stage, so it cannot move. Measured on the real model instead: of the parts the change produces from 983 distinct git statuses in local Claude Code transcripts, 1 scores 0.9 or more, a status listing dozens of changed test files; with `requireCorroboration` on (the default) that is a warn.
