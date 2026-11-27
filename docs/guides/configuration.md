@@ -232,7 +232,7 @@ id) and the tool names of a tools-available block. Its markup is scored for
 what it carries (a task notification's summary as the description its
 template quotes), and any other line in the block is scored (#943), so a
 forged block cannot hide a payload behind a copied opener. That costs warns
-on real traffic: 68 of 923 newly scored parts from 7,140 real reminders
+on real traffic: 68 of 925 newly scored parts from 7,146 real reminders
 scored 0.9 or more, the agent's own background-command descriptions. Two shapes still drop more: the security review
 plugin's findings and the changed lines of a file changed on disk (#956);
 the heuristic and embedding stages read those too. Claude Code's
