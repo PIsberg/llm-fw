@@ -918,6 +918,36 @@ function geminiResponseText(response: unknown): string {
   return toolResultText(response)
 }
 
+// Gemini's JSON mapping accepts each field in its proto name (snake_case) as
+// well as lowerCamelCase, so a request can carry either spelling, or both of
+// one field. Every detection input reads both, in that order, so the one the
+// server picks is always among those scanned (#929).
+function geminiFields(obj: unknown, camel: string, snake: string): unknown[] {
+  if (!obj || typeof obj !== 'object') return []
+  const o = obj as Record<string, unknown>
+  const out: unknown[] = []
+  if (o[camel] !== undefined && o[camel] !== null) out.push(o[camel])
+  if (o[snake] !== undefined && o[snake] !== null) out.push(o[snake])
+  return out
+}
+const geminiObjects = (obj: unknown, camel: string, snake: string): any[] => geminiFields(obj, camel, snake).filter(v => v && typeof v === 'object')
+/** The text parts of a system instruction in either spelling (a bare string counts too). */
+function geminiSystemTexts(data: unknown): string[] {
+  const out: string[] = []
+  for (const sys of geminiFields(data, 'systemInstruction', 'system_instruction')) {
+    if (typeof sys === 'string') { out.push(sys); continue }
+    const parts = (sys as { parts?: unknown }).parts
+    if (Array.isArray(parts)) for (const part of parts) if (typeof part?.text === 'string') out.push(part.text)
+  }
+  return out
+}
+/** A blob's mime type; when its two spellings disagree, one the media stage reads as opaque. */
+function geminiMime(blob: unknown): string | undefined {
+  const types = geminiFields(blob, 'mimeType', 'mime_type').filter((t): t is string => typeof t === 'string')
+  if (types.length === 0) return undefined
+  return types.every(t => t === types[0]) ? types[0] : 'application/octet-stream'
+}
+
 class GeminiParser implements PayloadParser {
   supports(path: string): boolean {
     // Matches both stable (/v1/) and beta (/v1beta/, /v1beta1/) Gemini and
@@ -952,13 +982,7 @@ class GeminiParser implements PayloadParser {
         }
       }
 
-      if (data.systemInstruction && Array.isArray(data.systemInstruction.parts)) {
-        for (const part of data.systemInstruction.parts) {
-          if (typeof part.text === 'string') {
-            results.push(part.text)
-          }
-        }
-      }
+      results.push(...geminiSystemTexts(data))
 
       return results.filter(s => s.length > 0)
     } catch {
@@ -969,13 +993,7 @@ class GeminiParser implements PayloadParser {
   extractSystem(body: string): string[] {
     try {
       const data = JSON.parse(body)
-      const results: string[] = []
-      if (data.systemInstruction && Array.isArray(data.systemInstruction.parts)) {
-        for (const part of data.systemInstruction.parts) {
-          if (typeof part.text === 'string') results.push(part.text)
-        }
-      }
-      return results.filter(s => s.length > 0)
+      return geminiSystemTexts(data).filter(s => s.length > 0)
     } catch { return [] }
   }
 
@@ -997,20 +1015,21 @@ class GeminiParser implements PayloadParser {
           if (!Array.isArray(content.parts)) continue
           if (content.role === 'model') {
             calls = content.parts
-              .map((part: any) => part?.functionCall)
-              .filter((fc: any) => fc && typeof fc.name === 'string')
+              .flatMap((part: any) => geminiObjects(part, 'functionCall', 'function_call'))
+              .filter((fc: any) => typeof fc.name === 'string')
               .map((fc: any) => ({ id: fc.id, name: fc.name, args: fc.args }))
             // Code execution runs at the provider, and its output is resent in
             // the model turn: whatever the code read is third-party text.
             for (const part of content.parts) {
-              const output = part?.codeExecutionResult?.output
-              if (typeof output === 'string' && output) results.push({ toolUseId: 'codeExecutionResult', result: output, toolName: 'codeExecution' })
+              for (const cer of geminiObjects(part, 'codeExecutionResult', 'code_execution_result')) {
+                const output = cer.output
+                if (typeof output === 'string' && output) results.push({ toolUseId: 'codeExecutionResult', result: output, toolName: 'codeExecution' })
+              }
             }
             continue
           }
           for (const part of content.parts) {
-            const fr = part?.functionResponse
-            if (fr && typeof fr === 'object') {
+            for (const fr of geminiObjects(part, 'functionResponse', 'function_response')) {
               const resText = geminiResponseText(fr.response ?? fr)
               const byId = typeof fr.id === 'string' ? calls.filter(c => c.id === fr.id) : []
               const byName = calls.filter(c => c.name === fr.name)
@@ -1036,8 +1055,8 @@ class GeminiParser implements PayloadParser {
         for (const cand of data.candidates) {
           if (cand.content && Array.isArray(cand.content.parts)) {
             for (const part of cand.content.parts) {
-              if (part.functionCall && typeof part.functionCall.name === 'string') {
-                results.push({ toolName: part.functionCall.name, args: part.functionCall.args })
+              for (const fc of geminiObjects(part, 'functionCall', 'function_call')) {
+                if (typeof fc.name === 'string') results.push({ toolName: fc.name, args: fc.args })
               }
             }
           }
@@ -1055,19 +1074,20 @@ class GeminiParser implements PayloadParser {
         for (const content of data.contents) {
           if (!Array.isArray(content?.parts)) continue
           // A functionResponse can carry media parts of its own (#857).
-          const parts = content.parts.flatMap((part: any) => {
-            const fr = part?.functionResponse ?? part?.function_response
-            return fr && Array.isArray(fr.parts) ? [part, ...fr.parts] : [part]
-          })
+          const parts = content.parts.flatMap((part: any) => [
+            part,
+            ...geminiObjects(part, 'functionResponse', 'function_response').flatMap((fr: any) => Array.isArray(fr.parts) ? fr.parts : []),
+          ])
           for (const part of parts) {
-            // REST uses inlineData/fileData (camelCase); some SDKs emit snake_case.
-            const inline = part?.inlineData ?? part?.inline_data
-            const file = part?.fileData ?? part?.file_data
-            if (inline && typeof inline === 'object' && typeof inline.data === 'string') {
-              const mime = inline.mimeType ?? inline.mime_type
+            // REST uses inlineData/fileData (camelCase); some SDKs emit
+            // snake_case, and a part can carry both (#929): each is read.
+            for (const inline of geminiObjects(part, 'inlineData', 'inline_data')) {
+              if (typeof inline.data !== 'string') continue
+              const mime = geminiMime(inline)
               out.push(mediaBlockFromBase64(kindFromMime(mime), mime, inline.data))
-            } else if (file && typeof file === 'object') {
-              const mime = file.mimeType ?? file.mime_type
+            }
+            for (const file of geminiObjects(part, 'fileData', 'file_data')) {
+              const mime = geminiMime(file)
               out.push({ kind: kindFromMime(mime), ...(typeof mime === 'string' ? { mimeType: mime } : {}) })
             }
           }
@@ -1087,8 +1107,8 @@ class GeminiParser implements PayloadParser {
       // exchange, and a thought part is the model's own reasoning.
       const textOf = (parts: unknown): string => Array.isArray(parts)
         ? parts.filter((p: any) => typeof p?.text === 'string' && p.thought !== true).map((p: any) => p.text).join('\n') : ''
-      const sys = data.systemInstruction ?? data.system_instruction
-      const system = typeof sys === 'string' ? sys : textOf(sys?.parts)
+      const system = geminiFields(data, 'systemInstruction', 'system_instruction')
+        .map((sys: any) => typeof sys === 'string' ? sys : textOf(sys?.parts)).filter(Boolean).join('\n')
       if (system) turns.push({ role: 'system', text: system })
       if (Array.isArray(data.contents)) {
         for (const content of data.contents) {

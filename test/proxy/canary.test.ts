@@ -58,6 +58,17 @@ describe('injectCanary', () => {
     expect(getParser(path)!.extractPrompts(out!).filter(p => p === 'hi')).toHaveLength(1)
   })
 
+  // #929: Gemini reads either JSON spelling of a field, so with both present
+  // the canary goes into each; in one only, the server could read the other.
+  it('adds the token to both spellings of a Gemini system instruction', () => {
+    const body = { systemInstruction: { parts: [{ text: SYSTEM }] }, system_instruction: { parts: [{ text: 'Snake system.' }] }, contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }
+    const out = JSON.parse(injectCanary('/v1beta/models/g:generateContent', JSON.stringify(body), TOKEN)!)
+    expect(JSON.stringify(out.systemInstruction)).toContain(TOKEN)
+    expect(JSON.stringify(out.system_instruction)).toContain(TOKEN)
+    const snakeOnly = JSON.parse(injectCanary('/v1beta/models/g:generateContent', JSON.stringify({ system_instruction: { parts: [{ text: SYSTEM }] }, contents: [] }), TOKEN)!)
+    expect(JSON.stringify(snakeOnly.system_instruction)).toContain(TOKEN)
+  })
+
   it('is byte-identical across requests, so the prompt cache prefix stays stable', () => {
     const body = JSON.stringify(cases[0]![2])
     expect(injectCanary('/v1/messages', body, TOKEN)).toBe(injectCanary('/v1/messages', body, TOKEN))
