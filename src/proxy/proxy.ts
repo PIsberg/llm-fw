@@ -46,6 +46,7 @@ import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT, sseStreamText } fro
 import { TlsSessionCache } from './tlsSessions.js'
 import { UpstreamPool } from './upstreamPool.js'
 import { ExfilStreamHold } from './streamExfil.js'
+import { EventStreamReader, eventStreamException, eventStreamKind } from './eventStreamText.js'
 import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
 import { createLogger, urlForLog } from '../logger.js'
@@ -1803,8 +1804,10 @@ export class ProxyServer {
       // 'raw-stream' is the fail-open passthrough after an oversized inspected body.
       // 'sniff' waits for the first body bytes of an untyped response.
       let mode: 'passthrough' | 'json' | 'sse' | 'raw-stream' | 'sniff' | 'eventstream' = 'passthrough'
-      // Bedrock's binary event stream, read by its MCP gate (#882).
+      // Bedrock's binary event stream, read by its MCP gate (#882), and as
+      // the Anthropic SSE text it stands for by the response scans (#906).
       let binGate: BinaryGate | null = null
+      let esReader: EventStreamReader | null = null
       let sniffBuf: Buffer = Buffer.alloc(0)
       let status = 200
       const respHeaders: Record<string, string | string[]> = {}
@@ -1849,7 +1852,9 @@ export class ProxyServer {
       const cutStream = (message: string) => {
         cut = true
         upstream.destroy()
-        const ending = atEventBoundary ? streamErrorEvent(req.url ?? '/', message) : null
+        // An event stream is only ever forwarded in whole frames, so it ends
+        // on a frame boundary with an exception frame its SDK reports (#906).
+        const ending = mode === 'eventstream' ? eventStreamException(message) : atEventBoundary ? streamErrorEvent(req.url ?? '/', message) : null
         if (ending) { res.end(ending); respBodyBytes += Buffer.byteLength(ending) } else res.destroy()
         resolve(respBodyBytes)
       }
@@ -1875,12 +1880,46 @@ export class ProxyServer {
         forwardSse(out)
       }
 
-      // Bedrock event-stream bytes through the gate, binary throughout (#882).
+      // Bedrock event-stream bytes, binary throughout (#882). Each frame is
+      // read first as the SSE text it stands for: kept for the end-of-stream
+      // scans, and watched for the canary, which cuts before the frame that
+      // completes it is forwarded (#906). Then the MCP gate decides what is
+      // forwarded, or, without it, every whole frame read so far goes out.
       const feedFrames = (bytes: Buffer) => {
-        if (!binGate || !bytes.length) return
-        const { forward, decisions } = binGate.push(bytes)
-        this.reportGateDecisions(decisions, '', req, hostname)
+        if (cut || !esReader || !bytes.length) return
+        const read = esReader.push(bytes)
+        for (let i = 0; i < read.frames.length; i++) {
+          const text = read.sse[i]!
+          if (!text) continue
+          if (sseText.length < maxResp) sseText += text
+          if (!watch?.push(text)) continue
+          this.emitCanary(canaryBlocks, req, hostname)
+          if (!canaryBlocks) continue
+          // The frames before this one go out, unless the MCP gate decides
+          // what is forwarded: then nothing of this chunk is.
+          if (!binGate && i > 0) {
+            const before = Buffer.concat(read.frames.slice(0, i).map(f => f.raw))
+            res.write(before)
+            respBodyBytes += before.length
+          }
+          cutStream(CANARY_CUT)
+          return
+        }
+        if (binGate) {
+          // The gate reads the same bytes and reports a frame it cannot read.
+          const { forward, decisions } = binGate.push(bytes)
+          this.reportGateDecisions(decisions, '', req, hostname)
+          if (forward.length) { res.write(forward); respBodyBytes += forward.length }
+          return
+        }
+        const forward = read.frames.length === 1 ? read.frames[0]!.raw : Buffer.concat(read.frames.map(f => f.raw))
         if (forward.length) { res.write(forward); respBodyBytes += forward.length }
+        // A frame that cannot be read cannot be scanned, nor read by the
+        // client's SDK: what is past it is not forwarded.
+        if (read.error) {
+          log.warn(`unreadable Bedrock event stream from ${hostname}${urlForLog(req.url)}: ${read.error}`)
+          cutStream(`llm-fw cut this response: the event stream could not be read (${read.error})`)
+        }
       }
 
       // Start writing the body in the chosen mode, from its first decoded bytes.
@@ -1956,17 +1995,16 @@ export class ProxyServer {
           const ctype = hdr('content-type').toLowerCase()
           // #882: Bedrock's converse-stream and invoke-with-response-stream
           // answer in binary frames, which went through unread.
-          const eventGate = wantInspect && mcpActive && !compressed && ctype.includes('application/vnd.amazon.eventstream')
-            ? createEventStreamGate(req.url ?? '', this.mcp)
-            : null
+          const esKind = wantInspect && !compressed && ctype.includes('application/vnd.amazon.eventstream') ? eventStreamKind(req.url ?? '') : null
           if (wantInspect && ctype.includes('text/event-stream')) {
             // Streaming decompression is unsupported — a compressed SSE stream
             // falls back to untouched passthrough rather than risk corruption.
             mode = compressed ? 'passthrough' : 'sse'
           } else if (wantInspect && ctype.includes('application/json')) {
             mode = 'json'
-          } else if (eventGate) {
-            binGate = eventGate
+          } else if (esKind) {
+            binGate = mcpActive ? createEventStreamGate(req.url ?? '', this.mcp) : null
+            esReader = new EventStreamReader(esKind)
             mode = 'eventstream'
           } else if (wantInspect && !compressed && parser instanceof CohereParser && /stream\+json|ndjson/.test(ctype)) {
             // #881: Cohere v1 streams newline-delimited JSON, which went
@@ -2036,7 +2074,7 @@ export class ProxyServer {
         if (cutShort) {
           // What already reached the client still gets its audit; the hold's
           // unreleased text never reached it and is dropped with the connection.
-          if (mode === 'sse') {
+          if (mode === 'sse' || mode === 'eventstream') {
             this.auditSseExfil(sseText, req, hostname)
             this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)
@@ -2081,9 +2119,23 @@ export class ProxyServer {
           }
           respBodyBytes = await this.deliverInspectedJson(text, status, inspectedHeaders(), req, res, hostname, parser, mcpActive)
         } else {
-          if (mode === 'eventstream' && binGate) {
-            const tail = binGate.flush()
-            if (tail.length) { res.write(tail); respBodyBytes += tail.length }
+          if (mode === 'eventstream') {
+            if (cut) return
+            if (watch?.flush()) {
+              this.emitCanary(canaryBlocks, req, hostname)
+              if (canaryBlocks) { cutStream(CANARY_CUT); return }
+            }
+            if (binGate) {
+              const tail = binGate.flush()
+              if (tail.length) { res.write(tail); respBodyBytes += tail.length }
+            }
+            // Already streamed: the exfil, tool-call and harm scans audit,
+            // as they do an SSE stream's (#906). Block mode's exfil hold
+            // needs text released at line ends, which a frame does not
+            // offer: on these streams it audits (#948).
+            this.auditSseExfil(sseText, req, hostname)
+            this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
+            await this.runResponseHarmScan(sseText, req, hostname, false)
           }
           if (mode === 'sse') {
             if (cut) return
