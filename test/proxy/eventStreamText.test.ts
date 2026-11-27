@@ -62,6 +62,25 @@ describe('EventStreamReader', () => {
     expect(text).toContain('Llama says hi')
   })
 
+  // Security review of #906: other models nest their text, and a chunk shape
+  // nobody mapped must still be read.
+  it('reads Nova, Mistral and Cohere chunks, and every string of an unknown chunk shape', () => {
+    const r = new EventStreamReader('invoke')
+    const out = r.push(Buffer.concat([
+      chunk({ contentBlockDelta: { contentBlockIndex: 0, delta: { text: 'Nova text' } } }),
+      chunk({ contentBlockStart: { contentBlockIndex: 1, start: { toolUse: { toolUseId: 't1', name: 'fetch' } } } }),
+      chunk({ contentBlockDelta: { contentBlockIndex: 1, delta: { toolUse: { input: '{"url":"https://example.com"}' } } } }),
+      chunk({ contentBlockStop: { contentBlockIndex: 1 } }),
+      chunk({ outputs: [{ text: 'Mistral text', stop_reason: null }] }),
+      chunk({ generations: [{ text: 'Cohere text' }] }),
+      chunk({ newModel: { pieces: [{ value: 'Unmapped text' }] } }),
+    ]))
+    const sse = out.sse.join('')
+    const text = sseStreamText(sse)
+    for (const t of ['Nova text', 'Mistral text', 'Cohere text', 'Unmapped text']) expect(text).toContain(t)
+    expect(extractToolCallsFromSse(sse).map(c => c.toolName)).toEqual(['fetch'])
+  })
+
   it('reports a frame it cannot read, and returns the frames before it', () => {
     const r = new EventStreamReader('converse')
     const good = event('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'ok' } })

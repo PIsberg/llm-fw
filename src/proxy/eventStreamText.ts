@@ -55,8 +55,22 @@ function converseEvent(type: string | undefined, p: Record<string, unknown>): st
   }
 }
 
-// The text field of each non-Anthropic model InvokeModel streams for.
+// The top-level text field of the non-Anthropic models InvokeModel streams
+// for: Claude's legacy text completions, Titan, Llama, Cohere Command R, AI21.
 const INVOKE_TEXT_KEYS = ['completion', 'outputText', 'generation', 'text', 'output_text'] as const
+const CONVERSE_KEYS = ['contentBlockStart', 'contentBlockDelta', 'contentBlockStop', 'messageStop'] as const
+const textDelta = (text: string): string => sse('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })
+
+/** Every string in a value, depth-first, bounded: an unknown chunk shape is still read, never skipped. */
+function stringLeaves(v: unknown, out: string[], depth = 0): void {
+  if (out.length >= 256 || depth > 8) return
+  if (typeof v === 'string') {
+    if (v) out.push(v)
+    return
+  }
+  const children = Array.isArray(v) ? v : Object.values(obj(v) ?? {})
+  for (const x of children) stringLeaves(x, out, depth + 1)
+}
 
 function invokeEvent(type: string | undefined, p: Record<string, unknown>): string {
   if (type !== 'chunk' || typeof p.bytes !== 'string') return ''
@@ -65,8 +79,21 @@ function invokeEvent(type: string | undefined, p: Record<string, unknown>): stri
   if (!event) return ''
   if (typeof event.type === 'string') return sse(event.type, event)
   const fields = event
+  // Amazon Nova streams Converse-shaped events inside its chunks.
+  const converse = CONVERSE_KEYS.filter(k => obj(fields[k])).map(k => converseEvent(k, obj(fields[k])!)).join('')
+  if (converse) return converse
   const texts = INVOKE_TEXT_KEYS.map(k => fields[k]).filter((t): t is string => typeof t === 'string' && t.length > 0)
-  return texts.length ? sse('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: texts.join('') } }) : ''
+  // Mistral's outputs[].text, Cohere Command's generations[].text.
+  for (const key of ['outputs', 'generations'] as const) {
+    const list = fields[key]
+    if (Array.isArray(list)) for (const item of list) { const t = obj(item)?.text; if (typeof t === 'string' && t) texts.push(t) }
+  }
+  if (texts.length) return textDelta(texts.join(''))
+  // A shape none of the above names (a new model's): every string it holds
+  // is read as text, so the scans see what it carries rather than nothing.
+  const leaves: string[] = []
+  stringLeaves(fields, leaves)
+  return leaves.length ? textDelta(leaves.join('\n')) : ''
 }
 
 /** The Anthropic SSE event a frame stands for, or '' for one that carries no text (metadata, exceptions). */
