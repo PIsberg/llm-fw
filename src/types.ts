@@ -459,6 +459,10 @@ export interface MediaBlock {
   // does not decode, an encrypted file, a cap reached): the pipeline counts
   // the block as opaque even when `text` holds what was read (#857).
   partial?: boolean;
+  // A PDF's text split by where it came from (#940): what its content streams
+  // draw, and everything else read from its bytes. Absent for other types.
+  pdfPageText?: string;
+  pdfOtherText?: string;
   // Raw base64 payload, retained ONLY for opaque raster images and audio so
   // the optional OCR and transcription stages can read them. Never serialized
   // into events (callers that emit blocks map fields explicitly). Absent for

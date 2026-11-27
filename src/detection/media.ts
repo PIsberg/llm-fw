@@ -41,7 +41,16 @@ export function extractPrintableRuns(buf: Buffer): string {
 export interface DecodedMedia {
   text: string | null
   partial: boolean
+  /**
+   * For a PDF, its text split by where it came from (#940): what its content
+   * streams draw (pageText), and the printable runs of every byte outside the
+   * streams read (otherText: dictionaries, metadata, anything after %%EOF,
+   * streams that could not be read).
+   */
+  pdf?: { pageText: string; otherText: string }
 }
+
+const NEWLINE = Buffer.from('\n')
 
 /** Streams read per PDF before the rest is left unread (and the block marked partial). */
 const MAX_PDF_STREAMS = 4096
@@ -73,7 +82,7 @@ export function decodeMedia(mimeType: string | undefined, base64Data: string, ma
   }
   if (/^application\/pdf$/i.test(mime) || buf.subarray(0, 5).toString('latin1') === '%PDF-') {
     const pdf = readPdf(buf, maxBytes)
-    return { text: pdf.text.length > 0 ? pdf.text : null, partial: pdf.partial }
+    return { text: pdf.text.length > 0 ? pdf.text : null, partial: pdf.partial, pdf: { pageText: pdf.pageText, otherText: pdf.otherText } }
   }
   return { text: null, partial: false }
 }
@@ -104,9 +113,14 @@ const MAX_DICT_CHARS = 4096
  * raw bytes, a PDF counted as inspected from its uncompressed dictionaries
  * alone, with not one word of its pages read (#857).
  */
-function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean } {
+function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean; pageText: string; otherText: string } {
   const s = buf.toString('latin1')
   const texts: string[] = [extractPrintableRuns(buf)]
+  // What content streams draw, and the byte ranges of the streams read: the
+  // page text and everything else are scanned apart (#940).
+  const pageTexts: string[] = []
+  const plainRuns: string[] = []
+  const readRanges: [number, number][] = []
   let partial = unreadable(s)
   let budget = maxBytes
   // Backward dictionary scans, bounded in total so dense streams stay linear.
@@ -161,16 +175,31 @@ function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolea
     // Object streams hold font and encoding dictionaries too.
     if (unreadable(latin)) partial = true
     const content = readContentStream(latin)
-    if (content.text) texts.push(content.text)
+    if (content.text) {
+      texts.push(content.text)
+      pageTexts.push(content.text)
+    }
     if (content.unread > 0) partial = true
+    readRanges.push([start, end])
     if (PLAIN_DICT.test(dict)) {
       const runs = extractPrintableRuns(decoded)
-      if (runs) texts.push(runs)
+      if (runs) {
+        texts.push(runs)
+        plainRuns.push(runs)
+      }
     }
   }
   // An endstream whose stream was not recognised is a stream not read.
   if (streams < ends) partial = true
-  return { text: texts.filter(Boolean).join('\n'), partial }
+  const outside: Buffer[] = []
+  let last = 0
+  for (const [a, b] of readRanges) {
+    if (a > last) outside.push(buf.subarray(last, a), NEWLINE)
+    last = Math.max(last, b)
+  }
+  if (last < buf.length) outside.push(buf.subarray(last))
+  const otherText = [extractPrintableRuns(Buffer.concat(outside)), ...plainRuns].filter(Boolean).join('\n')
+  return { text: texts.filter(Boolean).join('\n'), partial, pageText: pageTexts.join('\n'), otherText }
 }
 
 /** A byte below 0x20 other than tab, line feed, vertical tab, form feed and carriage return. */
@@ -408,6 +437,7 @@ export function mediaBlockFromBase64(kind: MediaBlock['kind'], mimeType: string 
     sizeBytes: Math.floor(base64Data.length * 3 / 4),
     ...(text ? { text } : {}),
     ...(decoded.partial ? { partial: true } : {}),
+    ...(decoded.pdf ? { pdfPageText: decoded.pdf.pageText, pdfOtherText: decoded.pdf.otherText } : {}),
     // Keep the raw payload for opaque raster images and audio, so the optional
     // OCR and transcription stages can read them. Text-bearing blocks are
     // already decoded; no point retaining their bytes.

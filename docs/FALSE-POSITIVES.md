@@ -75,7 +75,7 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.11.120
 
-**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` 0 of 31,323 eval verdicts. In text decoded from a binary document the indirect-instruction imperative and exfil-target rules and many-shot warn (#940). None of the corpora above holds a PDF, so the measurement that moved is a separate one: 107 local PDFs read with the #889 reader, 10 blocked before and 8 after, the 8 on other stages (6 heuristic, 2 memory poisoning).
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` 0 of 31,323 eval verdicts. In the text a PDF's pages draw, the indirect-instruction imperative and exfil-target rules and many-shot warn (#940). None of the corpora above holds a PDF, so the measurement that moved is a separate one: 107 local PDFs read with the #889 reader, 14 blocked before and 9 after, the 9 on other stages (7 heuristic, 1 memory poisoning, 1 RAG).
 
 ## Result, ruleset 2026.11.119
 

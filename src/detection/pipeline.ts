@@ -222,18 +222,6 @@ function resolveClassifierBlockThreshold(config: Config, source: ScanSource): nu
 // Whether any harness template is keyed on the tool whose result it opens.
 const TOOL_RESULT_TEMPLATES = HARNESS_TEMPLATES.some(t => t.tool !== undefined)
 
-/**
- * A media block whose text was decoded from a binary file: a PDF or another
- * non-text type. The maintainer's scope for #940's document policy
- * (2026-11-27): applied to every document block, the policy turned all 1,054
- * InjecAgent attacks sent as text documents into warns, so plain-text,
- * JSON, XML and type-less blocks keep every rule.
- */
-function isBinaryDocument(mimeType: string | undefined): boolean {
-  const t = (mimeType ?? '').toLowerCase().split(';')[0]!.trim()
-  if (!t) return false
-  return !t.startsWith('text/') && t !== 'application/json' && !t.endsWith('+json') && !t.endsWith('/xml') && !t.endsWith('+xml')
-}
 
 export class Pipeline {
   private heuristic: HeuristicScorer
@@ -645,10 +633,11 @@ export class Pipeline {
       const trustedPath = dir ? trustedReadPath('Read', { file_path: `${dir}/AGENTS.md` }, trustedRoots) : null
       reminderFiles.push({ text: agents.body, source: 'document', reminderFile: true, ...(trustedPath ? { trustedPath } : {}) })
     }
-    // decodedDocument: text decoded from a binary document (a PDF's page text,
-    // a non-text data-URL file), where #940's document policy applies. A
-    // plain-text document block (a RAG citation, an API caller's file) is not
-    // one: there every rule blocks as on a tool result.
+    // decodedDocument: the text a PDF's content streams draw, where #940's
+    // document policy applies. Decided by the reader that produced the text,
+    // never by a declared type (security review): a plain-text document
+    // block, a text file declared as anything, and the rest of a PDF's bytes
+    // keep every rule.
     const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean; decodedDocument?: boolean }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
@@ -674,7 +663,15 @@ export class Pipeline {
     if (nonText?.enabled && parser.extractMediaBlocks) {
       const media = parser.extractMediaBlocks(body)
       for (const m of media) {
-        if (m.text) scanItems.push({ text: m.text, source: 'document', decodedDocument: isBinaryDocument(m.mimeType) })
+        if (m.pdfPageText !== undefined) {
+          // A PDF: the page text gets #940's document policy, the rest of
+          // what its bytes hold (metadata, text after %%EOF, unread streams)
+          // every rule.
+          if (m.pdfPageText) scanItems.push({ text: m.pdfPageText, source: 'document', decodedDocument: true })
+          if (m.pdfOtherText) scanItems.push({ text: m.pdfOtherText, source: 'document' })
+        } else if (m.text) {
+          scanItems.push({ text: m.text, source: 'document' })
+        }
       }
       // OCR opt-in: read injection text rendered as pixels in raster images and
       // scan it as a document below (so it can BLOCK on content). Crucially we
@@ -927,8 +924,14 @@ export class Pipeline {
       // imperative is normal input, so running it there would false-positive.
       if (this.config.indirectInstruction?.enabled && (source === 'tool_result' || source === 'document')) {
         const secret = detectSecretFileExfil(prompt)
-        const ind = detectIndirectInstruction(prompt, this.config.indirectInstruction)
-          ?? (secret ? { verb: secret.path, reason: `secret-file ${secret.reason}`, snippet: secret.snippet } : null)
+        const secretFinding = secret ? { verb: secret.path, reason: `secret-file ${secret.reason}`, snippet: secret.snippet } : null
+        const planted = detectIndirectInstruction(prompt, this.config.indirectInstruction)
+        // In a PDF's page text an imperative or exfil-target finding only
+        // warns (#940), so a credential-file order in the same text must win
+        // over it (security review): it blocks everywhere.
+        const ind = decodedDocument && secretFinding && planted && (planted.reason === 'imperative' || planted.reason === 'exfil-target')
+          ? secretFinding
+          : planted ?? secretFinding
         if (ind) {
           // #287: an operator can trade an imperative naming no destination for
           // a warn on a tool result. Only that surface: a document cannot be withheld,
