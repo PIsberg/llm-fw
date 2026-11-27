@@ -509,6 +509,11 @@ describe('PDF reading stays linear (#857)', () => {
     ['a TJ array of numbers', '[' + '-300 '.repeat(N / 5)],
     ['backslashes in a string', '(' + '\\'.repeat(N)],
     ['operators', 'Td '.repeat(N / 3)],
+    // #940: what a stream holds but never draws is kept for the full rules.
+    ['names', '/a'.repeat(N / 2)],
+    ['bare words', 'ab '.repeat(N / 3)],
+    ['strings drawn by one operator', '[' + '(a)'.repeat(N / 3) + '] TJ'],
+    ['marked-content strings', '/ActualText (a) '.repeat(N / 16)],
   ])('reads 200 KB of %s in linear time', { timeout: LINEAR_TIME_TIMEOUT }, (_label, src) => {
     expect(underMs(500, () => pdfContentText(src))).toBeLessThan(500)
   })

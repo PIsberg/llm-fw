@@ -377,7 +377,8 @@ blocked 13 of 107 real PDFs once their text was readable. Every other stage
 still blocks there, and an order to send a credential file blocks even beside
 an imperative. The policy follows how the reader got the text, never the
 declared type: the rest of a PDF's bytes (metadata, text after `%%EOF`,
-streams it could not read), a file declared as a PDF that has no page text,
+streams it could not read, strings and words a stream holds but never
+draws), a file declared as a PDF that has no page text,
 and every plain-text document block (a RAG citation, an API caller's
 `text/plain` file) keep every rule, so InjecAgent's 1,054 planted
 instructions sent as text documents keep blocking. The cost is on PDFs: the
