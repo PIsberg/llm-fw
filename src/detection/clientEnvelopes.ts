@@ -451,6 +451,14 @@ function reminderParts(inner: string, harness: boolean): string[] {
   const notification = first === '[SYSTEM NOTIFICATION - NOT USER INPUT]'
   const residue: string[] = []
   let nested = false
+  // The last escaped closer, found once: a nested review counts only with one
+  // after it (a slice per line was quadratic, security review).
+  let lastClose = -1
+  if (notification) for (let j = lines.length - 1; j >= 0; j--) if (lines[j]!.trim() === NESTED_REVIEW_CLOSE) { lastClose = j; break }
+  const nextNonBlank = (from: number): string => {
+    for (let j = from; j < lines.length; j++) { const s = lines[j]!.trim(); if (s) return s }
+    return ''
+  }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
     const t = line.trim()
@@ -493,8 +501,7 @@ function reminderParts(inner: string, harness: boolean): string[] {
     if (!t) continue
     // The plugin's review nested in a notification, only with its escaped
     // closer further on; without one the lines stay in (fail closed).
-    if (notification && t === REMINDER_OPEN && REVIEW_OPENER_RE.test(lines.slice(i + 1).find(l => l.trim())?.trim() ?? '') &&
-      lines.slice(i + 1).some(l => l.trim() === NESTED_REVIEW_CLOSE)) {
+    if (notification && t === REMINDER_OPEN && lastClose > i && REVIEW_OPENER_RE.test(nextNonBlank(i + 1))) {
       nested = true
       continue
     }
