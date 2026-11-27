@@ -49,7 +49,8 @@ import { ExfilStreamHold } from './streamExfil.js'
 import { EventStreamReader, eventStreamException, eventStreamKind } from './eventStreamText.js'
 import { streamErrorEvent } from './streamError.js'
 import { getLlmFwDir } from '../config/paths.js'
-import { createLogger, urlForLog } from '../logger.js'
+import { createLogger, urlForLog, withRequestId, parseTraceparent } from '../logger.js'
+import { randomUUID } from 'node:crypto'
 import { checkMcpRequest } from '../detection/mcp/requestCheck.js'
 import { sniName } from './sni.js';
 
@@ -481,7 +482,7 @@ export class ProxyServer {
       innerServer.emit('connection', tlsSocket)
       innerServer.on('request', async (innerReq: http.IncomingMessage, innerRes: http.ServerResponse) => {
         try {
-          await this.handleRequest(hostname, 443, innerReq, innerRes)
+          await withRequestId(randomUUID(), () => this.handleRequest(hostname, 443, innerReq, innerRes), parseTraceparent(innerReq.headers['traceparent']))
         } catch (err) {
           this.logRequestError('sinkhole', hostname, innerReq, err)
           endFailedResponse(innerRes)
@@ -729,8 +730,11 @@ export class ProxyServer {
       innerServer.on('upgrade', (req: http.IncomingMessage, socket: Duplex, head: Buffer) => { void this.handleUpgrade(hostname, port, req, socket, head) })
       closeSilentClients(innerServer, this.config.proxy.upstreamTimeoutMs)
       innerServer.emit('connection', tlsSocket)
+      // Every log line a request writes carries one id, and the caller's W3C
+      // trace context when it sent one (#874). The id is for the log only:
+      // the provider's own x-request-id is what the client gets back.
       innerServer.on('request', async (innerReq, innerRes) => {
-        try { await this.handleRequest(hostname, port, innerReq, innerRes) }
+        try { await withRequestId(randomUUID(), () => this.handleRequest(hostname, port, innerReq, innerRes), parseTraceparent(innerReq.headers['traceparent'])) }
         catch (err) {
           this.logRequestError('proxy', hostname, innerReq, err)
           endFailedResponse(innerRes)

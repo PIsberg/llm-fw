@@ -18,7 +18,7 @@ import { BUILTIN_PROVIDERS, resolveRoute, applyUpstreamAuth, stripCredentialQuer
 import { TenantRegistry, type Tenant } from './tenants.js';
 import { isObserving } from '../config/config.js';
 import { isAuthPath } from '../detection/urlHeuristic.js';
-import { createLogger, withRequestId, urlForLog } from '../logger.js';
+import { createLogger, withRequestId, urlForLog, parseTraceparent } from '../logger.js';
 import { ModuleManager } from '../modules/registry.js';
 import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
 import { stripUsageChunk } from '../modules/sseUsageStrip.js';
@@ -141,12 +141,13 @@ export class GatewayServer {
     // in the detection pipeline it is written. An inbound x-request-id is
     // honoured so the id joins up with whatever sent the request; otherwise one
     // is minted here. The id is echoed back, so a caller reporting "my request
-    // was blocked" can quote something an operator can grep for.
+    // was blocked" can quote something an operator can grep for. A W3C
+    // traceparent's trace and span ids go on the same lines (#874).
     const serve = (req: http.IncomingMessage, res: http.ServerResponse): void => {
       const inbound = (req.headers['x-request-id'] as string | undefined)?.trim();
       const requestId = inbound && inbound.length <= 200 ? inbound : randomUUID();
       res.setHeader('x-request-id', requestId);
-      withRequestId(requestId, () => { void this.handle(req, res); });
+      withRequestId(requestId, () => { void this.handle(req, res); }, parseTraceparent(req.headers['traceparent']));
     };
 
     this.server = tls

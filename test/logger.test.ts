@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createLogger, withRequestId, currentRequestId, urlForLog } from '../src/logger.js'
+import { createLogger, withRequestId, currentRequestId, urlForLog, parseTraceparent } from '../src/logger.js'
 
 /**
  * The logger exists because `console.log` gives an operator no level to filter
@@ -117,6 +117,87 @@ describe('structured logger', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     createLogger('embedding').warn('embedding model unavailable — semantic similarity stage disabled')
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('embedding model unavailable'))
+  })
+})
+
+// #874: the logger must never throw on what a caller hands it, and the
+// fields that identify a record must not be overwritten by them.
+describe('structured logger: fields it is handed (#874)', () => {
+  it('logs a circular object instead of throwing', () => {
+    const a: Record<string, unknown> = { name: 'a' }
+    a.self = a
+    const rec = capture(() => createLogger('t').warn('cycle', { a }))
+    expect(rec.msg).toBe('cycle')
+    expect((rec.a as Record<string, unknown>).self).toBe('[Circular]')
+  })
+
+  it('keeps an object that appears twice without being circular', () => {
+    const shared = { id: 1 }
+    const rec = capture(() => createLogger('t').warn('shared', { left: shared, right: shared }))
+    expect(rec.left).toEqual({ id: 1 })
+    expect(rec.right).toEqual({ id: 1 })
+  })
+
+  it('logs a BigInt as its decimal string, and unpacks a nested Error', () => {
+    const rec = capture(() => createLogger('t').warn('big', { n: 12345678901234567890n, nested: { err: new Error('deep') } }))
+    expect(rec.n).toBe('12345678901234567890')
+    expect((rec.nested as { err: { message: string } }).err.message).toBe('deep')
+  })
+
+  it('still writes the record when a field cannot be serialised at all', () => {
+    const bad = { toJSON() { throw new Error('nope') } }
+    const rec = capture(() => createLogger('t').warn('kept', { bad }))
+    expect(rec.msg).toBe('kept')
+    expect(rec.level).toBe('warn')
+    expect(typeof rec.logError).toBe('string')
+  })
+
+  it('does not let a field overwrite the envelope', () => {
+    const rec = withRequestId('real-id', () => capture(() => createLogger('gateway').warn('real message', {
+      level: 'debug', time: 'then', scope: 'forged', msg: 'forged message', requestId: 'forged-id', traceId: 'forged-trace', detail: 1,
+    }), 'warn'))
+    expect(rec.level).toBe('warn')
+    expect(rec.scope).toBe('gateway')
+    expect(rec.msg).toBe('real message')
+    expect(rec.requestId).toBe('real-id')
+    expect(rec.time).not.toBe('then')
+    expect(rec.detail).toBe(1)
+  })
+})
+
+describe('W3C traceparent (#874)', () => {
+  const TP = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+
+  it('parses a valid header into its trace and span ids', () => {
+    expect(parseTraceparent(TP)).toEqual({ traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7' })
+    expect(parseTraceparent(`  ${TP}  `)).toEqual({ traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7' })
+    // A later version may append fields after the four the spec fixes.
+    expect(parseTraceparent(`01${TP.slice(2)}-extra`)?.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736')
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['version ff', 'ff' + TP.slice(2)],
+    ['all-zero trace id', '00-00000000000000000000000000000000-00f067aa0ba902b7-01'],
+    ['all-zero span id', '00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01'],
+    ['upper-case hex', TP.toUpperCase()],
+    ['short trace id', '00-4bf92f3577b34da6a3ce929d0e0e47-00f067aa0ba902b7-01'],
+    ['version 00 with extra fields', TP + '-extra'],
+    ['a list of two headers', [TP, TP]],
+    ['over 512 characters', TP + '-' + 'a'.repeat(600)],
+  ])('ignores a header that is %s', (_name, header) => {
+    expect(parseTraceparent(header as string | string[] | undefined)).toBeNull()
+  })
+
+  it('puts traceId and spanId on every record inside the request scope', () => {
+    const trace = parseTraceparent(TP)
+    const rec = withRequestId('rid', () => capture(() => createLogger('t').warn('traced')), trace)
+    expect(rec.requestId).toBe('rid')
+    expect(rec.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736')
+    expect(rec.spanId).toBe('00f067aa0ba902b7')
+    const plain = withRequestId('rid', () => capture(() => createLogger('t').warn('untraced')))
+    expect(plain.traceId).toBeUndefined()
   })
 })
 

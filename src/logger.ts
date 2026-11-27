@@ -33,16 +33,41 @@ const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 
 /** Structured fields attached to one record. Never payloads. See the header. */
 export type LogFields = Record<string, unknown>;
 
-const store = new AsyncLocalStorage<{ requestId: string }>();
+/** The W3C trace context of a request: its trace and the caller's span. */
+export interface TraceContext { traceId: string; spanId: string }
+
+const store = new AsyncLocalStorage<{ requestId: string } & Partial<TraceContext>>();
 
 /**
  * Run `fn` with a correlation id attached to every log record it produces,
- * however deep. AsyncLocalStorage rather than passing an id down twenty call
- * sites: the detection pipeline does not otherwise need to know it is serving
- * a request.
+ * however deep, and the caller's W3C trace context when it sent one (#874),
+ * so a collector can join llm-fw's lines to the trace that made the request.
+ * AsyncLocalStorage rather than passing an id down twenty call sites: the
+ * detection pipeline does not otherwise need to know it is serving a
+ * request.
  */
-export function withRequestId<T>(requestId: string, fn: () => T): T {
-  return store.run({ requestId }, fn);
+export function withRequestId<T>(requestId: string, fn: () => T, trace?: TraceContext | null): T {
+  return store.run(trace ? { requestId, traceId: trace.traceId, spanId: trace.spanId } : { requestId }, fn);
+}
+
+const TRACEPARENT_RE = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})(-.*)?$/;
+const ZERO_TRACE = '0'.repeat(32);
+const ZERO_SPAN = '0'.repeat(16);
+
+/**
+ * The trace and span id of a `traceparent` header (W3C Trace Context), or
+ * null when it is absent or not one: lower-case hex only, neither id all
+ * zeros, version ff invalid, and only a later version than 00 may carry
+ * fields after the fourth. Bounded, since the ids go into every log line.
+ */
+export function parseTraceparent(header: string | string[] | undefined): TraceContext | null {
+  if (typeof header !== 'string' || header.length > 512) return null;
+  const m = TRACEPARENT_RE.exec(header.trim());
+  if (!m) return null;
+  const [, version, traceId, spanId, , rest] = m;
+  if (version === 'ff' || (version === '00' && rest !== undefined)) return null;
+  if (traceId === ZERO_TRACE || spanId === ZERO_SPAN) return null;
+  return { traceId: traceId!, spanId: spanId! };
 }
 
 /** The correlation id of the request being served, when there is one. */
@@ -79,38 +104,65 @@ function jsonOutput(): boolean {
   return !process.stderr.isTTY;
 }
 
+const unpackError = (v: Error): LogFields => ({ message: v.message, name: v.name, ...(v.stack ? { stack: v.stack } : {}) });
+
 /** Errors do not survive JSON.stringify: it yields `{}`. Unpack them. */
 function normalise(fields: LogFields): LogFields {
   const out: LogFields = {};
-  for (const [k, v] of Object.entries(fields)) {
-    if (v instanceof Error) {
-      out[k] = { message: v.message, name: v.name, ...(v.stack ? { stack: v.stack } : {}) };
-    } else {
-      out[k] = v;
-    }
-  }
+  for (const [k, v] of Object.entries(fields)) out[k] = v instanceof Error ? unpackError(v) : v;
   return out;
+}
+
+/**
+ * JSON.stringify that cannot throw on what a caller logs (#874): a reference
+ * back to an ancestor becomes "[Circular]" (one seen twice elsewhere is kept),
+ * a BigInt its decimal string, an Error at any depth its message, name and
+ * stack. Whatever still throws (a toJSON that throws) yields null, and the
+ * caller writes the record without those fields.
+ */
+function safeStringify(value: unknown): string | null {
+  const ancestors: unknown[] = [];
+  try {
+    return JSON.stringify(value, function (this: unknown, _key: string, v: unknown) {
+      if (typeof v === 'bigint') return v.toString();
+      if (v instanceof Error) v = unpackError(v);
+      if (typeof v !== 'object' || v === null) return v;
+      while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+      if (ancestors.includes(v)) return '[Circular]';
+      ancestors.push(v);
+      return v;
+    });
+  } catch {
+    return null;
+  }
 }
 
 function emit(level: LogLevel, scope: string, msg: string, fields: LogFields | undefined): void {
   if (ORDER[level] < ORDER[configuredLevel()]) return;
 
-  const requestId = currentRequestId();
+  const ctx = store.getStore();
+  const requestId = ctx?.requestId;
   const extra = fields ? normalise(fields) : {};
-  const line = jsonOutput()
-    ? JSON.stringify({
-      level,
-      time: new Date().toISOString(),
-      scope,
-      msg,
-      ...(requestId ? { requestId } : {}),
-      ...extra,
-    })
+  // The envelope comes last, so a field named level, time, scope, msg,
+  // requestId, traceId or spanId cannot overwrite the record's own (#874).
+  const envelope = {
+    level,
+    time: new Date().toISOString(),
+    scope,
+    msg,
+    ...(requestId ? { requestId } : {}),
+    ...(ctx?.traceId ? { traceId: ctx.traceId, spanId: ctx.spanId } : {}),
+  };
+  let line: string;
+  if (jsonOutput()) {
+    line = safeStringify({ ...extra, ...envelope })
+      ?? JSON.stringify({ ...envelope, logError: 'the fields of this record could not be serialised' });
+  } else {
     // Keeps the `[scope] message` shape this codebase already used, so a
     // terminal reads the same as it did before.
-    : `[${scope}] ${msg}` +
-      (requestId ? ` (req ${requestId})` : '') +
-      (Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : '');
+    const rest = Object.keys(extra).length ? safeStringify(extra) ?? '(fields could not be serialised)' : '';
+    line = `[${scope}] ${msg}` + (requestId ? ` (req ${requestId})` : '') + (rest ? ` ${rest}` : '');
+  }
 
   // console is the sink on purpose; see the header.
   if (level === 'error' || level === 'fatal') console.error(line);
