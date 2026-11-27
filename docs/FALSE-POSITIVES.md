@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.117
+
+Unchanged from 2026.11.116: `src/config/config.ts` gained `loadConfigLayers()`, the configuration without the observe-mode rewrite, for the library (#872); no default or verdict changes.
+
 ## Result, ruleset 2026.11.116
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0). Stage 2.5 and the response classifier now size their windows by an estimate of the tokenizer's count and add up to two windows on instruction-like markers in unread text (#898); both are off in this run's default configuration. The classifier preset, measured with `bench:compare` against the published column: every split within tolerance, jailbreak-classification recall 83.2% (82.3% after #858), oasst1-sample FPR 11.7%, oasst1-multiturn FPR 28.6%.

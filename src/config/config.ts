@@ -609,6 +609,16 @@ export function loadConfig(): Promise<Config> {
   return Promise.resolve().then(() => buildConfig());
 }
 
+/**
+ * Every layer loadConfig() reads, without the observe-mode rewrite at the end.
+ * For a caller that merges its own overrides on top and then applies
+ * observe mode to the result (createFirewall, #872): applied before the
+ * merge, a caller's enforcement could not undo or ask for it.
+ */
+export function loadConfigLayers(): Promise<Config> {
+  return Promise.resolve().then(() => buildConfig(false));
+}
+
 /** `<LLM_FW_DIR>/config.json`, resolved per call. */
 export function userConfigPath(): string {
   return join(getLlmFwDir(), 'config.json');
@@ -722,7 +732,7 @@ export function writeUserConfigFile(file: string, settings: Record<string, unkno
   }
 }
 
-function buildConfig(): Config {
+function buildConfig(observe = true): Config {
   const projectConfig = readProjectConfig();
   if (process.env.LLM_FW_CONFIG) checkConfigFile(projectConfig, process.env.LLM_FW_CONFIG);
 
@@ -760,7 +770,7 @@ function buildConfig(): Config {
   // nothing gets refused, so it has to win against a project file or env var
   // that set some detector to 'block' — otherwise the one gate that slipped
   // through is the one that breaks a developer's agent on day one.
-  if (config.enforcement === 'observe') applyObserveMode(config);
+  if (observe && config.enforcement === 'observe') applyObserveMode(config);
 
   return config;
 }
