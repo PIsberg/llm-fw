@@ -275,8 +275,8 @@ it whole; a 2,000-character window of real tool output ran past 512 tokens
 1,464 times in 1,502), and up to two more windows go where the unread text
 holds the most instruction-like markers. Re-run with the classifier preset on
 2026-11-27, every split stayed within the gate's tolerance of the column
-below, with the same deltas as after #858 (jailbreak-classification recall
-82.3%, oasst1-sample FPR 11.7%) and safeguard FPR 0.1% to 0.2%.
+below: jailbreak-classification recall 82.5%, aya-sample FPR 41.4%,
+oasst1-sample FPR 11.7%, safeguard FPR 0.2%, nothing else moved.
 
 **Prompt injection**
 

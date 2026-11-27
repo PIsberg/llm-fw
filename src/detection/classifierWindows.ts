@@ -11,11 +11,9 @@
  * end, the last few hundred characters of the text included (#898).
  *
  * Windows are now laid out by an estimate of the tokenizer's count
- * (tokenPrefix: against the real tokenizer, 0.89 / 1.00 / 1.09 of its
- * count at p5 / median / p95 on those tool results, 1.03 / 1.08 / 1.13 on
- * Dolly prose, 0.94 on base64, exact on CJK), WINDOW_TOKENS each, a budget
- * the p5 estimate keeps under 512 real tokens, so the model reads each
- * window whole: the first at the start, the last at the
+ * (tokenPrefix), WINDOW_TOKENS each and never more than MAX_WINDOW_CHARS,
+ * a budget the p5 estimate keeps under 512 real tokens, so the model reads
+ * each window whole: the first at the start, the last at the
  * end, and up to MAX_CLASSIFIER_WINDOWS evenly between. Past what those
  * cover, the stretches between them were fixed by the text's length (#898),
  * so up to MAX_MARKER_WINDOWS more are placed where the uncovered text holds
@@ -26,46 +24,74 @@
  * whole text either way.
  */
 export const WINDOW_TOKENS = 440
+// A window's length in characters, whatever the estimate: what the tokenizer
+// is given stays bounded (a long run of whitespace is no tokens at all), and
+// a run the estimate undercounts is cut here too (#898). 440 tokens of prose
+// are about 2,300 characters.
+export const MAX_WINDOW_CHARS = 2600
 export const MAX_CLASSIFIER_WINDOWS = 4
 export const MAX_MARKER_WINDOWS = 2
 
 
 const isSpace = (c: number): boolean => c === 32 || c === 10 || c === 13 || c === 9
-/** 1 a digit, 2 an upper-case letter, 3 a lower-case or other letter, 0 anything else. */
-function charKind(c: number): number {
-  if (c >= 48 && c <= 57) return 1
-  if (c >= 65 && c <= 90) return 2
-  if ((c >= 97 && c <= 122) || (c >= 0xc0 && c < 0x2e80 && c !== 0xd7 && c !== 0xf7)) return 3
-  return 0
+const MARK_RE = /[\p{M}\p{Cf}]/u
+const LETTER_RE = /[\p{L}\p{N}]/u
+
+// Estimated tokens are counted in sixteenths, so whitespace, which the
+// tokenizer reads as nothing, still spreads the windows over a long run of it.
+const UNIT = 16
+
+/**
+ * 1 a digit, 2 an upper-case and 3 a lower-case ASCII letter; 4 a letter or
+ * digit of any other script below U+2E80 (accented Latin, Cyrillic, Greek,
+ * Arabic, Indic, Thai), which the tokenizer splits finer; 0 anything else.
+ */
+function charKind(text: string, i: number, c: number): number {
+  if (c < 0x80) return (c >= 48 && c <= 57) ? 1 : (c >= 65 && c <= 90) ? 2 : (c >= 97 && c <= 122) ? 3 : 0
+  if (c >= 0x2e80 || (c >= 0xd800 && c <= 0xdfff)) return 0
+  const ch = text[i]!
+  return !MARK_RE.test(ch) && LETTER_RE.test(ch) ? 4 : 0
 }
 
 /**
- * prefix[i] is the estimated token count of text.slice(0, i), never
- * decreasing. A run of letters and digits is one token, plus one per change
- * between digits, upper and lower case (a capital opening a word excepted),
- * plus one per 8 characters, or per 4 past 16 (base64, hashes); punctuation
- * and symbols one each, and so is every CJK or other character past U+2E80;
- * whitespace none.
+ * prefix[i] is the estimated token count of text.slice(0, i), in sixteenths
+ * of a token, never decreasing. A run of ASCII letters and digits is one
+ * token, plus one per change between digits, upper and lower case (a
+ * capital opening a word excepted), plus one per 8 characters, or per 4 past
+ * 16 (base64, hashes). A run of other letters is one token per 1.5 of them
+ * (Aya's 70 languages, on the real tokenizer). Every combining mark and
+ * format character (a zero-width space, a direction mark), every character
+ * from U+2E80 up (CJK) and every punctuation mark or symbol is one token,
+ * whitespace a sixteenth. Measured against the real tokenizer (#898): 0.89 /
+ * 1.00 / 1.09 of its count at p5 / median / p95 on 1,652 local tool results,
+ * 1.08 at the median on prose, exact on CJK, zero-width and combining runs.
+ * Non-English text in plain ASCII letters is still undercounted (Aya: 0.60
+ * at p5), which a layout by the real tokenizer would fix (#951); every
+ * window is also cut at MAX_WINDOW_CHARS.
  */
 function tokenPrefix(text: string): Uint32Array {
   const prefix = new Uint32Array(text.length + 1)
-  let before = 0 // tokens before the current run
+  let before = 0 // units before the current run
   let run = 0
   let trans = 0
   let prev = 0
   let last = 0
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i)
-    const kind = charKind(c)
+    const kind = charKind(text, i, c)
+    if (run && (kind === 0 || (kind === 4) !== (prev === 4))) { before = last; run = 0; trans = 0 }
     let now: number
-    if (kind) {
+    if (kind === 4) {
+      run++
+      prev = 4
+      now = before + Math.ceil(run / 1.5) * UNIT
+    } else if (kind) {
       if (run && kind !== prev && !(prev === 2 && kind === 3)) trans++
       run++
       prev = kind
-      now = before + 1 + trans + Math.floor(run / (run > 16 ? 4 : 8))
+      now = before + (1 + trans + Math.floor(run / (run > 16 ? 4 : 8))) * UNIT
     } else {
-      if (run) { before = last; run = 0; trans = 0 }
-      if (!isSpace(c)) before += 1
+      before = last + (isSpace(c) ? 1 : UNIT)
       now = before
     }
     last = Math.max(last, now)
@@ -88,11 +114,11 @@ function indexAt(prefix: Uint32Array, tokens: number): number {
 
 /** The window of at most WINDOW_TOKENS that starts at `start`, as [start, end). */
 function windowFrom(prefix: Uint32Array, start: number): [number, number] {
-  const limit = (prefix[start] ?? 0) + WINDOW_TOKENS
+  const limit = (prefix[start] ?? 0) + WINDOW_TOKENS * UNIT
   // The last index whose prefix is within the budget.
   let end = indexAt(prefix, limit + 1) - 1
   if (end <= start) end = Math.min(prefix.length - 1, start + 1)
-  return [start, end]
+  return [start, Math.min(end, start + MAX_WINDOW_CHARS)]
 }
 
 // Words and shapes injected instructions are made of. Only where they are
@@ -104,18 +130,19 @@ export function classifierWindows(text: string): string[] {
   if (text.length <= 64) return [text]
   const prefix = tokenPrefix(text)
   const total = prefix[text.length] ?? 0
-  if (total <= WINDOW_TOKENS) return [text]
+  const budget = WINDOW_TOKENS * UNIT
+  if (total <= budget && text.length <= MAX_WINDOW_CHARS) return [text]
 
-  const count = Math.min(MAX_CLASSIFIER_WINDOWS, Math.ceil(total / WINDOW_TOKENS))
+  const count = Math.min(MAX_CLASSIFIER_WINDOWS, Math.max(Math.ceil(total / budget), Math.ceil(text.length / MAX_WINDOW_CHARS)))
   const spans: [number, number][] = []
   for (let i = 0; i < count; i++) {
     if (i === count - 1) {
       // The last window ends at the end of the text.
-      const start = indexAt(prefix, Math.max(0, total - WINDOW_TOKENS))
+      const start = Math.max(indexAt(prefix, Math.max(0, total - budget)), text.length - MAX_WINDOW_CHARS)
       spans.push([start, text.length])
       continue
     }
-    const at = Math.round((i * Math.max(0, total - WINDOW_TOKENS)) / (count - 1))
+    const at = Math.round((i * Math.max(0, total - budget)) / (count - 1))
     spans.push(windowFrom(prefix, indexAt(prefix, at)))
   }
 
@@ -134,14 +161,14 @@ export function classifierWindows(text: string): string[] {
     let bestCount = 0
     let j = 0
     for (let i = 0; i < hits.length; i++) {
-      const start = indexAt(prefix, Math.max(0, (prefix[hits[i]!] ?? 0) - (WINDOW_TOKENS >> 2)))
+      const start = indexAt(prefix, Math.max(0, (prefix[hits[i]!] ?? 0) - (budget >> 2)))
       const [, end] = windowFrom(prefix, start)
       if (j < i) j = i
       while (j < hits.length && hits[j]! < end) j++
       if (j - i > bestCount) { bestCount = j - i; best = i }
     }
     if (best < 0) break
-    const start = indexAt(prefix, Math.max(0, (prefix[hits[best]!] ?? 0) - (WINDOW_TOKENS >> 2)))
+    const start = indexAt(prefix, Math.max(0, (prefix[hits[best]!] ?? 0) - (budget >> 2)))
     const span = windowFrom(prefix, start)
     spans.push(span)
     const rest = hits.filter(h => h < span[0] || h >= span[1])

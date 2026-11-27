@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifierWindows, MAX_CLASSIFIER_WINDOWS } from '../../src/detection/classifierWindows.js'
+import { classifierWindows, MAX_CLASSIFIER_WINDOWS, MAX_WINDOW_CHARS } from '../../src/detection/classifierWindows.js'
 import { underMs, LINEAR_TIME_TIMEOUT } from '../linearTime.js'
 
 // #898. The classifiers read 512 tokens of each window, and a window was
@@ -34,6 +34,27 @@ describe('classifierWindows (#898)', () => {
     // Base64 runs about 0.73 tokens per character on this tokenizer.
     const b64 = Buffer.from(Array.from({ length: 1500 }, (_, i) => (i * 7919) % 251)).toString('base64').slice(0, 2000)
     for (const w of classifierWindows(b64)) expect(w.length).toBeLessThanOrEqual(700)
+  })
+
+  // Security review of #898: characters the estimate could undercount, and
+  // text the tokenizer reads as nothing, must not make a window the model
+  // cannot read whole, or hand the tokenizer an unbounded input.
+  it('counts zero-width, combining and other-script characters, so those windows stay readable', () => {
+    const zw = String.fromCodePoint(0x200b)
+    const comb = String.fromCodePoint(0x301)
+    const cyr = String.fromCodePoint(0x43f, 0x440, 0x438, 0x432, 0x435, 0x442)
+    // Real tokenizer: 501 tokens per 1,000 characters, 500, and 280 per 980.
+    for (const w of classifierWindows(('a' + zw).repeat(2000))) expect(w.length).toBeLessThanOrEqual(1024)
+    for (const w of classifierWindows(('e' + comb).repeat(2000))) expect(w.length).toBeLessThanOrEqual(1024)
+    for (const w of classifierWindows((cyr + ' ').repeat(800))) expect(w.length).toBeLessThanOrEqual(1792)
+  })
+
+  it('bounds every window in characters, and reads a payload after a long run of whitespace', () => {
+    const text = ' '.repeat(1_000_000) + PAYLOAD
+    const windows = classifierWindows(text)
+    for (const w of windows) expect(w.length).toBeLessThanOrEqual(MAX_WINDOW_CHARS)
+    expect(covered(windows, PAYLOAD)).toBe(true)
+    for (const w of classifierWindows('\n'.repeat(50_000))) expect(w.length).toBeLessThanOrEqual(MAX_WINDOW_CHARS)
   })
 
   it('keeps a short text whole and is deterministic', () => {
