@@ -339,6 +339,9 @@ function utf16(hex: string): string {
 export function contentFonts(objects: Map<number, string>, streams: Map<number, { dict: string; text: string }>): Map<number, Map<string, FontMap>> {
   const budget = { left: MAX_CMAP_ENTRIES_PER_PDF }
   const fontCache = new Map<number, FontMap | null>()
+  // Each ToUnicode stream is parsed once, however many fonts name it: parsed
+  // per font, 2,000 fonts on one 400 KB stream took 10 s (security review).
+  const cmapCache = new Map<number, FontMap>()
   const resourceCache = new Map<string, Map<string, FontMap>>()
   const result = new Map<number, Map<string, FontMap>>()
 
@@ -350,13 +353,18 @@ export function contentFonts(objects: Map<number, string>, streams: Map<number, 
     if (fontCache.has(num)) return fontCache.get(num)!
     fontCache.set(num, null)
     const dict = objects.get(num)
-    const cmap = dict === undefined ? undefined : streams.get(refNumber(dictValue(dict, 'ToUnicode')))
+    const cmapNum = dict === undefined ? -1 : refNumber(dictValue(dict, 'ToUnicode'))
+    const cmap = streams.get(cmapNum)
     if (!dict || !cmap) return null
-    const parsed = parseCMap(cmap.text, budget)
+    let parsed = cmapCache.get(cmapNum)
+    if (!parsed) {
+      parsed = parseCMap(cmap.text, budget)
+      cmapCache.set(cmapNum, parsed)
+    }
     // A simple font's codes are one byte whatever its CMap's range says.
-    if (dictValue(dict, 'Subtype') !== '/Type0') parsed.width = 1
-    fontCache.set(num, parsed)
-    return parsed
+    const own: FontMap = dictValue(dict, 'Subtype') === '/Type0' ? parsed : { ...parsed, width: 1 }
+    fontCache.set(num, own)
+    return own
   }
   const fontsOf = (resources: string | undefined, cacheKey: string): Map<string, FontMap> => {
     const cached = resourceCache.get(cacheKey)
@@ -372,14 +380,29 @@ export function contentFonts(objects: Map<number, string>, streams: Map<number, 
     }
     return fonts
   }
+  // What each page-tree node resolves to, so every node is read once: walked
+  // again for every page, 3,000 pages under a 16-deep tree took 14 s
+  // (security review).
+  const resolved = new Map<number, [string | undefined, string]>()
   /** A page's resources, its own or the nearest ancestor's. */
   const pageResources = (num: number, dict: string): [string | undefined, string] => {
+    const chain: number[] = []
     const seen = new Set<number>([num])
     let current = dict
     let owner = num
+    let found: [string | undefined, string] = [undefined, 'none']
     for (let depth = 0; depth < MAX_TREE_DEPTH; depth++) {
+      const known = resolved.get(owner)
+      if (known) {
+        found = known
+        break
+      }
+      chain.push(owner)
       const own = dictValue(current, 'Resources')
-      if (own !== undefined) return [own, refNumber(own) === -1 ? `obj:${owner}` : `ref:${refNumber(own)}`]
+      if (own !== undefined) {
+        found = [own, refNumber(own) === -1 ? `obj:${owner}` : `ref:${refNumber(own)}`]
+        break
+      }
       const parent = refNumber(dictValue(current, 'Parent'))
       if (parent === -1 || seen.has(parent)) break
       seen.add(parent)
@@ -388,7 +411,8 @@ export function contentFonts(objects: Map<number, string>, streams: Map<number, 
       current = next
       owner = parent
     }
-    return [undefined, 'none']
+    for (const node of chain) resolved.set(node, found)
+    return found
   }
 
   for (const [num, dict] of objects) {

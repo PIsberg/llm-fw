@@ -403,6 +403,10 @@ function readContentStream(src: string, fonts?: Map<string, FontMap>): { text: s
     const decoded = decodeCodes(bytes, font)
     if (decoded.unmapped) unread++
     pending += decoded.text
+    // A simple font draws its one-byte codes through its encoding, and its
+    // ToUnicode map can name other letters: the bytes, what a rendered page
+    // shows, keep every rule too (security review).
+    if (font.width === 1 && decoded.text !== bytes && !hasControlBytes(bytes)) dropped.push(bytes)
     pendingGlyphs += Math.ceil(bytes.length / font.width)
   }
   const lines: string[] = []

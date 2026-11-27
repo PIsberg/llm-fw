@@ -176,6 +176,53 @@ endbfrange`
   })
 })
 
+describe('security review of #889', () => {
+  const cfg: Config = { ...DEFAULT_CONFIG, detection: { ...DEFAULT_CONFIG.detection, judgeEnabled: false }, nonText: { enabled: true, mode: 'audit' } }
+  const meta = { target: 'api.anthropic.com', method: 'POST', path: '/v1/messages' }
+
+  // A simple font draws its one-byte codes through its encoding; a ToUnicode
+  // map can say they are other letters. The bytes are what a rendered page
+  // shows, so they are scanned too, with every rule.
+  it('still scans the bytes a simple font draws when its ToUnicode map says other letters', async () => {
+    const codes = [...new Set(INJECTION)].map(c => `<${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}> <0078>`)
+    const cmap = `1 begincodespacerange <00> <FF> endcodespacerange\n${codes.length} beginbfchar\n${codes.join('\n')}\nendbfchar`
+    const data = pdf([
+      ...catalog([3]),
+      { num: 3, dict: '/Type /Page /Parent 2 0 R /Resources << /Font << /F1 10 0 R >> >> /Contents 4 0 R' },
+      content(4, `(${INJECTION}) Tj`),
+      { num: 10, dict: '/Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 11 0 R' },
+      { num: 11, dict: '/Filter /FlateDecode', stream: flate(cmap) },
+    ])
+    const body = JSON.stringify({ messages: [{ role: 'user', content: [
+      { type: 'text', text: 'Please summarize the attached document.' },
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } },
+    ] }] })
+    expect((await new Pipeline(cfg).run('/v1/messages', body, meta)).action).toBe('block')
+  })
+
+  it('walks a deep page tree once, however many pages hang under it', { timeout: LINEAR_TIME_TIMEOUT }, () => {
+    const depth = 16
+    const pad = `/Pad [${'0 '.repeat(15_000)}]`
+    // The fonts sit at the root, so every page walks the whole tree to them.
+    const tree: Obj[] = Array.from({ length: depth }, (_, k) => ({ num: 100 + k, dict: `/Type /Pages ${k > 0 ? `/Parent ${99 + k} 0 R ` : '/Resources << /Font << /F1 10 0 R >> >> '}${pad}` }))
+    const pages: Obj[] = Array.from({ length: 3000 }, (_, k) => ({ num: 1000 + k, dict: `/Type /Page /Parent ${99 + depth} 0 R /Contents 4 0 R` }))
+    const data = pdf([{ num: 1, dict: '/Type /Catalog /Pages 100 0 R' }, ...tree, ...pages, content(4, `<${glyphs('a', 3)}> Tj`), ...type0Font(10, bfcharCmap('a', 3))])
+    expect(underMs(1000, () => decodeMediaText('application/pdf', data))).toBeLessThan(1000)
+  })
+
+  it('parses a ToUnicode stream once, however many fonts point at it', { timeout: LINEAR_TIME_TIMEOUT }, () => {
+    const fonts = Array.from({ length: 2000 }, (_, k) => 2000 + k)
+    const data = pdf([
+      ...catalog([3]),
+      { num: 3, dict: `/Type /Page /Parent 2 0 R /Resources << /Font << ${fonts.map(f => `/F${f} ${f} 0 R`).join(' ')} >> >> /Contents 4 0 R` },
+      content(4, '<0001> Tj'),
+      ...fonts.map(f => ({ num: f, dict: '/Type /Font /Subtype /Type0 /Encoding /Identity-H /ToUnicode 9 0 R' })),
+      { num: 9, dict: '/Filter /FlateDecode', stream: flate(`1 begincodespacerange <0000> <FFFF> endcodespacerange\n${' '.repeat(400_000)}`) },
+    ])
+    expect(underMs(1000, () => decodeMediaText('application/pdf', data))).toBeLessThan(1000)
+  })
+})
+
 describe('font resolution stays linear (#889)', () => {
   const N = 200_000
   const asPdf = (raw: string) => Buffer.from(raw, 'latin1').toString('base64')
