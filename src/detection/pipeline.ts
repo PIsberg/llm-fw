@@ -222,6 +222,19 @@ function resolveClassifierBlockThreshold(config: Config, source: ScanSource): nu
 // Whether any harness template is keyed on the tool whose result it opens.
 const TOOL_RESULT_TEMPLATES = HARNESS_TEMPLATES.some(t => t.tool !== undefined)
 
+/**
+ * A media block whose text was decoded from a binary file: a PDF or another
+ * non-text type. The maintainer's scope for #940's document policy
+ * (2026-11-27): applied to every document block, the policy turned all 1,054
+ * InjecAgent attacks sent as text documents into warns, so plain-text,
+ * JSON, XML and type-less blocks keep every rule.
+ */
+function isBinaryDocument(mimeType: string | undefined): boolean {
+  const t = (mimeType ?? '').toLowerCase().split(';')[0]!.trim()
+  if (!t) return false
+  return !t.startsWith('text/') && t !== 'application/json' && !t.endsWith('+json') && !t.endsWith('/xml') && !t.endsWith('+xml')
+}
+
 export class Pipeline {
   private heuristic: HeuristicScorer
   private embedding: EmbeddingChecker
@@ -632,7 +645,11 @@ export class Pipeline {
       const trustedPath = dir ? trustedReadPath('Read', { file_path: `${dir}/AGENTS.md` }, trustedRoots) : null
       reminderFiles.push({ text: agents.body, source: 'document', reminderFile: true, ...(trustedPath ? { trustedPath } : {}) })
     }
-    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean }[] = [
+    // decodedDocument: text decoded from a binary document (a PDF's page text,
+    // a non-text data-URL file), where #940's document policy applies. A
+    // plain-text document block (a RAG citation, an API caller's file) is not
+    // one: there every rule blocks as on a tool result.
+    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean; decodedDocument?: boolean }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
         [...toolResults].reverse(),
@@ -657,7 +674,7 @@ export class Pipeline {
     if (nonText?.enabled && parser.extractMediaBlocks) {
       const media = parser.extractMediaBlocks(body)
       for (const m of media) {
-        if (m.text) scanItems.push({ text: m.text, source: 'document' })
+        if (m.text) scanItems.push({ text: m.text, source: 'document', decodedDocument: isBinaryDocument(m.mimeType) })
       }
       // OCR opt-in: read injection text rendered as pixels in raster images and
       // scan it as a document below (so it can BLOCK on content). Crucially we
@@ -730,7 +747,7 @@ export class Pipeline {
       lastYield = performance.now()
     }
 
-    for (const { text: itemText, source, trustedPath, toolName, reminderFile } of scanItems) {
+    for (const { text: itemText, source, trustedPath, toolName, reminderFile, decodedDocument } of scanItems) {
       // The item as it is in the body, which a withhold has to find; every
       // stage below reads it without a harness template's fixed text.
       at.item = { text: itemText, source }
@@ -877,7 +894,15 @@ export class Pipeline {
       // a long faux dialogue without harmful compliance warns (routed below).
       if (this.config.manyShot?.enabled) {
         const ms = detectManyShot(prompt, this.config.manyShot)
-        if (ms.severity === 'block') {
+        // #940: a long document (a book, a transcript) is where a dialogue
+        // with harmful words belongs; there it warns.
+        if (ms.severity === 'block' && decodedDocument) {
+          if (!pendingWarn) pendingWarn = {
+            result: { action: 'warn', stage: 'many-shot', score: 0, similarity: 0, prompt },
+            prompt: `[document] [many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`,
+            source,
+          }
+        } else if (ms.severity === 'block') {
           const result: PipelineResult = { action: 'block', stage: 'many-shot', score: 100, similarity: 0, prompt }
           const line = `[many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`
           if (this.isSuppressed(prompt, source)) {
@@ -910,7 +935,14 @@ export class Pipeline {
           // and the cost was measured on tool results alone.
           const untargeted = this.config.indirectInstruction.untargetedImperative === 'warn' && source === 'tool_result'
             && ind.reason === 'imperative' && !namesDestination(prompt)
-          if (this.config.indirectInstruction.mode === 'block' && !trustedPath && !untargeted) {
+          // #940 (maintainer decision): in text decoded from a document block
+          // an imperative ("add the following to your configuration") or an
+          // address near a send verb (an e-signature audit trail) is ordinary
+          // prose, and 14 of 107 real PDFs blocked on these two rules. There
+          // they warn; an order to send a credential file still blocks, and so
+          // does every other stage.
+          const documentProse = decodedDocument === true && (ind.reason === 'imperative' || ind.reason === 'exfil-target')
+          if (this.config.indirectInstruction.mode === 'block' && !trustedPath && !untargeted && !documentProse) {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
             const line = `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`
             if (!this.isSuppressed(prompt, source)) {
@@ -921,7 +953,7 @@ export class Pipeline {
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
-            prompt: demotedLine(`${untargeted ? '[untargeted] ' : ''}[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`),
+            prompt: demotedLine(`${untargeted ? '[untargeted] ' : ''}${documentProse ? '[document] ' : ''}[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`),
             source,
           }
         }
