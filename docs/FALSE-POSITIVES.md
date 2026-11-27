@@ -75,7 +75,7 @@ Two rules make the number mean something:
 
 ## Result, ruleset 2026.11.118
 
-**Unchanged: the cheap pipeline this gate runs does not include Stage 2.5** (`npm run fpr`, exit 0). Claude Code's reminder blocks keep only the lines Claude Code writes before the opt-in classifier reads them; any other line in a harness block is scored (#943). Measured with the real model on 7,146 real reminder texts from local transcripts: 925 parts newly scored, 68 at 0.9 or more, all the agent's own background-command descriptions in task-notification summaries; a classifier hit alone is a warn with `requireCorroboration` on (the default).
+**Unchanged: the cheap pipeline this gate runs does not include Stage 2.5** (`npm run fpr`, exit 0). Claude Code's reminder blocks keep only the lines Claude Code writes before the opt-in classifier reads them; any other line in a harness block is scored (#943). Measured with the real model on 7,147 real reminder texts from local transcripts: 928 parts newly scored, 68 at 0.9 or more, all the agent's own background-command descriptions in task-notification summaries; a classifier hit alone is a warn with `requireCorroboration` on (the default).
 
 ## Result, ruleset 2026.11.117
 

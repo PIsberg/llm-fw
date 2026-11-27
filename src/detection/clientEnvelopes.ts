@@ -405,7 +405,6 @@ const HARNESS_LINE_RES: readonly RegExp[] = [
   /^[\w.:@/-]{1,80}: "Skipping connection \(recent failure cached retries automatically in \d{1,4} min, or edit the plugin config to retry now\)"$/,
   /^[\w.:@/-]{1,80} \(ECONNREFUSED\): "ECONNREFUSED: Unable to connect\. Is the computer able to access the url\?"$/,
   /^[\w.:@/-]{1,80} \(CONNECT_TIMEOUT\): "MCP server [\w.:@/-]{1,80} connection timed out after \d{1,7}ms"$/,
-  /^This session is non-interactive, so Claude cannot run the OAuth flow here\. If the user's request depends on one of these servers \(even if they didn't name it explicitly\), or they ask about it, tell them that it needs to be authorized — for claude\.ai connectors, via their claude\.ai connector settings; for other servers, via `claude mcp` or \/mcp in an interactive session — and that the capability is unavailable until they do\. Otherwise carry on with the request and do not mention these servers\. Do not ask the user for authorization codes, tokens, or callback URLs\. For [\w.:@/ -]{1,80}, a sign-in may still be good: calling one of a server's tools by name \(mcp__<server>__<tool>\), or a ToolSearch query that contains the server's name, connects to it again, with the sign-in already held\. Try that first, and tell the user only if it is refused\.$/,
   /^The date has changed\. Today's date is now \d{4}-\d{2}-\d{2}\. No need to announce the new date (?:— the user's own clock shows it|to the user)\.$/,
 ]
 // "Note: <file> changed on disk since you last read it." with the changes,
@@ -422,6 +421,10 @@ const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/
 // Code's own deferred tools as its tools-available blocks list them (read from
 // real blocks, 2026-11-27). Any other name is scored with the rest of the
 // block's names: a list of them alone scored 0.9 or more 11 times in 71.
+// Claude Code's sign-in notice with a server's name in it: the name is
+// scored with the block's other names, never dropped with the sentence
+// (fifth review of #943: a free slot could carry a payload).
+const OAUTH_SERVER_RE = /^This session is non-interactive, so Claude cannot run the OAuth flow here\. If the user's request depends on one of these servers \(even if they didn't name it explicitly\), or they ask about it, tell them that it needs to be authorized — for claude\.ai connectors, via their claude\.ai connector settings; for other servers, via `claude mcp` or \/mcp in an interactive session — and that the capability is unavailable until they do\. Otherwise carry on with the request and do not mention these servers\. Do not ask the user for authorization codes, tokens, or callback URLs\. For ([\w.:@/ -]{1,80}), a sign-in may still be good: calling one of a server's tools by name \(mcp__<server>__<tool>\), or a ToolSearch query that contains the server's name, connects to it again, with the sign-in already held\. Try that first, and tell the user only if it is refused\.$/
 const MCP_TOOL_RE = /^mcp__[A-Za-z0-9_-]{1,64}__[A-Za-z0-9_.-]{1,96}$/
 const CLAUDE_CODE_TOOLS: ReadonlySet<string> = new Set(["EnterWorktree","ExitWorktree","Monitor","NotebookEdit","SendMessage","TaskStop","WebSearch","CronCreate","CronDelete","CronList","DesignSync","PushNotification","RemoteTrigger","LSP","WebFetch","ArtifactComments","ArtifactData","EnterPlanMode","ExitPlanMode","EndConversation","SendToProject","SendToProjectContext","ListMcpResourcesTool","ReadMcpResourceDirTool","ReadMcpResourceTool","FetchInboxMessage","SendUserFile","TaskCreate","TaskGet","TaskList","TaskUpdate"])
 // An MCP server's display name ("claude.ai Google Drive"), joined with the tool names.
@@ -541,6 +544,11 @@ function reminderParts(inner: string, harness: boolean): string[] {
     }
     if (review || isHarnessLine(t, context)) continue
     if (tools && (MCP_TOOL_RE.test(t) || CLAUDE_CODE_TOOLS.has(t))) continue
+    const oauth = tools ? OAUTH_SERVER_RE.exec(t) : null
+    if (oauth) {
+      toolNames.push(oauth[1]!)
+      continue
+    }
     if (tools && (TOOL_NAME_RE.test(t) || SERVER_NAME_RE.test(t))) {
       toolNames.push(t)
       continue
