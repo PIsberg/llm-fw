@@ -72,42 +72,89 @@ function stringLeaves(v: unknown, out: string[], depth = 0): void {
   for (const x of children) stringLeaves(x, out, depth + 1)
 }
 
-function invokeEvent(type: string | undefined, p: Record<string, unknown>): string {
+/** A tool call's name and arguments in the shapes other models stream them: Cohere's {name, parameters}, OpenAI-style {function: {name, arguments}}. */
+function toolCallOf(v: unknown): { id?: unknown; name: string; args: string } | null {
+  const o = obj(v)
+  if (!o) return null
+  const fn = obj(o.function)
+  const name = typeof fn?.name === 'string' ? fn.name : typeof o.name === 'string' ? o.name : null
+  if (!name) return null
+  const raw = fn ? fn.arguments : o.parameters ?? o.arguments ?? o.input
+  return { id: o.id, name, args: typeof raw === 'string' ? raw : JSON.stringify(raw ?? {}) }
+}
+
+/** Every tool_calls list a chunk carries: at the top, in outputs[] or generations[], in choices[].message or choices[].delta. */
+function toolCallLists(event: Record<string, unknown>): unknown[][] {
+  const lists: unknown[][] = []
+  const add = (v: unknown) => { if (Array.isArray(v)) lists.push(v) }
+  add(event.tool_calls)
+  for (const key of ['outputs', 'generations', 'choices'] as const) {
+    const items = event[key]
+    if (!Array.isArray(items)) continue
+    for (const item of items) {
+      const o = obj(item)
+      add(o?.tool_calls)
+      add(obj(o?.message)?.tool_calls)
+      add(obj(o?.delta)?.tool_calls)
+    }
+  }
+  return lists
+}
+
+function invokeEvent(type: string | undefined, p: Record<string, unknown>, nextToolIndex: () => number): string {
   if (type !== 'chunk' || typeof p.bytes !== 'string') return ''
   let event: Record<string, unknown> | undefined
   try { event = obj(JSON.parse(Buffer.from(p.bytes, 'base64').toString('utf8'))) } catch { return '' }
   if (!event) return ''
   if (typeof event.type === 'string') return sse(event.type, event)
   const fields = event
+  let out = ''
   // Amazon Nova streams Converse-shaped events inside its chunks.
-  const converse = CONVERSE_KEYS.filter(k => obj(fields[k])).map(k => converseEvent(k, obj(fields[k])!)).join('')
-  if (converse) return converse
+  for (const k of CONVERSE_KEYS) { const v = obj(fields[k]); if (v) out += converseEvent(k, v) }
+  // Tool calls of the models that stream them whole (Cohere, Mistral), as
+  // the tool_use events the tool-call scan reads.
+  for (const list of toolCallLists(fields)) {
+    for (const item of list) {
+      const call = toolCallOf(item)
+      if (!call) continue
+      const index = nextToolIndex()
+      out += sse('content_block_start', { type: 'content_block_start', index, content_block: { type: 'tool_use', id: call.id, name: call.name, input: {} } })
+      out += sse('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: call.args } })
+      out += sse('content_block_stop', { type: 'content_block_stop', index })
+    }
+  }
+  // Text: the known fields first (Claude's legacy completions, Titan, Llama,
+  // Cohere Command R, AI21; Mistral's outputs[].text, Cohere Command's
+  // generations[].text), then every other string the chunk holds, so a field
+  // nobody mapped, or a new model's shape, is still read (security review).
   const texts = INVOKE_TEXT_KEYS.map(k => fields[k]).filter((t): t is string => typeof t === 'string' && t.length > 0)
-  // Mistral's outputs[].text, Cohere Command's generations[].text.
   for (const key of ['outputs', 'generations'] as const) {
     const list = fields[key]
     if (Array.isArray(list)) for (const item of list) { const t = obj(item)?.text; if (typeof t === 'string' && t) texts.push(t) }
   }
-  if (texts.length) return textDelta(texts.join(''))
-  // A shape none of the above names (a new model's): every string it holds
-  // is read as text, so the scans see what it carries rather than nothing.
-  const leaves: string[] = []
-  stringLeaves(fields, leaves)
-  return leaves.length ? textDelta(leaves.join('\n')) : ''
+  const taken = new Set<string>([...CONVERSE_KEYS, ...INVOKE_TEXT_KEYS])
+  const rest: string[] = []
+  for (const [k, v] of Object.entries(fields)) if (!taken.has(k)) stringLeaves(v, rest)
+  for (const t of rest) if (!texts.includes(t)) texts.push(t)
+  if (texts.length) out += textDelta(texts.join('\n'))
+  return out
 }
 
 /** The Anthropic SSE event a frame stands for, or '' for one that carries no text (metadata, exceptions). */
-function frameToSse(kind: EventStreamKind, frame: EventStreamFrame): string {
+function frameToSse(kind: EventStreamKind, frame: EventStreamFrame, nextToolIndex: () => number): string {
   if (frame.headers[':message-type'] !== 'event') return ''
   let payload: Record<string, unknown> | undefined
   try { payload = obj(JSON.parse(frame.payload.toString('utf8'))) } catch { return '' }
   if (!payload) return ''
-  return kind === 'converse' ? converseEvent(frame.headers[':event-type'], payload) : invokeEvent(frame.headers[':event-type'], payload)
+  return kind === 'converse' ? converseEvent(frame.headers[':event-type'], payload) : invokeEvent(frame.headers[':event-type'], payload, nextToolIndex)
 }
 
 export class EventStreamReader {
   private readonly decoder = new EventStreamDecoder()
   private failed = false
+  // Indices for the tool_use events made from whole tool calls, clear of a model's own block indices.
+  private toolIndex = 10_000
+  private readonly nextToolIndex = (): number => this.toolIndex++
 
   constructor(private readonly kind: EventStreamKind) {}
 
@@ -127,7 +174,7 @@ export class EventStreamReader {
       frames = err instanceof EventStreamError ? err.frames : []
       error = err instanceof Error ? err.message : String(err)
     }
-    return { frames, sse: frames.map(f => frameToSse(this.kind, f)), error }
+    return { frames, sse: frames.map(f => frameToSse(this.kind, f, this.nextToolIndex)), error }
   }
 
   /** Whether part of a frame is waiting for the rest. */
