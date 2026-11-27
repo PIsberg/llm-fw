@@ -222,6 +222,7 @@ function resolveClassifierBlockThreshold(config: Config, source: ScanSource): nu
 // Whether any harness template is keyed on the tool whose result it opens.
 const TOOL_RESULT_TEMPLATES = HARNESS_TEMPLATES.some(t => t.tool !== undefined)
 
+
 export class Pipeline {
   private heuristic: HeuristicScorer
   private embedding: EmbeddingChecker
@@ -632,7 +633,12 @@ export class Pipeline {
       const trustedPath = dir ? trustedReadPath('Read', { file_path: `${dir}/AGENTS.md` }, trustedRoots) : null
       reminderFiles.push({ text: agents.body, source: 'document', reminderFile: true, ...(trustedPath ? { trustedPath } : {}) })
     }
-    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean }[] = [
+    // decodedDocument: the text a PDF's content streams draw, where #940's
+    // document policy applies. Decided by the reader that produced the text,
+    // never by a declared type (security review): a plain-text document
+    // block, a text file declared as anything, and the rest of a PDF's bytes
+    // keep every rule.
+    const scanItems: { text: string; source: ScanSource; trustedPath?: string; toolName?: string | undefined; reminderFile?: boolean; decodedDocument?: boolean }[] = [
       ...interleave(
         [...userPromptTexts].reverse().map(text => ({ text, source: 'prompt' as const })),
         [...toolResults].reverse(),
@@ -657,7 +663,15 @@ export class Pipeline {
     if (nonText?.enabled && parser.extractMediaBlocks) {
       const media = parser.extractMediaBlocks(body)
       for (const m of media) {
-        if (m.text) scanItems.push({ text: m.text, source: 'document' })
+        if (m.pdfPageText !== undefined) {
+          // A PDF: the page text gets #940's document policy, the rest of
+          // what its bytes hold (metadata, text after %%EOF, unread streams)
+          // every rule.
+          if (m.pdfPageText) scanItems.push({ text: m.pdfPageText, source: 'document', decodedDocument: true })
+          if (m.pdfOtherText) scanItems.push({ text: m.pdfOtherText, source: 'document' })
+        } else if (m.text) {
+          scanItems.push({ text: m.text, source: 'document' })
+        }
       }
       // OCR opt-in: read injection text rendered as pixels in raster images and
       // scan it as a document below (so it can BLOCK on content). Crucially we
@@ -730,7 +744,7 @@ export class Pipeline {
       lastYield = performance.now()
     }
 
-    for (const { text: itemText, source, trustedPath, toolName, reminderFile } of scanItems) {
+    for (const { text: itemText, source, trustedPath, toolName, reminderFile, decodedDocument } of scanItems) {
       // The item as it is in the body, which a withhold has to find; every
       // stage below reads it without a harness template's fixed text.
       at.item = { text: itemText, source }
@@ -877,7 +891,15 @@ export class Pipeline {
       // a long faux dialogue without harmful compliance warns (routed below).
       if (this.config.manyShot?.enabled) {
         const ms = detectManyShot(prompt, this.config.manyShot)
-        if (ms.severity === 'block') {
+        // #940: a long document (a book, a transcript) is where a dialogue
+        // with harmful words belongs; there it warns.
+        if (ms.severity === 'block' && decodedDocument) {
+          if (!pendingWarn) pendingWarn = {
+            result: { action: 'warn', stage: 'many-shot', score: 0, similarity: 0, prompt },
+            prompt: `[document] [many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`,
+            source,
+          }
+        } else if (ms.severity === 'block') {
           const result: PipelineResult = { action: 'block', stage: 'many-shot', score: 100, similarity: 0, prompt }
           const line = `[many-shot: ${ms.turns} turns, ${ms.harmfulComplianceTurns} harmful] ${prompt.slice(0, 80)}`
           if (this.isSuppressed(prompt, source)) {
@@ -902,15 +924,28 @@ export class Pipeline {
       // imperative is normal input, so running it there would false-positive.
       if (this.config.indirectInstruction?.enabled && (source === 'tool_result' || source === 'document')) {
         const secret = detectSecretFileExfil(prompt)
-        const ind = detectIndirectInstruction(prompt, this.config.indirectInstruction)
-          ?? (secret ? { verb: secret.path, reason: `secret-file ${secret.reason}`, snippet: secret.snippet } : null)
+        const secretFinding = secret ? { verb: secret.path, reason: `secret-file ${secret.reason}`, snippet: secret.snippet } : null
+        const planted = detectIndirectInstruction(prompt, this.config.indirectInstruction)
+        // In a PDF's page text an imperative or exfil-target finding only
+        // warns (#940), so a credential-file order in the same text must win
+        // over it (security review): it blocks everywhere.
+        const ind = decodedDocument && secretFinding && planted && (planted.reason === 'imperative' || planted.reason === 'exfil-target')
+          ? secretFinding
+          : planted ?? secretFinding
         if (ind) {
           // #287: an operator can trade an imperative naming no destination for
           // a warn on a tool result. Only that surface: a document cannot be withheld,
           // and the cost was measured on tool results alone.
           const untargeted = this.config.indirectInstruction.untargetedImperative === 'warn' && source === 'tool_result'
             && ind.reason === 'imperative' && !namesDestination(prompt)
-          if (this.config.indirectInstruction.mode === 'block' && !trustedPath && !untargeted) {
+          // #940 (maintainer decision): in text decoded from a document block
+          // an imperative ("add the following to your configuration") or an
+          // address near a send verb (an e-signature audit trail) is ordinary
+          // prose, and 14 of 107 real PDFs blocked on these two rules. There
+          // they warn; an order to send a credential file still blocks, and so
+          // does every other stage.
+          const documentProse = decodedDocument === true && (ind.reason === 'imperative' || ind.reason === 'exfil-target')
+          if (this.config.indirectInstruction.mode === 'block' && !trustedPath && !untargeted && !documentProse) {
             const result: PipelineResult = { action: 'block', stage: 'indirect-instruction', score: 100, similarity: 0, prompt }
             const line = `[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`
             if (!this.isSuppressed(prompt, source)) {
@@ -921,7 +956,7 @@ export class Pipeline {
           }
           if (!pendingWarn) pendingWarn = {
             result: { action: 'warn', stage: 'indirect-instruction', score: 0, similarity: 0, prompt },
-            prompt: demotedLine(`${untargeted ? '[untargeted] ' : ''}[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`),
+            prompt: demotedLine(`${untargeted ? '[untargeted] ' : ''}${documentProse ? '[document] ' : ''}[indirect: ${ind.reason} "${ind.verb}"] ${ind.snippet}`),
             source,
           }
         }

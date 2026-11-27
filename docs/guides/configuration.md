@@ -368,6 +368,22 @@ uncompressed dictionaries alone. Reading the streams costs time: 63 to 87 ms for
 1.3 to 1.7 MB PDFs, against 15 to 19 ms for the raw bytes alone, measured on one
 machine.
 
+**The text a PDF's pages draw is prose** (#940). In the text a PDF's content
+streams draw, the indirect-instruction stage's imperative and exfil-target
+rules and the many-shot check warn instead of blocking: books, manuals and
+contracts give instructions ("add the following to your configuration") and
+name where things were sent (an e-signature audit trail), and those rules
+blocked 13 of 107 real PDFs once their text was readable. Every other stage
+still blocks there, and an order to send a credential file blocks even beside
+an imperative. The policy follows how the reader got the text, never the
+declared type: the rest of a PDF's bytes (metadata, text after `%%EOF`,
+streams it could not read, strings and words a stream holds but never
+draws), a file declared as a PDF that has no page text,
+and every plain-text document block (a RAG citation, an API caller's
+`text/plain` file) keep every rule, so InjecAgent's 1,054 planted
+instructions sent as text documents keep blocking. The cost is on PDFs: the
+same 1,054 drawn on a PDF page warn.
+
 **Audio transcription.** OpenAI's audio models (`input_audio` parts) and Gemini
 (`inlineData` with an `audio/*` type) accept speech in an ordinary chat
 request, and will follow an instruction spoken in the clip. By default such a

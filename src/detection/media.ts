@@ -41,7 +41,16 @@ export function extractPrintableRuns(buf: Buffer): string {
 export interface DecodedMedia {
   text: string | null
   partial: boolean
+  /**
+   * For a PDF, its text split by where it came from (#940): what its content
+   * streams draw (pageText), and the printable runs of every byte outside the
+   * streams read (otherText: dictionaries, metadata, anything after %%EOF,
+   * streams that could not be read).
+   */
+  pdf?: { pageText: string; otherText: string }
 }
+
+const NEWLINE = Buffer.from('\n')
 
 /** Streams read per PDF before the rest is left unread (and the block marked partial). */
 const MAX_PDF_STREAMS = 4096
@@ -73,7 +82,7 @@ export function decodeMedia(mimeType: string | undefined, base64Data: string, ma
   }
   if (/^application\/pdf$/i.test(mime) || buf.subarray(0, 5).toString('latin1') === '%PDF-') {
     const pdf = readPdf(buf, maxBytes)
-    return { text: pdf.text.length > 0 ? pdf.text : null, partial: pdf.partial }
+    return { text: pdf.text.length > 0 ? pdf.text : null, partial: pdf.partial, pdf: { pageText: pdf.pageText, otherText: pdf.otherText } }
   }
   return { text: null, partial: false }
 }
@@ -104,9 +113,14 @@ const MAX_DICT_CHARS = 4096
  * raw bytes, a PDF counted as inspected from its uncompressed dictionaries
  * alone, with not one word of its pages read (#857).
  */
-function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean } {
+function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolean; pageText: string; otherText: string } {
   const s = buf.toString('latin1')
   const texts: string[] = [extractPrintableRuns(buf)]
+  // What content streams draw, and the byte ranges of the streams read: the
+  // page text and everything else are scanned apart (#940).
+  const pageTexts: string[] = []
+  const plainRuns: string[] = []
+  const readRanges: [number, number][] = []
   let partial = unreadable(s)
   let budget = maxBytes
   // Backward dictionary scans, bounded in total so dense streams stay linear.
@@ -161,16 +175,32 @@ function readPdf(buf: Buffer, maxBytes: number): { text: string; partial: boolea
     // Object streams hold font and encoding dictionaries too.
     if (unreadable(latin)) partial = true
     const content = readContentStream(latin)
-    if (content.text) texts.push(content.text)
+    if (content.text) {
+      texts.push(content.text)
+      pageTexts.push(content.text)
+    }
+    if (content.other) plainRuns.push(content.other)
     if (content.unread > 0) partial = true
+    readRanges.push([start, end])
     if (PLAIN_DICT.test(dict)) {
       const runs = extractPrintableRuns(decoded)
-      if (runs) texts.push(runs)
+      if (runs) {
+        texts.push(runs)
+        plainRuns.push(runs)
+      }
     }
   }
   // An endstream whose stream was not recognised is a stream not read.
   if (streams < ends) partial = true
-  return { text: texts.filter(Boolean).join('\n'), partial }
+  const outside: Buffer[] = []
+  let last = 0
+  for (const [a, b] of readRanges) {
+    if (a > last) outside.push(buf.subarray(last, a), NEWLINE)
+    last = Math.max(last, b)
+  }
+  if (last < buf.length) outside.push(buf.subarray(last))
+  const otherText = [extractPrintableRuns(Buffer.concat(outside)), ...plainRuns].filter(Boolean).join('\n')
+  return { text: texts.filter(Boolean).join('\n'), partial, pageText: pageTexts.join('\n'), otherText }
 }
 
 /** A byte below 0x20 other than tab, line feed, vertical tab, form feed and carriage return. */
@@ -291,17 +321,34 @@ export function pdfContentText(src: string): string {
  * means letters only the font's ToUnicode map can recover, so such a page is
  * not inspected and the caller marks it partial.
  */
-function readContentStream(src: string): { text: string; unread: number } {
+/** The operators of a content stream (ISO 32000-1, Annex A); any other bare word is not one. */
+const CONTENT_OPERATORS = new Set(('b B b* B* BDC BI BMC BT BX c cm CS cs d d0 d1 Do DP EI EMC ET EX f F f* G g gs h i ID j J K k l m M MP n q Q re RG rg ri s S SC sc SCN scn sh T* Tc Td TD Tf TJ Tj TL Tm Tr Ts Tw Tz v w W W* y true false null').split(' '))
+// Marked-content keys whose string stands for page text (a screen reader reads it).
+const PAGE_TEXT_KEYS = new Set(['ActualText', 'Alt', 'E'])
+
+/**
+ * The text a content stream draws, and (#940) everything else it holds that
+ * reads as text: strings no show operator draws and bare words that are not
+ * operators. `text` gets the page-text policy; `other` keeps every rule, so
+ * a string a stream carries but never shows is scanned as main scanned the
+ * raw bytes of an uncompressed stream.
+ */
+function readContentStream(src: string): { text: string; unread: number; other: string } {
   let unread = 0
   const lines: string[] = []
   let line = ''
   let pending = ''
+  let pendingRanges: [number, number][] = []
+  const shown: [number, number][] = []
+  const dropped: string[] = []
+  let lastName = ''
   let inArray = false
   let i = 0
   const n = src.length
   while (i < n) {
     const c = src[i]!
     if (c === '(') {
+      const from = i
       let depth = 1
       let out = ''
       i++
@@ -326,7 +373,9 @@ function readContentStream(src: string): { text: string; unread: number } {
       }
       // Control bytes are glyph codes of a custom encoding, not text.
       if (hasControlBytes(out)) unread++
-      else pending += out
+      else if (PAGE_TEXT_KEYS.has(lastName)) { line += (line && !line.endsWith(' ') ? ' ' : '') + out; shown.push([from, i]) }
+      else { pending += out; pendingRanges.push([from, i]) }
+      lastName = ''
       continue
     }
     // A dictionary opener is not a hex string: read as one, its second < made
@@ -338,8 +387,11 @@ function readContentStream(src: string): { text: string; unread: number } {
       const hex = src.slice(i + 1, close).replace(/[^0-9A-Fa-f]/g, '')
       const bytes = Buffer.from(hex.length % 2 ? hex + '0' : hex, 'hex').toString('latin1')
       // Two-byte font codes decode to noise; keep only what reads as text.
-      if (bytes.replace(/[\x20-\x7E]/g, '').length <= bytes.length / 5) pending += bytes
-      else unread++
+      if (bytes.replace(/[\x20-\x7E]/g, '').length <= bytes.length / 5) {
+        if (PAGE_TEXT_KEYS.has(lastName)) { line += (line && !line.endsWith(' ') ? ' ' : '') + bytes; shown.push([i, close + 1]) }
+        else { pending += bytes; pendingRanges.push([i, close + 1]) }
+      } else unread++
+      lastName = ''
       i = close + 1
       continue
     }
@@ -360,6 +412,18 @@ function readContentStream(src: string): { text: string; unread: number } {
       let j = i + 1
       while (j < n && (isOperatorStart(src.charCodeAt(j)) || isDigit(src.charCodeAt(j)))) j++
       const op = src.slice(i, j)
+      if (src[i - 1] === '/') {
+        if (pending) dropped.push(pending)
+        lastName = op
+        pending = ''
+        pendingRanges = []
+        i = j
+        continue
+      }
+      lastName = ''
+      if (op === 'Tj' || op === 'TJ' || op === "'" || op === '"') for (const r of pendingRanges) shown.push(r)
+      else if (pending) dropped.push(pending)
+      pendingRanges = []
       if (op === 'Tj' || op === 'TJ') line += pending
       else if (op === "'" || op === '"') line += (line ? ' ' : '') + pending
       else if (op === 'Td' || op === 'TD' || op === 'Tm' || op === 'T*') { if (line && !line.endsWith(' ')) line += ' ' }
@@ -371,7 +435,15 @@ function readContentStream(src: string): { text: string; unread: number } {
     i++
   }
   if (line.trim()) lines.push(line.trim())
-  return { text: lines.join('\n'), unread }
+  if (pending) dropped.push(pending)
+  // Bare words that are not operators: blank what was drawn and every name,
+  // then keep the words left.
+  let rest = ''
+  let at = 0
+  for (const [a, b] of shown) { rest += src.slice(at, a) + ' '; at = b }
+  rest += src.slice(at)
+  const words = (rest.replace(/\/[^\s/[\]()<>{}%]*/g, ' ').match(/[A-Za-z][A-Za-z'*]+/g) ?? []).filter(w => !CONTENT_OPERATORS.has(w))
+  return { text: lines.join('\n'), unread, other: [dropped.join('\n'), words.join(' ')].filter(Boolean).join('\n') }
 }
 
 /**
@@ -408,6 +480,7 @@ export function mediaBlockFromBase64(kind: MediaBlock['kind'], mimeType: string 
     sizeBytes: Math.floor(base64Data.length * 3 / 4),
     ...(text ? { text } : {}),
     ...(decoded.partial ? { partial: true } : {}),
+    ...(decoded.pdf ? { pdfPageText: decoded.pdf.pageText, pdfOtherText: decoded.pdf.otherText } : {}),
     // Keep the raw payload for opaque raster images and audio, so the optional
     // OCR and transcription stages can read them. Text-bearing blocks are
     // already decoded; no point retaining their bytes.
