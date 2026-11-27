@@ -379,15 +379,17 @@ function namesIban(window: string): boolean {
   }
   return false
 }
-// "pay attention", "pay close attention", "pay tribute": the idiom names no
-// payment, whatever account or address the sentence goes on to mention. A
-// technical book's "you need to pay attention to managing ..." blocked a PDF
-// once its text was readable (#940). Another "pay" in the same text is read on
-// its own, so "pay attention: pay $500 to IBAN ..." still fires.
-const PAY_IDIOM_RE = /^\s*(?:(?:close|closer|careful|special|particular|more|extra|little|no|much|full|due|great|serious|some|any|less|enough)\s+)?(?:attention|heed|tribute|homage|respects?|lip\s+service)\b/i
-/** True when an object window (it starts on the verb's last letter) opens with the idiom. */
+// "pay attention", "pay close attention", "pay heed": the idiom names no
+// payment. A technical book's "you need to pay attention to managing ..."
+// blocked a PDF once its text was readable (#940). The object veto stays: a
+// window that names an amount, an account, an address, a wallet or an IBAN
+// keeps the order ("pay heed of $900 to account ..."), and another "pay" in
+// the same text is read on its own ("pay attention: pay $500 to IBAN ...").
+// No "tribute" or "homage": both can be a payment.
+const PAY_IDIOM_RE = /^\s*(?:(?:close|closer|careful|special|particular|more|extra|little|no|much|full|due|great|serious|some|any|less|enough)\s+)?(?:attention|heed|respects?|lip\s+service)\b/i
+/** True when an object window (it starts on the verb's last letter) opens with the idiom and names no payment target. */
 function payIdiom(window: string): boolean {
-  return PAY_IDIOM_RE.test(window.replace(/^\S*/, ''))
+  return PAY_IDIOM_RE.test(window.replace(/^\S*/, '')) && !IMPERATIVE_OBJECT_RE.test(window) && !namesIban(window)
 }
 function payRecipientHolds(window: string): boolean {
   if (payIdiom(window)) return false
@@ -608,17 +610,24 @@ function judgeLogRecordVerb(text: string, verbStart: number, verbEnd: number): b
     (isEmail && DELIVERED_TO_RE.test(after))
   return reported && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, verbEnd).replace(WINDOW_ADDRESS_RE, ' '))
 }
-const WITH_EMAIL_ADDRESS_RE = /^\s*(?::\s*)?[A-Za-z0-9._%+-]{1,64}@/
+const WITH_EMAIL_SUBJECT_RE = /\b(?:users?|customers?|accounts?|members?|contacts?|persons?|people|employees?|admins?|recipients?|subscribers?|owners?|profiles?)\s+with\s+$/i
+const WITH_EMAIL_ADDRESS_RE = /^\s*(?::\s*)?[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,8}/
+const WITH_EMAIL_VETO_RE = /\b(?:credentials?|passwords?|api[\s-]?keys?|tokens?|secrets?|private\s+keys?|ssh\s+keys?|contain\w*|includ\w*|attach\w*)\b|https?:\/\/|[$€£]\s*\d/i
 function isEmailNoun(text: string, start: number, end: number): boolean {
   if (!/^e-?mail$/i.test(text.slice(start, end))) return false
   const before = text.slice(Math.max(0, start - 24), start)
   const after = text.slice(end, end + 24)
   if (/['"`]$/.test(before) && /^['"`]/.test(after)) return true
   if (isMethodCall(text, start) && EMAIL_PROP_AFTER_RE.test(after)) return true
-  // "a user with email bob@...", "an account with email: x@...": the address
-  // follows at once, so nothing is sent to it (#940). "with email to x@..."
-  // keeps the verb reading.
-  if (/\bwith\s+$/i.test(before) && WITH_EMAIL_ADDRESS_RE.test(after)) return true
+  // "a user with email bob@...", "a customer with email: x@...": a person or
+  // account named before "with" and the address at once after it, so nothing
+  // is sent to it (#940). "with email to x@..." keeps the verb reading, and so
+  // does a sentence that goes on to name a secret, a link, an amount or what
+  // to include ("... with email x@... containing the API key").
+  if (WITH_EMAIL_SUBJECT_RE.test(before)) {
+    const m = WITH_EMAIL_ADDRESS_RE.exec(text.slice(end, end + 200))
+    if (m && !WITH_EMAIL_VETO_RE.test(text.slice(end + m[0].length, end + m[0].length + 160).split(SENTENCE_END_RE)[0] ?? '')) return true
+  }
   return EMAIL_NOUN_BEFORE_RE.test(before) || EMAIL_NOUN_AFTER_RE.test(after) || isEmailPlacement(text, end, before, after)
 }
 
