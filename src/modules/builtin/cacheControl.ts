@@ -5,12 +5,28 @@ import { PayloadModule, type PayloadOutcome } from '../base.js'
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-function hasCacheControl(node: unknown, depth = 0): boolean {
-  if (depth > 32) return false
-  if (Array.isArray(node)) return node.some(n => hasCacheControl(n, depth + 1))
-  if (!isObj(node)) return false
-  if ('cache_control' in node) return true
-  return Object.values(node).some(v => hasCacheControl(v, depth + 1))
+/**
+ * Whether the client placed a breakpoint where the API reads one: at the top
+ * level, on a tool, on a system block, on a message block, or on a block of a
+ * tool result. Only those places (#873): a key named cache_control inside a
+ * tool's arguments or its input schema is data, and reading it as the
+ * client's own breakpoint switched automatic caching off for the request.
+ */
+function hasCacheControl(payload: Obj): boolean {
+  const marked = (node: unknown): boolean => isObj(node) && 'cache_control' in node
+  if ('cache_control' in payload) return true
+  for (const list of [payload.tools, payload.system]) {
+    if (Array.isArray(list) && list.some(marked)) return true
+  }
+  if (!Array.isArray(payload.messages)) return false
+  for (const message of payload.messages) {
+    if (!isObj(message) || !Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (marked(block)) return true
+      if (isObj(block) && block.type === 'tool_result' && Array.isArray(block.content) && block.content.some(marked)) return true
+    }
+  }
+  return false
 }
 
 // Takes the one-hour TTL off a breakpoint, which leaves the default five
