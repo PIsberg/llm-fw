@@ -25,8 +25,12 @@
 //     each other's `events` array.
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { Pipeline, ScanSource } from './detection/pipeline.js'
-import { loadConfig, deepMerge } from './config/config.js'
-import type { Config, BlockEvent } from './types.js'
+import { loadConfigLayers, deepMerge, applyObserveMode, DEFAULT_CONFIG } from './config/config.js'
+import { DlpScanner } from './detection/dlp/scanner.js'
+import { scanResponseExfil } from './detection/responseExfil.js'
+import { detectHarmfulCompliance } from './detection/responseHarm.js'
+import { UrlClassifier } from './detection/urlHeuristic.js'
+import type { Config, BlockEvent, PipelineResult } from './types.js'
 
 export type { ScanSource }
 
@@ -73,12 +77,65 @@ export interface ScanVerdict {
   stage: string
   score: number
   similarity: number
+  /** false when observe mode turned a block into this warn; absent otherwise (#872). */
+  enforced?: false
+  /** On a block, the text that caused it and the surface it came from; absent for a request-level block (#872). */
+  blockedItem?: { text: string; source: ScanSource }
   /** Dashboard-style audit events emitted while scanning this input (0, 1, or 2 — e.g. an opaque-media warn plus a separate content warn). */
   events: Omit<BlockEvent, 'id' | 'timestamp'>[]
 }
 
+export interface FirewallOptions {
+  /**
+   * Start from the shipped defaults only: no LLM_FW_CONFIG file, no
+   * <LLM_FW_DIR>/config.json and no LLM_FW_* environment variables (#872).
+   * For a library whose behaviour must not depend on the machine it runs on.
+   */
+  defaultsOnly?: boolean
+}
+
+export interface InspectInput {
+  /** A complete request body (JSON string) in a format a bundled parser reads. */
+  body: string
+  /** Which parser to use (defaults to '/v1/messages'). */
+  path?: string
+}
+
+export interface InspectResult {
+  verdict: ScanVerdict
+  /**
+   * The body to forward: unchanged, or with each blocked tool result (and,
+   * under `detection.surfaces.prompt.olderTurns: 'withhold'`, each blocked
+   * older user turn) replaced by llm-fw's fixed notice, as the proxy does.
+   * When the verdict is a block, forward nothing.
+   */
+  body: string
+  /** How many texts were withheld. */
+  withheld: number
+}
+
+export interface DlpResult {
+  /** What was found and where; never the secret itself. */
+  findings: Array<{ type: string; label: string; index: number; length: number }>
+  /** The text with every finding replaced, as `dlp.mode: 'redact'` does. */
+  redacted: string
+}
+
+export interface ResponseScanResult {
+  /** Markdown or HTML links and images in the response that point at an exfiltration destination. */
+  exfil: Array<{ url: string; kind: string; reason: string }>
+  /** A response that complies with a harmful request, unless `responseScan.harmfulCompliance` is false. */
+  harmfulCompliance: { term: string; snippet: string } | null
+}
+
 export interface Firewall {
   scan(input: ScanInput): Promise<ScanVerdict>
+  /** Scan a whole request and withhold what blocks, as the proxy does before forwarding it (#872). */
+  inspect(input: InspectInput): Promise<InspectResult>
+  /** Find (and redact) secrets and personal data in a text with the DLP patterns (#872). */
+  dlp(text: string): DlpResult
+  /** Scan a model's response text with the response-side checks (#872). */
+  scanResponse(text: string): ResponseScanResult
   /** Releases any resources the firewall holds (Task C3's worker-thread inference, if enabled). Safe to call even if nothing was ever spawned. */
   close(): Promise<void>
 }
@@ -127,20 +184,38 @@ function wrapText(text: string, surface: ScanSource): string {
   }
 }
 
+function verdictOf(result: PipelineResult, events: Omit<BlockEvent, 'id' | 'timestamp'>[]): ScanVerdict {
+  return {
+    action: result.action,
+    stage: result.stage,
+    score: result.score,
+    similarity: result.similarity,
+    ...(result.enforced === false ? { enforced: false as const } : {}),
+    ...(result.blockedItem ? { blockedItem: { text: result.blockedItem.text, source: result.blockedItem.source } } : {}),
+    events,
+  }
+}
+
 /**
  * Build an in-process firewall: init the same detection Pipeline the proxy
  * and dashboard use, with no proxy/TLS/dashboard server started. `config`
  * deep-merges over the fully-resolved config (defaults + the LLM_FW_CONFIG file +
- * ~/.llm-fw/config.json + env vars) as the final override layer — e.g.
- * `createFirewall({ detection: { judgeEnabled: true } })`.
+ * ~/.llm-fw/config.json + env vars, or the defaults alone with
+ * `{ defaultsOnly: true }`) as the final override layer — e.g.
+ * `createFirewall({ detection: { judgeEnabled: true } })`. Observe mode is
+ * applied to the merged result, so a caller's `enforcement` decides it
+ * (#872).
  */
-export async function createFirewall(config?: DeepPartial<Config>): Promise<Firewall> {
-  const base = await loadConfig()
+export async function createFirewall(config?: DeepPartial<Config>, options: FirewallOptions = {}): Promise<Firewall> {
+  const base = options.defaultsOnly ? structuredClone(DEFAULT_CONFIG) : await loadConfigLayers()
   // deepMerge recurses into nested plain objects regardless of how deep the
   // source layer's keys go, so a DeepPartial input is safe here at runtime;
   // the cast bridges the gap between deepMerge's Partial<T> signature (which
   // is only shallow-optional at the type level) and our deep-partial input.
   const resolved = config ? deepMerge<Config>(base, config as Partial<Config>) : base
+  if (resolved.enforcement === 'observe') applyObserveMode(resolved)
+  const dlpScanner = new DlpScanner(resolved.dlp)
+  const urlClassifier = new UrlClassifier(resolved.proxy.urlFilter)
 
   const events = new AsyncLocalStorage<Omit<BlockEvent, 'id' | 'timestamp'>[]>()
   const pipeline = new Pipeline(resolved, event => { events.getStore()?.push(event) })
@@ -161,13 +236,27 @@ export async function createFirewall(config?: DeepPartial<Config>): Promise<Fire
         body,
         { target: 'library', method: 'POST', path: requestPath }
       ))
-
+      return verdictOf(result, collected)
+    },
+    async inspect(input: InspectInput): Promise<InspectResult> {
+      const requestPath = input.path ?? DEFAULT_PATH
+      const collected: Omit<BlockEvent, 'id' | 'timestamp'>[] = []
+      const out = await events.run(collected, () => pipeline.inspect(requestPath, input.body, { target: 'library', method: 'POST', path: requestPath }))
+      return { verdict: verdictOf(out.result, collected), body: out.body, withheld: out.withheld }
+    },
+    dlp(text: string): DlpResult {
+      const findings = dlpScanner.scan(text)
       return {
-        action: result.action,
-        stage: result.stage,
-        score: result.score,
-        similarity: result.similarity,
-        events: collected,
+        findings: findings.map(f => ({ type: f.type, label: f.label, index: f.index, length: f.match.length })),
+        redacted: findings.length ? dlpScanner.redact(text, findings) : text,
+      }
+    },
+    scanResponse(text: string): ResponseScanResult {
+      const exfil = scanResponseExfil(text, (hostname, path) => urlClassifier.classifyDetailed(hostname, path).action === 'block')
+      const harm = resolved.responseScan?.harmfulCompliance !== false ? detectHarmfulCompliance(text) : null
+      return {
+        exfil: exfil.map(f => ({ url: f.url, kind: f.kind, reason: f.reason })),
+        harmfulCompliance: harm ? { term: harm.term, snippet: harm.snippet } : null,
       }
     },
     async close(): Promise<void> {

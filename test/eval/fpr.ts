@@ -176,7 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
-  // Held at ruleset 2026.11.116 (#898: classifier windows by token count, opt-in stage; fpr re-run 2026-11-27, unchanged).
+  // Held at ruleset 2026.11.117 (#872: src/config/config.ts gained loadConfigLayers; no default or verdict changes).
   // Held at ruleset 2026.11.111 (#919: RAG blocks read to the last closer; the outside veto narrowed; fpr unchanged).
   // Held at ruleset 2026.11.110 (#918: warn events carry the scanned text and key; silent playground runs; no verdict change).
   // Held at ruleset 2026.11.109 (#870: listener switches and dashboard.requireAuth; no detection change).
