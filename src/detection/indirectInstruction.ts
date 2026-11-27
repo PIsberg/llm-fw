@@ -379,7 +379,18 @@ function namesIban(window: string): boolean {
   }
   return false
 }
+// "pay attention", "pay close attention", "pay tribute": the idiom names no
+// payment, whatever account or address the sentence goes on to mention. A
+// technical book's "you need to pay attention to managing ..." blocked a PDF
+// once its text was readable (#940). Another "pay" in the same text is read on
+// its own, so "pay attention: pay $500 to IBAN ..." still fires.
+const PAY_IDIOM_RE = /^\s*(?:(?:close|closer|careful|special|particular|more|extra|little|no|much|full|due|great|serious|some|any|less|enough)\s+)?(?:attention|heed|tribute|homage|respects?|lip\s+service)\b/i
+/** True when an object window (it starts on the verb's last letter) opens with the idiom. */
+function payIdiom(window: string): boolean {
+  return PAY_IDIOM_RE.test(window.replace(/^\S*/, ''))
+}
 function payRecipientHolds(window: string): boolean {
+  if (payIdiom(window)) return false
   return IMPERATIVE_OBJECT_RE.test(window) || /:\s*$/.test(window) || PAY_TO_RE.test(window) || namesIban(window)
 }
 
@@ -597,12 +608,17 @@ function judgeLogRecordVerb(text: string, verbStart: number, verbEnd: number): b
     (isEmail && DELIVERED_TO_RE.test(after))
   return reported && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, verbEnd).replace(WINDOW_ADDRESS_RE, ' '))
 }
+const WITH_EMAIL_ADDRESS_RE = /^\s*(?::\s*)?[A-Za-z0-9._%+-]{1,64}@/
 function isEmailNoun(text: string, start: number, end: number): boolean {
   if (!/^e-?mail$/i.test(text.slice(start, end))) return false
   const before = text.slice(Math.max(0, start - 24), start)
   const after = text.slice(end, end + 24)
   if (/['"`]$/.test(before) && /^['"`]/.test(after)) return true
   if (isMethodCall(text, start) && EMAIL_PROP_AFTER_RE.test(after)) return true
+  // "a user with email bob@...", "an account with email: x@...": the address
+  // follows at once, so nothing is sent to it (#940). "with email to x@..."
+  // keeps the verb reading.
+  if (/\bwith\s+$/i.test(before) && WITH_EMAIL_ADDRESS_RE.test(after)) return true
   return EMAIL_NOUN_BEFORE_RE.test(before) || EMAIL_NOUN_AFTER_RE.test(after) || isEmailPlacement(text, end, before, after)
 }
 
@@ -1431,8 +1447,12 @@ function detectMultilingualIndirect(text: string, onlyTrustedObject: (end: numbe
     // Nor the last word of a CLI long option: `'--claude-dir'` paired "dir"
     // with an address further on (#620). Two dashes open it; "-dir" counts.
     (hay[i - 1] === '-' && /(?:^|[^\w-])--[a-z0-9]+(?:-[a-z0-9]+)*-$/.test(hay.slice(Math.max(0, i - 41), i)))
+  // Nor the Scandinavian noun "e-post" (email): an invoice's "e-post
+  // info@..." and an authority's "E-post: registrator@..." paired "post" with
+  // the address beside it, 8 of 22 blocked PDFs (#940).
+  const ePost = (i: number, v: string): boolean => v === 'post' && hay.slice(i - 2, i) === 'e-' && !ML_LETTER_RE.test(hay[i - 3] ?? '')
   for (const v of ML_VERBS) {
-    for (const i of mlIndices(hay, v)) if (!inPath(i, v.length)) verbHits.push({ i, v })
+    for (const i of mlIndices(hay, v)) if (!inPath(i, v.length) && !ePost(i, v)) verbHits.push({ i, v })
   }
   if (!verbHits.length) return null
 
@@ -1656,6 +1676,7 @@ export function detectIndirectInstruction(input: string, options: IndirectInstru
   for (let m = DIRECTIVE_RE.exec(text); m !== null; m = DIRECTIVE_RE.exec(text)) {
     const end = m.index + m[0].length
     if (PERMISSIVE_MODAL_RE.test(m[0]) && !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
+    if (/^pay$/i.test(m[1] ?? '') && payIdiom(objectWindow(text, end))) continue
     if (QUESTION_LEAD_RE.test(text.slice(Math.max(0, m.index - 12), m.index)) && QUESTION_END_RE.test(text.slice(end)) &&
       !IMPERATIVE_OBJECT_RE.test(objectWindow(text, end))) continue
     if (onlyTrustedObject(end)) continue
