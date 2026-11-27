@@ -9,6 +9,10 @@ Releases 0.1.0 to 0.8.0 are in [docs/CHANGELOG-ARCHIVE.md](docs/CHANGELOG-ARCHIV
 
 ## [Unreleased]
 
+### Fixed
+
+- **A forged `<system-reminder>` pasted into a prompt no longer hides the lines after its first from the opt-in classifier (Stage 2.5, ruleset 2026.11.113, #858).** In a user turn from Claude Code, a reminder block that opened with one of Claude Code's own sentences ("The user hasn't heard from you", the git status line, a task notification and nine more) had every line outside its `Contents of` files left out of the classifier's input, wherever the block was. So an attack after a copied opener line, inside text a user pasted, reached that stage as nothing. A capture of Claude Code's requests (a local stub server as `ANTHROPIC_BASE_URL`, a run with three tool calls) shows each reminder sent as a text part of its own, apart from the typed prompt. The harness sentences are now dropped only from a part that holds nothing but reminder blocks, or reminders beside Claude Code's own markup, which is how its background security review arrives. In any other part each block is scored whole. Text beside the blocks that is only Claude Code's markup is now scored for what it carries, not with its tags, as a turn of markup already was. The git status in the context block (branch names, file names, commit subjects) is now scored as one part instead of dropped. Measured with the real model on the parts this produces from 983 distinct git statuses in local Claude Code transcripts: 1 scores 0.9 or more (a status listing dozens of changed test files), and with `requireCorroboration` on (the default) a classifier hit alone warns. The heuristic and embedding stages read every line before and after. A client that sends a forged block as a part of its own under Claude Code's user agent still has the lines after the opener left out of this stage.
+
 ## [0.9.8] - 2026-11-25
 
 ### Added

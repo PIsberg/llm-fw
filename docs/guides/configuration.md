@@ -214,9 +214,21 @@ user hasn't heard from you", the line above a CLAUDE.md, the git status, a
 background-task notification) has those sentences dropped; what the block
 carries is still scored, each `Contents of <file>` body on its own, so a
 cloned repository's CLAUDE.md and the agent's memory files are read by the
-classifier as by every other stage. A reminder block that opens with
-anything else is scored whole, and the text the user typed beside the blocks
-is scored on its own; the verdict is the highest part. Claude Code's
+classifier as by every other stage. So is the git status in the context
+block (branch names, file names and commit subjects, which anyone who pushed
+to the repository wrote), as one part without its fixed label lines (#858).
+That holds only for a text part that is nothing but reminder blocks, or
+reminders beside Claude Code's own markup (the background security review
+sends one after a task notification): Claude Code sends each reminder as a
+text part of its own, apart from what the user typed (captured from Claude
+Code on 2026-11-26). In a part with any other text, each block is scored
+whole, sentences included, so a reminder pasted into a prompt cannot hide
+the lines after its first. A reminder block that opens with anything else
+is scored whole too, and the text beside the blocks is scored on its own;
+the verdict is the highest part. A client that sends a forged block as a
+part of its own, under Claude Code's user agent, still has the lines after
+a harness opener left out of this stage; the heuristic and embedding stages
+read them. Claude Code's
 slash-command envelopes (either tag order), the envelope of a skill the
 model invokes itself (with the fixed `<skill-format>true</skill-format>`
 line), its `<session>` envelope with or
