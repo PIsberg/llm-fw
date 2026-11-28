@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.125
+
+**Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` 0 of 31,323. The social-engineering rule's "testing you" no longer matches when "you" starts the next clause (#940). Measured separately on 107 local PDFs: 9 blocked before and 6 after.
+
 ## Result, ruleset 2026.11.124
 
 Unchanged from 2026.11.123: the PDF reader counts a content stream with an unclosed string as partly read; no corpus above holds a PDF.
