@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.121
+
+**Unchanged: no corpus above holds a PDF** (`npm run fpr`, exit 0). The PDF reader decodes two-byte glyph text through each page's ToUnicode map (#889). Measured separately on 107 local PDFs as documents, with #940's page-text policy: 2 blocked before and 9 after, 4 of the 7 new ones books about AI security that quote attacks.
+
 ## Result, ruleset 2026.11.120
 
 **Unchanged: 1.97% overall (7 of 356), Dolly and oasst1 samples 0 of 2,000 each, the Aya sample 0 of 2,795** (`npm run fpr`, exit 0); `verdicts:diff` 0 of 31,323 eval verdicts. In the text a PDF's pages draw, the indirect-instruction imperative and exfil-target rules and many-shot warn (#940). None of the corpora above holds a PDF, so the measurement that moved is a separate one: 107 local PDFs read with the #889 reader, 14 blocked before and 9 after, the 9 on other stages (7 heuristic, 1 memory poisoning, 1 RAG).

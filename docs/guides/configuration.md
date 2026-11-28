@@ -360,10 +360,12 @@ as written. One with an image, a filter other than a plain `FlateDecode`, decode
 parameters, a `#`-escaped name, a dictionary or `/Length` it cannot match to
 the stream, corrupt or encrypted data, a cap
 reached, an embedded font or a re-encoding (either can show other glyphs than
-the bytes say), or text in two-byte glyph codes (what most writers emit,
-readable only through the font's ToUnicode map, #889) is treated as opaque,
-so `nonText.mode` audits or refuses it like an image. In practice that is most
-real PDFs: all 25 measured were. Before #857 a PDF counted as inspected from its
+the bytes say), or a glyph code its font's ToUnicode map does not cover is
+treated as opaque, so `nonText.mode` audits or refuses it like an image. In
+practice that is most real PDFs: 105 of 107 measured were. Opaque or not, the
+text that was read is scanned. Text in two-byte glyph codes (what most writers
+emit) is decoded through the ToUnicode map of the font the page selects, and
+text placed one glyph at a time reads as words (#889). Before #857 a PDF counted as inspected from its
 uncompressed dictionaries alone. Reading the streams costs time: 63 to 87 ms for
 1.3 to 1.7 MB PDFs, against 15 to 19 ms for the raw bytes alone, measured on one
 machine.
