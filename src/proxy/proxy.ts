@@ -1922,7 +1922,9 @@ export class ProxyServer {
             }
           }
           if (frameHold) {
-            const d = frameHold.feed(text ? sseEventText(text, RENDERED_KEYS) ?? '' : '')
+            // A frame can stand for several events (a whole tool call and
+            // text): each is read, as the SSE hold reads each event.
+            const d = frameHold.feed(text ? text.split(/\r?\n\r?\n/).map(e => sseEventText(e, RENDERED_KEYS) ?? '').join('') : '')
             if (d === 'cut') {
               // Nothing held, nor this frame, goes out; what was released did.
               if (!binGate) for (const raw of direct) { res.write(raw); respBodyBytes += raw.length }
