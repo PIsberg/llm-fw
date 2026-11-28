@@ -450,6 +450,9 @@ function readContentStream(src: string, fonts?: Map<string, FontMap>): { text: s
         out += d
         i++
       }
+      // A string that runs to the end of the stream was not closed: what it
+      // holds is not page text the reader can vouch for.
+      if (depth > 0) unread++
       if (pageString(out, from, i)) continue
       const before = pending.length
       // Control bytes are glyph codes of a custom encoding, not text.
@@ -462,7 +465,11 @@ function readContentStream(src: string, fonts?: Map<string, FontMap>): { text: s
     if (c === '<' && src[i + 1] === '<') { i += 2; continue }
     if (c === '<') {
       const close = src.indexOf('>', i + 1)
-      if (close === -1) break
+      // A hex string with no end: the rest of the stream is not read.
+      if (close === -1) {
+        unread++
+        break
+      }
       const hex = src.slice(i + 1, close).replace(/[^0-9A-Fa-f]/g, '')
       const bytes = Buffer.from(hex.length % 2 ? hex + '0' : hex, 'hex').toString('latin1')
       if (pageString(bytes, i, close + 1)) { i = close + 1; continue }

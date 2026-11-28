@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.124
+
+Unchanged from 2026.11.123: the PDF reader counts a content stream with an unclosed string as partly read; no corpus above holds a PDF.
+
 ## Result, ruleset 2026.11.123
 
 Unchanged from 2026.11.122: the gateway's per-tenant cost gates (#912) add `src/detection/dos/sessionGates.ts`, which the digest covers; no verdict changes.
