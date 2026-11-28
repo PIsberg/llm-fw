@@ -24,7 +24,7 @@ import { ChunkedDecoder } from './dechunk.js'
 import { SandboxDetector } from '../detection/sandbox.js'
 import { StringDecoder } from 'node:string_decoder'
 import { identifyService, matchesDomain, AI_PROVIDER_INTERCEPT_DOMAINS } from '../config/providers.js'
-import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil, type ExfilFinding } from '../detection/responseExfil.js'
+import { scanResponseExfil, neutralizeExfil, scanJsonTextFields, neutralizeJsonExfil, RENDERED_KEYS, type ExfilFinding } from '../detection/responseExfil.js'
 import { detectHarmfulCompliance } from '../detection/responseHarm.js'
 import { OutputModerationClassifier } from '../detection/outputClassifier.js'
 import { extractToolCallsFromJson, extractToolCallsFromSse, scanToolCallsForExfil, scanToolCallsForMemoryPoisoning, serializeToolArgs, type ScannedToolCall } from '../detection/toolUseScan.js'
@@ -42,7 +42,7 @@ import type { Duplex } from 'node:stream'
 import { decodeContentEncoding, UnsupportedEncoding } from './contentEncoding.js'
 import { isTokenCountRequest } from './tokenCount.js'
 import { bodyCap, decodeCap } from './bodyCap.js'
-import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT, sseStreamText } from './canary.js'
+import { canaryToken, injectCanary, CanaryWatch, CANARY_CUT, sseStreamText, sseEventText } from './canary.js'
 import { TlsSessionCache } from './tlsSessions.js'
 import { UpstreamPool } from './upstreamPool.js'
 import { ExfilStreamHold } from './streamExfil.js'
@@ -1828,6 +1828,10 @@ export class ProxyServer {
       // #551: block mode holds a streamed line that opens markup until it is
       // complete and scanned; see streamExfil.ts.
       let hold: ExfilStreamHold | null = null
+      // The same hold over Bedrock event-stream frames (#948): whole frames
+      // are held while their text opens markup, then forwarded or cut.
+      let frameHold: ExfilStreamHold | null = null
+      let heldFrames: Buffer[] = []
       // A newline-delimited JSON stream (Cohere v1, #881), read by its MCP gate only.
       let lineStream = false
       let dechunker: ChunkedDecoder | null = null
@@ -1889,34 +1893,75 @@ export class ProxyServer {
       // scans, and watched for the canary, which cuts before the frame that
       // completes it is forwarded (#906). Then the MCP gate decides what is
       // forwarded, or, without it, every whole frame read so far goes out.
+      // Bytes the exfil frame hold releases go out; while it holds, they wait.
+      const writeFrames = (b: Buffer) => {
+        if (!b.length) return
+        if (heldOpen) { heldFrames.push(b); return }
+        const out = heldFrames.length ? Buffer.concat([...heldFrames, b]) : b
+        heldFrames = []
+        res.write(out)
+        respBodyBytes += out.length
+      }
+      let heldOpen = false
       const feedFrames = (bytes: Buffer) => {
         if (cut || !esReader || !bytes.length) return
         const read = esReader.push(bytes)
+        // Without the MCP gate, each frame is forwarded or held on its own.
+        const direct: Buffer[] = []
         for (let i = 0; i < read.frames.length; i++) {
           const text = read.sse[i]!
-          if (!text) continue
-          if (sseText.length < maxResp) sseText += text
-          if (!watch?.push(text)) continue
-          this.emitCanary(canaryBlocks, req, hostname)
-          if (!canaryBlocks) continue
-          // The frames before this one go out, unless the MCP gate decides
-          // what is forwarded: then nothing of this chunk is.
-          if (!binGate && i > 0) {
-            const before = Buffer.concat(read.frames.slice(0, i).map(f => f.raw))
-            res.write(before)
-            respBodyBytes += before.length
+          if (text && sseText.length < maxResp) sseText += text
+          if (text && watch?.push(text)) {
+            this.emitCanary(canaryBlocks, req, hostname)
+            if (canaryBlocks) {
+              // The frames before this one go out, unless the MCP gate decides
+              // what is forwarded or the exfil hold is holding: then not.
+              if (!binGate && !heldOpen) for (const raw of direct) { res.write(raw); respBodyBytes += raw.length }
+              cutStream(CANARY_CUT)
+              return
+            }
           }
-          cutStream(CANARY_CUT)
-          return
+          if (frameHold) {
+            const d = frameHold.feed(text ? sseEventText(text, RENDERED_KEYS) ?? '' : '')
+            if (d === 'cut') {
+              // Nothing held, nor this frame, goes out; what was released did.
+              if (!binGate) for (const raw of direct) { res.write(raw); respBodyBytes += raw.length }
+              heldFrames = []
+              cutStream(EXFIL_CUT)
+              return
+            }
+            if (!binGate) {
+              if (d === 'hold') {
+                for (const raw of direct) { res.write(raw); respBodyBytes += raw.length }
+                direct.length = 0
+                if (!heldOpen) heldOpen = true
+                heldFrames.push(read.frames[i]!.raw)
+              } else if (heldOpen) {
+                heldFrames.push(read.frames[i]!.raw)
+                heldOpen = false
+                const out = Buffer.concat(heldFrames)
+                heldFrames = []
+                res.write(out)
+                respBodyBytes += out.length
+              } else {
+                direct.push(read.frames[i]!.raw)
+              }
+              continue
+            }
+            heldOpen = d === 'hold'
+          } else if (!binGate) {
+            direct.push(read.frames[i]!.raw)
+          }
         }
         if (binGate) {
           // The gate reads the same bytes and reports a frame it cannot read.
+          // Under the exfil hold, what it releases waits while markup is open.
           const { forward, decisions } = binGate.push(bytes)
           this.reportGateDecisions(decisions, '', req, hostname)
-          if (forward.length) { res.write(forward); respBodyBytes += forward.length }
+          writeFrames(forward)
           return
         }
-        const forward = read.frames.length === 1 ? read.frames[0]!.raw : Buffer.concat(read.frames.map(f => f.raw))
+        const forward = direct.length === 1 ? direct[0]! : Buffer.concat(direct)
         if (forward.length) { res.write(forward); respBodyBytes += forward.length }
         // A frame that cannot be read cannot be scanned, nor read by the
         // client's SDK: what is past it is not forwarded.
@@ -1938,6 +1983,9 @@ export class ProxyServer {
         } else if (mode === 'json') {
           if (initial.length) { jsonChunks.push(initial); jsonRawLen += initial.length }
         } else if (mode === 'eventstream') {
+          if (responseScanActive && this.gateMode(this.config.responseScan?.mode) === 'block') {
+            frameHold = new ExfilStreamHold(text => this.runResponseExfilScan(text, req, hostname, true) !== null)
+          }
           res.writeHead(status, inspectedHeaders())
           feedFrames(initial)
         } else {
@@ -2129,14 +2177,24 @@ export class ProxyServer {
               this.emitCanary(canaryBlocks, req, hostname)
               if (canaryBlocks) { cutStream(CANARY_CUT); return }
             }
+            // Block mode's frame hold judges what it still holds (#948).
+            if (frameHold) {
+              if (!frameHold.finish()) { heldFrames = []; cutStream(EXFIL_CUT); return }
+              heldOpen = false
+            }
             if (binGate) {
               const tail = binGate.flush()
-              if (tail.length) { res.write(tail); respBodyBytes += tail.length }
+              writeFrames(tail)
+            }
+            if (heldFrames.length) {
+              const out = Buffer.concat(heldFrames)
+              heldFrames = []
+              res.write(out)
+              respBodyBytes += out.length
             }
             // Already streamed: the exfil, tool-call and harm scans audit,
-            // as they do an SSE stream's (#906). Block mode's exfil hold
-            // needs text released at line ends, which a frame does not
-            // offer: on these streams it audits (#948).
+            // as they do an SSE stream's (#906); in block mode the frame
+            // hold above already judged every frame that opened markup.
             this.auditSseExfil(sseText, req, hostname)
             this.runToolUseScan(extractToolCallsFromSse(sseText), req, hostname, false)
             await this.runResponseHarmScan(sseText, req, hostname, false)

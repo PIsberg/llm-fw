@@ -216,6 +216,55 @@ describe('Proxy response scans on Bedrock event streams (#906, E2E)', { timeout:
     }
   })
 
+  // #948: block mode cut an SSE stream before the line carrying an exfil URL,
+  // and only audited an event stream, whose frames were all forwarded.
+  describe('responseScan.mode block', () => {
+    const block = async <T>(fn: () => Promise<T>): Promise<T> => {
+      config.responseScan.mode = 'block' as never
+      try { return await fn() } finally { config.responseScan.mode = 'audit' }
+    }
+
+    it('cuts a Converse stream at a frame boundary before a split exfil URL completes', async () => {
+      events.length = 0
+      const res = await block(() => send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/converse-stream', converse('converse-exfil')))
+      // The frames before the one that opened the image go out; that one is held.
+      expect(texts(res.frames)).toContain('"role":"assistant"')
+      expect(texts(res.frames)).not.toContain('secret-token')
+      expect(texts(res.frames)).not.toContain('webhook.site')
+      expect(res.frames.at(-1)?.headers[':message-type']).toBe('exception')
+      expect(events.some(e => e.kind === 'response-exfil' && e.action === 'blocked')).toBe(true)
+    })
+
+    it('cuts an InvokeModel stream the same way', async () => {
+      const res = await block(() => send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/invoke-with-response-stream', JSON.stringify({ scenario: 'invoke-exfil', anthropic_version: 'bedrock-2023-05-31', messages: [{ role: 'user', content: 'hi' }] })))
+      const decoded = res.frames.map(f => { try { return Buffer.from((JSON.parse(f.payload.toString('utf8')) as { bytes?: string }).bytes ?? '', 'base64').toString('utf8') } catch { return '' } }).join('')
+      expect(decoded).not.toContain('webhook.site')
+      expect(decoded).not.toContain('leak')
+      expect(res.frames.at(-1)?.headers[':message-type']).toBe('exception')
+    })
+
+    it('cuts the same way when the MCP gate decides what is forwarded', async () => {
+      const saved = config.mcp.enabled
+      config.mcp.enabled = true
+      try {
+        const res = await block(() => send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/converse-stream', converse('converse-exfil')))
+        expect(texts(res.frames)).not.toContain('secret-token')
+        expect(texts(res.frames)).not.toContain('webhook.site')
+        expect(res.frames.at(-1)?.headers[':message-type']).toBe('exception')
+        const clean = await block(() => send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/converse-stream', converse('clean')))
+        expect(texts(clean.frames)).toContain('The revenue rose 12%.')
+      } finally {
+        config.mcp.enabled = saved
+      }
+    })
+
+    it('still forwards a clean stream whole', async () => {
+      const res = await block(() => send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/converse-stream', converse('clean')))
+      expect(res.frames).toHaveLength(2)
+      expect(texts(res.frames)).toContain('The revenue rose 12%.')
+    })
+  })
+
   it('cuts a stream that repeats the canary at a frame boundary, ending with an exception frame', async () => {
     events.length = 0
     const res = await send(config.proxy.port, upstreamPort, '/model/anthropic.claude-sonnet-4/converse-stream', converse('converse-canary'))

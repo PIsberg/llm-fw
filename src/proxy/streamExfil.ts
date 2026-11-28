@@ -106,6 +106,25 @@ export class ExfilStreamHold {
     return out
   }
 
+  /**
+   * One unit of a stream that is not SSE text, given as the text it renders:
+   * a Bedrock event-stream frame (#948). 'cut' when the held text carries an
+   * exfil URL, 'hold' while markup is open, 'release' when the caller may
+   * forward this unit and every one it held. The caller holds whole units, so
+   * a cut lands on a unit boundary.
+   */
+  feed(text: string): 'cut' | 'hold' | 'release' {
+    if (!this.take(text)) return 'cut'
+    return this.holding() ? 'hold' : 'release'
+  }
+
+  /** The units ended: whether what is still held may go out (#948). */
+  finish(): boolean {
+    const open = this.holding()
+    if (this.link === 'url') this.endUrl()
+    return !(open && this.carriesExfil())
+  }
+
   /** The stream ended: judge what is still held, and release what is left. */
   end(): string | null {
     const rest = this.buf

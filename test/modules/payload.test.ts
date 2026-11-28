@@ -85,6 +85,19 @@ describe('collectTextSlots — Gemini', () => {
     })).toEqual(['system:sys', 'prompt:q'])
   })
 
+  // #946: Gemini's JSON mapping accepts the proto names too.
+  it('reads system_instruction in snake_case, as parts and as a string', () => {
+    expect(kinds({
+      system_instruction: { parts: [{ text: 'sys' }] },
+      contents: [{ role: 'user', parts: [{ text: 'q' }] }],
+    })).toEqual(['system:sys', 'prompt:q'])
+    expect(kinds({ system_instruction: 'be brief' })).toEqual(['system:be brief'])
+  })
+
+  it('reads both spellings when a request carries both', () => {
+    expect(kinds({ systemInstruction: { parts: [{ text: 'one' }] }, system_instruction: { parts: [{ text: 'two' }] } })).toEqual(['system:one', 'system:two'])
+  })
+
   it('reads the legacy single prompt field', () => {
     expect(kinds({ prompt: 'complete me' })).toEqual(['prompt:complete me'])
   })
