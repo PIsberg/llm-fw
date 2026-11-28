@@ -1339,7 +1339,7 @@ fenced code are kept.
 
 It rewrites user, assistant and system text in OpenAI chat, the OpenAI
 Responses API (`input`, `instructions`), Anthropic (`messages`, `system`) and
-Gemini (`contents`, `systemInstruction`). It never touches tool output: an
+Gemini (`contents`, and `systemInstruction` in either spelling, `system_instruction` included). It never touches tool output: an
 agent quotes a file read verbatim in its next edit, so a collapsed run of
 spaces there makes the edit miss. It never touches thinking blocks either.
 

@@ -1,7 +1,7 @@
 import type { HistoryWindowConfig } from '../../types.js'
 import type { GatewayModuleContext } from '../types.js'
 import { PayloadModule, estimate, type PayloadOutcome } from '../base.js'
-import { collectTextSlots } from '../payload.js'
+import { collectTextSlots, geminiField } from '../payload.js'
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -203,11 +203,13 @@ export class HistoryWindowModule extends PayloadModule<HistoryWindowConfig> {
     if (cut === null) return false
     const kept = contents.slice(cut).map(c => structuredClone(c) as Obj)
     const first = kept[0]!
-    first.parts = (first.parts as unknown[]).map(p => isObj(p) && 'functionResponse' in p ? { text: `${ORPHAN}\n${JSON.stringify(p.functionResponse)}` } : p)
+    // Either spelling of the part (#946).
+    const response = (p: unknown): unknown => geminiField(p, 'functionResponse', 'function_response')
+    first.parts = (first.parts as unknown[]).map(p => isObj(p) && response(p) !== undefined ? { text: `${ORPHAN}\n${JSON.stringify(response(p))}` } : p)
     // Gemini wants turns to alternate, so the first turn's parts go into the
     // first kept turn, which is also the user's, instead of a turn of their own.
     const head = contents[0]
-    const pinned = isObj(head) && Array.isArray(head.parts) && !head.parts.some(p => isObj(p) && 'functionResponse' in p)
+    const pinned = isObj(head) && Array.isArray(head.parts) && !head.parts.some(p => isObj(p) && response(p) !== undefined)
       ? pinnedFirst(head, cut)
       : null
     ;(first.parts as unknown[]).unshift(...(pinned ? pinned.parts as unknown[] : []), { text: marker(pinned ? cut - 1 : cut) })

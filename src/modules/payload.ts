@@ -1,4 +1,15 @@
 // One walker over every provider request shape the modules rewrite, so each
+
+/**
+ * A Gemini field in either JSON spelling: the camelCase name or the proto's
+ * snake_case one, which Gemini's JSON mapping accepts too (#946). The camelCase
+ * value wins when both are set.
+ */
+export function geminiField(obj: unknown, camel: string, snake: string): unknown {
+  if (!obj || typeof obj !== 'object') return undefined
+  const o = obj as Record<string, unknown>
+  return o[camel] ?? o[snake]
+}
 // module states WHICH text it touches (by kind) instead of re-implementing
 // where text lives in OpenAI chat, Anthropic, the Responses API and Gemini.
 
@@ -175,9 +186,12 @@ export function collectTextSlots(payload: unknown): TextSlot[] {
   else if (Array.isArray(payload.system)) textParts('system', payload.system, out)
   if (typeof payload.instructions === 'string') out.push(fieldSlot('system', payload, 'instructions'))
   if (typeof payload.preamble === 'string') out.push(fieldSlot('system', payload, 'preamble'))
-  const si = payload.systemInstruction
-  if (typeof si === 'string') out.push(fieldSlot('system', payload, 'systemInstruction'))
-  else if (isObj(si) && Array.isArray(si.parts)) textParts('system', si.parts, out)
+  // Gemini's JSON mapping accepts the proto name as well (#946).
+  for (const key of ['systemInstruction', 'system_instruction'] as const) {
+    const si = payload[key]
+    if (typeof si === 'string') out.push(fieldSlot('system', payload, key))
+    else if (isObj(si) && Array.isArray(si.parts)) textParts('system', si.parts, out)
+  }
 
   const calls: Calls = new Map()
   if (Array.isArray(payload.messages)) for (const m of payload.messages) message(m, out, calls)

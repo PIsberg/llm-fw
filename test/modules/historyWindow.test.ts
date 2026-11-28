@@ -148,6 +148,28 @@ describe('HistoryWindowModule', () => {
     expect(out[0]).toEqual({ role: 'user', parts: [{ text: 'c0' }, { text: '[llm-fw: 9 earlier messages omitted]' }, { text: '[llm-fw: result of an omitted tool call]\n{"name":"f","response":{"ok":true}}' }] })
   })
 
+  // #946: a client whose SDK writes the proto names.
+  it('turns a snake_case Gemini function response at the cut into text', () => {
+    const contents = [
+      ...Array.from({ length: 9 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'model', parts: [{ text: `c${i}` }] })),
+      { role: 'model', parts: [{ function_call: { name: 'f', args: {} } }] },
+      { role: 'user', parts: [{ function_response: { name: 'f', response: { ok: true } } }] },
+      ...Array.from({ length: 9 }, (_, i) => ({ role: i % 2 === 0 ? 'model' : 'user', parts: [{ text: `d${i}` }] })),
+    ]
+    const out = send(new HistoryWindowModule(cfg(10, 10)), { contents }).contents
+    expect(out).toHaveLength(10)
+    expect(out[0]).toEqual({ role: 'user', parts: [{ text: 'c0' }, { text: '[llm-fw: 9 earlier messages omitted]' }, { text: '[llm-fw: result of an omitted tool call]\n{"name":"f","response":{"ok":true}}' }] })
+  })
+
+  it('does not pin a first turn that holds a snake_case function response', () => {
+    const contents = [
+      { role: 'user', parts: [{ function_response: { name: 'f', response: { ok: true } } }] },
+      ...Array.from({ length: 19 }, (_, i) => ({ role: i % 2 === 0 ? 'model' : 'user', parts: [{ text: `e${i}` }] })),
+    ]
+    const out = send(new HistoryWindowModule(cfg(10, 10)), { contents }).contents
+    expect(JSON.stringify(out)).not.toContain('function_response')
+  })
+
   it('cuts the same way on every turn of an agent loop between two steps', () => {
     const mod = new HistoryWindowModule(cfg(100, 25))
     let previous: unknown[] | null = null
