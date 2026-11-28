@@ -118,6 +118,7 @@ function skipsEmbedding(source: string): boolean {
 import { detectHiddenChars } from './asciiSmuggling.js'
 import { detectManyShot } from './manyShot.js'
 import { detectCrescendo, CrescendoSessionMemory } from './crescendo.js'
+import { ConversationJudge } from './conversationJudge.js'
 import { decodeSubstitutionCipher } from './substitutionCipher.js'
 import { ProbeTracker } from './probeEscalation.js'
 import { detectMemoryPoisoning, extractMemoryBlocks } from './memoryPoisoning.js'
@@ -241,6 +242,8 @@ export class Pipeline {
   // Lives for the lifetime of this Pipeline instance — the same lifetime as
   // the proxy's other per-process session state (QuotaManager, TaintTracker).
   private crescendoMemory = new CrescendoSessionMemory()
+  // Opt-in conversation judge (#833, crescendo.judgeConversation).
+  private conversationJudge: ConversationJudge | null = null
   // Opt-in: sessions that keep testing the boundary (#540).
   private probes = new ProbeTracker()
   // Per-item outcome cache. An agent resends its whole conversation on every
@@ -370,6 +373,7 @@ export class Pipeline {
       at.claim?.(null)
     }
     const result = scanned.action === 'block' && at.item ? { ...scanned, blockedItem: at.item } : scanned
+    if (scanned.action !== 'block' && !meta.silent) this.judgeConversation(requestPath, body, meta)
     // THE choke point for observe mode. Every caller — proxy, gateway, the
     // library API — takes its verdict from here, so downgrading once makes
     // "observe blocks nothing" a property of the system rather than a promise
@@ -1664,6 +1668,30 @@ export class Pipeline {
 
   private pass(score: number, similarity: number): PipelineResult {
     return { action: 'pass', stage: 'none', score, similarity }
+  }
+
+  /**
+   * Opt-in (#833): ask a local model whether a multi-turn conversation's user
+   * turns, read together, steer toward serious harm. Not awaited: the verdict
+   * stands, and a HARMFUL answer arrives later as a crescendo warn.
+   */
+  private judgeConversation(requestPath: string, body: string, meta: Parameters<Pipeline['emit']>[1]): void {
+    const c = this.config.crescendo
+    if (!c?.enabled || c.judgeConversation !== true) return
+    const parser = getParser(requestPath)
+    if (!parser?.extractConversation) return
+    const userTurns = parser.extractConversation(body).filter(t => t.role === 'user').map(t => t.text)
+    if (userTurns.length < c.minUserTurns) return
+    this.conversationJudge ??= new ConversationJudge(this.config)
+    const call = this.conversationJudge.start(userTurns)
+    if (!call) return
+    void call.then(j => {
+      if (j.verdict !== 'MALICIOUS') return
+      const last = userTurns[userTurns.length - 1] ?? ''
+      if (this.isSuppressed(last, 'prompt')) return
+      const line = `[crescendo: conversation judge: ${userTurns.length} user turns read together steer toward serious harm] ${last.slice(0, 80)}`
+      this.emit({ action: 'warn', stage: 'crescendo', score: 0, similarity: 0, verdict: 'MALICIOUS', prompt: last }, meta, line, 'prompt', last)
+    }).catch(() => {})
   }
 
   /** Whether this session's prompts go to the judge (#540). Needs the judge on. */

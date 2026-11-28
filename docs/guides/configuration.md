@@ -605,7 +605,7 @@ Every `LLM_FW_*` variable, the config key it writes and its default. Applied aft
 
 <!-- CONFIG-REFERENCE-START -->
 
-_125 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
+_127 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm run config:reference`. Do not edit by hand._
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -629,6 +629,8 @@ _125 variables, generated from `ENV_OVERRIDES` in `src/config/config.ts` by `npm
 | `LLM_FW_COMBINED_BLOCK_SCORE` | `detection.combinedBlockScore` | `30` |
 | `LLM_FW_CRESCENDO_CROSS_REQUEST` | `crescendo.crossRequest` | `false` |
 | `LLM_FW_CRESCENDO_ENABLED` | `crescendo.enabled` | `true` |
+| `LLM_FW_CRESCENDO_JUDGE_CONVERSATION` | `crescendo.judgeConversation` | `false` |
+| `LLM_FW_CRESCENDO_JUDGE_CONVERSATION_MODEL` | `crescendo.judgeConversationModel` | `qwen2.5:14b` |
 | `LLM_FW_CRESCENDO_MODE` | `crescendo.mode` | `block` |
 | `LLM_FW_CRESCENDO_PROBE_ESCALATION` | `crescendo.probeEscalation` | `false` |
 | `LLM_FW_DASHBOARD_BIND` | `dashboard.bindHost` | `127.0.0.1` |

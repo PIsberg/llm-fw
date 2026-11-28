@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.122 (#833: opt-in conversation judge, off by default, warn-only).
   // Held at ruleset 2026.11.121 (#889: PDF glyph text decoded through ToUnicode; no fpr corpus holds a PDF).
   // Held at ruleset 2026.11.120 (#940: PDF page-text policy; no benign corpus holds a PDF, fpr re-run 2026-11-27, unchanged).
   // Held at ruleset 2026.11.111 (#919: RAG blocks read to the last closer; the outside veto narrowed; fpr unchanged).

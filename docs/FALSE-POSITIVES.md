@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.122
+
+**Unchanged: the cheap pipeline this gate runs is not touched** (`npm run fpr`, exit 0). `crescendo.judgeConversation` (#833) is off by default and only warns; measured separately on 200 benign oasst1 threads with qwen2.5:14b, 7 warn (3.5%).
+
 ## Result, ruleset 2026.11.121
 
 **Unchanged: no corpus above holds a PDF** (`npm run fpr`, exit 0). The PDF reader decodes two-byte glyph text through each page's ToUnicode map (#889). Measured separately on 107 local PDFs as documents, with #940's page-text policy: 2 blocked before and 9 after, 4 of the 7 new ones books about AI security that quote attacks.
