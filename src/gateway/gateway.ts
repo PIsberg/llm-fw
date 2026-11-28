@@ -23,7 +23,7 @@ import { ModuleManager } from '../modules/registry.js';
 import { tapResponse, writeCapturedResponse } from '../modules/responseTap.js';
 import { stripUsageChunk } from '../modules/sseUsageStrip.js';
 import type { GatewayModuleContext } from '../modules/types.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
 import type { Duplex } from 'node:stream';
@@ -36,7 +36,7 @@ import { sniName } from '../proxy/sni.js';
 import { McpScanner } from '../detection/mcp/scanner.js';
 import { checkMcpRequest } from '../detection/mcp/requestCheck.js';
 import { UrlClassifier } from '../detection/urlHeuristic.js';
-import { SessionCostGates } from '../detection/dos/sessionGates.js';
+import { SessionCostGates, type SessionGates } from '../detection/dos/sessionGates.js';
 
 const log = createLogger('gateway');
 
@@ -300,7 +300,7 @@ export class GatewayServer {
       // rate and the token budget, before the body is read. Model calls only,
       // as on the proxy.
       const costed = this.config.dos.enabled && getParser(route.upstreamPath) !== null;
-      const gates = costed ? this.costGates.for(sessionKeyFor(req, tenant)) : null;
+      const gates = costed ? this.gatesFor(req, tenant) : null;
       if (gates) {
         const refusal = this.checkCost(gates, route, req.method ?? 'POST', tenant);
         if (refusal) {
@@ -328,8 +328,14 @@ export class GatewayServer {
       }
 
       if (gates) gates.quota.addTokens(gates.quota.estimateTokens(body.toString('utf-8')));
-      const decision = await this.screen(req, route, body, tenant);
+      // The loop detector records a body when it checks it, in one step, so
+      // a burst of the same body sent at once is counted (security review);
+      // the record is withdrawn on every path that does not reach the provider.
+      const loop: { text?: string } = {};
+      const decision = await this.screen(req, route, body, tenant, loop);
+      const forgetLoop = (): void => { if (gates && loop.text !== undefined) gates.loop.forget(loop.text); };
       if (decision.blocked) {
+        forgetLoop();
         this.json(res, decision.status, decision.body);
         return;
       }
@@ -343,6 +349,7 @@ export class GatewayServer {
       const sent = decision.body.toString('utf-8');
       const answer = moduleCtx ? this.modules.respond(sent, moduleCtx) : undefined;
       if (answer) {
+        forgetLoop(); // a stored answer costs nothing
         // A hit is the provider's answer as stored, usage chunk and tool calls
         // included (#871): drop the chunk as the live path does, and learn the calls.
         if (decision.stripStreamUsage) stripUsageChunk(res);
@@ -381,20 +388,18 @@ export class GatewayServer {
           guardCanary(res, token, bodyCap(this.config.proxy.maxBodyBytes), () => this.emitCanary(req, route, tenant), route.upstreamPath);
         }
       }
-      // Recorded only for a request that goes to the provider, and withdrawn
-      // when the provider refused it, as on the proxy: an SDK retrying a
-      // 429 or 529 with the same body is not an agent going round in circles.
-      const loopText = decision.loopText;
-      if (gates && loopText !== undefined) gates.loop.record(loopText);
+      // Withdrawn when the provider refused it, as on the proxy: an SDK
+      // retrying a 429 or 529 with the same body is not an agent going round
+      // in circles.
       const responseBytes = gates ? countResponseBytes(res) : null;
       try {
         await this.forward(req, res, route, forwardBody, authIsInternal, forwardHeaders);
       } catch (err) {
-        if (gates && loopText !== undefined) gates.loop.forget(loopText);
+        forgetLoop();
         throw err;
       }
       if (gates && responseBytes) gates.quota.addTokens(Math.ceil(responseBytes() / 4));
-      if (gates && loopText !== undefined && res.statusCode >= 400) gates.loop.forget(loopText);
+      if (res.statusCode >= 400) forgetLoop();
       const response = captured?.();
       if (response && learnCalls) this.pipeline.learnCalls(response);
       if (moduleCtx && response) this.modules.observeResponse(sent, moduleCtx, response);
@@ -404,12 +409,17 @@ export class GatewayServer {
     }
   }
 
+  /** The cost gates of a request's session: its tenant's, else its address's (#912). */
+  private gatesFor(req: http.IncomingMessage, tenant: Tenant | null): SessionGates {
+    return tenant ? this.costGates.forTenant(tenant.id) : this.costGates.forAddress(req.socket.remoteAddress ?? 'unknown');
+  }
+
   /**
    * The request-rate quota and the token budget of one session (#912). Returns
    * the refusal, or null to go on. An observing tenant's is recorded and never
    * refuses.
    */
-  private checkCost(gates: import('../detection/dos/sessionGates.js').SessionGates, route: GatewayRoute, method: string, tenant: Tenant | null): { why: string; retryAfter?: number } | null {
+  private checkCost(gates: SessionGates, route: GatewayRoute, method: string, tenant: Tenant | null): { why: string; retryAfter?: number } | null {
     const q = gates.quota.checkRpm();
     const why = !q.allowed ? 'rate limit exceeded' : gates.quota.sessionExceeded() ? 'session token budget exceeded' : null;
     if (why === null) return null;
@@ -539,7 +549,7 @@ export class GatewayServer {
       // A session counts as one request against the rate and the budget, as
       // on the proxy (#912).
       if (this.config.dos.enabled) {
-        const refusal = this.checkCost(this.costGates.for(sessionKeyFor(req, tenant)), route, 'WS', tenant);
+        const refusal = this.checkCost(this.gatesFor(req, tenant), route, 'WS', tenant);
         if (refusal) {
           answer(429, 'Too Many Requests', { error: refusal.why }, refusal.retryAfter ? `Retry-After: ${refusal.retryAfter}\r\n` : '');
           return;
@@ -655,7 +665,9 @@ export class GatewayServer {
     route: GatewayRoute,
     original: Buffer,
     tenant: Tenant | null,
-  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; moduleCtx: GatewayModuleContext | null; headers?: Record<string, string>; stripStreamUsage?: boolean; loopText?: string }> {
+    /** Set to the text the loop detector recorded, for the caller to withdraw. */
+    loop: { text?: string } = {},
+  ): Promise<{ blocked: true; status: number; body: unknown } | { blocked: false; body: Buffer; moduleCtx: GatewayModuleContext | null; headers?: Record<string, string>; stripStreamUsage?: boolean }> {
     const method = req.method ?? 'POST';
     const path = route.upstreamPath;
     const target = route.provider.host;
@@ -760,18 +772,22 @@ export class GatewayServer {
 
     // The loop detector, per tenant or address (#912), on the text DLP
     // left: an agent resending the identical body trips it.
-    let loopText: string | undefined;
     if (this.config.dos.enabled && this.config.dos.loopDetectionEnabled && getParser(path) !== null) {
-      if (this.costGates.for(sessionKey).loop.isLooping(text)) {
+      const detector = this.gatesFor(req, tenant).loop;
+      if (detector.isLooping(text)) {
+        // A digest, not the body: a gateway's events are read by its
+        // operators, and the body is the tenant's (security review).
+        const summary = `the same request body four times in 10 s (${text.length} chars, sha256 ${createHash('sha256').update(text).digest('hex').slice(0, 16)})`;
         this.eventBus.emit({
           stage: 'dos', score: 100, similarity: 0, target, method, path,
-          payload_preview: text.slice(0, 120), payload_full: text,
+          payload_preview: summary, payload_full: summary,
           action: 'blocked', kind: 'dos', dosReason: 'Agent Loop Detected',
           ...observedTag, ...tenantTag,
         });
         if (!observing) return { blocked: true, status: 429, body: { error: 'Agent Loop Detected' } };
       }
-      loopText = text;
+      detector.record(text);
+      loop.text = text;
     }
 
     // MCP request checks, shared with the proxy (#866: the gateway ran none,
@@ -852,7 +868,7 @@ export class GatewayServer {
         ...tenantTag,
       });
       log.error(`pipeline error on ${method} ${path}: ${message}`);
-      if (failOpen) return { blocked: false, body: bodyBuf, moduleCtx, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}), ...(loopText !== undefined ? { loopText } : {}) };
+      if (failOpen) return { blocked: false, body: bodyBuf, moduleCtx, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
       return {
         blocked: true, status: this.config.blockStatus ?? 422,
         body: explainGate({
@@ -871,7 +887,7 @@ export class GatewayServer {
       };
     }
 
-    return { blocked: false, body: bodyBuf, moduleCtx, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}), ...(loopText !== undefined ? { loopText } : {}) };
+    return { blocked: false, body: bodyBuf, moduleCtx, ...(moduleHeaders ? { headers: moduleHeaders } : {}), ...(stripStreamUsage ? { stripStreamUsage } : {}) };
   }
 
   /** What the module pipeline sees of a request; null when modules do not run on it. */

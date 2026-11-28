@@ -130,6 +130,16 @@ describe('Gateway cost gates, per tenant or address (#912)', { timeout: 30000 },
     expect(events.find(e => e.dosReason === 'Agent Loop Detected')).toMatchObject({ action: 'blocked', tenant: 'alpha' })
   })
 
+  it('counts a burst of the same body sent at once, and keeps the body out of the event', async () => {
+    await start({ loopDetectionEnabled: true })
+    const secret = 'summarise the report for account 4111 1111 1111 1111'
+    const statuses = await Promise.all(Array.from({ length: 6 }, () => post('/v1/chat/completions', chat(secret), 'tok-alpha')))
+    expect(statuses.filter(r => r.status === 429)).toHaveLength(3)
+    const event = events.find(e => e.dosReason === 'Agent Loop Detected')!
+    expect(event.payload_full).not.toContain('4111')
+    expect(event.payload_preview).toMatch(/sha256 [0-9a-f]{16}/)
+  })
+
   it('does not count a call the provider refused toward a loop', async () => {
     await start({ loopDetectionEnabled: true }, 529)
     const same = chat('retry me')
