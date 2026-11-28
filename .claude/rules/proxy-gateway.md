@@ -188,8 +188,9 @@ that needs a changelog entry, not a cleanup.
   chatgpt.com's `/backend-api/codex/responses`), which answers 426 so Codex
   CLI switches to HTTP, where it is inspected, at once instead of retrying
   five times (`wsRefusal`, #566). Pinned by the realtime e2e tests. `Sec-WebSocket-Extensions` is stripped so frames
-  stay readable. The gateway's upgrade path runs the same auth, tenant and
-  custody gates as a request. Pinned by `test/proxy/proxy-realtime.e2e.test.ts`,
+  stay readable. The gateway's upgrade path runs the same auth, tenant,
+  custody, cost (#912) and URL-path exfil gates as a request; the URL check
+  is pinned by `test/gateway/gateway-dos-912.e2e.test.ts`. Pinned by `test/proxy/proxy-realtime.e2e.test.ts`,
   `test/proxy/proxy-gemini-live.e2e.test.ts` and
   `test/gateway/gateway-realtime.e2e.test.ts`.
 - **`NO_PROXY` is a client-side variable.** Nothing in llm-fw reads it and

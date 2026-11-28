@@ -556,6 +556,29 @@ export class GatewayServer {
         }
       }
 
+      // The URL-path exfil check a request runs (#866), on the handshake's
+      // path and query too (security review, 2026-11-28).
+      if (this.config.proxy.urlFilter.enabled) {
+        const fullPath = route.upstreamPath + url.search;
+        const verdict = this.urlClassifier.classifyPath(fullPath);
+        if (verdict.action === 'block') {
+          const observing = isObserving(this.config.enforcement, tenant?.enforcement);
+          const event = this.eventBus.emit({
+            stage: 'url-filter', score: 100, similarity: 0, target: route.provider.host, method: 'WS', path: route.upstreamPath,
+            payload_preview: fullPath.slice(0, 120), payload_full: fullPath,
+            action: 'blocked', kind: 'url', urlBlockReason: verdict.reason,
+            ...(observing ? { enforced: false } : {}), ...(tenant ? { tenant: tenant.id } : {}),
+          });
+          if (!observing) {
+            answer(this.config.blockStatus ?? 422, 'Unprocessable Entity', explainGate({
+              eventId: event.id, error: 'url blocked', stage: 'url-filter', kind: 'url',
+              detail: verdict.reason ?? 'exfiltration in the URL', dashboardUrl: this.dashboardUrl(),
+            }));
+            return;
+          }
+        }
+      }
+
       const requestHead = this.upgradeRequestHead(req, route, url.search, authIsInternal);
       const plain = route.provider.protocol === 'http';
       const port = route.provider.port ?? (plain ? 80 : 443);

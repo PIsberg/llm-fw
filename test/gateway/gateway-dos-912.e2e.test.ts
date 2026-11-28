@@ -172,6 +172,29 @@ describe('Gateway cost gates, per tenant or address (#912)', { timeout: 30000 },
     expect(events.find(e => e.stage === 'dos' && e.method === 'WS')).toMatchObject({ dosReason: 'rate limit exceeded', tenant: 'alpha' })
   })
 
+  // Security review (2026-11-28): the upgrade path skipped the URL-path
+  // exfil check that a request runs (#866), as the proxy's upgrade does not.
+  it('refuses a WebSocket upgrade whose query carries data out, and records it for an observing tenant', async () => {
+    await start({ enabled: false })
+    const upgrade = (key: string) => new Promise<number>((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port: GATEWAY_PORT, method: 'GET', path: '/v1/realtime?model=gpt-realtime&data=foo',
+        headers: { connection: 'Upgrade', upgrade: 'websocket', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==', 'x-llm-fw-key': key },
+      })
+      req.on('response', res => { res.resume(); resolve(res.statusCode ?? 0) })
+      req.on('upgrade', (_res, socket) => { socket.destroy(); resolve(101) })
+      req.on('error', () => resolve(-1))
+      req.setTimeout(3000, () => { req.destroy(); resolve(-1) })
+      req.end()
+      void reject
+    })
+    expect(await upgrade('tok-alpha')).toBe(DEFAULT_CONFIG.blockStatus ?? 422)
+    expect(events.find(e => e.stage === 'url-filter')).toMatchObject({ action: 'blocked', method: 'WS', tenant: 'alpha' })
+    events.length = 0
+    expect(await upgrade('tok-watching')).not.toBe(DEFAULT_CONFIG.blockStatus ?? 422)
+    expect(events.find(e => e.stage === 'url-filter')).toMatchObject({ action: 'blocked', enforced: false, tenant: 'watching' })
+  })
+
   it('runs no cost gate with dos off', async () => {
     await start({ enabled: false, maxRequestsPerMinute: 1, loopDetectionEnabled: true })
     const same = chat('again')
