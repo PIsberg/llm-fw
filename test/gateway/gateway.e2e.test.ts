@@ -121,6 +121,8 @@ describe('Gateway E2E', { timeout: 60000 }, () => {
       // Keep DLP out of the way: these tests are about the gateway, and the
       // DLP path has its own coverage.
       dlp: { ...DEFAULT_CONFIG.dlp, enabled: false },
+      // The cost gates (#912) have their own file; these cases resend one body.
+      dos: { ...DEFAULT_CONFIG.dos, enabled: false },
       gateway: {
         enabled: true,
         port: GATEWAY_PORT,
@@ -595,6 +597,8 @@ describe('Gateway E2E, local default (no client auth, no custody)', { timeout: 6
     const config: Config = {
       ...DEFAULT_CONFIG,
       dlp: { ...DEFAULT_CONFIG.dlp, enabled: false },
+      // The cost gates (#912) have their own file; these cases resend one body.
+      dos: { ...DEFAULT_CONFIG.dos, enabled: false },
       gateway: {
         enabled: true,
         port: LOCAL_PORT,
