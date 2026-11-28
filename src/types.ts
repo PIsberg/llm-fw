@@ -510,6 +510,15 @@ export interface CrescendoConfig {
   // prompts in ten minutes, held for thirty. Default false, and it does nothing
   // with the judge off. The session is the client's IP.
   probeEscalation?: boolean
+  // Read the user turns of a conversation of minUserTurns or more together
+  // with a local model, after the verdict, and warn when they steer toward
+  // serious harm (#833, src/detection/conversationJudge.ts). Default false: a
+  // large-model call per new conversation state. Needs Ollama at
+  // detection.ollamaUrl, not detection.judgeEnabled.
+  judgeConversation?: boolean
+  // The Ollama model it asks. A 14b-class model: the 3b judge model flagged
+  // as many benign threads as attacks.
+  judgeConversationModel?: string
 }
 
 export interface IndirectInstructionConfig {
