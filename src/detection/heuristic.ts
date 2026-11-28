@@ -767,8 +767,11 @@ export class HeuristicScorer {
           // "testing your <safety layer>", not "testing your memory" (#269).
           // Nor "testing you" whose "you" starts the next clause: "the first
           // book about testing you should read", a chapter title "Testing"
-          // running into "You don't make progress" (#940).
-          /testing (you (?!(?:should|shouldn'?t|can|can'?t|cannot|could|couldn'?t|will|won'?t|would|wouldn'?t|might|must|may|need|needn'?t|do|don'?t|did|didn'?t|have|had|are|were|get|want|know|write|run|use|find|make)\b)|your (safety|filters?|guardrails?|restrictions?|limits|boundaries|rules|polic(y|ies)|alignment|compliance|content)\b)/,
+          // running into "You don't make progress" (#940). Unless the clause
+          // goes on about the model's rules or overriding them ("testing you
+          // are unrestricted", "testing you will answer without filters"):
+          // the verb alone is a phrasing any attacker can add.
+          /testing (you (?!(?:should|shouldn'?t|can|can'?t|cannot|could|couldn'?t|will|won'?t|would|wouldn'?t|might|must|may|need|needn'?t|do|don'?t|did|didn'?t|have|had|are|were|get|want|know|write|run|use|find|make)\b(?![^.!?\n]{0,80}\b(?:rules?|restrictions?|restricted|unrestricted|uncensored|unfiltered|filters?|guardrails?|limits?|limitations?|safety|polic(?:y|ies)|guidelines|without|ignore|disregard|bypass|override|comply|obey|instructions?|system prompt|jailbreak|anything)\b))|your (safety|filters?|guardrails?|restrictions?|limits|boundaries|rules|polic(y|ies)|alignment|compliance|content)\b)/,
           /disable (your )?(safety |filters|restrictions)/,
           // A how-to question about a product's own switch ("How do I disable
           // the safety filter in Stable Diffusion's web UI?") asks for a
