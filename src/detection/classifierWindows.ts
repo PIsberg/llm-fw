@@ -69,8 +69,9 @@ function charKind(text: string, i: number, c: number): number {
  * 1.00 / 1.09 of its count at p5 / median / p95 on 1,652 local tool results,
  * 1.08 at the median on prose, exact on CJK, zero-width and combining runs.
  * Non-English text in plain ASCII letters is still undercounted (Aya: 0.60
- * at p5), which a layout by the real tokenizer would fix (#951); every
- * window is also cut at MAX_WINDOW_CHARS.
+ * at p5, 74 of 2,955 windows over 512 real tokens); the model's own
+ * tokenizer reads such a window in pieces that fit (readWhole.ts, #951).
+ * Every window is also cut at MAX_WINDOW_CHARS.
  */
 function tokenPrefix(text: string): Uint32Array {
   const prefix = new Uint32Array(text.length + 1)

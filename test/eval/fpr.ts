@@ -176,6 +176,7 @@ const CATEGORY_CEILINGS: Record<string, number> = {
   // learned to strip defensive instruction-hygiene clauses (an override verb
   // whose object is instructions-IN-DATA) before rule matching. Measured:
   // every recall split byte-identical, injecagent 1054/1054.
+  // Held at ruleset 2026.11.126 (#951: classifier windows read whole by the real tokenizer; the cheap pipeline is unchanged).
   // Held at ruleset 2026.11.125 (#940: "testing you" before a new clause; fpr re-run 2026-11-28, unchanged).
   // Held at ruleset 2026.11.124 (PDF reader: an unclosed string marks the stream unread; no corpus holds a PDF).
   // Held at ruleset 2026.11.123 (#912: gateway cost gates per tenant; no detection change).

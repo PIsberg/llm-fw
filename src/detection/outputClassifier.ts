@@ -1,5 +1,6 @@
 import { ResponseScanConfig } from '../types.js'
 import { classifierWindows } from './classifierWindows.js'
+import { readWhole } from './readWhole.js'
 import { createHash } from 'node:crypto'
 import { createLogger } from '../logger.js';
 import { compactTokenizer } from './compactTokenizer.js';
@@ -70,7 +71,11 @@ export async function loadModerationClassifier(model: string): Promise<ClassifyF
   // against 1,105%), with the same output.
   const classifier = (await pipeline('text-classification', model, { session_options: NO_SPINNING })) as unknown as ClassifyFn
   compactTokenizer((classifier as unknown as { tokenizer?: unknown }).tokenizer)
-  return classifier
+  // A window the layout's estimate undercounts is read in pieces that fit (#951).
+  return readWhole(classifier, out => {
+    const top = out[0]
+    return top && !BENIGN_LABELS.has(top.label.toUpperCase()) ? top.score : (top ? 1 - top.score : 0)
+  })
 }
 
 export class OutputModerationClassifier {
