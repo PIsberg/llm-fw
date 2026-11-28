@@ -103,9 +103,12 @@ describe('the run-together candidate', () => {
     ])('reads 200 KB of %s in linear time', (_name, make) => {
       const small = make(KB200 / 32)
       const big = make(KB200)
-      const ceiling = fastestMs(() => extractCandidates(small)) * 64 + 50
+      const ceiling = fastestMs(() => extractCandidates(small)) * 128 + 50
       // Up to ten runs, stopping at the first under the ceiling: the best of
       // two still took 719 ms against 684 in a full local unit run (2026-11-27).
+      // 128 times the 1/32 input, not 64: a whole override repeated took 401 ms
+      // against a 398 ms ceiling on all three CI Node versions (2026-11-28),
+      // since the big input costs a little more than linear in GC and cache.
       // A quadratic scan, about 1,024 times the small input, is over it on every run.
       expect(underMs(ceiling, () => extractCandidates(big))).toBeLessThan(ceiling)
     }, LINEAR_TIME_TIMEOUT)
