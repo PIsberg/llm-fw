@@ -5,6 +5,7 @@ import { compactTokenizer } from './compactTokenizer.js'
 import { LOAD_RETRY_MS, ModelLoadTimeoutError, NO_SPINNING, loadTransformers, loadWithVisibility } from './modelLoad.js'
 import { unwrapClaudeCodeEnvelope, isClaudeCodeNotice, isClaudeCodePromptNotice, unwrapClaudeCodeReminders, unwrapClaudeCodeToolResult, unwrapCodexEnvelope, unwrapCodexEnvironment } from './clientEnvelopes.js'
 import { classifierWindows } from './classifierWindows.js'
+import { readWhole } from './readWhole.js'
 import { isWithholdNotice } from './withhold.js'
 import { createLogger } from '../logger.js';
 
@@ -54,7 +55,14 @@ export async function loadInjectionClassifier(): Promise<ClassifyFn> {
   const { pipeline } = await loadTransformers()
   const classifier = (await pipeline('text-classification', CLASSIFIER_MODEL_ID, { dtype: CLASSIFIER_DTYPE, session_options: NO_SPINNING })) as unknown as ClassifyFn
   compactTokenizer((classifier as unknown as { tokenizer?: unknown }).tokenizer)
-  return classifier
+  // A window the layout's estimate undercounts is read in pieces that fit (#951).
+  return readWhole(classifier, injectionScore)
+}
+
+/** The injection probability one output gives. */
+function injectionScore(out: { label: string; score: number }[]): number {
+  const top = out[0]
+  return top && top.label.toUpperCase() === 'INJECTION' ? top.score : (top ? 1 - top.score : 0)
 }
 
 export class InjectionClassifier {
