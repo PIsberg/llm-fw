@@ -765,7 +765,10 @@ export class HeuristicScorer {
           /as your developer/,
           /i am the (auditor|operator|admin(istrator)?)/,
           // "testing your <safety layer>", not "testing your memory" (#269).
-          /testing (you |your (safety|filters?|guardrails?|restrictions?|limits|boundaries|rules|polic(y|ies)|alignment|compliance|content)\b)/,
+          // Nor "testing you" whose "you" starts the next clause: "the first
+          // book about testing you should read", a chapter title "Testing"
+          // running into "You don't make progress" (#940).
+          /testing (you (?!(?:should|shouldn'?t|can|can'?t|cannot|could|couldn'?t|will|won'?t|would|wouldn'?t|might|must|may|need|needn'?t|do|don'?t|did|didn'?t|have|had|are|were|get|want|know|write|run|use|find|make)\b)|your (safety|filters?|guardrails?|restrictions?|limits|boundaries|rules|polic(y|ies)|alignment|compliance|content)\b)/,
           /disable (your )?(safety |filters|restrictions)/,
           // A how-to question about a product's own switch ("How do I disable
           // the safety filter in Stable Diffusion's web UI?") asks for a
