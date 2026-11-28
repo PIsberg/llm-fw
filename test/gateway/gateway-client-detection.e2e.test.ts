@@ -53,6 +53,8 @@ function config(): Config {
   return {
     ...DEFAULT_CONFIG,
     dlp: { ...DEFAULT_CONFIG.dlp, enabled: false },
+    // The cost gates (#912) have their own file; these cases resend one body.
+    dos: { ...DEFAULT_CONFIG.dos, enabled: false },
     gateway: {
       enabled: true, port: GATEWAY_PORT, bindHost: '127.0.0.1',
       requireAuth: true, authToken: TOKEN, defaultProvider: 'stand',

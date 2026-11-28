@@ -142,8 +142,12 @@ that needs a changelog entry, not a cleanup.
 - **The MCP request checks are shared.** `checkMcpRequest`
   (`src/detection/mcp/requestCheck.ts`) decides tool definitions and tool
   results for both the proxy and the gateway (#866); change it there, not in
-  either surface. The gateway also runs the URL-path exfil check. It does not
-  run the process-wide DoS quota, the loop detector or taint (#912).
+  either surface. The gateway also runs the URL-path exfil check, and the
+  request-rate quota, token budget and loop detector keyed per tenant, else
+  per client address (`SessionCostGates`, #912), never process-wide: one
+  tenant's traffic must not spend another's budget. Taint stays proxy-only,
+  since the gateway only sends to configured providers. Pinned by
+  `test/gateway/gateway-dos-912.e2e.test.ts`.
 
 - **Response-side scanning is proxy-only, except the canary.** The gateway runs
   the request-side pipeline and streams responses through untouched. The one

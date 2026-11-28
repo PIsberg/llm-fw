@@ -73,6 +73,10 @@ Two rules make the number mean something:
    ever have seen. Measuring a path production never takes is a way of being
    precisely wrong.
 
+## Result, ruleset 2026.11.123
+
+Unchanged from 2026.11.122: the gateway's per-tenant cost gates (#912) add `src/detection/dos/sessionGates.ts`, which the digest covers; no verdict changes.
+
 ## Result, ruleset 2026.11.122
 
 **Unchanged: the cheap pipeline this gate runs is not touched** (`npm run fpr`, exit 0). `crescendo.judgeConversation` (#833) is off by default and only warns; measured separately on 200 benign oasst1 threads with qwen2.5:14b, 7 warn (3.5%).
