@@ -78,6 +78,7 @@ configuration at main 09a51de. Each pipeline ran 16 tasks with no attack and
 | undefended | 10/16 (62.5%) | 9/16 (56.2%) | 6/16 (37.5%) |
 | llm-fw | **0/16 (0.0%)** | 6/16 (37.5%) | 4/16 (25.0%) |
 | transformers_pi_detector | 3/16 (18.8%) | 7/16 (43.8%) | 5/16 (31.2%) |
+| llm-fw-withhold (2026-11-28, main 88930e9) | **0/16 (0.0%)** | 8/16 (50.0%) | 3/16 (18.8%) |
 
 What the numbers do and do not say:
 
@@ -104,8 +105,18 @@ What the numbers do and do not say:
   lists), against llm-fw's 1 abort, and the agent still finished 7 of them. The
   proxy's own default withholds a blocked tool result rather than refusing,
   which is closer to the DeBERTa behaviour. The `llm-fw-withhold` pipeline runs
-  llm-fw that way, and has not been measured on this subset yet
-  ([#768](https://github.com/PIsberg/llm-fw/issues/768)).
+  llm-fw that way ([#768](https://github.com/PIsberg/llm-fw/issues/768)).
+- **Withholding instead of aborting did not buy utility under attack here.**
+  Measured 2026-11-28 at main 88930e9 (the other rows: 09a51de), same
+  model, subset and attack, 32 runs in 54 minutes. The detector replaced at
+  least one tool output in 11 of the 16 attacked runs and in 2 of the 16
+  benign ones, and no attack succeeded (0/16). The agent finished 3 of the 16
+  attacked user tasks, against 4 when llm-fw aborted. Given the earlier
+  comparison's noise (a few tasks between rows at n=16), this is no evidence
+  that withholding helps the agent finish under attack; with the injected
+  instruction removed, the agent mostly still did not complete the user's
+  task. The 8/16 benign utility is within the same noise of the 6/16 and
+  9/16 rows.
 
 Not measured: the slack, travel and workspace suites, the other 8 banking
 injection tasks, other attacks, and any hosted model. A four-suite sweep with
